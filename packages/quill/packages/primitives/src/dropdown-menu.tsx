@@ -10,6 +10,7 @@ import { Kbd } from './kbd'
 import { cn } from './lib/utils'
 import { MenuItemBody } from './menu-item-body'
 import { MenuLabel } from './menu-label'
+import { MenuScroller } from './menu-scroller'
 import { RadioIndicator } from './radio-group'
 import { hasTooltipContent, withTooltip } from './with-tooltip'
 
@@ -94,7 +95,7 @@ const DropdownMenuContent = React.forwardRef<
                     {...props}
                 >
                     {header}
-                    <div className="quill-menu__scroller scroll-mask-y-4 scroll-py-4">{children}</div>
+                    <MenuScroller>{children}</MenuScroller>
                 </MenuPrimitive.Popup>
             </MenuPrimitive.Positioner>
         </MenuPrimitive.Portal>

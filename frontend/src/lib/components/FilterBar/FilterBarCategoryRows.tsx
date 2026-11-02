@@ -10,37 +10,41 @@ import {
     Spinner,
 } from '@posthog/quill'
 
+import { FilterBarCohortFieldItem } from './FilterBarCohortFieldItem'
 import { useFilterBarFieldPicker } from './filterBarFieldPicker'
 import { filterBarLogic } from './filterBarLogic'
 import { FilterBarCategory, FilterBarField } from './filterBarTypes'
 
 export function FilterBarCategoryRows({ category }: { category: FilterBarCategory }): JSX.Element {
     const { categoryFields, categoryFieldsLoading, categoryQueries } = useValues(filterBarLogic)
-    const { pick } = useFilterBarFieldPicker()
+    const { purpose, pick } = useFilterBarFieldPicker()
     const fields = categoryFields[category.id]
     const query = (categoryQueries[category.id] ?? '').trim()
     const projectFields = fields?.filter((field) => field.group === 'project') ?? []
     const posthogFields = fields?.filter((field) => field.group === 'posthog') ?? []
     const flatFields = fields?.filter((field) => !field.group) ?? []
 
-    const fieldRow = (field: FilterBarField): JSX.Element => (
-        <DropdownMenuItem
-            key={field.key}
-            closeOnClick={false}
-            onClick={() => pick(field, 'category')}
-            tooltip={
-                field.label !== field.key || field.description ? (
-                    <span className="flex max-w-xs flex-col gap-1">
-                        {field.label !== field.key && <code>{field.key}</code>}
-                        {field.description && <span>{field.description}</span>}
-                    </span>
-                ) : undefined
-            }
-            data-attr="filter-bar-field-category"
-        >
-            <span className="truncate">{field.label}</span>
-        </DropdownMenuItem>
-    )
+    const fieldRow = (field: FilterBarField): JSX.Element =>
+        purpose === 'filter' && category.id === 'cohorts' ? (
+            <FilterBarCohortFieldItem key={field.key} field={field} source="category" />
+        ) : (
+            <DropdownMenuItem
+                key={field.key}
+                closeOnClick={false}
+                onClick={() => pick(field, 'category')}
+                tooltip={
+                    field.label !== field.key || field.description ? (
+                        <span className="flex max-w-xs flex-col gap-1">
+                            {field.label !== field.key && <code>{field.key}</code>}
+                            {field.description && <span>{field.description}</span>}
+                        </span>
+                    ) : undefined
+                }
+                data-attr="filter-bar-field-category"
+            >
+                <span className="truncate">{field.label}</span>
+            </DropdownMenuItem>
+        )
 
     return (
         <DropdownMenuList>

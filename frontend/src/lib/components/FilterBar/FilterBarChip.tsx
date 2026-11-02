@@ -3,9 +3,9 @@ import { useState } from 'react'
 
 import { IconX } from '@posthog/icons'
 import {
+    Badge,
     Button,
     ButtonGroup,
-    ButtonGroupText,
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuFilterProvider,
@@ -16,64 +16,95 @@ import {
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { PropertyFilterType } from '~/types'
+import { FilterLogicalOperator, PropertyFilterType } from '~/types'
 
-import { categoryIdForFilter } from './filterBarCategories'
 import { FilterBarCategoryIcon } from './FilterBarCategoryIcon'
+import { FilterBarChipLabel } from './FilterBarChipLabel'
+import { FilterBarChipMenu } from './FilterBarChipMenu'
 import {
     fieldFromFilter,
-    groupTypeIndexForCategory,
+    filterValues,
     operatorLabelForFilter,
-    propertyDefinitionTypeForCategory,
+    operatorOptionsForFilter,
+    propertyTypeForFilter,
     valueKindForFilter,
     valueLabelForFilter,
 } from './filterBarFields'
+import { FilterBarFieldSegment } from './FilterBarFieldSegment'
 import { filterBarLogic } from './filterBarLogic'
 import { FilterBarOperatorRadioItems } from './FilterBarOperatorRadioItems'
 import { FilterBarItem } from './filterBarTypes'
+import { FilterBarUnsupportedChip } from './FilterBarUnsupportedChip'
 import { FilterBarValueRows } from './FilterBarValueRows'
+
+/** A short operator list reads at a glance, so only a longer one gets a search field. */
+const OPERATOR_SEARCH_MIN_OPTIONS = 7
+/** Past this many, the values stop fitting a chip, so it counts them instead. */
+const MAX_VALUE_BADGES = 3
 
 /**
  * One filter as a segmented chip: the field, the operator, the value, and a remove button. The operator and value
  * segments open menus, so a filter is edited in place.
  */
-export function FilterBarChip({ item }: { item: FilterBarItem }): JSX.Element | null {
+export function FilterBarChip({
+    item,
+    wrapType,
+}: {
+    item: FilterBarItem
+    wrapType?: FilterLogicalOperator | null
+}): JSX.Element {
     const { cohortsById } = useValues(cohortsModel)
     const { describeProperty } = useValues(propertyDefinitionsModel)
-    const { removeItem, commitItem, loadItemValues, openSqlDialog } = useActions(filterBarLogic)
+    const { removeItem, commitItem, loadItemValues, openSqlDialog, replaceItemField } = useActions(filterBarLogic)
     const [valueQuery, setValueQuery] = useState('')
     const { filter } = item
     const field = fieldFromFilter(filter)
     if (!field) {
-        return null
+        return <FilterBarUnsupportedChip item={item} wrapType={wrapType} />
     }
-    const categoryId = categoryIdForFilter(filter)
-    const propertyType = categoryId
-        ? describeProperty(
-              filter.key ?? '',
-              propertyDefinitionTypeForCategory(categoryId),
-              groupTypeIndexForCategory(categoryId)
-          )
-        : null
+    const propertyType = propertyTypeForFilter(filter, describeProperty)
+    const operatorOptions = operatorOptionsForFilter(filter, propertyType)
     const kind = valueKindForFilter(filter, propertyType)
     const value = valueLabelForFilter(filter, cohortsById)
     const isSql = filter.type === PropertyFilterType.HogQL
 
+    const listValues = kind === 'list' ? filterValues(filter).map(String) : []
+    const fieldLabel = (
+        <>
+            <FilterBarCategoryIcon categoryId={field.categoryId} className="shrink-0" />
+            <span className="truncate">{isSql ? 'SQL' : field.label}</span>
+        </>
+    )
+
     return (
         <ButtonGroup className="max-w-full" data-attr="filter-bar-chip">
-            <ButtonGroupText className="min-w-0 border border-border px-2">
-                <FilterBarCategoryIcon categoryId={field.categoryId} className="shrink-0" />
-                <span className="truncate">{isSql ? 'SQL' : field.label}</span>
-            </ButtonGroupText>
+            {isSql || field.categoryId === 'cohorts' ? (
+                <FilterBarChipLabel>{fieldLabel}</FilterBarChipLabel>
+            ) : (
+                <FilterBarFieldSegment
+                    purpose="replace-property"
+                    onPick={(picked) => replaceItemField(item.id, picked)}
+                >
+                    {fieldLabel}
+                </FilterBarFieldSegment>
+            )}
             {!isSql && (
-                <DropdownMenu modal={false}>
-                    <DropdownMenuTrigger render={<Button variant="outline" />} data-attr="filter-bar-chip-operator">
-                        {operatorLabelForFilter(filter)}
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent>
-                        <FilterBarOperatorRadioItems item={item} propertyType={propertyType} />
-                    </DropdownMenuContent>
-                </DropdownMenu>
+                <DropdownMenuFilterProvider autoHighlight>
+                    <DropdownMenu modal={false}>
+                        <DropdownMenuTrigger render={<Button variant="outline" />} data-attr="filter-bar-chip-operator">
+                            {operatorLabelForFilter(filter)}
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent
+                            header={
+                                operatorOptions.length >= OPERATOR_SEARCH_MIN_OPTIONS ? (
+                                    <DropdownMenuInput aria-label="Search operators" placeholder="Operator…" />
+                                ) : undefined
+                            }
+                        >
+                            <FilterBarOperatorRadioItems item={item} options={operatorOptions} />
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                </DropdownMenuFilterProvider>
             )}
             {isSql ? (
                 <Button
@@ -114,7 +145,15 @@ export function FilterBarChip({ item }: { item: FilterBarItem }): JSX.Element | 
                                 }
                                 data-attr="filter-bar-chip-value"
                             >
-                                <span className="truncate">{value.text}</span>
+                                {listValues.length >= 2 && listValues.length <= MAX_VALUE_BADGES ? (
+                                    listValues.map((listValue) => (
+                                        <Badge key={listValue} variant="info" className="max-w-24">
+                                            <span className="truncate">{listValue}</span>
+                                        </Badge>
+                                    ))
+                                ) : (
+                                    <span className="truncate">{value.text}</span>
+                                )}
                             </DropdownMenuTrigger>
                             <DropdownMenuContent
                                 className="w-72"
@@ -131,6 +170,7 @@ export function FilterBarChip({ item }: { item: FilterBarItem }): JSX.Element | 
                     </DropdownMenuFilterProvider>
                 )
             )}
+            <FilterBarChipMenu nodeId={item.id} wrapType={wrapType} />
             <Button
                 size="icon"
                 variant="outline"

@@ -8,6 +8,7 @@ import { Button } from './button'
 import { Checkbox } from './checkbox'
 import { Kbd } from './kbd'
 import { cn } from './lib/utils'
+import { MenuScroller } from './menu-scroller'
 import { RadioIndicator } from './radio-group'
 
 function ContextMenu({ ...props }: ContextMenuPrimitive.Root.Props): React.ReactElement {
@@ -57,7 +58,7 @@ const ContextMenuContent = React.forwardRef<
                     className={cn('quill-menu__content', className)}
                     {...props}
                 >
-                    <div className="quill-menu__scroller scroll-mask-y-4 scroll-py-4">{children}</div>
+                    <MenuScroller>{children}</MenuScroller>
                 </ContextMenuPrimitive.Popup>
             </ContextMenuPrimitive.Positioner>
         </ContextMenuPrimitive.Portal>

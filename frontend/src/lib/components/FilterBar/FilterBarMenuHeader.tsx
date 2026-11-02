@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconChevronLeft } from '@posthog/icons'
 import { Button, DropdownMenuInput } from '@posthog/quill'
 
+import { useFilterBarFieldPicker } from './filterBarFieldPicker'
 import { filterBarLogic } from './filterBarLogic'
 
 /**
@@ -12,7 +13,9 @@ import { filterBarLogic } from './filterBarLogic'
 export function FilterBarMenuHeader({ label, placeholder }: { label: string; placeholder: string }): JSX.Element {
     const { browsingCategoryId, categoriesById } = useValues(filterBarLogic)
     const { browseCategory } = useActions(filterBarLogic)
-    const category = browsingCategoryId ? categoriesById[browsingCategoryId] : null
+    const { purpose } = useFilterBarFieldPicker()
+    // An event chip's picker has no first screen to go back to.
+    const category = browsingCategoryId && purpose !== 'replace-event' ? categoriesById[browsingCategoryId] : null
 
     return (
         <>

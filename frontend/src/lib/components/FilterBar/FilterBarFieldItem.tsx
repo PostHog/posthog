@@ -1,6 +1,7 @@
 import { DropdownMenuItem } from '@posthog/quill'
 
 import { FilterBarCategoryIcon } from './FilterBarCategoryIcon'
+import { FilterBarCohortFieldItem } from './FilterBarCohortFieldItem'
 import { useFilterBarFieldPicker } from './filterBarFieldPicker'
 import { FilterBarField } from './filterBarTypes'
 
@@ -12,7 +13,10 @@ export function FilterBarFieldItem({
     field: FilterBarField
     source: 'popular' | 'search'
 }): JSX.Element {
-    const { pick } = useFilterBarFieldPicker()
+    const { purpose, pick } = useFilterBarFieldPicker()
+    if (purpose === 'filter' && field.categoryId === 'cohorts') {
+        return <FilterBarCohortFieldItem field={field} source={source} />
+    }
     return (
         <DropdownMenuItem
             closeOnClick={false}

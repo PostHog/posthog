@@ -3,9 +3,17 @@ import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { Noun } from '~/models/groupsModel'
 import { AnyPropertyFilter, GroupType, PropertyFilterType } from '~/types'
 
-import { FilterBarCategory, FilterBarCategoryId } from './filterBarTypes'
+import { FilterBarCategory, FilterBarCategoryDefinition, FilterBarCategoryId } from './filterBarTypes'
 
 export const STATIC_FILTER_BAR_CATEGORIES: FilterBarCategory[] = [
+    {
+        id: 'events',
+        label: 'Events',
+        plural: 'events',
+        propertyFilterType: PropertyFilterType.Event,
+        tier: 'primary',
+        optIn: true,
+    },
     {
         id: 'event_properties',
         label: 'Event properties',
@@ -57,6 +65,27 @@ export const STATIC_FILTER_BAR_CATEGORIES: FilterBarCategory[] = [
     },
 ]
 
+const registeredCategories = new Map<FilterBarCategoryId, FilterBarCategoryDefinition>()
+
+export function registerFilterBarCategory(definition: FilterBarCategoryDefinition): void {
+    registeredCategories.set(definition.id, definition)
+}
+
+export function registeredFilterBarCategories(): FilterBarCategory[] {
+    return Array.from(registeredCategories.values()).map((definition) => ({
+        id: definition.id,
+        label: definition.label,
+        plural: definition.plural,
+        propertyFilterType: definition.propertyFilterType,
+        tier: definition.tier,
+        optIn: true,
+    }))
+}
+
+export function registeredFilterBarCategory(categoryId: FilterBarCategoryId): FilterBarCategoryDefinition | undefined {
+    return registeredCategories.get(categoryId)
+}
+
 export function groupPropertiesCategoryId(groupTypeIndex: number): FilterBarCategoryId {
     return `group_properties_${groupTypeIndex}`
 }
@@ -91,7 +120,11 @@ export function categoryIdForFilter(filter: AnyPropertyFilter): FilterBarCategor
             return typeof filter.group_type_index === 'number'
                 ? groupPropertiesCategoryId(filter.group_type_index)
                 : null
-        default:
-            return null
+        default: {
+            const registered = Array.from(registeredCategories.values()).find(
+                (definition) => definition.propertyFilterType === filter.type
+            )
+            return registered?.id ?? null
+        }
     }
 }

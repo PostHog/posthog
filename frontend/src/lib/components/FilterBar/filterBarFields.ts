@@ -1,5 +1,6 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import {
+    allOperatorsMapping,
     chooseOperatorMap,
     cohortOperatorMap,
     isOperatorDate,
@@ -22,7 +23,7 @@ import {
     PropertyType,
 } from '~/types'
 
-import { categoryIdForFilter } from './filterBarCategories'
+import { categoryIdForFilter, registeredFilterBarCategory } from './filterBarCategories'
 import {
     FilterBarCategoryId,
     FilterBarField,
@@ -88,6 +89,7 @@ const TAXONOMIC_GROUP_TYPE_BY_CATEGORY: Partial<Record<FilterBarCategoryId, Taxo
     session_properties: TaxonomicFilterGroupType.SessionProperties,
     feature_flags: TaxonomicFilterGroupType.EventFeatureFlags,
     elements: TaxonomicFilterGroupType.Elements,
+    events: TaxonomicFilterGroupType.Events,
 }
 
 export function taxonomicGroupTypeForCategory(categoryId: FilterBarCategoryId): TaxonomicFilterGroupType {
@@ -119,6 +121,10 @@ export function fieldLabelForKey(categoryId: FilterBarCategoryId, key: string): 
     if (categoryId === 'feature_flags') {
         return key.replace(/^\$feature\//, '')
     }
+    const registered = registeredFilterBarCategory(categoryId)
+    if (registered) {
+        return registered.fieldLabel?.(key) ?? key
+    }
     return getFilterLabel(key, taxonomicGroupTypeForCategory(categoryId))
 }
 
@@ -137,6 +143,26 @@ export function fieldFromFilter(filter: AnyPropertyFilter): FilterBarField | nul
     return { categoryId, key: filter.key, label: fieldLabelForKey(categoryId, filter.key) }
 }
 
+/** A registered category answers for its own fields, so the bar never asks the property definitions API about them. */
+export function propertyTypeForFilter(
+    filter: AnyPropertyFilter,
+    describeProperty: (key: string, type: PropertyDefinitionType, groupTypeIndex?: number) => PropertyType | null
+): PropertyType | null {
+    const categoryId = categoryIdForFilter(filter)
+    if (!categoryId) {
+        return null
+    }
+    const registered = registeredFilterBarCategory(categoryId)
+    if (registered) {
+        return registered.propertyType?.(filter.key ?? '') ?? null
+    }
+    return describeProperty(
+        filter.key ?? '',
+        propertyDefinitionTypeForCategory(categoryId),
+        groupTypeIndexForCategory(categoryId)
+    )
+}
+
 const DEFAULT_OPERATOR_BY_KEY: Record<string, PropertyOperator> = {
     $current_url: PropertyOperator.IContains,
     $pathname: PropertyOperator.IContains,
@@ -150,7 +176,13 @@ export function defaultOperatorForField(field: FilterBarField, propertyType?: Pr
     if (DEFAULT_OPERATOR_BY_KEY[field.key]) {
         return DEFAULT_OPERATOR_BY_KEY[field.key]
     }
-    switch (propertyType ?? field.propertyType) {
+    const operator = defaultOperatorForPropertyType(propertyType ?? field.propertyType)
+    const allowed = registeredFilterBarCategory(field.categoryId)?.operators
+    return allowed && !allowed.includes(operator) ? allowed[0] : operator
+}
+
+function defaultOperatorForPropertyType(propertyType?: PropertyType | null): PropertyOperator {
+    switch (propertyType) {
         case PropertyType.DateTime:
             return PropertyOperator.IsDateAfter
         case PropertyType.Duration:
@@ -186,6 +218,15 @@ export function newFilterForField(field: FilterBarField, propertyType?: Property
                 value: null,
             }
         default: {
+            const registered = registeredFilterBarCategory(field.categoryId)
+            if (registered) {
+                return {
+                    type: registered.propertyFilterType,
+                    key: field.key,
+                    operator,
+                    value: null,
+                } as AnyPropertyFilter
+            }
             const groupTypeIndex = groupTypeIndexForCategory(field.categoryId)
             if (groupTypeIndex !== undefined) {
                 return {
@@ -217,6 +258,10 @@ export function filterValues(filter: AnyPropertyFilter): (string | number)[] {
 /** Only complete filters reach the page and the URL. A field with no value yet stays in the bar as a pending chip. */
 export function isFilterComplete(filter: AnyPropertyFilter): boolean {
     if (filter.type === PropertyFilterType.HogQL) {
+        return !!filter.key
+    }
+    // The bar can't tell what a filter type it doesn't know needs, and must hand it back to the surface untouched.
+    if (!categoryIdForFilter(filter)) {
         return !!filter.key
     }
     const operator = filterOperator(filter)
@@ -257,8 +302,12 @@ export function operatorOptionsForFilter(
     filter: AnyPropertyFilter,
     propertyType?: PropertyType | null
 ): FilterBarOperatorOption[] {
+    const categoryId = categoryIdForFilter(filter)
+    const allowed = categoryId ? registeredFilterBarCategory(categoryId)?.operators : undefined
     let map: Record<string, string>
-    if (filter.type === PropertyFilterType.Cohort) {
+    if (allowed) {
+        map = Object.fromEntries(allowed.map((operator) => [operator, allOperatorsMapping[operator] ?? operator]))
+    } else if (filter.type === PropertyFilterType.Cohort) {
         map = cohortOperatorMap
     } else if (filter.type === PropertyFilterType.Element && filter.key === 'selector') {
         map = selectorOperatorMap

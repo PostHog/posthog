@@ -4,15 +4,9 @@ import { DropdownMenuCheckboxItem, DropdownMenuList, MenuEmpty } from '@posthog/
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
-import { categoryIdForFilter } from './filterBarCategories'
 import { FilterBarCohortValueItems } from './FilterBarCohortValueItems'
 import { FilterBarDateValueItems } from './FilterBarDateValueItems'
-import {
-    filterValues,
-    groupTypeIndexForCategory,
-    propertyDefinitionTypeForCategory,
-    valueKindForFilter,
-} from './filterBarFields'
+import { filterValues, propertyTypeForFilter, valueKindForFilter } from './filterBarFields'
 import { FilterBarListValueItems } from './FilterBarListValueItems'
 import { filterBarLogic } from './filterBarLogic'
 import { FilterBarNumberValueItems } from './FilterBarNumberValueItems'
@@ -26,15 +20,7 @@ export function FilterBarValueRows({ item, query }: { item: FilterBarItem; query
     const { describeProperty } = useValues(propertyDefinitionsModel)
     const { toggleItemValue } = useActions(filterBarLogic)
     const { filter } = item
-    const categoryId = categoryIdForFilter(filter)
-    const propertyType = categoryId
-        ? describeProperty(
-              filter.key ?? '',
-              propertyDefinitionTypeForCategory(categoryId),
-              groupTypeIndexForCategory(categoryId)
-          )
-        : null
-    const kind = valueKindForFilter(filter, propertyType)
+    const kind = valueKindForFilter(filter, propertyTypeForFilter(filter, describeProperty))
 
     let rows: JSX.Element | null
     switch (kind) {

@@ -2,11 +2,10 @@ import { useValues } from 'kea'
 
 import { DropdownMenuGroup, DropdownMenuLabel, DropdownMenuList, MenuEmpty, Spinner } from '@posthog/quill'
 
-import { canBreakDownByCategory } from './filterBarBreakdownFields'
 import { FilterBarControlItem } from './FilterBarControlItem'
 import { useFilterBarControls } from './filterBarControls'
 import { FilterBarFieldItem } from './FilterBarFieldItem'
-import { useFilterBarFieldPicker } from './filterBarFieldPicker'
+import { pickerOffersCategory, useFilterBarFieldPicker } from './filterBarFieldPicker'
 import { fieldFromFilter, filterValues } from './filterBarFields'
 import { filterBarLogic } from './filterBarLogic'
 import { FilterBarRecentFilterItem } from './FilterBarRecentFilterItem'
@@ -14,9 +13,17 @@ import { FilterBarCategoryId, FilterBarField } from './filterBarTypes'
 
 /** What the query matched: recent filters by field or value, then the fields each category knows, grouped. */
 export function FilterBarSearchRows(): JSX.Element {
-    const { query, searchResults, searchResultsLoading, recentFilterEntries, categoriesById } =
-        useValues(filterBarLogic)
-    const forFilter = useFilterBarFieldPicker().purpose === 'filter'
+    const {
+        query,
+        searchResults,
+        searchResultsLoading,
+        recentFilterEntries,
+        categoriesById,
+        addTargetId,
+        targetIsEvent,
+    } = useValues(filterBarLogic)
+    const { purpose } = useFilterBarFieldPicker()
+    const forFilter = purpose === 'filter'
     const needle = query.trim().toLowerCase()
     const matchingRecents = recentFilterEntries.filter((filter) => {
         if (!forFilter) {
@@ -27,10 +34,14 @@ export function FilterBarSearchRows(): JSX.Element {
     })
     const matchingControls = useFilterBarControls().filter(
         (control) =>
-            forFilter && !control.hasValue && !control.persistent && control.label.toLowerCase().includes(needle)
+            forFilter &&
+            addTargetId == null &&
+            !control.hasValue &&
+            !control.persistent &&
+            control.label.toLowerCase().includes(needle)
     )
     const resultEntries = (Object.entries(searchResults) as [FilterBarCategoryId, FilterBarField[]][]).filter(
-        ([categoryId]) => forFilter || canBreakDownByCategory(categoryId)
+        ([categoryId]) => pickerOffersCategory(purpose, categoryId, targetIsEvent)
     )
     const nothingFound =
         !searchResultsLoading &&

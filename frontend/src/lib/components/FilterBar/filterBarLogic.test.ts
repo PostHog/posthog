@@ -4,7 +4,7 @@ import { recentTaxonomicFiltersLogic } from 'lib/components/TaxonomicFilter/rece
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { filterBarLogic } from './filterBarLogic'
 import { filterBarSavedSetsLogic } from './filterBarSavedSetsLogic'
@@ -15,6 +15,15 @@ const chrome: AnyPropertyFilter = {
     operator: PropertyOperator.Exact,
     value: ['Chrome'],
 }
+
+const email: AnyPropertyFilter = {
+    type: PropertyFilterType.Person,
+    key: 'email',
+    operator: PropertyOperator.IContains,
+    value: 'example.com',
+}
+const os: AnyPropertyFilter = { ...chrome, key: '$os', value: ['iOS'] } as AnyPropertyFilter
+const plan: AnyPropertyFilter = { ...chrome, key: 'plan', value: ['pro'] } as AnyPropertyFilter
 
 describe('filterBarLogic', () => {
     let onChange: jest.Mock
@@ -94,6 +103,85 @@ describe('filterBarLogic', () => {
         logic.actions.applySavedSet(filterBarSavedSetsLogic.values.savedSets[0].id)
         expect(logic.values.items.map((item) => item.filter)).toEqual([chrome])
         expect(onChange).toHaveBeenLastCalledWith([chrome])
+    })
+
+    it('builds an OR group from a chip and reports it to a surface that stores groups', () => {
+        const onFilterGroupChange = jest.fn()
+        const grouped = filterBarLogic({
+            pageKey: 'grouped',
+            filterGroup: { type: FilterLogicalOperator.And, values: [] },
+            onFilterGroupChange,
+        })
+        grouped.mount()
+        grouped.actions.addFilter(chrome, 'recent')
+        grouped.actions.wrapNodeInGroup(grouped.values.items[0].id, FilterLogicalOperator.Or)
+        expect(grouped.values.menuOpen).toBe(true)
+        expect(grouped.values.showsStackedEditor).toBe(true)
+        grouped.actions.addField({ categoryId: 'event_properties', key: '$browser', label: 'Browser' }, 'popular')
+        grouped.actions.toggleItemValue(grouped.values.items[1].id, 'Safari', 'list')
+        expect(onFilterGroupChange).toHaveBeenLastCalledWith({
+            type: FilterLogicalOperator.And,
+            values: [{ type: FilterLogicalOperator.Or, values: [chrome, { ...chrome, value: ['Safari'] }] }],
+        })
+    })
+
+    it('unwraps a new group when the menu closes without a second row', () => {
+        const grouped = filterBarLogic({
+            pageKey: 'grouped-unwrap',
+            filterGroup: { type: FilterLogicalOperator.And, values: [] },
+            onFilterGroupChange: jest.fn(),
+        })
+        grouped.mount()
+        grouped.actions.addFilter(chrome, 'recent')
+        grouped.actions.wrapNodeInGroup(grouped.values.items[0].id, FilterLogicalOperator.Or)
+        grouped.actions.setMenuOpen(false)
+        expect(grouped.values.nodes).toEqual([expect.objectContaining({ filter: chrome })])
+    })
+
+    it('flips the whole filter to OR from the top-level rows', () => {
+        const onFilterGroupChange = jest.fn()
+        const grouped = filterBarLogic({
+            pageKey: 'grouped-top-level',
+            filterGroup: {
+                type: FilterLogicalOperator.And,
+                values: [{ type: FilterLogicalOperator.And, values: [chrome, email] }],
+            },
+            onFilterGroupChange,
+        })
+        grouped.mount()
+        grouped.actions.setTopLevelType(FilterLogicalOperator.Or)
+        expect(onFilterGroupChange).toHaveBeenLastCalledWith({
+            type: FilterLogicalOperator.And,
+            values: [{ type: FilterLogicalOperator.Or, values: [chrome, email] }],
+        })
+    })
+
+    it('keeps the stacked editor while it is open, and returns to chips when it closes', () => {
+        const bar = filterBarLogic({ pageKey: 'stacked', filters: [chrome, email, os, plan], onChange })
+        bar.mount()
+        expect(bar.values.showsStackedEditor).toBe(true)
+        bar.actions.setStackedOpen(true)
+        bar.actions.removeItem(bar.values.items[0].id)
+        expect(bar.values.showsStackedEditor).toBe(true)
+        bar.actions.setStackedOpen(false)
+        expect(bar.values.showsStackedEditor).toBe(false)
+    })
+
+    it('stops applying a filter while it waits for a value on its new field', () => {
+        const bar = filterBarLogic({ pageKey: 'replace', filters: [chrome], onChange })
+        bar.mount()
+        bar.actions.replaceItemField(bar.values.items[0].id, {
+            categoryId: 'person_properties',
+            key: 'email',
+            label: 'Email',
+        })
+        expect(onChange).toHaveBeenLastCalledWith([])
+        expect(bar.values.items[0].filter).toMatchObject({ type: PropertyFilterType.Person, key: 'email', value: null })
+    })
+
+    it('hides a saved group from a bar that stores flat filters', () => {
+        filterBarSavedSetsLogic.actions.saveSet('Grouped', [chrome], { type: FilterLogicalOperator.And, values: [] })
+        expect(logic.values.availableSavedSets).toEqual([])
     })
 
     it('does not save an empty name or an empty bar', () => {

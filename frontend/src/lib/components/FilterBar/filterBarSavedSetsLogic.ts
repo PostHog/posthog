@@ -3,7 +3,7 @@ import { MakeLogicType, actions, kea, path, reducers } from 'kea'
 import { uuid } from 'lib/utils/dom'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
-import { AnyPropertyFilter } from '~/types'
+import { AnyPropertyFilter, UniversalFiltersGroup } from '~/types'
 
 import { FilterBarSavedSet } from './filterBarTypes'
 
@@ -23,10 +23,12 @@ export interface filterBarSavedSetsLogicActions {
     }
     saveSet: (
         name: string,
-        filters: AnyPropertyFilter[]
+        filters: AnyPropertyFilter[],
+        group?: UniversalFiltersGroup
     ) => {
-        name: string
         filters: AnyPropertyFilter[]
+        group: UniversalFiltersGroup | undefined
+        name: string
     }
 }
 
@@ -39,7 +41,11 @@ export type filterBarSavedSetsLogicType = MakeLogicType<filterBarSavedSetsLogicV
 export const filterBarSavedSetsLogic = kea<filterBarSavedSetsLogicType>([
     path(['lib', 'components', 'FilterBar', 'filterBarSavedSetsLogic']),
     actions({
-        saveSet: (name: string, filters: AnyPropertyFilter[]) => ({ name, filters }),
+        saveSet: (name: string, filters: AnyPropertyFilter[], group?: UniversalFiltersGroup) => ({
+            name,
+            filters,
+            group,
+        }),
         deleteSavedSet: (id: string) => ({ id }),
     }),
     reducers({
@@ -47,12 +53,18 @@ export const filterBarSavedSetsLogic = kea<filterBarSavedSetsLogicType>([
             [] as FilterBarSavedSet[],
             { persist: true, prefix: `${teamId}__` },
             {
-                saveSet: (state, { name, filters }) => {
+                saveSet: (state, { name, filters, group }) => {
                     const trimmed = name.trim()
-                    if (!trimmed || filters.length === 0) {
+                    if (!trimmed || (filters.length === 0 && !group)) {
                         return state
                     }
-                    const entry: FilterBarSavedSet = { id: uuid(), name: trimmed, filters, createdAt: Date.now() }
+                    const entry: FilterBarSavedSet = {
+                        id: uuid(),
+                        name: trimmed,
+                        filters,
+                        ...(group ? { group } : {}),
+                        createdAt: Date.now(),
+                    }
                     return [entry, ...state.filter((set) => set.name !== trimmed)].slice(0, MAX_SAVED_FILTER_SETS)
                 },
                 deleteSavedSet: (state, { id }) => state.filter((set) => set.id !== id),

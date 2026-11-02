@@ -1,7 +1,9 @@
 import type { ComponentType, ReactNode } from 'react'
 
 import { IconX } from '@posthog/icons'
-import { Button, ButtonGroup, ButtonGroupText } from '@posthog/quill'
+import { Button, ButtonGroup } from '@posthog/quill'
+
+import { FilterBarChipLabel } from './FilterBarChipLabel'
 
 export interface FilterBarControlChipProps {
     icon: ComponentType<{ className?: string }>
@@ -20,10 +22,10 @@ export function FilterBarControlChip({
 }: FilterBarControlChipProps): JSX.Element {
     return (
         <ButtonGroup className="max-w-full" data-attr={dataAttr}>
-            <ButtonGroupText className="min-w-0 border border-border px-2">
+            <FilterBarChipLabel>
                 <Icon className="shrink-0" />
                 <span className="truncate">{label}</span>
-            </ButtonGroupText>
+            </FilterBarChipLabel>
             {children}
             {onRemove && (
                 <Button

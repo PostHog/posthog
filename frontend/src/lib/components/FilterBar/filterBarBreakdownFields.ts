@@ -7,9 +7,14 @@ import { groupPropertiesCategoryId } from './filterBarCategories'
 import { fieldLabelForKey, groupTypeIndexForCategory } from './filterBarFields'
 import { FilterBarCategoryId, FilterBarField } from './filterBarTypes'
 
-/** Whether a breakdown can split by the fields of this category. Elements and SQL expressions stay filters only. */
+/** Whether a breakdown can split by the fields of this category. Other categories stay filters only. */
 export function canBreakDownByCategory(categoryId: FilterBarCategoryId): boolean {
-    return categoryId !== 'elements' && categoryId !== 'sql'
+    return (
+        categoryId !== 'elements' &&
+        categoryId !== 'sql' &&
+        categoryId !== 'events' &&
+        !categoryId.startsWith('custom_')
+    )
 }
 
 function breakdownTypeForCategory(categoryId: FilterBarCategoryId): BreakdownType {

@@ -10,13 +10,12 @@ import {
     MenuEmpty,
 } from '@posthog/quill'
 
-import { canBreakDownByCategory } from './filterBarBreakdownFields'
 import { FilterBarCategoryItem } from './FilterBarCategoryItem'
 import { FilterBarCategoryRows } from './FilterBarCategoryRows'
 import { FilterBarControlItem } from './FilterBarControlItem'
 import { useFilterBarControls } from './filterBarControls'
 import { FilterBarFieldItem } from './FilterBarFieldItem'
-import { useFilterBarFieldPicker } from './filterBarFieldPicker'
+import { pickerOffersCategory, useFilterBarFieldPicker } from './filterBarFieldPicker'
 import { filterBarLogic } from './filterBarLogic'
 import { FilterBarRecentFilterItem } from './FilterBarRecentFilterItem'
 import { FilterBarSavedSetSubmenu } from './FilterBarSavedSetSubmenu'
@@ -41,8 +40,10 @@ export function FilterBarFieldRows(): JSX.Element {
         query,
         popularFields,
         moreExpanded,
-        savedSets,
-        completeFilters,
+        availableSavedSets,
+        currentValue,
+        addTargetId,
+        targetIsEvent,
         recentFilterEntries: allRecentFilterEntries,
         primaryCategories: allPrimaryCategories,
         moreCategories: allMoreCategories,
@@ -50,11 +51,13 @@ export function FilterBarFieldRows(): JSX.Element {
         categoriesById,
     } = useValues(filterBarLogic)
     const { setMoreExpanded, startSaving } = useActions(filterBarLogic)
-    const forFilter = useFilterBarFieldPicker().purpose === 'filter'
+    const { purpose } = useFilterBarFieldPicker()
+    const forFilter = purpose === 'filter'
     const controls = useFilterBarControls()
-    const controlsWithoutValue = forFilter ? controls.filter((control) => !control.hasValue && !control.persistent) : []
+    const controlsWithoutValue =
+        forFilter && addTargetId == null ? controls.filter((control) => !control.hasValue && !control.persistent) : []
     const recentFilterEntries = forFilter ? allRecentFilterEntries : []
-    const offered = (category: FilterBarCategory): boolean => forFilter || canBreakDownByCategory(category.id)
+    const offered = (category: FilterBarCategory): boolean => pickerOffersCategory(purpose, category.id, targetIsEvent)
     const primaryCategories = allPrimaryCategories.filter(offered)
     const moreCategories = allMoreCategories.filter(offered)
 
@@ -128,10 +131,10 @@ export function FilterBarFieldRows(): JSX.Element {
                             {/* The label lands where the More row was, so the pointer rests on nothing that opens on hover. */}
                             <DropdownMenuGroup>
                                 <DropdownMenuLabel>Saved filters</DropdownMenuLabel>
-                                {savedSets.map((set) => (
+                                {availableSavedSets.map((set) => (
                                     <FilterBarSavedSetSubmenu key={set.id} set={set} />
                                 ))}
-                                {completeFilters.length > 0 ? (
+                                {currentValue.values.length > 0 ? (
                                     <DropdownMenuItem
                                         closeOnClick={false}
                                         onClick={startSaving}
@@ -141,7 +144,7 @@ export function FilterBarFieldRows(): JSX.Element {
                                         Save current filters…
                                     </DropdownMenuItem>
                                 ) : (
-                                    savedSets.length === 0 && (
+                                    availableSavedSets.length === 0 && (
                                         <MenuEmpty>
                                             <IconBookmark />
                                             Add a filter, then save it here
