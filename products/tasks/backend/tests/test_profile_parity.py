@@ -6,7 +6,15 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
-from products.tasks.backend.facade.profiles import DrivePolicy, Read, TaskProfile, WarmPolicy, WarmQuota, task_profiles
+from products.tasks.backend.facade.profiles import (
+    DrivePolicy,
+    GithubResolution,
+    Read,
+    TaskProfile,
+    WarmPolicy,
+    WarmQuota,
+    task_profiles,
+)
 from products.tasks.backend.facade.run_config import WARMABLE_ORIGIN_PRODUCTS
 from products.tasks.backend.logic.services.compute_quota import is_billable_compute
 from products.tasks.backend.logic.services.sandbox import parse_requested_sandbox_template
@@ -28,6 +36,11 @@ from products.tasks.backend.visibility import (
 )
 
 PROFILES = [(profile.key, profile) for profile in task_profiles()]
+PROFILES_BY_REPOSITORY = [
+    (f"{profile.key}_{'with' if has_repository else 'without'}_repository", profile, has_repository)
+    for profile in task_profiles()
+    for has_repository in (True, False)
+]
 MAX_RUN_DURATION_SECONDS = 3 * 60 * 60
 
 
@@ -128,6 +141,16 @@ class TestTaskProfilesMatchMaster(SimpleTestCase):
             _task(profile)._apply_ai_run_defaults({}, acting_user_id=1)
 
         self.assertEqual(profile.inherit_user_defaults, apply_defaults.called)
+
+    @parameterized.expand(PROFILES_BY_REPOSITORY)
+    def test_github_resolution_matches_master(self, _name: str, profile: TaskProfile, has_repository: bool) -> None:
+        attaches_github = {
+            GithubResolution.ALWAYS: True,
+            GithubResolution.WITH_REPOSITORY: has_repository,
+            GithubResolution.NEVER: False,
+        }[profile.github_resolution]
+        master = Task._github_resolution_allowed(profile.origin_product, has_repository=has_repository)
+        self.assertEqual(attaches_github, master)
 
     @parameterized.expand(PROFILES)
     def test_user_authorable_prs_matches_master(self, _key: str, profile: TaskProfile) -> None:

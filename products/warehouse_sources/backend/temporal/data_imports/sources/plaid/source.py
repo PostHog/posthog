@@ -28,8 +28,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.plaid.plai
     validate_credentials as validate_plaid_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.plaid.settings import (
+    DESCRIPTIONS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SHOULD_SYNC_DEFAULT,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -83,7 +85,7 @@ class PlaidSource(ResumableSource[PlaidSourceConfig, PlaidResumeConfig]):
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Plaid",
             keywords=["bank", "banking", "open banking", "financial", "fintech", "transactions"],
-            caption="""Connect a Plaid Item to pull its accounts and transactions into the PostHog Data warehouse.
+            caption="""Connect a Plaid Item to pull its accounts, transactions, investments, liabilities, and institution into the PostHog Data warehouse.
 
 You can find your client ID and secret in the [Plaid dashboard](https://dashboard.plaid.com/developers/keys). The access token identifies one linked Item (institution connection), obtained when a user completes Plaid Link — add one source per Item.""",
             iconPath="/static/services/plaid.png",
@@ -146,7 +148,13 @@ You can find your client ID and secret in the [Plaid dashboard](https://dashboar
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            descriptions=DESCRIPTIONS,
+            should_sync_default=SHOULD_SYNC_DEFAULT,
+        )
 
     def validate_credentials(
         self, config: PlaidSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None

@@ -91,7 +91,7 @@ const CANDIDATES = {
 const trend = (label: string, values: number[]): Record<string, unknown> => ({
     results: [
         {
-            action: { id: label, name: label, type: 'events', order: 0 },
+            order: 0,
             label,
             data: values,
             days: BUCKETS,

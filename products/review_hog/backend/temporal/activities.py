@@ -30,7 +30,8 @@ from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import groups
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.integrations import IntegrationManager
+from posthog.models.integration import GitHubIntegration
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
@@ -40,16 +41,11 @@ from products.review_hog.backend.app_identity import posthog_app_login
 from products.review_hog.backend.automatic_reviews import automatic_flash_allowed, observe_dispatch
 from products.review_hog.backend.facade.enums import ReviewRequestRefusal
 from products.review_hog.backend.facade.finished_review_hooks import FinishedReview, get_finished_review_hooks
-from products.review_hog.backend.label_reviews import (
-    comment_commands_enabled,
-    draft_review_notice,
-    first_review_note,
-    label_commands_hint,
-)
 from products.review_hog.backend.models import ReviewProjectSettings, ReviewReport, ReviewUserSettings
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
 from products.review_hog.backend.preferences import ReviewPreferences
-from products.review_hog.backend.pull_request_events import REVIEW_LABEL, has_skip_agent_review_label
+from products.review_hog.backend.pull_request_events import has_skip_agent_review_label
+from products.review_hog.backend.review_notes import comment_commands_enabled, draft_review_notice, first_review_note
 from products.review_hog.backend.review_request_rules import ResolutionGate, full_review_published
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import (
@@ -241,6 +237,7 @@ from products.review_hog.backend.temporal.types import (
     TRIGGER_AUTOMATIC,
     TRIGGER_LABEL,
     TRIGGER_MANUAL,
+    TRIGGER_STAMPHOG,
 )
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import CodeReview, CodeReviewCounts
@@ -374,9 +371,6 @@ class ResolveActingUserResult:
     acting_user_id: int | None
     # The acting user's preferences, snapshotted here so mid-run edits don't flip gates between
     # stages. Defaults match the code defaults (and cover payloads serialized before these existed).
-    # `review_labeled_prs` is always True: no setting turns the label trigger off. The field stays,
-    # because recorded workflow histories carry it and their replay still reads it.
-    review_labeled_prs: bool = True
     urgency_threshold: str = IssuePriority.CONSIDER.value
     review_inbox_prs: bool = False
     # Which chain link resolved: "author" | "default" | "override" (observability + tests).
@@ -781,7 +775,7 @@ async def _refresh_status_comment(
 
 
 def _github_integration_exists(team_id: int) -> bool:
-    return Integration.objects.filter(team_id=team_id, kind="github").exists()
+    return IntegrationManager.github.oauth.exists(team_id)
 
 
 def _installation_auth(team_id: int, repository: str) -> tuple[str, str | None]:
@@ -806,7 +800,7 @@ def _installation_for(team_id: int, repository: str) -> GitHubIntegration:
     """The team's GitHub App installation that can access `repository` — a live API probe.
 
     Callers that make many writes in one run should select once and re-mint tokens from the
-    returned integration row (`GitHubIntegration(Integration.objects.get(...)).get_access_token()`)
+    returned integration row (`GitHubIntegration(IntegrationManager.github.oauth.get(...)).get_access_token()`)
     instead of re-probing per write: the probe answers *which* installation, not *may we write* —
     GitHub enforces access server-side on every call anyway.
     """
@@ -1070,9 +1064,9 @@ def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResu
         acting_user_id, resolved_from = input.override_user_id, "override"
     else:
         acting_user_id, resolved_from = owner.user_id, "author"
-        # Label-trigger fallback: someone explicitly asked for this review, so borrow the run user
-        # the trigger already resolved. Other triggers keep the owner-only contract and skip.
-        if acting_user_id is None and input.trigger_source == TRIGGER_LABEL:
+        # Stamphog-handoff fallback: the review was explicitly asked for, so borrow the run user the
+        # trigger already resolved. Other triggers keep the owner-only contract and skip.
+        if acting_user_id is None and input.trigger_source in (TRIGGER_STAMPHOG, TRIGGER_LABEL):
             acting_user_id, resolved_from = input.default_user_id, "default"
     automatic_allowed = input.trigger_source == TRIGGER_AUTOMATIC and _automatic_review_allowed(input, acting_user_id)
     flash_after_full = _flash_after_full(input)
@@ -1106,7 +1100,6 @@ def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResu
     resolution = ResolutionGate(owner_user_id=owner.user_id, owner_opted_in=owner_preferences.resolve_comments)
     return ResolveActingUserResult(
         acting_user_id=acting_user_id,
-        review_labeled_prs=True,
         # .value unwraps the TextChoices member, because the payload must hold the plain value.
         urgency_threshold=preferences.urgency_threshold.value,
         review_inbox_prs=preferences.review_inbox_prs,
@@ -2182,20 +2175,16 @@ async def build_body_activity(input: BuildBodyInput) -> None:
 def _publish(input: PublishInput) -> PublishResult:
     token, installation_id = _installation_auth(input.team_id, f"{input.owner}/{input.repo}")
     commands_on = comment_commands_enabled(input.team_id)
-    footer = ""
-    if input.trigger_source == TRIGGER_LABEL and commands_on:
-        footer = label_commands_hint(input.review_mode)
-    # Only an automatic turn can promise the review on ready: a label or UI review runs for authors
+    # Only an automatic turn can promise the review on ready: a comment or UI review runs for authors
     # without automatic reviews too. Only an automatic turn is held to the finding budget, too.
     draft_notice = ""
     comment_commands_on = False
     if input.trigger_source == TRIGGER_AUTOMATIC:
         comment_commands_on = commands_on
         draft_notice = draft_review_notice(comment_commands_on)
-    # The label footer already names the Deep command.
     intro_note = first_review_note(
         report_deep_link(input.team_id, input.report_id),
-        deep_command=commands_on and input.review_mode == REVIEW_MODE_FLASH and not footer,
+        deep_command=commands_on and input.review_mode == REVIEW_MODE_FLASH,
     )
     outcome = publish_persisted_review(
         team_id=input.team_id,
@@ -2210,7 +2199,6 @@ def _publish(input: PublishInput) -> PublishResult:
         installation_id=installation_id,
         review_mode=input.review_mode,
         capped_lens_parts=input.capped_lens_parts,
-        footer=footer,
         draft_notice=draft_notice,
         first_review_note=intro_note,
         answers_request=input.trigger_source in REQUESTED_TRIGGERS,
@@ -2245,12 +2233,15 @@ async def publish_review_activity(input: PublishInput) -> PublishResult:
         raise _wait_for_github_reset(error) from error
 
 
+_LEGACY_REVIEW_LABEL = "posthog-review"
+
+
 def _remove_trigger_label(input: RemoveTriggerLabelInput) -> None:
     token, installation_id = _installation_auth(input.team_id, f"{input.owner}/{input.repo}")
     try:
         github_api_request(
             "DELETE",
-            f"/repos/{input.owner}/{input.repo}/issues/{input.pr_number}/labels/{REVIEW_LABEL}",
+            f"/repos/{input.owner}/{input.repo}/issues/{input.pr_number}/labels/{_LEGACY_REVIEW_LABEL}",
             token=token,
             endpoint="/repos/{owner}/{repo}/issues/{issue_number}/labels/{name}",
             installation_id=installation_id,
@@ -2264,7 +2255,7 @@ def _remove_trigger_label(input: RemoveTriggerLabelInput) -> None:
 @scoped_temporal()
 @close_db_connections
 async def remove_trigger_label_activity(input: RemoveTriggerLabelInput) -> None:
-    """Remove the review label that started a label-triggered review, if it is still present."""
+    """Remove the review label of a label run started before the label trigger was removed."""
     await database_sync_to_async(_remove_trigger_label, thread_sensitive=False)(input)
 
 

@@ -78,6 +78,8 @@ class TestOauthIntegrationModel(BaseTest):
         "HELPSCOUT_APP_CLIENT_SECRET": "helpscout-client-secret",
         "STRIPE_APP_CLIENT_ID": "stripe-client-id",
         "STRIPE_APP_SECRET_KEY": "stripe-secret-key",
+        "INSTAGRAM_APP_CLIENT_ID": "instagram-client-id",
+        "INSTAGRAM_APP_CLIENT_SECRET": "instagram-client-secret",
     }
 
     def create_integration(
@@ -277,11 +279,55 @@ class TestOauthIntegrationModel(BaseTest):
                 "json_error_body_other_code",
                 "salesforce",
                 400,
+                {"error": "invalid_request", "error_description": "Missing redirect_uri."},
+                None,
+                '{"error":"invalid_request","error_description":"Missing redirect_uri."}',
+                ["invalid_request", "Missing redirect_uri"],
+                [],
+            ),
+            (
+                "client_credentials_rejected",
+                "salesforce",
+                401,
                 {"error": "invalid_client", "error_description": "Client authentication failed."},
                 None,
                 '{"error":"invalid_client","error_description":"Client authentication failed."}',
-                ["invalid_client", "Client authentication failed"],
-                [],
+                ["Contact support"],
+                ["invalid_client", "Start the connection again"],
+            ),
+            (
+                "meta_client_secret_rejected",
+                "instagram",
+                400,
+                {
+                    "error": {
+                        "message": "Error validating client secret.",
+                        "type": "OAuthException",
+                        "code": 1,
+                        "fbtrace_id": "fake-trace-id",
+                    }
+                },
+                None,
+                '{"error":{"message":"Error validating client secret.","type":"OAuthException","code":1,"fbtrace_id":"fake-trace-id"}}',
+                ["Contact support"],
+                ["OAuthException", "fake-trace-id"],
+            ),
+            (
+                "meta_nested_error_object",
+                "instagram",
+                400,
+                {
+                    "error": {
+                        "message": "Invalid verification code format.",
+                        "type": "OAuthException",
+                        "code": 100,
+                        "fbtrace_id": "fake-trace-id",
+                    }
+                },
+                None,
+                '{"error":{"message":"Invalid verification code format.","type":"OAuthException","code":100,"fbtrace_id":"fake-trace-id"}}',
+                ["Invalid verification code format"],
+                ["OAuthException", "fake-trace-id", "Contact support"],
             ),
             (
                 "non_json_error_body",

@@ -245,7 +245,7 @@ const meta: Meta = {
         // is pressed locally — see its comment.)
         pageUrl: urls.sqlEditor({ query: SAMPLE_SQL }),
         testOptions: {
-            waitForSelector: '.monaco-editor',
+            waitForSelector: '.CodeEditor[data-editor-ready="true"]',
             viewport: { width: 1600, height: 900 },
         },
     },
@@ -255,21 +255,26 @@ export default meta
 type Story = StoryObj<{}>
 export const TopToolsPerServer: Story = {}
 
-// Leaves the save menu open so the snapshot shows the chooser.
-// The scene re-renders the toolbar while it loads, which can drop an early click, so this retries until the menu stays open.
+const waitForEditor = async (canvasElement: HTMLElement): Promise<void> => {
+    await waitFor(() => expect(canvasElement.querySelector('.CodeEditor[data-editor-ready="true"]')).toBeVisible(), {
+        timeout: 30000,
+    })
+}
+
+// Keep the app shell at viewport height so snapshot capture does not resize and remount Monaco.
+const pinEditorViewport = (): (() => void) => {
+    document.body.classList.add('storybook-viewport-layout')
+    return () => document.body.classList.remove('storybook-viewport-layout')
+}
+
+// Monaco takes focus when it mounts, so open the menu only after the editor is ready.
 const openSaveMenu: Story['play'] = async ({ canvasElement }) => {
+    await waitForEditor(canvasElement)
     const body = within(canvasElement.ownerDocument.body)
-    await waitFor(
-        async () => {
-            if (!body.queryByText('Save query as')) {
-                const trigger = canvasElement.querySelector<HTMLElement>('[data-attr="sql-editor-save-options-button"]')
-                expect(trigger).toBeTruthy()
-                await userEvent.click(trigger!)
-            }
-            expect(body.getByText('Save query as')).toBeVisible()
-        },
-        { timeout: 30000, interval: 1000 }
-    )
+    const trigger = canvasElement.querySelector<HTMLElement>('[data-attr="sql-editor-save-options-button"]')
+    expect(trigger).toBeTruthy()
+    await userEvent.click(trigger!)
+    await waitFor(() => expect(body.getByText('Save query as')).toBeVisible())
 }
 
 // Waits for the insight to load and show its unsaved edit before it opens the save menu.
@@ -283,6 +288,7 @@ const openEditedInsightSaveMenu: Story['play'] = async (context) => {
 }
 
 export const SaveAsFlowQuill: Story = {
+    beforeEach: pinEditorViewport,
     parameters: {
         featureFlags: [FEATURE_FLAGS.SQL_EDITOR_SAVE_AS_CHOOSER, FEATURE_FLAGS.TODAY_RAIL_NAV],
         msw: {
@@ -493,6 +499,7 @@ export const EditedInsight: Story = {
         msw: { mocks: discardMocks },
     },
     play: async ({ canvasElement }) => {
+        await waitForEditor(canvasElement)
         const canvas = within(canvasElement)
         await canvas.findByRole('button', { name: 'Discard changes' }, { timeout: 15000 })
         await waitFor(() =>
@@ -530,6 +537,7 @@ export const EditedInsight: Story = {
 }
 
 export const EditedInsightSaveAsFlow: Story = {
+    beforeEach: pinEditorViewport,
     parameters: {
         featureFlags: [FEATURE_FLAGS.SQL_EDITOR_SAVE_AS_CHOOSER],
         pageUrl: `${urls.sqlEditor({ insightShortId: DISCARD_INSIGHT.short_id })}#q=SELECT%202`,
@@ -539,6 +547,7 @@ export const EditedInsightSaveAsFlow: Story = {
 }
 
 export const EditedInsightSaveAsFlowQuill: Story = {
+    beforeEach: pinEditorViewport,
     parameters: {
         featureFlags: [FEATURE_FLAGS.SQL_EDITOR_SAVE_AS_CHOOSER, FEATURE_FLAGS.TODAY_RAIL_NAV],
         pageUrl: `${urls.sqlEditor({ insightShortId: DISCARD_INSIGHT.short_id })}#q=SELECT%202`,
@@ -548,12 +557,14 @@ export const EditedInsightSaveAsFlowQuill: Story = {
 }
 
 export const EditedInsightLegacySaveMenu: Story = {
+    beforeEach: pinEditorViewport,
     parameters: {
         featureFlags: { [FEATURE_FLAGS.SQL_EDITOR_SAVE_AS_CHOOSER]: false },
         pageUrl: `${urls.sqlEditor({ insightShortId: DISCARD_INSIGHT.short_id })}#q=SELECT%202`,
         msw: { mocks: discardMocks },
     },
     play: async ({ canvasElement }) => {
+        await waitForEditor(canvasElement)
         const canvas = within(canvasElement)
         await canvas.findByRole('button', { name: 'Discard changes' }, { timeout: 15000 })
         await userEvent.click(canvasElement.querySelector('[data-attr="sql-editor-save-options-button"]')!)
@@ -1910,7 +1921,7 @@ export const BICatalogSnapshot: Story = {
     },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        await canvas.findByRole('link', { name: 'View catalog definition' }, { timeout: 15000 })
+        await canvas.findByRole('link', { name: 'View current catalog entry' }, { timeout: 15000 })
         await userEvent.click(await canvas.findByRole('button', { name: 'Run worksheet' }))
         await expect(canvas.findByText('450', { exact: true })).resolves.toBeVisible()
     },
@@ -1999,8 +2010,8 @@ export const BISourcePreviewLargeSample: Story = {
 const BI_WIDE_TABLE_CONFIG: BIConfig = {
     ...BI_WORKSHEET_CONFIG,
     chartType: ChartDisplayType.ActionsTable,
-    rows: [],
-    columns: [{ ...biEventsField('timestamp', 'datetime'), dateBucket: 'day' }],
+    rows: [{ ...biEventsField('timestamp', 'datetime'), dateBucket: 'day' }],
+    columns: [],
     values: [{ field: biEventsField('revenue', 'float'), aggregation: 'sum', shelf: 'rows' }],
     filters: [],
     limit: 10000,

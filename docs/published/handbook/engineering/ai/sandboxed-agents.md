@@ -35,6 +35,7 @@ The full task composer remains available during startup.
 Follow-up messages collect in "Up next" and send after the first response finishes.
 Once the agent starts, Steer can send them before the current turn ends.
 The thread hides empty and whitespace-only assistant messages during streaming and history replay.
+The PostHog AI thread and embedded run views render Pi session logs independently of the `pi-acp` rollout flag.
 
 An idle sandbox resume does not run an agent turn, so it does not send a finished notification or mark the run's activity completed.
 

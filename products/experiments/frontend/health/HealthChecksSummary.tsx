@@ -4,9 +4,11 @@ import { type HealthPanelCheck, countHealthChecks } from './healthPanelChecks'
 
 export function HealthChecksSummary({
     checks,
+    issueCount,
     isDraft,
 }: {
     checks: HealthPanelCheck[]
+    issueCount: number
     isDraft: boolean
 }): JSX.Element {
     const passedCount = countHealthChecks(checks, 'passed')
@@ -15,9 +17,11 @@ export function HealthChecksSummary({
     return (
         <div className="flex flex-col gap-0.5" data-attr="experiment-health-summary">
             <span className="font-semibold">
-                {passedCount > 0
-                    ? `No problems found by ${pluralize(passedCount, 'check')}`
-                    : 'No checks apply to this experiment yet'}
+                {issueCount > 0
+                    ? `${pluralize(issueCount, 'issue')} found`
+                    : passedCount > 0
+                      ? `No problems found by ${pluralize(passedCount, 'check')}`
+                      : 'No checks apply to this experiment yet'}
             </span>
             <p className="m-0 text-secondary">
                 {notCheckedCount > 0 && <span>{pluralize(notCheckedCount, 'check')} couldn't run. </span>}

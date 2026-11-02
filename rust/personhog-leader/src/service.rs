@@ -7,8 +7,9 @@ use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogL
 use personhog_proto::personhog::types::v1::{
     FencePersonRequest, FencePersonResponse, FencePersonsRequest, FencePersonsResponse,
     FoldPersonDocumentRequest, FoldPersonDocumentResponse, GetPersonRequest, GetPersonResponse,
-    Person, ReleaseFenceRequest, ReleaseFenceResponse, ReleaseFencesRequest, ReleaseFencesResponse,
-    SealedSourceSnapshot, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+    Person, RaisePersonVersionRequest, RaisePersonVersionResponse, ReleaseFenceRequest,
+    ReleaseFenceResponse, ReleaseFencesRequest, ReleaseFencesResponse, SealedSourceSnapshot,
+    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
 };
 use tokio::sync::{Mutex, OwnedMutexGuard};
 use tonic::{Request, Response, Status};
@@ -1295,6 +1296,137 @@ impl PersonHogLeader for PersonHogLeaderService {
         }))
     }
 
+    async fn raise_person_version(
+        &self,
+        request: Request<RaisePersonVersionRequest>,
+    ) -> Result<Response<RaisePersonVersionResponse>, Status> {
+        let partition = partition_from_metadata(&request)?;
+        let req = request.into_inner();
+        self.validate_partition(partition, req.team_id, req.person_id)?;
+        if req.min_version <= 0 {
+            return Err(Status::invalid_argument("min_version must be positive"));
+        }
+        self.check_authority(partition)?;
+
+        let Some(inflight_guard) = self.inflight.try_begin(partition) else {
+            return Err(Status::failed_precondition(format!(
+                "partition {partition} is fenced for handoff; writes are rejected"
+            )));
+        };
+
+        let cache_key = PersonCacheKey {
+            team_id: req.team_id,
+            person_id: req.person_id,
+        };
+        let mutex = self
+            .locks
+            .entry(cache_key.clone())
+            .or_default()
+            .value()
+            .clone();
+        let lock_wait = std::time::Instant::now();
+        let guard = mutex.lock_owned().await;
+        histogram!("personhog_leader_person_lock_wait_ms")
+            .record(lock_wait.elapsed().as_secs_f64() * 1000.0);
+
+        if !self.dirty_index.can_admit(&cache_key) {
+            counter!("personhog_leader_writes_shed_total", "reason" => "dirty_index_full")
+                .increment(1);
+            return Err(Status::resource_exhausted(
+                "dirty index at capacity: the writer is behind and this raise cannot be \
+                 tracked; retry later",
+            ));
+        }
+
+        if let Some(fence) = self.check_fence(&cache_key) {
+            counter!("personhog_leader_writes_fenced_total").increment(1);
+            if let Some(healer) = &self.fence_healer {
+                healer.maybe_heal(cache_key.clone(), fence);
+            }
+            return Err(fenced_status(&fence));
+        }
+
+        let person = self.lookup_or_load_locked(partition, &cache_key).await?;
+        self.check_authority(partition)?;
+        if person.is_deleted {
+            return Err(Status::not_found("person is destroyed"));
+        }
+
+        if person.version >= req.min_version {
+            counter!("personhog_leader_version_raises_total", "outcome" => "at_or_above")
+                .increment(1);
+            return self.authoritative_ok(
+                partition,
+                RaisePersonVersionResponse {
+                    person: Some(cached_person_into_proto(person)),
+                    raised: false,
+                },
+            );
+        }
+
+        // A spent version may already be in the changelog, so the raise must clear it.
+        let floor = self
+            .emitted_versions
+            .floor_for(partition, &cache_key, person.version);
+        let version = floor
+            .checked_add(1)
+            .ok_or_else(|| Status::invalid_argument("no version left above the emitted floor"))?
+            .max(req.min_version);
+        let mut raised = CachedPerson { version, ..person };
+
+        // A stored row over the size limit would stop the writer's partition, so trim it as an update does.
+        let stored = raised
+            .parse_properties()
+            .map_err(|e| Status::internal(format!("cached properties unparseable: {e}")))?;
+        let stored_size = jsonb_column_size(&stored);
+        if stored_size >= self.size_limits.threshold {
+            match trim_properties_to_fit_size(&stored, self.size_limits.trim_target) {
+                TrimResult::Trimmed(trimmed) => {
+                    counter!("personhog_leader_properties_trimmed_total").increment(1);
+                    self.warnings.emit(&SizeViolationWarning {
+                        team_id: cache_key.team_id,
+                        person_uuid: raised.uuid.clone(),
+                        message: "Oversized person properties were trimmed to fit the size limit"
+                            .to_string(),
+                    });
+                    raised.properties = serde_json::to_vec(&trimmed).map_err(|e| {
+                        Status::internal(format!("serialize trimmed properties: {e}"))
+                    })?;
+                }
+                TrimResult::Fits => {}
+                TrimResult::CannotFit => {
+                    counter!(
+                        "personhog_leader_version_raises_total",
+                        "outcome" => "rejected_unremediable"
+                    )
+                    .increment(1);
+                    return Err(semantic_refusal(
+                        format!(
+                            "person properties exceed the size limit: stored state is \
+                             {stored_size} bytes (jsonb) and protected properties alone exceed \
+                             the {} trim target",
+                            self.size_limits.trim_target,
+                        ),
+                        "person-too-large",
+                    ));
+                }
+            }
+        }
+
+        let committed = self
+            .commit_document(partition, &cache_key, raised, guard, inflight_guard)
+            .await?;
+        counter!("personhog_leader_version_raises_total", "outcome" => "raised").increment(1);
+
+        self.authoritative_ok(
+            partition,
+            RaisePersonVersionResponse {
+                person: Some(committed.proto),
+                raised: true,
+            },
+        )
+    }
+
     async fn fold_person_document(
         &self,
         request: Request<FoldPersonDocumentRequest>,
@@ -1590,11 +1722,14 @@ impl PersonHogLeader for PersonHogLeaderService {
             .max();
 
         // The version is a max-merge over the target's floor and every
-        // sealed version, plus one: at or above every source's death
-        // document, which derives from the same sealed + 1 (equal when
-        // the highest sealed version dominates — harmless, the streams
-        // are per-person), and re-applying the fold only bumps it again
-        // — convergent under at-least-once delivery.
+        // sealed version, plus one. A source's death document starts
+        // from the same sealed + 1, so the fold sits at or above it and
+        // equals it when the highest sealed version dominates. A source
+        // row that moved after its seal raises its death document above
+        // the fold. The streams are per-person, so the relation is a
+        // convention, not a collision guard. Re-applying the fold only
+        // bumps the version again, so it converges under at-least-once
+        // delivery.
         let base_version = self
             .emitted_versions
             .floor_for(partition, &cache_key, person.version);

@@ -1,6 +1,8 @@
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { MessageRejected, SendingPausedException, TooManyRequestsException } from '@aws-sdk/client-sesv2'
+import { DateTime } from 'luxon'
+import { register } from 'prom-client'
 
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
 import { EmailStatusOutput } from '~/cdp/outputs/outputs'
@@ -44,6 +46,18 @@ class ThrottlingException extends Error {
         super(message)
         this.name = 'ThrottlingException'
     }
+}
+
+async function metricValue(name: string, labels: Record<string, string>, metricName = name): Promise<number> {
+    const metric = await register.getSingleMetric(name)!.get()
+    const values: { labels: Partial<Record<string, string | number>>; value: number; metricName?: string }[] =
+        metric.values
+    const sample = values.find(
+        (value) =>
+            (value.metricName ?? name) === metricName &&
+            Object.entries(labels).every(([key, labelValue]) => value.labels[key] === labelValue)
+    )
+    return sample?.value ?? 0
 }
 
 describe('sanitizeEmailSubject', () => {
@@ -493,6 +507,29 @@ describe('EmailService', () => {
                 )
             })
 
+            it.each<[string, () => Error, string]>([
+                [
+                    'TooManyRequestsException',
+                    () => new TooManyRequestsException({ $metadata: {}, message: 'Too many requests' }),
+                    'throttled',
+                ],
+                ['ThrottlingException', () => new ThrottlingException('Rate exceeded'), 'throttled'],
+                [
+                    'SendingPausedException',
+                    () => new SendingPausedException({ $metadata: {}, message: 'Sending paused' }),
+                    'SendingPausedException',
+                ],
+                ['an unknown error', () => new Error('connect ECONNRESET for test@example.com'), 'other'],
+            ])('counts an SES send that fails with %s as %s', async (_name, makeError, expectedResult) => {
+                const labels = { result: expectedResult }
+                const before = await metricValue('cdp_ses_send_results_total', labels)
+                sendEmailSpy.mockRejectedValueOnce(makeError())
+
+                await service.executeSendEmail(invocation)
+
+                expect(await metricValue('cdp_ses_send_results_total', labels)).toBe(before + 1)
+            })
+
             it('still fails the job for non-throttle SES errors', async () => {
                 sendEmailSpy.mockRejectedValueOnce(
                     new MessageRejected({ $metadata: {}, message: 'something else broke' })
@@ -507,6 +544,45 @@ describe('EmailService', () => {
                     expect.arrayContaining([expect.objectContaining({ metric_name: 'email_failed' })])
                 )
             })
+        })
+
+        describe('queue-to-send latency', () => {
+            // The job was created a minute ago and rescheduled after a throttle, so it became due again 5 seconds ago.
+            // Running the email step clones the invocation, which resets queueScheduledAt before the send.
+            it.each([
+                ['workflow', 'bulk', 'its rescheduled time', (): void => {}, 5_000, 60_000],
+                [
+                    'transactional_api',
+                    'fast',
+                    'its creation',
+                    (): void => {
+                        invocation.state.globals.event.event = '$transactional_email'
+                        invocation.hogFunction.metadata = { message_category_type: 'transactional' }
+                    },
+                    60_000,
+                    Infinity,
+                ],
+            ])(
+                'observes the wait of a retried %s send on the %s lane from %s',
+                async (source, priorityClass, _from, setUp, minWaitMs, maxWaitMs) => {
+                    setUp()
+                    invocation.queue = 'email'
+                    invocation.queueCreatedAt = DateTime.utc().minus({ seconds: 60 })
+                    invocation.queueDueAt = DateTime.utc().minus({ seconds: 5 })
+                    invocation.queueScheduledAt = undefined
+                    const name = 'cdp_email_queue_to_send_ms'
+                    const labels = { source, priority_class: priorityClass }
+                    const countBefore = await metricValue(name, labels, `${name}_count`)
+                    const sumBefore = await metricValue(name, labels, `${name}_sum`)
+
+                    await service.executeSendEmail(invocation)
+
+                    expect(await metricValue(name, labels, `${name}_count`)).toBe(countBefore + 1)
+                    const waitMs = (await metricValue(name, labels, `${name}_sum`)) - sumBefore
+                    expect(waitMs).toBeGreaterThanOrEqual(minWaitMs)
+                    expect(waitMs).toBeLessThan(maxWaitMs)
+                }
+            )
         })
 
         describe('workflow sending rate limit', () => {

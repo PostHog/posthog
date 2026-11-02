@@ -1,4 +1,6 @@
-from drf_spectacular.utils import extend_schema
+from typing import Any
+
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
@@ -6,14 +8,23 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
+from products.replay_vision.backend.api.scout_permissions import ScoutDataAccessPermission
 from products.replay_vision.backend.scanner_access import scanner_for_recording_derived_read
 from products.replay_vision.backend.scout_source import SCOUT_SOURCE_PRODUCT
-from products.signals.backend.facade import api as signals_facade
-from products.signals.backend.scout_harness.views import ScoutCanonicalTeamAccessPermission
+from products.signals.backend.facade import (
+    api as signals_facade,
+    scout_reports as signals_scout_reports,
+)
 
-# Reused rather than redeclared: two components with this name generate an incorrect schema, and
-# the charts here are the same shape the inbox renders.
-from products.signals.backend.serializers import ReportChartSerializer
+
+# Points at the Signals chart component rather than redeclaring it: two components with this name
+# generate an incorrect schema, and the charts here are the same shape the inbox renders.
+@extend_schema_field({"type": "array", "items": signals_scout_reports.REPORT_CHART_SCHEMA})
+class ReportChartsField(serializers.Field):
+    """A report's charts, rendered by Signals."""
+
+    def to_representation(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return signals_scout_reports.render_report_charts(value)
 
 
 class ScoutReportSerializer(serializers.Serializer):
@@ -27,8 +38,7 @@ class ScoutReportSerializer(serializers.Serializer):
     )
     title = serializers.CharField(help_text="The report's title. Empty when the scout left it unset.")
     summary = serializers.CharField(help_text="The report body, as markdown. Empty when the scout left it unset.")
-    charts = ReportChartSerializer(
-        many=True,
+    charts = ReportChartsField(
         help_text=(
             "Charts the scout attached. The summary places one inline with a "
             "`[label](chart:<chart_id>)` link; any it does not place render after the body."
@@ -47,7 +57,7 @@ class ScannerScoutReportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     # The reports these scouts filed are canonical-team rows, so access is checked against that
     # team and not just the environment in the URL.
     # Appended to the standard stack by `TeamAndOrgViewSetMixin.get_permissions`.
-    permission_classes = [ScoutCanonicalTeamAccessPermission]
+    permission_classes = [ScoutDataAccessPermission]
     scope_object = "replay_scanner"
     # `task` is the scope object Signals gates its own report reads on, so a token that cannot read
     # reports there cannot read them through a scanner either.

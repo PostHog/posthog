@@ -2,13 +2,12 @@ import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
-
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 import { initKeaTests } from '~/test/init'
 
 import { buildMetricRunPrompt, RunMetricWithAIButton } from './RunMetricWithAIButton'
 
-jest.mock('scenes/settings/organization/aiConsentLogic', () => {
+jest.mock('~/layout/ai/aiConsentLogic', () => {
     const { kea, selectors } = jest.requireActual('kea')
     return {
         aiConsentLogic: kea([

@@ -44,10 +44,20 @@ EVENT_ALL_APPS = 'expandAppIds("*")'
 EVENTS_REPROCESSING_OVERLAP_DAYS = 7
 # A busy day can hold a very large number of buckets; hand them to the pipeline in bounded batches.
 EVENT_BATCH_SIZE = 5000
-# Measures Pendo sums into each event bucket. The remaining fields identify the bucket, so they
-# alone form its id and a re-read of a still-open day updates the row instead of duplicating it.
+# Values Pendo aggregates into each event bucket, which change as new events arrive. The remaining
+# fields identify the bucket, so they alone form its id and a re-read of a still-open day updates
+# the row instead of duplicating it.
 EVENT_MEASURE_FIELDS = frozenset(
-    {"numEvents", "numMinutes", "rageClickCount", "errorClickCount", "deadClickCount", "uTurnCount", "lastTime"}
+    {
+        "numEvents",
+        "numMinutes",
+        "rageClickCount",
+        "errorClickCount",
+        "deadClickCount",
+        "uTurnCount",
+        "lastTime",
+        "lastKeyFrameTimestamp",
+    }
 )
 
 
@@ -130,10 +140,11 @@ def _iter_list_endpoint(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[PendoResumeConfig],
     start_offset: int,
+    all_apps: bool,
 ) -> Iterator[list[dict[str, Any]]]:
     # `expand=*` returns objects across every app in a multi-app subscription rather than
     # just the default app.
-    url = f"{base_url}{path}?expand=*"
+    url = f"{base_url}{path}?expand=*" if all_apps else f"{base_url}{path}"
     response = _request(session, "GET", url, logger)
     data = response.json()
     items: list[dict[str, Any]] = data if isinstance(data, list) else data.get("results", [])
@@ -232,9 +243,12 @@ def _iter_events(
     resumable_source_manager: ResumableSourceManager[PendoResumeConfig],
     start_day: date,
     end_day: date,
+    all_apps: bool,
+    grouped: bool,
 ) -> Iterator[list[dict[str, Any]]]:
     url = f"{base_url}{AGGREGATION_PATH}"
     day = start_day
+    source_params = {"appId": EVENT_ALL_APPS} if all_apps else None
 
     while day <= end_day:
         anchor = datetime.combine(day, time(), tzinfo=UTC) + EVENT_WINDOW_ANCHOR
@@ -245,7 +259,7 @@ def _iter_events(
                 "pipeline": [
                     {
                         "source": {
-                            event_source: {"appId": EVENT_ALL_APPS},
+                            event_source: source_params,
                             "timeSeries": {"period": "dayRange", "first": int(anchor.timestamp() * 1000), "count": 1},
                         }
                     }
@@ -267,7 +281,8 @@ def _iter_events(
             # Only the day's last batch moves the cursor past it, so a resume re-reads a partly written day.
             if start + EVENT_BATCH_SIZE >= len(rows):
                 resumable_source_manager.save_state(PendoResumeConfig(next_day=day.isoformat()))
-            yield [_with_bucket_id(row) for row in rows[start : start + EVENT_BATCH_SIZE]]
+            batch = rows[start : start + EVENT_BATCH_SIZE]
+            yield [_with_bucket_id(row) for row in batch] if grouped else batch
 
 
 def get_rows(
@@ -301,6 +316,8 @@ def get_rows(
             resumable_source_manager,
             start_day,
             end_day,
+            config.all_apps,
+            config.grouped_events,
         )
     elif config.is_aggregation:
         if config.aggregation_source is None:
@@ -330,6 +347,7 @@ def get_rows(
             logger,
             resumable_source_manager,
             start_offset,
+            config.all_apps,
         )
 
 

@@ -1,4 +1,5 @@
 import json
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -954,6 +955,15 @@ class BuiltSuggestion:
 
 
 @frozen
+class EventWorkflowsBuild:
+    """Draft workflows built in the background for events a team picked, one per event at most."""
+
+    status: DataSuggestionBuildStatus
+    # Set only when the status is ready. Each id is a saved draft that never runs until enabled.
+    workflow_ids: tuple[str, ...] = ()
+
+
+@frozen
 class PreparedIdeas:
     """What `prepare_workflow_ideas` did for one project."""
 
@@ -1115,6 +1125,25 @@ class SnippetRoom:
     """
 
     remaining: int = 5_000_000
+
+
+@frozen
+class RehostedWorkflow:
+    """An imported workflow whose email images point at copies in the team's media library."""
+
+    workflow: dict[str, Any]
+    notes: tuple[ImportNote, ...]
+
+
+@dataclass(frozen=False)
+class ImageBudget:
+    """How many more email images one import request may copy, and until when, shared by every automation in it."""
+
+    remaining: int = 100
+    # A `time.monotonic()` value. Downloads still running then are dropped, so a slow host can't hold the request.
+    deadline: float = field(default_factory=lambda: time.monotonic() + 60)
+    # False when the caller's token can't write to the media library, so nothing is copied.
+    can_upload: bool = True
 
 
 @frozen

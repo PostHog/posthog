@@ -11,6 +11,14 @@ A matching ID links a request to its processing span. It does not prove that the
 An asynchronous query can continue in a separate trace after the submission request ends.
 Check request timing against browser performance metrics, and inspect child spans and self time before choosing a performance fix.
 
+Query API responses expose a validated HTTP request UUID through `X-Request-ID` and the `Server-Timing` metric named `request_id`.
+Query analytics include the same UUID as `http_request_id`.
+The browser records response wait, body read, JSON parsing, and available resource phases on existing query outcome events.
+Resource phases require one matching response UUID; missing, ambiguous, or truncated evidence remains explicit.
+Cross-origin resource details also require `Timing-Allow-Origin`.
+The pre-request phase includes connection setup and browser waiting; it does not measure server queueing.
+Automatic capture covers `performQuery` submission POSTs and the status poll that returns a completed async result; earlier polls and rejected-response body processing remain outside this capture.
+
 #### Logging
 
 As a general rule, we should have logs for every expected and unexpected actions of the application, using the appropriate _log level_.

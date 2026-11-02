@@ -1,21 +1,43 @@
 import type { ExternalTable } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import { externalAdsCostTile } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingCostTile'
 
-import { MarketingAnalyticsColumnsSchemaNames, NodeKind, SourceMap } from '~/queries/schema/schema-general'
+import { MarketingAnalyticsColumnsSchemaNames, NodeKind, SourceMap, TrendsQuery } from '~/queries/schema/schema-general'
 import { DataWarehouseSettingsTab, PropertyFilterType, PropertyOperator, TrendResult } from '~/types'
 
 import { adPerformanceSparklines, buildAdPerformanceTrendsQuery } from './adPerformanceMetrics'
 
-const row = (metric: string, data: number[], days = ['2026-01-01', '2026-01-02']): TrendResult =>
-    ({
-        action: { custom_name: metric },
-        data,
-        days,
-        labels: days,
-        label: metric,
-        count: 0,
-        aggregated_value: 0,
-    }) as TrendResult
+const SERIES_METRICS = [
+    'cost',
+    'clicks',
+    'impressions',
+    'reported_conversion',
+    'reported_conversion_value',
+    'trial started',
+]
+
+const sparklineQuery: TrendsQuery = {
+    kind: NodeKind.TrendsQuery,
+    series: SERIES_METRICS.map((metric) => ({
+        kind: NodeKind.DataWarehouseNode,
+        id: 'example_ad_stats',
+        table_name: 'example_ad_stats',
+        id_field: 'id',
+        distinct_id_field: 'id',
+        timestamp_field: 'day',
+        custom_name: metric,
+    })),
+}
+
+// The runner labels a warehouse series with its table, so only the series at `order` names the metric
+const row = (metric: string, data: number[], days = ['2026-01-01', '2026-01-02']): TrendResult => ({
+    order: SERIES_METRICS.indexOf(metric),
+    data,
+    days,
+    labels: days,
+    label: 'example_ad_stats',
+    count: 0,
+    aggregated_value: 0,
+})
 
 const table: ExternalTable = {
     id: 'table-one',
@@ -45,7 +67,7 @@ const table: ExternalTable = {
 
 describe('Ad performance sparklines', () => {
     it('sums sources by date before calculating ratios and leaves zero denominators as gaps', () => {
-        const metrics = adPerformanceSparklines([
+        const metrics = adPerformanceSparklines(sparklineQuery, [
             row('cost', [10, 20]),
             row('cost', [90, 30]),
             row('clicks', [5, 0]),
@@ -62,7 +84,7 @@ describe('Ad performance sparklines', () => {
     })
 
     it('aligns dates, preserves unknown values, and excludes attributed goals and comparison periods', () => {
-        const metrics = adPerformanceSparklines([
+        const metrics = adPerformanceSparklines(sparklineQuery, [
             row('cost', [20, 10], ['2026-01-02', '2026-01-01']),
             row('clicks', [5, NaN]),
             row('trial started', [100, 200]),

@@ -92,7 +92,6 @@ import {
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
     DataWarehouseSavedQueryIncremental,
-    DataWarehouseSavedQueryIncrementalCheck,
     ExportContext,
     InsightModel,
 } from '~/types'
@@ -2527,18 +2526,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 }
                 const selectionProblem = await findSelectionProblem(candidates, values.sendRawQueryEnabled)
 
-                // Checked once as the dialog opens rather than on every keystroke: it only depends
-                // on the SQL being saved, which cannot change while the dialog is up. A failure
-                // leaves the incremental fields hidden, so the view saves as a normal full refresh.
-                let incrementalCheck: DataWarehouseSavedQueryIncrementalCheck | null = null
-                try {
-                    incrementalCheck = await api.dataWarehouseSavedQueries.checkIncremental({
-                        query: selectedRef.current ?? values.queryInput ?? '',
-                    })
-                } catch {
-                    incrementalCheck = null
-                }
-
                 const folderOptions: { value: string | null; label: string }[] = [
                     { value: null, label: 'No folder' },
                     ...values.dataWarehouseSavedQueryFolders.map((folder) => ({
@@ -2582,7 +2569,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         isTest: false,
                         materializeAfterSave,
                         incrementalEnabled: false,
-                        incrementalKey: incrementalCheck?.key_candidates[0] ?? null,
+                        incrementalKey: null,
                         incrementalUniqueKey: [],
                         incrementalLookbackSeconds: 0,
                     },
@@ -2674,7 +2661,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                                     <span className="text-muted cursor-pointer">&#9432;</span>
                                                 </Tooltip>
                                             </div>
-                                            {value && <IncrementalConfigFields check={incrementalCheck} />}
+                                            <IncrementalConfigFields queries={candidates.queries} />
                                         </>
                                     )}
                                 </LemonField>

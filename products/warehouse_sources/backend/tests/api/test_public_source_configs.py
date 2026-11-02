@@ -91,6 +91,17 @@ class TestPublicSourceConfigs(APIBaseTest):
         response = self.client.get("/api/public_source_configs/")
         assert response.json()["Postgres"]["tables"] == []
 
+    def test_cdc_engine_is_set_for_every_source_with_change_capture(self):
+        response = self.client.get("/api/public_source_configs/")
+
+        engines = {source_type: config["cdcEngine"] for source_type, config in response.json().items()}
+
+        assert {source_type: engine for source_type, engine in engines.items() if engine is not None} == {
+            "Postgres": "postgres",
+            "Supabase": "postgres",
+            "Neon": "postgres",
+        }
+
     def test_every_config_exposes_version_fields(self):
         """The external version-update automation consumes these exact field names."""
         response = self.client.get("/api/public_source_configs/")

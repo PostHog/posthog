@@ -49,7 +49,7 @@ from posthog.settings import (
 )
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 TEST_BUCKET = "test_storage_bucket-ee.TestSessionRecordingPlaylist"
@@ -337,11 +337,11 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         )
 
     def test_can_create_many_playlists_without_n_plus_1(self):
-        with self.assertNumQueries(12 * 50 + 1):
+        with self.assertNumQueries(11 * 50 + 1):
             for i in range(50):
                 self._create_playlist({"name": f"test-{i}", "type": "collection"})
 
-        with self.assertNumQueries(12 * 100):
+        with self.assertNumQueries(11 * 100):
             for i in range(100):
                 self._create_playlist({"name": f"test-{i}", "type": "collection"})
 
@@ -425,7 +425,7 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert SessionRecordingPlaylistViewed.objects.count() == 0
 
-    def _create_denied_experiment_and_viewer(self) -> tuple[Experiment, User]:
+    def _create_denied_experiment_and_viewer(self) -> tuple[int, User]:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
@@ -433,22 +433,20 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         flag = FeatureFlag.objects.create(
             team=self.team, key="playlist-exposure-flag", created_by=self.user, filters={}
         )
-        experiment = Experiment.objects.create(
-            team=self.team,
+        experiment_id = create_experiment(
+            team_id=self.team.id,
             name="playlist exposure experiment",
-            feature_flag=flag,
-            created_by=self.user,
-            exposure_criteria={},
-            metrics=[],
+            feature_flag_id=flag.id,
+            created_by_id=self.user.id,
         )
         AccessControl.objects.create(
-            team=self.team, resource="experiment", resource_id=str(experiment.pk), access_level="none"
+            team=self.team, resource="experiment", resource_id=str(experiment_id), access_level="none"
         )
-        return experiment, self._create_user("denied-playlist-viewer@posthog.com")
+        return experiment_id, self._create_user("denied-playlist-viewer@posthog.com")
 
     def test_rejects_saving_filters_that_reference_an_experiment_the_saver_cannot_view(self) -> None:
-        experiment, denied_user = self._create_denied_experiment_and_viewer()
-        exposure_filters = {"date_from": "-30d", "experiment_exposure": {"experiment_id": experiment.id}}
+        experiment_id, denied_user = self._create_denied_experiment_and_viewer()
+        exposure_filters = {"date_from": "-30d", "experiment_exposure": {"experiment_id": experiment_id}}
         self.client.force_login(denied_user)
         plain_playlist = self._create_playlist({"type": "filters", "filters": {"date_from": "-30d"}})
 
@@ -469,13 +467,13 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
     def test_saves_filters_that_reference_an_experiment_the_saver_can_view(self) -> None:
         # The experiment's creator keeps viewer access despite the team-wide "none", so the
         # save-time check must let their save through.
-        experiment, _ = self._create_denied_experiment_and_viewer()
+        experiment_id, _ = self._create_denied_experiment_and_viewer()
 
         self._create_playlist(
             {
                 "name": "exposed sessions",
                 "type": "filters",
-                "filters": {"date_from": "-30d", "experiment_exposure": {"experiment_id": experiment.id}},
+                "filters": {"date_from": "-30d", "experiment_exposure": {"experiment_id": experiment_id}},
             }
         )
 
@@ -888,6 +886,34 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_200_OK
         assert {x["id"] for x in response.json()["results"]} == {recent_session}
+
+    def test_collection_recordings_respect_requested_limit(self) -> None:
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team, name="collection", created_by=self.user, type="collection"
+        )
+
+        sessions_newest_first = [f"collection-limit-{i}-{uuid4()}" for i in range(3)]
+        three_days_ago = (datetime.now() - timedelta(days=3)).replace(tzinfo=UTC)
+
+        for hours_earlier, session_id in enumerate(sessions_newest_first):
+            timestamp = three_days_ago - timedelta(hours=hours_earlier)
+            produce_replay_summary(
+                team_id=self.team.id,
+                session_id=session_id,
+                distinct_id="123",
+                first_timestamp=timestamp,
+                last_timestamp=timestamp,
+            )
+            self.client.post(
+                f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/{session_id}"
+            )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings",
+            data={"limit": 2},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert {x["id"] for x in response.json()["results"]} == set(sessions_newest_first[:2])
 
     @parameterized.expand(
         [

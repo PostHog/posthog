@@ -96,6 +96,8 @@ from .config import (
     clear_dotfiles_uri,
     clear_git_identity,
     clear_region,
+    clear_worktree_auto_sources,
+    clear_worktree_box_cleanup,
     load_config,
     save_dotfiles_uri,
     save_git_identity,
@@ -1053,6 +1055,26 @@ def _reset_dotfiles() -> bool:
     return True
 
 
+def _reset_worktree_box_cleanup() -> bool:
+    config = load_config()
+    if not config.get("worktree_box_cleanup"):
+        click.echo("Nothing to clear: worktree box cleanup was not set.")
+        return False
+    clear_worktree_box_cleanup(config)
+    click.echo("Cleared worktree box cleanup. `hogli worktrees:clean` now leaves devboxes alone by default.")
+    return True
+
+
+def _reset_worktree_auto_sources() -> bool:
+    config = load_config()
+    if not config.get("worktree_auto_box"):
+        click.echo("Nothing to clear: automatic worktree boxes were off.")
+        return False
+    clear_worktree_auto_sources(config)
+    click.echo("Turned off automatic worktree boxes. New worktrees no longer get a devbox.")
+    return True
+
+
 def _git_identity_status(config: DevboxConfig, _: set[str]) -> str | None:
     name = config.get("git_name")
     email = config.get("git_email")
@@ -1123,6 +1145,20 @@ _CONFIG_ITEMS: tuple[_ConfigItem, ...] = (
         needs_secrets=True,
         status=_secret_status(CLAUDE_CODE_OAUTH_ENV),
         reset=lambda: _reset_user_secret(CLAUDE_CODE_OAUTH_ENV),
+    ),
+    _ConfigItem(
+        cli_key="worktree-boxes",
+        label="Worktree box cleanup",
+        needs_secrets=False,
+        status=_field_status("worktree_box_cleanup"),
+        reset=_reset_worktree_box_cleanup,
+    ),
+    _ConfigItem(
+        cli_key="worktree-auto",
+        label="Automatic worktree boxes",
+        needs_secrets=False,
+        status=_field_status("worktree_auto_box"),
+        reset=_reset_worktree_auto_sources,
     ),
 )
 
@@ -1866,7 +1902,8 @@ def devbox_config_rm(keys: tuple[str, ...], reset_all: bool) -> None:
     """Remove one or more saved devbox configuration items.
 
     Valid keys mirror the matching ``--configure-*`` flags on ``devbox:setup``:
-    ``git-identity``, ``git-signing``, ``region``, ``dotfiles``, ``claude``.
+    ``git-identity``, ``git-signing``, ``region``, ``dotfiles``, ``claude``, ``worktree-boxes``,
+    ``worktree-auto``.
     """
     by_key = _config_items_by_key()
     valid_keys = tuple(by_key)

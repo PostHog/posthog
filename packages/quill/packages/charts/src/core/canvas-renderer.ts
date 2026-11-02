@@ -436,6 +436,10 @@ function getHatchPattern(ctx: CanvasRenderingContext2D, color: string): CanvasPa
         if (scale !== 1 && typeof pattern.setTransform === 'function' && typeof DOMMatrix === 'function') {
             pattern.setTransform(new DOMMatrix([1 / scale, 0, 0, 1 / scale, 0, 0]))
         }
+        // Per-bar colors and each browser zoom level add a key, so evict the oldest past a cap.
+        if (hatchPatternCache.size >= 64) {
+            hatchPatternCache.delete(hatchPatternCache.keys().next().value!)
+        }
         hatchPatternCache.set(key, pattern)
         return pattern
     }
