@@ -182,18 +182,40 @@ export const searchListsLogic = kea<searchListsLogicType>([
             (s) => [s.organizationIntegrations],
             (organizationIntegrations: IntegrationType[] | null): boolean => !!organizationIntegrations?.length,
         ],
-        starredItems: [(s) => [s.cachedStarred], starredSearchItems],
-        productsItems: [(s) => [s.featureFlags, s.showUnreleased, s.sceneLogViewsByRef], productSearchItems],
+        starredItems: [
+            (s) => [s.cachedStarred],
+            (cachedStarred: FileSystemEntry[]): SearchItem[] => starredSearchItems(cachedStarred),
+        ],
+        productsItems: [
+            (s) => [s.featureFlags, s.showUnreleased, s.sceneLogViewsByRef],
+            (
+                featureFlags: FeatureFlagsSet,
+                showUnreleased: boolean,
+                sceneLogViewsByRef: Record<string, string>
+            ): SearchItem[] => productSearchItems(featureFlags, showUnreleased, sceneLogViewsByRef),
+        ],
         dataManagementItems: [
             (s) => [s.featureFlags, s.showUnreleased, s.sceneLogViewsByRef],
-            dataManagementSearchItems,
+            (
+                featureFlags: FeatureFlagsSet,
+                showUnreleased: boolean,
+                sceneLogViewsByRef: Record<string, string>
+            ): SearchItem[] => dataManagementSearchItems(featureFlags, showUnreleased, sceneLogViewsByRef),
         ],
         newItems: [
             (s) => [s.featureFlags, s.showUnreleased, (_, props: SearchListsLogicProps) => props.commandPalette],
-            newSearchItems,
+            (featureFlags: FeatureFlagsSet, showUnreleased: boolean, commandPalette: boolean): SearchItem[] =>
+                newSearchItems(featureFlags, showUnreleased, commandPalette),
         ],
-        peopleItems: [(s) => [s.treeGroupItems, s.sceneLogViewsByRef], peopleSearchItems],
-        healthItems: [(s) => [s.sceneLogViewsByRef], healthSearchItems],
+        peopleItems: [
+            (s) => [s.treeGroupItems, s.sceneLogViewsByRef],
+            (treeGroupItems: FileSystemImport[], sceneLogViewsByRef: Record<string, string>): SearchItem[] =>
+                peopleSearchItems(treeGroupItems, sceneLogViewsByRef),
+        ],
+        healthItems: [
+            (s) => [s.sceneLogViewsByRef],
+            (sceneLogViewsByRef: Record<string, string>): SearchItem[] => healthSearchItems(sceneLogViewsByRef),
+        ],
         miscItems: [
             (s) => [s.sceneLogViewsByRef, s.showTerminal],
             (sceneLogViewsByRef: Record<string, string>, showTerminal: boolean): SearchItem[] =>
