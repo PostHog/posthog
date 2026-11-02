@@ -962,21 +962,32 @@ export class EmailService {
                 app_source_id: invocation.parentRunId ?? invocation.functionId,
                 instance_id: invocation.state.actionId || invocation.id,
                 metric_kind: 'email',
-                // The sending tier promotes on `email_sent`, and sandbox sends reach only the team's own
-                // members, so they must not count as sending history.
-                metric_name: success ? (isSandbox ? 'email_sandbox_sent' : 'email_sent') : 'email_failed',
+                metric_name: success ? 'email_sent' : 'email_failed',
                 count: 1,
             })
 
             // Untracked sends can never produce opens/clicks, so record them separately: open/click
             // rates are computed against (delivered - untracked) to avoid deflation.
-            if (success && !trackingEnabled && !isSandbox) {
+            if (success && !trackingEnabled) {
                 result.metrics.push({
                     team_id: invocation.teamId,
                     app_source_id: invocation.parentRunId ?? invocation.functionId,
                     instance_id: invocation.state.actionId || invocation.id,
                     metric_kind: 'email',
                     metric_name: 'email_untracked',
+                    count: 1,
+                })
+            }
+
+            // Sandbox sends reach only the team's own members, so the sending tier subtracts this from its
+            // promotion volume; reports keep counting them in `email_sent`.
+            if (success && isSandbox) {
+                result.metrics.push({
+                    team_id: invocation.teamId,
+                    app_source_id: invocation.parentRunId ?? invocation.functionId,
+                    instance_id: invocation.state.actionId || invocation.id,
+                    metric_kind: 'email',
+                    metric_name: 'email_sandbox_sent',
                     count: 1,
                 })
             }

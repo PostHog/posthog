@@ -96,4 +96,4 @@ The worker checks members after the claim and gives the claim back when that che
 An SES throttle response also gives the claim back before the delivery retry. Returns are deduplicated, and Valkey ignores a return that arrives more than five minutes after it was issued.
 Test sends run inline in the CDP API, so a sandbox-enabled CDP API opens the SES Valkey pool (`SES_RATE_LIMITER_VALKEY_*`) for the allowances. Without it, every sandbox test send skips.
 Each delivered send emits a `workflows sandbox email sent` event.
-Live workflow sends record `email_sandbox_sent` instead of `email_sent`, so they never count toward the sending tier; test sends record neither.
+Live workflow sends record `email_sent`, so workflow reports count them, and also `email_sandbox_sent`, so the sending tier can leave them out of its promotion volume; test sends record neither.
