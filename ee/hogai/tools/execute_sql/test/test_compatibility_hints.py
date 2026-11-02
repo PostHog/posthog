@@ -124,6 +124,26 @@ class TestBuildCompatibilityHint:
                 "`greater` does not accept `Date`, `UInt8`",
             ),
             (
+                "aggregate_in_group_by",
+                "Code: 184. DB::Exception: Aggregate function count() is found in GROUP BY in query. (ILLEGAL_AGGREGATION)",
+                "`count()` is an aggregate, so it cannot be a GROUP BY key",
+            ),
+            (
+                "if_suffix_condition_type",
+                "Code: 43. DB::Exception: Illegal type String of the last argument of an aggregate function with the If suffix: the last argument is the condition and must be UInt8. If the condition is missing, it goes after the arguments of the aggregate function. (ILLEGAL_TYPE_OF_ARGUMENT)",
+                "it must be a boolean, not String",
+            ),
+            (
+                "illegal_argument_value_type",
+                "Code: 43. DB::Exception: A value of illegal type was provided as 2nd argument 'startdate' to function 'dateDiff'. Expected: Date[32] or DateTime[64], got: String: In scope SELECT dateDiff('day', '2025-01-01', now()). (ILLEGAL_TYPE_OF_ARGUMENT)",
+                "`dateDiff` got String as its 2nd argument, but expects Date[32] or DateTime[64]. Event, person",
+            ),
+            (
+                "array_aggregate_on_nullable",
+                "Code: 43. DB::Exception: array aggregation function cannot be performed on type Nullable(String): In scope SELECT arraySum([toNullable('1')]). (ILLEGAL_TYPE_OF_ARGUMENT)",
+                "but the array holds Nullable(String). Convert each element first",
+            ),
+            (
                 "hogql_nested_aggregate",
                 "Aggregation 'count' cannot be nested inside another aggregation 'avg'.",
                 "`count` is nested inside another aggregate",

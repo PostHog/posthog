@@ -53,6 +53,7 @@ _BAD_CAST_RE = re.compile(r"Unsupported type cast to '([^']{1,40})'")
 _NESTED_AGGREGATE_RE = re.compile(r"Aggregate function (.{1,1000}?) is found inside another aggregate function")
 _HOGQL_NESTED_AGGREGATE_RE = re.compile(r"Aggregation '(\w+)' cannot be nested inside another aggregation")
 _AGGREGATE_IN_FILTER_RE = re.compile(r"Aggregate function (.{1,1000}?) is found in (WHERE|PREWHERE)")
+_AGGREGATE_IN_GROUP_BY_RE = re.compile(r"Aggregate function (.{1,1000}?) is found in GROUP BY")
 _NOT_AN_AGGREGATE_RE = re.compile(r"Column (.{1,1000}?) is not under aggregate function and not in GROUP BY")
 # ClickHouse prints the rejected types and the function in four shapes: `type of first argument of
 # function f`, `type of argument #1 'name' of function f`, `type of argument for aggregate function
@@ -63,6 +64,16 @@ _ILLEGAL_ARGUMENT_TYPE_RES = (
     ),
     re.compile(r"Illegal types? (.{1,120}?) of arguments? for aggregate function (\w+)(?=[.,]|\s*\(|\s*$)"),
     re.compile(r"Illegal types? of arguments? \((.{1,120}?)\) of function `?(\w+)"),
+)
+_IF_CONDITION_TYPE_RE = re.compile(
+    r"Illegal type (.{1,120}?) of the last argument of an aggregate function with the If suffix"
+)
+_ILLEGAL_ARGUMENT_VALUE_RE = re.compile(
+    r"A value of illegal type was provided as (\w+) argument (?:'[^']{0,60}' )?to function '(\w+)'\. "
+    r"Expected: (.{1,120}?), got: ([\w(), ]{1,60}?)(?=: |\. |$)"
+)
+_ARRAY_AGGREGATE_TYPE_RE = re.compile(
+    r"array aggregation function cannot be performed on type ([\w(), ]{1,60}?)(?=: |\. |$)"
 )
 # A comparison or IN between a string property and a number fails before any function is named.
 _NO_COMMON_TYPE_RE = re.compile(r"There is no supertype for types (.{1,120}?) because")
@@ -113,8 +124,12 @@ def build_compatibility_hint(error_message: str) -> str | None:
         _cast_rewrite,
         _nested_aggregate_rewrite,
         _aggregate_in_filter_rewrite,
+        _aggregate_in_group_by_rewrite,
         _not_an_aggregate_rewrite,
+        _if_condition_rewrite,
         _argument_type_rewrite,
+        _argument_value_type_rewrite,
+        _array_aggregate_rewrite,
         _no_common_type_rewrite,
     ):
         rewrite = rule(error_message)
@@ -187,6 +202,17 @@ def _aggregate_in_filter_rewrite(error_message: str) -> str | None:
     )
 
 
+def _aggregate_in_group_by_rewrite(error_message: str) -> str | None:
+    match = _AGGREGATE_IN_GROUP_BY_RE.search(error_message)
+    if match is None:
+        return None
+    return (
+        f"`{_display(match.group(1))}` is an aggregate, so it cannot be a GROUP BY key. Group by the plain columns "
+        "and keep the aggregate in SELECT. To bucket rows by an aggregate's value, compute it per group in a "
+        "subquery, then GROUP BY that column in the outer query."
+    )
+
+
 def _not_an_aggregate_rewrite(error_message: str) -> str | None:
     match = _NOT_AN_AGGREGATE_RE.search(error_message)
     if match is None:
@@ -209,6 +235,40 @@ def _argument_type_rewrite(error_message: str) -> str | None:
         return None
     types, function = match.group(1), match.group(2)
     return _type_mismatch_advice(f"`{function}` does not accept {types}.", types)
+
+
+def _if_condition_rewrite(error_message: str) -> str | None:
+    match = _IF_CONDITION_TYPE_RE.search(error_message)
+    if match is None:
+        return None
+    return (
+        f"The last argument of an aggregate with the If suffix is its condition, and it must be a boolean, not "
+        f"{_display(match.group(1))}. Write it as a comparison: countIf(event = '$pageview') or "
+        "sumIf(toFloat(properties.amount), properties.plan = 'pro'). A string property used as a flag needs a "
+        "comparison too: countIf(properties.is_paid = 'true')."
+    )
+
+
+def _argument_value_type_rewrite(error_message: str) -> str | None:
+    match = _ILLEGAL_ARGUMENT_VALUE_RE.search(error_message)
+    if match is None:
+        return None
+    position, function, expected, received = match.groups()
+    return _type_mismatch_advice(
+        f"`{function}` got {received} as its {position} argument, but expects {_display(expected)}.", received
+    )
+
+
+def _array_aggregate_rewrite(error_message: str) -> str | None:
+    match = _ARRAY_AGGREGATE_TYPE_RE.search(error_message)
+    if match is None:
+        return None
+    return (
+        f"Array aggregates such as arraySum and arrayAvg need non-null numbers, but the array holds "
+        f"{match.group(1)}. Convert each element first: arraySum(arrayMap(x -> ifNull(toFloat(x), 0), arr)). "
+        "For an average, drop empty values instead of counting them as 0: "
+        "arrayAvg(arrayMap(x -> assumeNotNull(x), arrayFilter(x -> x IS NOT NULL, arrayMap(x -> toFloat(x), arr))))."
+    )
 
 
 def _no_common_type_rewrite(error_message: str) -> str | None:
