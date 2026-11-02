@@ -22,7 +22,7 @@ from collections.abc import Callable
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
-from products.data_modeling.backend.logic.freshness import SCHEDULABLE_BUCKETS
+from products.data_modeling.backend.logic.freshness import ensure_schedulable
 
 if TYPE_CHECKING:
     from posthog.hogql.database.models import FieldOrTable
@@ -53,8 +53,7 @@ class ProvidedView:
     incremental_config: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
-        if self.sync_frequency not in SCHEDULABLE_BUCKETS:
-            raise ValueError(f"{self.name}: sync_frequency {self.sync_frequency} is not a schedulable cadence bucket")
+        ensure_schedulable(self.sync_frequency)
 
 
 ExpectedViewsProvider = Callable[["Team"], list[ProvidedView]]

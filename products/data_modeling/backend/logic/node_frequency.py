@@ -18,17 +18,21 @@ from products.data_modeling.backend.facade.contracts import SavedQueryNodeState,
 from products.data_modeling.backend.logic.cohort_scheduling import MINUTES_PER_WEEK
 from products.data_modeling.backend.logic.freshness import (
     STREAMING,
+    InvalidTarget,
     TargetBounds,
     all_source_floors,
     ancestors_of,
+    clamp_to_source_floor,
+    compute_effective_cadences,
     compute_target_bounds,
+    find_invalid_targets,
     intersect_target_bounds,
     max_data_age,
     normalize_seed_target,
 )
 from products.data_modeling.backend.logic.node_suspension import merged_suspension_state
 from products.data_modeling.backend.models.dag import DAG
-from products.data_modeling.backend.models.edge import NON_SCHEDULING_EDGES, Edge
+from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import SAVED_QUERY_NODE_TYPES, Node, NodeType
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
 
@@ -134,6 +138,12 @@ def node_states_by_saved_query(
 
 def set_declared_target(node: Node, target: timedelta | None) -> None:
     """Set (or clear, with None) the node's declared target without touching sibling system state."""
+    stage_declared_target(node, target)
+    node.save(update_fields=["properties"])
+
+
+def stage_declared_target(node: Node, target: timedelta | None) -> None:
+    """`set_declared_target` without the save, for callers that write many nodes in one update."""
     properties = node.properties or {}
     frequency = properties.setdefault(_SYSTEM_KEY, {}).setdefault(_FREQUENCY_KEY, {})
     if target is None:
@@ -141,7 +151,6 @@ def set_declared_target(node: Node, target: timedelta | None) -> None:
     else:
         frequency[_TARGET_SECONDS_KEY] = int(target.total_seconds())
     node.properties = properties
-    node.save(update_fields=["properties"])
 
 
 def get_declared_anchor(node: Node) -> int | None:
@@ -255,10 +264,19 @@ class FrequencyGraph:
     identities: dict[str, NodeIdentity]  # node id -> the resource its name belongs to
     managed_node_ids: set[str]  # nodes whose target the managed viewset provider declares
 
+    def invalid_targets(self, declared_targets: dict[str, timedelta] | None = None) -> list[InvalidTarget]:
+        """Declared targets outside their bounds. A provider's cadence may sit below its source floor."""
+        return find_invalid_targets(
+            edges=self.edges,
+            declared_targets=self.declared_targets if declared_targets is None else declared_targets,
+            source_intervals=self.source_intervals,
+            floor_exempt=self.managed_node_ids,
+        )
 
-def provider_cadence_source_id(managed_node_id: str) -> str:
-    """The source a managed view's readers see in its place, syncing at the provider's cadence."""
-    return f"{managed_node_id}:provider-cadence"
+
+def _managed_view_source_id(managed_node_id: str) -> str:
+    """The source a managed view's readers see in its place, syncing as often as it refreshes."""
+    return f"{managed_node_id}:managed-view"
 
 
 def build_frequency_graph(dag: DAG) -> FrequencyGraph:
@@ -270,18 +288,13 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
             "id", flat=True
         )
     }
-    edges = [
-        (str(source_id), str(target_id))
-        for source_id, target_id in Edge.objects.filter(dag=dag)
-        .exclude(NON_SCHEDULING_EDGES)
-        .values_list("source_id", "target_id")
-    ]
-    managed_reader_edges = [
-        (str(source_id), str(target_id))
-        for source_id, target_id in Edge.objects.filter(NON_SCHEDULING_EDGES, dag=dag).values_list(
-            "source_id", "target_id"
-        )
-    ]
+    edges: list[tuple[str, str]] = []
+    managed_reader_edges: list[tuple[str, str]] = []
+    for source_id, target_id in Edge.objects.filter(dag=dag).values_list("source_id", "target_id"):
+        edge = (str(source_id), str(target_id))
+        # The same split as NON_SCHEDULING_EDGES, from ids already loaded instead of a second join.
+        is_managed_reader = edge[0] in managed_node_ids and edge[1] not in managed_node_ids
+        (managed_reader_edges if is_managed_reader else edges).append(edge)
 
     schedulable = {str(node.id) for node in nodes if node.type in SAVED_QUERY_NODE_TYPES}
     declared_targets: dict[str, timedelta] = {}
@@ -299,16 +312,23 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
     names = {str(node.id): node.name for node in nodes}
     identities = {str(node.id): node_identity(node) for node in nodes}
 
-    # A reader never sets a managed view's cadence, but it cannot be fresher than that cadence either.
-    for managed_id, reader_id in managed_reader_edges:
-        cadence = declared_targets.get(managed_id)
-        if cadence is None or managed_id not in names:
-            continue
-        source_id = provider_cadence_source_id(managed_id)
-        source_intervals[source_id] = cadence
-        names[source_id] = names[managed_id]
-        identities[source_id] = identities[managed_id]
-        edges.append((source_id, reader_id))
+    # A reader never sets a managed view's cadence, but it cannot be fresher than the cadence the
+    # scheduler runs that view at. A query-time view has none, so its readers see its sources' floor.
+    if managed_reader_edges:
+        runs_every, _clamped = clamp_to_source_floor(
+            compute_effective_cadences(nodes=schedulable, edges=edges, declared_targets=declared_targets),
+            edges=edges,
+            source_intervals=source_intervals,
+        )
+        floors = all_source_floors(edges, source_intervals)
+        for managed_id, reader_id in managed_reader_edges:
+            if managed_id not in names:
+                continue
+            source_id = _managed_view_source_id(managed_id)
+            source_intervals[source_id] = runs_every.get(managed_id) or floors.get(managed_id, STREAMING)
+            names[source_id] = names[managed_id]
+            identities[source_id] = identities[managed_id]
+            edges.append((source_id, reader_id))
 
     return FrequencyGraph(
         nodes=schedulable,

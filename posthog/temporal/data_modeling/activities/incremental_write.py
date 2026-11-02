@@ -23,10 +23,8 @@ stays on delta-rs.
 import json
 import shutil
 import sqlite3
-import weakref
 import threading
 from collections.abc import Iterator
-from contextlib import ExitStack, suppress
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, Optional
@@ -44,9 +42,10 @@ MAX_UNIQUE_KEY_CHECK_BYTES = 256 * 1024 * 1024
 
 # The spilled index shares the worker's temporary disk with every other activity on it. Past this
 # size, or once that disk has less than the reserve free, the check fails the run loudly rather than
-# filling the disk under its neighbours.
+# filling the disk under its neighbors.
 MAX_UNIQUE_KEY_SPILL_BYTES = 4 * 1024 * 1024 * 1024
 MIN_FREE_SPILL_DISK_BYTES = 2 * 1024 * 1024 * 1024
+_SPILL_FILE = "keys.sqlite3"
 
 # A materialization batch is about 100 MB, so a narrow key-only table sends ~12M rows at once, and the
 # group-by hash table for that many rows dwarfs the stored keys. Checking in slices keeps that bounded.
@@ -145,36 +144,52 @@ class UniqueKeyTracker:
         self._seen_chunks: list[pa.Table] = []
         self._seen_bytes = 0
         self._spill: sqlite3.Connection | None = None
-        self._spill_directory: Path | None = None
-        self._resources = ExitStack()
-        # Checks run on executor threads, so cleanup cannot depend on which thread releases the tracker.
-        self._cleanup = weakref.finalize(self, self._resources.close)
+        self._spill_directory: TemporaryDirectory[str] | None = None
         self._running = threading.Lock()
         self._closed = threading.Event()
 
     def close(self) -> None:
-        """Remove the spilled index. Safe to call from any thread, and while a check is running."""
+        """Remove the spilled index. Safe to call from any thread: a running check stops at its next
+        chunk and removes the index itself."""
         self._closed.set()
-        if self._running.acquire(blocking=False):
-            try:
-                self._cleanup()
-            finally:
-                self._running.release()
-        elif self._spill is not None:
-            # The running check removes the index when it stops. This only cuts its insert short.
-            with suppress(sqlite3.ProgrammingError):
-                self._spill.interrupt()
+        if not self._running.acquire(blocking=False):
+            return
+        try:
+            if self._spill is not None:
+                self._spill.close()
+            if self._spill_directory is not None:
+                self._spill_directory.cleanup()
+        finally:
+            self._running.release()
 
     def _raise_if_closed(self) -> None:
         if self._closed.is_set():
             raise _TrackerClosed()
 
+    def _duplicate_key_error(self, occurrences: str) -> IncrementalWriteError:
+        return IncrementalWriteError(
+            f"The unique key ({', '.join(self._columns)}) does not identify a single row: {occurrences} in "
+            "this run's result. Add the columns that tell those rows apart."
+        )
+
+    def _raise_if_over_disk_budget(self) -> None:
+        assert self._spill_directory is not None
+        directory = Path(self._spill_directory.name)
+        if (directory / _SPILL_FILE).stat().st_size > MAX_UNIQUE_KEY_SPILL_BYTES or (
+            shutil.disk_usage(directory).free < MIN_FREE_SPILL_DISK_BYTES
+        ):
+            raise IncrementalWriteError(
+                "This query returns too many unique keys to verify. Reduce the rows the query returns, or "
+                "turn off incremental materialization for this view to fall back to a full refresh."
+            )
+
     def _check_disk(self, keys: pa.Table) -> None:
-        assert self._spill is not None and self._spill_directory is not None
+        assert self._spill is not None
 
         def rows() -> Iterator[tuple[str]]:
             for batch in keys.to_batches(max_chunksize=8192):
                 self._raise_if_closed()
+                self._raise_if_over_disk_budget()
                 columns = batch.to_pydict().values()
                 for row in zip(*columns, strict=True):
                     # Arrow groups positive and negative zero together. JSON otherwise preserves
@@ -186,29 +201,12 @@ class UniqueKeyTracker:
             with self._spill:
                 self._spill.executemany("INSERT INTO unique_keys (key) VALUES (?)", rows())
         except sqlite3.IntegrityError as error:
-            raise IncrementalWriteError(
-                f"The unique key ({', '.join(self._columns)}) does not identify a single row: "
-                "a key appears more than once in this run's result. Add the columns that tell those rows apart."
-            ) from error
-
-        (page_count,) = self._spill.execute("PRAGMA page_count").fetchone()
-        (page_size,) = self._spill.execute("PRAGMA page_size").fetchone()
-        if (
-            page_count * page_size > MAX_UNIQUE_KEY_SPILL_BYTES
-            or shutil.disk_usage(self._spill_directory).free < MIN_FREE_SPILL_DISK_BYTES
-        ):
-            raise IncrementalWriteError(
-                "This query returns too many unique keys to verify. Reduce the rows the query returns, or "
-                "turn off incremental materialization for this view to fall back to a full refresh."
-            )
+            raise self._duplicate_key_error("a key appears more than once") from error
 
     def _start_spill(self) -> None:
-        self._spill_directory = Path(
-            self._resources.enter_context(TemporaryDirectory(prefix="posthog-materialization-keys-"))
-        )
+        self._spill_directory = TemporaryDirectory(prefix="posthog-materialization-keys-")
         # Each check is awaited before the next starts, but asyncio.to_thread may choose another thread.
-        self._spill = sqlite3.connect(self._spill_directory / "keys.sqlite3", check_same_thread=False)
-        self._resources.callback(self._spill.close)
+        self._spill = sqlite3.connect(Path(self._spill_directory.name) / _SPILL_FILE, check_same_thread=False)
         # The index is discarded with the run, so journaling and fsync buy nothing.
         self._spill.execute("PRAGMA journal_mode=OFF")
         self._spill.execute("PRAGMA synchronous=OFF")
@@ -252,10 +250,7 @@ class UniqueKeyTracker:
             if already_seen.num_rows:
                 worst = max(worst, pc.max(already_seen.column("count_all")).as_py() + 1)
         if worst > 1:
-            raise IncrementalWriteError(
-                f"The unique key ({', '.join(self._columns)}) does not identify a single row: one key "
-                f"appears {worst} times in this run's result. Add the columns that tell those rows apart."
-            )
+            raise self._duplicate_key_error(f"one key appears {worst} times")
 
         distinct = grouped.select(self._columns).combine_chunks()
         self._seen_chunks.append(distinct)
