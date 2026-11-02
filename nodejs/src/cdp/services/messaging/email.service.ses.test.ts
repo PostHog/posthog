@@ -237,7 +237,9 @@ describe('EmailService with local SES', () => {
 
             expect(result.finished).toBe(true)
             expect(result.error).toBe(error)
-            expect(result.logs).toEqual(expect.arrayContaining([expect.objectContaining({ level: 'error', message: error })]))
+            expect(result.logs).toEqual(
+                expect.arrayContaining([expect.objectContaining({ level: 'error', message: error })])
+            )
             expect(result.invocation.queueParameters).toBeUndefined()
             expect(result.invocation.queueScheduledAt).toBeUndefined()
             expect(result.invocation.state.vmState?.stack).toEqual([{ success: false }])
@@ -511,11 +513,16 @@ describe('EmailService with local SES', () => {
     })
 
     describe('post-send faults', () => {
-        const expectSentDespiteFault = async (result: Awaited<ReturnType<EmailService['executeSendEmail']>>, warning: string): Promise<void> => {
+        const expectSentDespiteFault = async (
+            result: Awaited<ReturnType<EmailService['executeSendEmail']>>,
+            warning: string
+        ): Promise<void> => {
             expect(result.finished).toBe(true)
             expect(result.error).toBeUndefined()
             expect(result.metrics.map((metric) => metric.metric_name)).toEqual(['email_sent', 'email_untracked'])
-            expect(result.logs).toEqual(expect.arrayContaining([expect.objectContaining({ level: 'warn', message: warning })]))
+            expect(result.logs).toEqual(
+                expect.arrayContaining([expect.objectContaining({ level: 'warn', message: warning })])
+            )
             expect(result.invocation.state.vmState?.stack).toEqual([{ success: true }])
             expect(result.invocation.queueParameters).toBeUndefined()
             expect(result.invocation.queueScheduledAt).toBeUndefined()

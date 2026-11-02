@@ -3721,8 +3721,7 @@ describe('Workflows E2E (email queue)', () => {
             .build()
         await insertHogFlow(hub.postgres, hogFlow)
 
-        const emailsSent = () =>
-            sumCounts((m) => m.value.metric_name === 'email_sent')
+        const emailsSent = () => sumCounts((m) => m.value.metric_name === 'email_sent')
 
         // Trigger: email_1 routes to the email queue, the email worker sends it and continues the
         // flow to the wait step, which parks.

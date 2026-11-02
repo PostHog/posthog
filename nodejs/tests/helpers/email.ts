@@ -70,7 +70,9 @@ export class EmailInvocationFixture {
         }
     }
 
-    params(overrides: Partial<CyclotronInvocationQueueParametersEmailType> = {}): CyclotronInvocationQueueParametersEmailType {
+    params(
+        overrides: Partial<CyclotronInvocationQueueParametersEmailType> = {}
+    ): CyclotronInvocationQueueParametersEmailType {
         const from = overrides.from ?? { integrationId: 1 }
         return {
             type: 'email',

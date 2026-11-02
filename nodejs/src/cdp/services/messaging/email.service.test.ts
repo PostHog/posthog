@@ -894,9 +894,9 @@ describe('EmailService', () => {
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
             await waitForExpect(async () => expect(mailDevAPI.getEmails()).resolves.toHaveLength(1))
-            const emails = await mailDevAPI.getEmails()
-            expect(emails).toHaveLength(1)
-            expect(emails[0]).toMatchObject({
+            const delivered = await mailDevAPI.getEmails()
+            expect(delivered).toHaveLength(1)
+            expect(delivered[0]).toMatchObject({
                 from: [{ address: 'test@posthog.com', name: 'Test User' }],
                 html: 'Test HTML',
                 subject: 'Test Subject',
@@ -910,11 +910,11 @@ describe('EmailService', () => {
             })
             await service.executeSendEmail(invocation)
             await waitForExpect(async () => expect(mailDevAPI.getEmails()).resolves.toHaveLength(1))
-            const emails = await mailDevAPI.getEmails()
-            expect(emails).toHaveLength(1)
+            const delivered = await mailDevAPI.getEmails()
+            expect(delivered).toHaveLength(1)
             // ph_id may be unsigned (base64url only) or signed (base64url + `.` + signature) depending on
             // ENCRYPTION_SALT_KEYS. Match the structure, not the exact value.
-            expect(emails[0].html).toMatch(
+            expect(delivered[0].html).toMatch(
                 /^<body>Hi! <a href="http:\/\/localhost:8010\/public\/m\/redirect\?ph_id=[A-Za-z0-9._-]+&ph_sig=[A-Za-z0-9_-]+&target=https%3A%2F%2Fexample\.com">Click me<\/a><img src="http:\/\/localhost:8010\/public\/m\/pixel\?ph_id=[A-Za-z0-9._-]+" style="display: none;" \/><\/body>$/
             )
         })
