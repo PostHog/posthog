@@ -2171,6 +2171,29 @@ export interface SavedQueryMaterializeApi {
     sync_frequency?: MaterializeSyncFrequencyEnumApi
 }
 
+/**
+ * * `clickhouse` - ClickHouse
+ * * `trino` - Trino
+ */
+export type MaterializationEngineEnumApi =
+    (typeof MaterializationEngineEnumApi)[keyof typeof MaterializationEngineEnumApi]
+
+export const MaterializationEngineEnumApi = {
+    Clickhouse: 'clickhouse',
+    Trino: 'trino',
+} as const
+
+/**
+ * Body of the `resume` action.
+ */
+export interface SavedQueryResumeRequestApi {
+    /** Resume only this engine's materialization: 'clickhouse' or 'trino' (the managed warehouse). Omit it to resume every engine the query is suspended on.
+     *
+     * * `clickhouse` - ClickHouse
+     * * `trino` - Trino */
+    engine?: MaterializationEngineEnumApi
+}
+
 export interface SavedQueryResumeApi {
     /** False when the query's materialization was not suspended. */
     resumed: boolean
@@ -2186,18 +2209,6 @@ export type MaterializationRunDirectionEnumApi =
 export const MaterializationRunDirectionEnumApi = {
     Upstream: 'upstream',
     Downstream: 'downstream',
-} as const
-
-/**
- * * `clickhouse` - ClickHouse
- * * `trino` - Trino
- */
-export type MaterializationEngineEnumApi =
-    (typeof MaterializationEngineEnumApi)[keyof typeof MaterializationEngineEnumApi]
-
-export const MaterializationEngineEnumApi = {
-    Clickhouse: 'clickhouse',
-    Trino: 'trino',
 } as const
 
 /**
@@ -3843,6 +3854,7 @@ export interface CredentialApi {
  * * `Soniox` - Soniox
  * * `Nango` - Nango
  * * `Fathom` - Fathom
+ * * `Stamped` - Stamped
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -5262,6 +5274,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Soniox: 'Soniox',
     Nango: 'Nango',
     Fathom: 'Fathom',
+    Stamped: 'Stamped',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

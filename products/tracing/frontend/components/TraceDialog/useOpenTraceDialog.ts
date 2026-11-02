@@ -1,9 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { type MouseEvent, useCallback } from 'react'
 
+import { type OpenTraceDialogOptions, traceDialogOpenLogic } from 'lib/components/ViewTraceButton/traceDialogOpenLogic'
 import type { TraceLinkParams } from 'lib/components/ViewTraceButton/traceUrl'
-
-import { type OpenTraceDialogOptions, traceDialogLogic } from './traceDialogLogic'
 
 export type OpenTraceDialogHandler = (
     event: MouseEvent | null,
@@ -17,8 +16,8 @@ export type OpenTraceDialogHandler = (
  * non-primary clicks. Cmd and ctrl then open Tracing in a new tab, and shift opens it in place.
  */
 export function useOpenTraceDialog(): OpenTraceDialogHandler {
-    const { dialogEnabled } = useValues(traceDialogLogic)
-    const { openTraceDialog } = useActions(traceDialogLogic)
+    const { dialogEnabled } = useValues(traceDialogOpenLogic)
+    const { openTraceDialog } = useActions(traceDialogOpenLogic)
 
     // Stable while the flag holds, so callers can list it in a memo's dependencies.
     return useCallback(

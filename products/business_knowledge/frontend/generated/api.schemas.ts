@@ -614,6 +614,13 @@ export interface PaginatedKnowledgeSourceDocumentListApi {
     results: KnowledgeSourceDocumentApi[]
 }
 
+export interface KnowledgeAvailabilityApi {
+    /** True when the project has at least one business knowledge source. */
+    readonly has_sources: boolean
+    /** True when this environment has at least one GitHub repository selected. */
+    readonly has_repositories: boolean
+}
+
 export type BusinessKnowledgeDocumentsWindowListParams = {
     /**
      * Zero-based chunk ordinal to center the window on (from a search result).

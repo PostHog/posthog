@@ -981,6 +981,36 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(len(data["entries"]), DELETE_PREVIEW_ENTRY_LIMIT)
         self.assertTrue(data["has_more"])
 
+    @parameterized.expand([("count",), ("count_by_path",)])
+    def test_count_preview_queries_do_not_scale_with_rows(self, endpoint: str) -> None:
+        folder = FileSystem.objects.create(team=self.team, path="ScaleFolder", type="folder", created_by=self.user)
+        if endpoint == "count":
+            url = f"/api/projects/{self.team.id}/file_system/{folder.pk}/count"
+        else:
+            url = f"/api/projects/{self.team.id}/file_system/count_by_path?path=ScaleFolder"
+
+        def create_files(start: int, end: int) -> None:
+            for index in range(start, end):
+                FileSystem.objects.create(
+                    team=self.team, path=f"ScaleFolder/File{index}", type="feature_flag", created_by=self.user
+                )
+
+        def query_count(expected_entries: int) -> int:
+            cache.clear()
+            with CaptureQueriesContext(connection) as ctx:
+                response = self.client.post(url)
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+            self.assertEqual(len(response.json()["entries"]), expected_entries)
+            return len(ctx)
+
+        create_files(0, 2)
+        self.client.post(url)
+        few = query_count(2)
+        create_files(2, 6)
+        many = query_count(6)
+
+        self.assertEqual(few, many)
+
     def test_list_by_type_filter(self):
         """
         Ensure that the list endpoint filters results by the 'type' query parameter.

@@ -3,8 +3,8 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
-import { membersLogic } from 'scenes/organization/membersLogic'
 
+import { membersLogic } from '~/models/membersLogic'
 import { RoleMemberType, RoleType, UserBasicType } from '~/types'
 
 import type { OrganizationMemberType } from '../../../../../types'

@@ -9,8 +9,9 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { examples } from '~/queries/examples'
-import { LATEST_VERSIONS } from '~/queries/latest-versions'
 import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
+import { LATEST_VERSIONS } from '~/queries/schema/latest-versions'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     Breakdown,
     BreakdownFilter,
@@ -26,7 +27,6 @@ import {
     StickinessQuery,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 import {
     BaseMathType,
@@ -236,20 +236,20 @@ describe('insightNavLogic', () => {
         })
 
         describe('metrics tab visibility', () => {
-            const enableMetricsBuilder = (): void => {
+            it('does not offer the metrics tab on a new insight, because new metrics charts are widgets', () => {
                 featureFlagLogic.actions.setFeatureFlags([], {
                     [FEATURE_FLAGS.METRICS]: true,
                     [FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]: true,
                 })
-            }
-
-            it('hides the metrics tab without both flags', () => {
-                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]: true })
                 expect(logic.values.tabs.map((tab) => tab.type)).not.toContain(InsightType.METRICS)
             })
 
             it('keeps the metrics tab and its draft after switching to another tab and back', async () => {
-                enableMetricsBuilder()
+                // Only an open metrics query keeps the tab, as for a saved metrics insight.
+                featureFlagLogic.actions.setFeatureFlags([], {
+                    [FEATURE_FLAGS.METRICS]: true,
+                    [FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]: true,
+                })
 
                 await expectLogic(builtInsightDataLogic, () => {
                     logic.actions.setActiveView(InsightType.METRICS)

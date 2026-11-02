@@ -281,6 +281,10 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         assert len(results.suggestions) == 1
         assert results.suggestions[0].label == "some_event_value"
 
+        query = "select properties.SOME_ from events"
+        results = self._select(query=query, start=18, end=23)
+        assert [s.label for s in results.suggestions] == ["some_event_value"]
+
     def test_autocomplete_nested_tables(self):
         # Inner table
         query = "select event, (select  from persons) as blah from events"
@@ -758,6 +762,11 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         results = self._select(query=query, start=14, end=14)
 
         assert "stripe.some_table" in [x.label for x in results.suggestions]
+
+        query = "select * from STRIPE."
+        results = self._select(query=query, start=21, end=21)
+
+        assert "some_table" in [x.label for x in results.suggestions]
 
     def test_autocomplete_warehouse_table_with_source_and_prefix_dot_notation(self):
         credentials = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
