@@ -35,6 +35,12 @@ ACCEPTED_BOUNDS = [
     ("day_interval_across_a_fall_back", "toDateTime('2026-10-24 12:00:00') + interval 1 day", "Europe/Amsterdam"),
     ("hour_interval_across_a_fall_back", "toDateTime('2026-10-25 01:30:00') + interval 2 hour", "Europe/Amsterdam"),
     ("month_interval_at_a_month_end", "toDateTime('2026-01-31 12:00:00') + interval 1 month", "Europe/Amsterdam"),
+    ("wall_time_in_a_dst_fold", "'2026-10-25 02:30:00'", "Europe/Amsterdam"),
+    (
+        "hour_interval_across_a_spring_forward",
+        "toDateTime('2026-03-29 01:30:00') + interval 1 hour",
+        "Europe/Amsterdam",
+    ),
     ("now_minus_hours", "now() - interval 6 hour", "Europe/Amsterdam"),
     ("now_minus_days", "now() - interval 7 day", "Europe/Amsterdam"),
 ]
@@ -260,6 +266,17 @@ class TestClassify(BaseTest):
                 "before_the_datetime_range",
                 "select count() from events where timestamp > toDateTime(0) - interval 1 second",
                 FreshnessReason.UNSUPPORTED_BOUND,
+            ),
+            (
+                "base_before_the_datetime_range",
+                "select count() from events where timestamp >= toDateTime('1960-01-01 00:00:00') + interval 20 year",
+                FreshnessReason.UNSUPPORTED_BOUND,
+            ),
+            (
+                "literal_at_the_year_limit",
+                "select count() from events where timestamp >= '9999-12-31 23:00:00'",
+                FreshnessReason.UNSUPPORTED_BOUND,
+                ZoneInfo("America/New_York"),
             ),
             (
                 "wall_time_in_a_dst_gap",

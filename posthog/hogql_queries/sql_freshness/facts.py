@@ -146,12 +146,12 @@ def _parse_instant(value: Optional[str], timezone: tzinfo) -> Optional[datetime]
         return None
     try:
         parsed = isoparse(value)
-    except ValueError:
+        if parsed.tzinfo:
+            return parsed.astimezone(timezone)
+        local = parsed.replace(tzinfo=timezone)
+        return local if _wall_time_exists(local) else None
+    except (OverflowError, ValueError):
         return None
-    if parsed.tzinfo:
-        return parsed.astimezone(timezone)
-    local = parsed.replace(tzinfo=timezone)
-    return local if _wall_time_exists(local) else None
 
 
 def _wall_time_exists(at: datetime) -> bool:
@@ -213,7 +213,10 @@ class _Evaluator:
         self.reads_now = False
 
     def evaluate(self, expr: ast.Expr) -> Optional[datetime]:
-        expr = unwrap_alias(expr)
+        at = self._value(unwrap_alias(expr))
+        return at if at is not None and _EARLIEST_DATETIME <= at <= _LATEST_DATETIME else None
+
+    def _value(self, expr: ast.Expr) -> Optional[datetime]:
         if isinstance(expr, ast.Constant):
             return _parse_instant(_string_constant(expr), self.timezone)
         if isinstance(expr, ast.Call):
@@ -230,10 +233,9 @@ class _Evaluator:
                 return None
             unit, amount = step
             try:
-                moved = _shifted(base, unit, -amount if expr.op == ast.ArithmeticOperationOp.Sub else amount)
+                return _shifted(base, unit, -amount if expr.op == ast.ArithmeticOperationOp.Sub else amount)
             except (OverflowError, ValueError):
                 return None
-            return moved if moved is not None and _EARLIEST_DATETIME <= moved <= _LATEST_DATETIME else None
         return None
 
     def _call(self, call: ast.Call) -> Optional[datetime]:
@@ -278,7 +280,7 @@ def _bound(
     if not _is_events_timestamp(column):
         return None
     at = evaluator.evaluate(value_expr)
-    if at is None or not _EARLIEST_DATETIME <= at <= _LATEST_DATETIME:
+    if at is None:
         raise _UnsupportedBound()
     if op == ast.CompareOperationOp.Eq:
         return _Bound(start=at, end=at)
