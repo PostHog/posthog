@@ -251,10 +251,34 @@ class TestClassify(BaseTest):
                 "and person_id not in cohort 1",
                 FreshnessReason.FOREIGN_SOURCE,
             ),
+            (
+                "string_plus_interval",
+                "select count() from events where timestamp >= '2026-11-01' and timestamp < '2026-11-01' + interval 1 day",
+                FreshnessReason.UNSUPPORTED_BOUND,
+            ),
+            (
+                "before_the_datetime_range",
+                "select count() from events where timestamp > toDateTime(0) - interval 1 second",
+                FreshnessReason.UNSUPPORTED_BOUND,
+            ),
+            (
+                "wall_time_in_a_dst_gap",
+                "select count() from events where timestamp >= '2026-03-29 02:30:00'",
+                FreshnessReason.UNSUPPORTED_BOUND,
+                AMSTERDAM,
+            ),
+            (
+                "calendar_shift_into_a_dst_gap",
+                "select count() from events where timestamp >= toDateTime('2026-03-28 02:30:00') + interval 1 day",
+                FreshnessReason.UNSUPPORTED_BOUND,
+                AMSTERDAM,
+            ),
         ]
     )
-    def test_keeps_default_age(self, _name: str, sql: str, expected_reason: FreshnessReason) -> None:
-        assert self._classify(sql) == Reject(reason=expected_reason)
+    def test_keeps_default_age(
+        self, _name: str, sql: str, expected_reason: FreshnessReason, timezone: Any = None
+    ) -> None:
+        assert self._classify(sql, timezone=timezone) == Reject(reason=expected_reason)
 
     def test_record_without_a_timezone_is_missing(self) -> None:
         assert (
@@ -281,7 +305,8 @@ class TestAcceptedBoundsMatchClickHouse(ClickhouseTestMixin, APIBaseTest):
         ).windows[0]
         at = window.start if side == "start" else window.end
         assert at is not None
-        for offset in (timedelta(seconds=-30), timedelta(seconds=30)):
+        margin = timedelta(seconds=30 if "now()" in value else 1)
+        for offset in (-margin, margin):
             _create_event(team=self.team, event="bound_check", distinct_id="d", timestamp=at + offset)
         flush_persons_and_events()
         assert execute_hogql_query(sql, team=self.team).results == [(1,)]

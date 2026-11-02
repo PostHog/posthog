@@ -38,6 +38,8 @@ _EXPRESSION_FIELDS = frozenset({"person_id"})
 _TIMESTAMP_COLUMN = "timestamp"
 _ZONE_ARGUMENT_POSITION = {"toDateTime": 1, "toDateTime64": 2, "parseDateTimeBestEffort": 1}
 _NOW_FUNCTIONS = frozenset({"now", "now64"})
+_EARLIEST_DATETIME = datetime(1970, 1, 1, tzinfo=UTC)
+_LATEST_DATETIME = datetime(2106, 2, 7, 6, 28, 15, tzinfo=UTC)
 _CLOCK_FUNCTIONS = {id(meta): meta.clickhouse_name for meta in DATE_GENERATOR_FUNCTIONS.values()} | {
     id(find_hogql_function("nowInBlock")): "nowInBlock"
 }
@@ -146,13 +148,21 @@ def _parse_instant(value: Optional[str], timezone: tzinfo) -> Optional[datetime]
         parsed = isoparse(value)
     except ValueError:
         return None
-    return parsed.astimezone(timezone) if parsed.tzinfo else parsed.replace(tzinfo=timezone)
+    if parsed.tzinfo:
+        return parsed.astimezone(timezone)
+    local = parsed.replace(tzinfo=timezone)
+    return local if _wall_time_exists(local) else None
 
 
-def _shifted(at: datetime, unit: str, amount: int) -> datetime:
+def _wall_time_exists(at: datetime) -> bool:
+    return at.astimezone(UTC).astimezone(at.tzinfo).replace(tzinfo=None) == at.replace(tzinfo=None)
+
+
+def _shifted(at: datetime, unit: str, amount: int) -> Optional[datetime]:
     if unit in _SUB_DAY_UNITS:
         return (at.astimezone(UTC) + PERIOD_MAP[unit] * amount).astimezone(at.tzinfo)
-    return at + PERIOD_MAP[unit] * amount
+    moved = at + PERIOD_MAP[unit] * amount
+    return moved if _wall_time_exists(moved) else None
 
 
 class _TimestampFinder(TraversingVisitor):
@@ -212,15 +222,18 @@ class _Evaluator:
             ast.ArithmeticOperationOp.Add,
             ast.ArithmeticOperationOp.Sub,
         ):
+            if isinstance(unwrap_alias(expr.left), ast.Constant):
+                return None
             base = self.evaluate(expr.left)
             step = _interval(expr.right)
             if base is None or step is None:
                 return None
             unit, amount = step
             try:
-                return _shifted(base, unit, -amount if expr.op == ast.ArithmeticOperationOp.Sub else amount)
+                moved = _shifted(base, unit, -amount if expr.op == ast.ArithmeticOperationOp.Sub else amount)
             except (OverflowError, ValueError):
                 return None
+            return moved if moved is not None and _EARLIEST_DATETIME <= moved <= _LATEST_DATETIME else None
         return None
 
     def _call(self, call: ast.Call) -> Optional[datetime]:
@@ -265,7 +278,7 @@ def _bound(
     if not _is_events_timestamp(column):
         return None
     at = evaluator.evaluate(value_expr)
-    if at is None:
+    if at is None or not _EARLIEST_DATETIME <= at <= _LATEST_DATETIME:
         raise _UnsupportedBound()
     if op == ast.CompareOperationOp.Eq:
         return _Bound(start=at, end=at)
