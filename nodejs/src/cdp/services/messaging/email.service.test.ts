@@ -753,7 +753,7 @@ describe('EmailService', () => {
             })
 
             it('captures every event of a burst of blocked sends while the store answers', async () => {
-                const useClient = jest.fn(() => Promise.resolve('OK'))
+                const useClient = jest.fn(() => Promise.resolve('OK' as never))
                 service = createSandboxService(true, { blockedEventRedis: { useClient } })
 
                 const results = await Promise.all(
@@ -771,8 +771,10 @@ describe('EmailService', () => {
             })
 
             it('drops blocked-event captures while stalled ones fill the cap, and resumes once they settle', async () => {
-                const stalled: ((reply: string) => void)[] = []
-                const useClient = jest.fn(() => new Promise<string>((resolve) => stalled.push(resolve)))
+                const stalled: (() => void)[] = []
+                const useClient = jest.fn(
+                    () => new Promise<never>((resolve) => stalled.push(() => resolve('OK' as never)))
+                )
                 service = createSandboxService(true, { blockedEventRedis: { useClient } })
                 const sendBlockedBatch = async (): Promise<void> => {
                     const results = await Promise.all(
@@ -802,7 +804,7 @@ describe('EmailService', () => {
                 )
                 sendEmailSpy.mockClear()
 
-                stalled.splice(0).forEach((resolve) => resolve('OK'))
+                stalled.splice(0).forEach((release) => release())
                 await waitForExpect(() => expect(capture).toHaveBeenCalledTimes(16))
                 await sendBlockedBatch()
                 expect(useClient).toHaveBeenCalledTimes(30)
