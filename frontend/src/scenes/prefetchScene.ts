@@ -1,5 +1,7 @@
+import posthog from 'posthog-js'
 import UrlPattern from 'url-pattern'
 
+import { markBootPhase } from 'lib/utils/bootTiming'
 import { pathFromWindowToRoutes, urlPatternOptions } from 'lib/utils/kea-router'
 import { appScenes } from 'scenes/appScenes'
 import { redirects, routes } from 'scenes/scenes'
@@ -25,10 +27,22 @@ export function sceneForPathname(pathname: string): string | null {
     return route ? route[1][0] : null
 }
 
-/** Starts to load the code of the scene for this page, so it downloads while the app renders. */
+/**
+ * Starts to load the code of the scene for this page, so it downloads while the app renders.
+ * The boot timing event reports the scene, so a wrong guess shows up as a `prefetched_scene` that differs from `scene`.
+ */
 export function prefetchScene(): void {
-    const scene = sceneForPathname(window.location.pathname)
-    const importScene = scene ? appScenes[scene] : undefined
-    // sceneLogic imports the same module again and reports a failure itself.
-    importScene?.().catch(() => {})
+    // Only a speed-up: sceneLogic loads the scene anyway, so a failure here must never stop the boot.
+    try {
+        const scene = sceneForPathname(window.location.pathname)
+        const importScene = scene ? appScenes[scene] : undefined
+        if (!scene || !importScene) {
+            return
+        }
+        // sceneLogic imports the same module again and reports a failure itself.
+        Promise.resolve(importScene()).catch(() => {})
+        markBootPhase('scene_prefetched', { prefetched_scene: scene })
+    } catch (error) {
+        posthog.captureException(error, { extra: { source: 'prefetchScene' } })
+    }
 }
