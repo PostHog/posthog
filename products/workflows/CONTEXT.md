@@ -101,7 +101,8 @@ _Avoid_: Audience, Subscriptions, Contacts, Consent
 **Topic**:
 A kind of message, either marketing or transactional.
 A person can opt out of a marketing topic.
-A transactional topic ignores opt-outs and most of the suppression list.
+A transactional topic ignores opt-outs.
+Its email also gets the exception that **Suppression list** describes.
 _Avoid_: Message category, Category, Subscription type
 
 **Opt-out**:
@@ -110,7 +111,9 @@ _Avoid_: Unsubscribe list (as a noun for the area)
 
 **Suppression list**:
 The email addresses PostHog stops sending to, from bounces, complaints or manual adds.
-Email in a transactional topic, which includes every transactional email, still reaches a suppressed address unless that address hard-bounced.
+An email sent as transactional still reaches a suppressed address unless that address hard-bounced.
+Every transactional email is sent as transactional, with or without a topic.
+A workflow email is sent as transactional when its topic is transactional.
 A **suppressed address** is one entry.
 _Avoid_: Blocklist
 
