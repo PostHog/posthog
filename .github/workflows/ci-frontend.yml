@@ -562,7 +562,7 @@ jobs:
               # only cost the vs-base delta, never redden every open PR's job. The comment steps
               # below already degrade to "no base measurement" when the base reports are absent.
               continue-on-error: true
-              if: github.event_name == 'pull_request'
+              if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
               env:
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}
               run: |

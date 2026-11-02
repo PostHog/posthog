@@ -587,12 +587,7 @@ export interface insightNavLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         activeView: (query: Node<Record<string, any>> | null) => InsightType
-        tabs: (
-            activeView: InsightType,
-            query: Node<Record<string, any>> | null,
-            featureFlags: FeatureFlagsSet,
-            metricsQueryCache: MetricsQuery | null
-        ) => Tab[]
+        tabs: (activeView: InsightType, query: Node<Record<string, any>> | null, featureFlags: FeatureFlagsSet) => Tab[]
     }
 }
 
@@ -664,12 +659,11 @@ export const insightNavLogic = kea<insightNavLogicType>([
             },
         ],
         tabs: [
-            (s) => [s.activeView, s.query, s.featureFlags, s.metricsQueryCache],
+            (s) => [s.activeView, s.query, s.featureFlags],
             (
                 activeView: InsightType,
                 query: null | import('~/queries/schema/schema-general').Node,
-                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
-                metricsQueryCache: MetricsQuery | null
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
             ) => {
                 const tabs: Tab[] = [
                     {
@@ -728,9 +722,10 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     })
                 }
 
-                // New metrics charts are metric widgets. The tab stays only so saved metrics insights remain
-                // editable, including after a switch to another tab and back.
-                if (activeView === InsightType.METRICS || metricsQueryCache) {
+                if (
+                    (featureFlags[FEATURE_FLAGS.METRICS] && featureFlags[FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]) ||
+                    activeView === InsightType.METRICS
+                ) {
                     tabs.push({
                         label: 'Metrics',
                         type: InsightType.METRICS,
