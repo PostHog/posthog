@@ -117,6 +117,58 @@ describe('RateLimiterService', () => {
         expect(granted).toBe(50)
     })
 
+    describe('reserveFloor', () => {
+        it('holds the floor back from a floored caller and leaves it for one without', async () => {
+            const floored = await limiter.claimUpTo({
+                key: KEY,
+                requested: 50,
+                capacity: 50,
+                refillPerSecond: 0,
+                reserveFloor: 10,
+            })
+            expect(floored).toBe(40)
+
+            const unfloored = await limiter.claimUpTo({
+                key: KEY,
+                requested: 50,
+                capacity: 50,
+                refillPerSecond: 0,
+            })
+            expect(unfloored).toBe(10)
+        })
+
+        it('debits the grant from the pool once, not from the floored view as well', async () => {
+            await limiter.claimUpTo({
+                key: KEY,
+                requested: 20,
+                capacity: 50,
+                refillPerSecond: 0,
+                reserveFloor: 10,
+            })
+            const remaining = await limiter.claimUpTo({
+                key: KEY,
+                requested: 50,
+                capacity: 50,
+                refillPerSecond: 0,
+            })
+            expect(remaining).toBe(30)
+        })
+
+        it('books a denied floored caller a slot after the floor refills, not just its own tokens', async () => {
+            await limiter.claimUpTo({ key: KEY, requested: 50, capacity: 50, refillPerSecond: 10 })
+
+            const claim = await limiter.claimOrReserve(
+                { key: KEY, requested: 5, capacity: 50, refillPerSecond: 10, reserveFloor: 20 },
+                60_000
+            )
+
+            expect(claim.granted).toBe(0)
+            // 25 tokens short (20 floor + 5 requested) at 10/sec. Waking after only the
+            // 5 it asked for would put the caller back in a denial 2s early.
+            expect(claim.retryAfterMs).toBeGreaterThan(2000)
+        })
+    })
+
     describe('metric emission', () => {
         // Counters are module-scoped globals — use deltas (after − before) per
         // test so we don't have to reset shared state between runs.

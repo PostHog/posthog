@@ -14,6 +14,8 @@ export interface RateLimitedQueueOptions {
     refillPerSecond: number
     /** How long to sleep when the bucket is empty before re-checking. */
     throttledPollDelayMs: number
+    /** Tokens this lane may not spend, left for a lane that sets none. */
+    reserveFloor?: number
 }
 
 /**
@@ -71,6 +73,7 @@ export class CyclotronJobQueueRateLimitedPostgresV2 extends CyclotronJobQueuePos
             requested: claimRequested,
             capacity: this.rateLimit.capacity,
             refillPerSecond: this.rateLimit.refillPerSecond,
+            reserveFloor: this.rateLimit.reserveFloor,
         })
         if (granted === 0) {
             return { limit: 0, sleepMs: this.rateLimit.throttledPollDelayMs }

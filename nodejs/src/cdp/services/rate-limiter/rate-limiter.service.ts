@@ -41,6 +41,12 @@ const claimLatency = new Histogram({
 //   ARGV[4]      = TTL seconds — bucket auto-expires when idle so cold-start
 //                  gives full capacity rather than a stale negative pool.
 //   ARGV[5]      = reserve-on-deny horizon in ms; 0 disables reservation.
+//   ARGV[6]      = reserve floor: tokens this caller may not touch. 0 for a
+//                  caller that may drain the bucket.
+//
+// One bucket serves two priorities through the floor, rather than two smaller
+// buckets, so the caller that passes no floor still gets the whole bucket when
+// the floored one is idle.
 //
 // `now` is sourced via `redis.call('TIME')` so all pods share a single
 // monotonic clock — NTP drift between workers can't over- or under-refill
@@ -63,6 +69,7 @@ local capacity = tonumber(ARGV[2])
 local refillPerSecond = tonumber(ARGV[3])
 local ttlSeconds = tonumber(ARGV[4])
 local reserveOnDenyMaxMs = tonumber(ARGV[5])
+local reserveFloor = tonumber(ARGV[6])
 
 local time = redis.call('TIME')
 -- TIME returns {seconds, microseconds}; flatten to epoch ms.
@@ -91,7 +98,12 @@ else
     available = math.min(capacity, currentTokens + (elapsedMs / 1000.0) * refillPerSecond)
 end
 
-local rawGranted = math.min(available, requested)
+-- Left negative on purpose when the pool is below the floor: the grant clamps
+-- at zero just below, and the reservation needs the true shortfall to place the
+-- slot after the floor has refilled, not just after this caller's own tokens.
+local claimable = available - reserveFloor
+
+local rawGranted = math.min(claimable, requested)
 if rawGranted < 0 then
     rawGranted = 0
 end
@@ -99,6 +111,8 @@ end
 -- The fractional residual stays in the pool so partial refills accumulate
 -- across calls instead of being silently dropped.
 local granted = math.floor(rawGranted)
+-- The true pool, not the claimable view: the reserve is a spending limit on
+-- this caller, not tokens held back in a second bucket.
 local tokensAfter = available - granted
 
 redis.call('hset', key, 'ts', now, 'pool', tokensAfter)
@@ -116,7 +130,7 @@ local slotAt
 if rawResv ~= false and tonumber(rawResv) > now then
     slotAt = tonumber(rawResv) + (requested / refillPerSecond) * 1000
 else
-    local deficit = requested - available
+    local deficit = requested - claimable
     if deficit < 0 then
         deficit = 0
     end
@@ -261,6 +275,8 @@ export interface ClaimRequest {
     refillPerSecond: number
     /** Bucket TTL in seconds — long enough that an idle bucket can cold-start at full capacity. */
     ttlSeconds?: number
+    /** Tokens this caller may not spend, held for callers that pass no floor. */
+    reserveFloor?: number
 }
 
 export class RateLimiterService {
@@ -340,7 +356,8 @@ export class RateLimiterService {
                         String(req.capacity),
                         String(req.refillPerSecond),
                         String(ttlSeconds),
-                        String(reserveOnDenyMs)
+                        String(reserveOnDenyMs),
+                        String(req.reserveFloor ?? 0)
                     )
             )
 
