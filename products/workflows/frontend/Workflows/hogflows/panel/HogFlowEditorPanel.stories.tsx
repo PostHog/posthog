@@ -1,5 +1,5 @@
 import type { Meta, StoryFn } from '@storybook/react'
-import { within } from '@testing-library/dom'
+import { waitFor, within } from '@testing-library/dom'
 import { ReactFlowProvider } from '@xyflow/react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
@@ -308,7 +308,9 @@ EmailOpensContentEditor.play = async ({ canvasElement }: { canvasElement: HTMLEl
     const editButton = within(canvasElement).getByText('Click to modify content')
     await expect(editButton.contains(elementAtCenterOf(editButton))).toBe(true)
     await userEvent.click(editButton)
-    await expect(within(document.body).findByText('Editing email template')).resolves.toBeVisible()
+    // The modal fades in from opacity 0, so the heading exists before it is visible
+    const heading = await within(document.body).findByText('Editing email template')
+    await waitFor(() => expect(heading).toBeVisible())
 }
 
 export const ConditionalBranch: StoryFn<PanelStoryProps> = Template.bind({})
