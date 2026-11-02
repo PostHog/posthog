@@ -22,6 +22,8 @@ Sign in ──► AuthRequest (PKCE S256, state) ──► system browser: {host
   It refreshes first when the access token has less than a minute left.
 - Any request that gets a 401 refreshes once and retries (`src/api/client.ts`).
   Concurrent 401s share one refresh, because each refresh rotates the token.
+  Sign-in token exchanges and refreshes have a single 20-second deadline covering the request and response body, including error bodies.
+  Expiry aborts the OAuth request and reports a network failure, allowing a later refresh to retry. Canceling an individual API caller does not cancel the shared refresh.
 - A refresh rejected with 400, 401 or 403 ends the session: tokens and the query cache are cleared and every screen goes to sign in, which says the session ended. Push cleanup needs valid credentials, so expiry cannot unregister the old token. The next successful registration on the same instance transfers that device token to the signed-in user; see [Push](PUSH.md#token-lifecycle).
   A network error or 5xx keeps the session; the request fails and the next one tries again.
 - Sign out waits for the push registration queue, unregisters the device token, revokes the refresh token (`POST {host}/oauth/revoke`, form body, `client_id`), then clears tokens, the query cache and the analytics identity.

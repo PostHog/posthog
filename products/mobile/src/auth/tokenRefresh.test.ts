@@ -3,7 +3,7 @@ import { apiJson, NotSignedInError, projectPath } from '@/api/client'
 import { TransportError } from '@/api/transport'
 
 import { addSessionEndTask, addSignOutTask, installAuthProvider, useAuthStore } from './authStore'
-import { OAuthError, refreshTokens } from './oauth'
+import { authorize, OAuthError, refreshTokens } from './oauth'
 import { getSessionIdentity, getSessionTokens, loadTokens, saveTokens, setSessionTokens } from './tokens'
 
 jest.mock('@react-native-async-storage/async-storage', () =>
@@ -155,6 +155,43 @@ describe('token refresh through the API client', () => {
 
         expect(useAuthStore.getState()).toMatchObject({ status, signedOutReason: reason })
         expect(getSessionTokens()?.accessToken).toBe(accessToken)
+    })
+
+    test.each([
+        { operation: 'sign-in', status: 200 },
+        { operation: 'sign-in', status: 400 },
+        { operation: 'sign-in', status: 500 },
+        { operation: 'refresh', status: 200 },
+        { operation: 'refresh', status: 400 },
+    ])('$operation bounds a stalled $status body with the original deadline', async ({ operation, status }) => {
+        jest.useFakeTimers()
+        try {
+            let signal: AbortSignal | null | undefined
+            const readBody = jest.fn(() => new Promise<never>(() => undefined))
+            fetchMock.mockImplementationOnce(async (_url, init) => {
+                signal = init?.signal
+                await new Promise((resolve) => setTimeout(resolve, 5_000))
+                return Object.assign(json(status, {}), { json: readBody })
+            })
+            const request = (): Promise<unknown> =>
+                operation === 'sign-in'
+                    ? authorize({ host: HOST, clientId: 'test-client' })
+                    : refreshTokens({ host: HOST, clientId: 'test-client', refreshToken: 'example-refresh' })
+            const failure = expect(request()).rejects.toMatchObject({ name: 'OAuthError', kind: 'network' })
+            await jest.advanceTimersByTimeAsync(5_000)
+            expect(readBody).toHaveBeenCalledTimes(1)
+            await jest.advanceTimersByTimeAsync(14_999)
+            expect(signal?.aborted).toBe(false)
+            await jest.advanceTimersByTimeAsync(1)
+            await failure
+            expect(signal?.aborted).toBe(true)
+
+            fetchMock.mockResolvedValueOnce(json(200, { access_token: 'recovered-access' }))
+            await expect(request()).resolves.toMatchObject({ accessToken: 'recovered-access' })
+            expect(jest.getTimerCount()).toBe(0)
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     test.each([new TypeError('Network request failed'), new SyntaxError('Invalid JSON')])(

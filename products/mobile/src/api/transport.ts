@@ -30,7 +30,8 @@ export async function transport<T>(work: () => Promise<T>): Promise<T> {
 
 export async function requestWithDeadline<T>(
     work: (signal: AbortSignal) => Promise<T>,
-    caller?: AbortSignal | null
+    caller?: AbortSignal | null,
+    timeoutMs = REQUEST_TIMEOUT_MS
 ): Promise<T> {
     if (caller?.aborted) {
         throw abortError()
@@ -47,7 +48,7 @@ export async function requestWithDeadline<T>(
         timer = setTimeout(() => {
             reject(new RequestTimeoutError())
             controller.abort()
-        }, REQUEST_TIMEOUT_MS)
+        }, timeoutMs)
     })
     try {
         return await Promise.race([work(controller.signal), cancelled])
