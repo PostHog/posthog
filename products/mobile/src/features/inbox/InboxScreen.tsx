@@ -134,9 +134,16 @@ export function InboxScreen(): ReactElement {
 
     const renderItem = useCallback(
         ({ item }: { item: InboxItem }) => (
-            <InboxRow item={item} now={now} onOpen={openReport} onLongPress={openRowMenu} onSetRead={setRead} />
+            <InboxRow
+                titleLines={paired ? 3 : 1}
+                item={item}
+                now={now}
+                onOpen={openReport}
+                onLongPress={openRowMenu}
+                onSetRead={setRead}
+            />
         ),
-        [now, openReport, openRowMenu, setRead]
+        [paired, now, openReport, openRowMenu, setRead]
     )
 
     const empty = query.isLoading ? (
