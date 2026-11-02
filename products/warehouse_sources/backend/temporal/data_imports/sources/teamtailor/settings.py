@@ -26,6 +26,7 @@ TEAMTAILOR_ENDPOINTS: dict[str, TeamtailorEndpointConfig] = {
     "movements": TeamtailorEndpointConfig(name="movements", path="/movements"),
     "reject_reasons": TeamtailorEndpointConfig(name="reject_reasons", path="/reject-reasons"),
     "locations": TeamtailorEndpointConfig(name="locations", path="/locations"),
+    "interview_kits": TeamtailorEndpointConfig(name="interview_kits", path="/interview-kits"),
 }
 
 ENDPOINTS = tuple(TEAMTAILOR_ENDPOINTS.keys())

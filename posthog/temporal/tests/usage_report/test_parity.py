@@ -46,7 +46,7 @@ from posthog.temporal.usage_report.types import (
     RunQueryToS3Result,
     WorkflowContext,
 )
-from posthog.usage_counters import RECORD_REALTIME_BLOCKERS, UsageCounter
+from posthog.usage_counters import UsageCounter
 from posthog.utils import get_previous_day
 
 from products.tasks.backend.facade.billing import SandboxComputeUsageByTeam
@@ -77,6 +77,7 @@ def _seed_all_data(team_a_id: int, team_b_id: int, team_c_id: int) -> dict[str, 
     interesting: dict[str, dict[int, int]] = {
         "teams_with_event_count_in_period": {team_a_id: 100, team_b_id: 50, team_c_id: 25},
         "teams_with_enhanced_persons_event_count_in_period": {team_a_id: 80, team_b_id: 40},
+        "teams_with_mcp_event_count_in_period": {team_a_id: 30, team_c_id: 5},
         "teams_with_recording_count_in_period": {team_a_id: 8, team_c_id: 3},
         "teams_with_recording_bytes_in_period": {team_a_id: 1_234_567, team_c_id: 89_012},
         "teams_with_decide_requests_count_in_period": {team_a_id: 1_000, team_b_id: 200, team_c_id: 50},
@@ -198,18 +199,17 @@ def _decode_temporal_chunks(s3: dict[str, bytes], chunk_keys: list[str]) -> dict
 
 
 @pytest.mark.django_db(transaction=True)
-@pytest.mark.parametrize(
-    ("mode", "guarded"), [("legacy", True), ("both", True), ("realtime", True), ("realtime", False)]
-)
+@pytest.mark.parametrize("mode", ["legacy", "both", "realtime"])
 def test_end_to_end_parity_celery_task_vs_temporal_activity(
     activity_environment: Any,
     monkeypatch: pytest.MonkeyPatch,
     mode: str,
-    guarded: bool,
 ) -> None:
     """Both production paths must produce the same per-org bytes for the
     same `all_data` snapshot. Drift here is what billing's parity check
-    will catch in production.
+    will catch in production. The Celery path always uses legacy counts,
+    so it ignores the counter mode. The Temporal path matches it in
+    `legacy` mode, and apart from its counter metadata in `both` mode.
 
     Two orgs × three teams (org_a has two teams so the multi-team rollup
     is exercised; org_b has one). The shared test DB may already contain
@@ -248,9 +248,6 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
     monkeypatch.setattr("posthoganalytics.feature_enabled", lambda *a, **kw: False)
     monkeypatch.setattr("django.conf.settings.CLOUD_DEPLOYMENT", "US")
     monkeypatch.setattr("django.conf.settings.USAGE_COUNTER_REALTIME_MODES", f"workflow-emails:{mode}")
-    if not guarded:
-        monkeypatch.delitem(RECORD_REALTIME_BLOCKERS, UsageCounter.WORKFLOW_EMAILS, raising=False)
-    resolved_mode = "both" if mode == "realtime" and guarded else mode
     captures_on_event_loop: list[str] = []
 
     def check_capture_thread(*args: Any, **kwargs: Any) -> None:
@@ -278,13 +275,7 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
     monkeypatch.setattr("posthog.tasks.usage_report.get_ph_client", lambda *a, **kw: mock.MagicMock())
     # Skip the heavy gather queries — both paths use this same `seeded`
     # dict, just shaped differently for each entry point.
-    monkeypatch.setattr(
-        "posthog.tasks.usage_report._get_all_usage_data_as_team_rows",
-        lambda begin, end, counter_report: {
-            **seeded,
-            **{field: dict(rows) for field, rows in counter_report.counts.items()},
-        },
-    )
+    monkeypatch.setattr("posthog.tasks.usage_report._get_all_usage_data_as_team_rows", lambda begin, end: dict(seeded))
 
     for counter, query_name in (
         (UsageCounter.ROWS_SYNCED, "get_teams_with_rows_synced_in_period"),
@@ -419,7 +410,6 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
         )
     )
     temporal_per_org = _decode_temporal_chunks(s3, result.chunk_keys)
-    assert temporal_per_org.keys() == celery_per_org.keys()
 
     # Both of our test orgs should have non-zero usage, so Celery should
     # have queued them. Sanity-check that before comparing, otherwise a
@@ -427,23 +417,30 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
     assert str(org_a.id) in celery_per_org
     assert str(org_b.id) in celery_per_org
 
-    # Both paths skip zero-usage orgs; comparing on the Celery key set
-    # keeps the assertion focused on the orgs billing actually receives.
-    assert celery_per_org.keys() == temporal_per_org.keys()
-    for org_id, celery_dict in celery_per_org.items():
-        assert org_id in temporal_per_org, f"Celery emitted {org_id} but Temporal didn't"
-        celery_json = json.dumps(celery_dict, sort_keys=True, default=str)
-        temporal_json = json.dumps(temporal_per_org[org_id], sort_keys=True, default=str)
-        assert celery_json == temporal_json, (
-            f"Drift between Celery SQS payload and Temporal chunk for org {org_id}.\n"
-            f"Celery (first 500 chars):\n{celery_json[:500]}\n"
-            f"Temporal (first 500 chars):\n{temporal_json[:500]}"
-        )
+    counter_metadata = ("usage_sources", "counter_comparisons")
+    assert not any(field in report for report in celery_per_org.values() for field in counter_metadata)
+    if mode != "realtime":
+        # Both paths skip zero-usage orgs; comparing on the Celery key set
+        # keeps the assertion focused on the orgs billing actually receives.
+        assert celery_per_org.keys() == temporal_per_org.keys()
+        for org_id, celery_dict in celery_per_org.items():
+            assert org_id in temporal_per_org, f"Celery emitted {org_id} but Temporal didn't"
+            temporal_dict = {
+                field: value for field, value in temporal_per_org[org_id].items() if field not in counter_metadata
+            }
+            celery_json = json.dumps(celery_dict, sort_keys=True, default=str)
+            temporal_json = json.dumps(temporal_dict, sort_keys=True, default=str)
+            assert celery_json == temporal_json, (
+                f"Drift between Celery SQS payload and Temporal chunk for org {org_id}.\n"
+                f"Celery (first 500 chars):\n{celery_json[:500]}\n"
+                f"Temporal (first 500 chars):\n{temporal_json[:500]}"
+            )
 
     # Sanity-check the rollup math — org_a sums its two teams, org_b
     # only has one. If this drifts, the rest of the parity numbers are
     # suspect.
     assert temporal_per_org[str(org_a.id)]["event_count_in_period"] == 100 + 50
+    assert temporal_per_org[str(org_a.id)]["mcp_event_count_in_period"] == 30
     assert temporal_per_org[str(org_b.id)]["event_count_in_period"] == 25
     assert temporal_per_org[str(org_a.id)]["team_count"] == 2
     assert temporal_per_org[str(org_b.id)]["team_count"] == 1
@@ -458,17 +455,17 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
     assert temporal_per_org[str(org_b.id)]["apm_tracing_bytes_in_period"] == 999_999
     assert temporal_per_org[str(org_b.id)]["apm_tracing_spans_in_period"] == 5
     assert temporal_per_org[str(org_b.id)]["apm_tracing_mb_in_period"] == 0
-    assert temporal_per_org[str(org_a.id)]["workflow_emails_sent_in_period"] == (
-        16 if resolved_mode == "realtime" else 24
-    )
+    assert temporal_per_org[str(org_a.id)]["workflow_emails_sent_in_period"] == (16 if mode == "realtime" else 24)
+    assert celery_per_org[str(org_a.id)]["workflow_emails_sent_in_period"] == 24
     assert temporal_per_org[str(org_a.id)]["posthog_code_credits_used_in_period"] == 321 + 9
     assert temporal_per_org[str(org_a.id)]["sandbox_compute_memory_mib_seconds_in_period"] == 2_000
     assert temporal_per_org[str(org_a.id)]["logs_retention_mb_days_in_period"] == 4
-    assert (str(idle_org.id) in temporal_per_org) == (resolved_mode == "realtime")
-    assert (str(idle_org.id) in celery_per_org) == (resolved_mode == "realtime")
-    assert scan.call_count == (0 if mode == "legacy" else 2)
+    assert (str(idle_org.id) in temporal_per_org) == (mode == "realtime")
+    assert str(idle_org.id) not in celery_per_org
+    assert scan.call_count == (0 if mode == "legacy" else 1)
     assert captures_on_event_loop == []
-    assert (str(legacy_only_org.id) in temporal_per_org) == (resolved_mode != "realtime")
+    assert (str(legacy_only_org.id) in temporal_per_org) == (mode != "realtime")
+    assert str(legacy_only_org.id) in celery_per_org
     if mode != "legacy":
         assert temporal_per_org[str(org_a.id)]["counter_comparisons"] == {
             "workflow_emails_sent_in_period": {"legacy": 24, "realtime": 16}
@@ -476,16 +473,16 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
         assert temporal_per_org[str(org_b.id)]["counter_comparisons"] == {
             "workflow_emails_sent_in_period": {"legacy": 0, "realtime": 0}
         }
-        assert temporal_per_org[str(org_a.id)]["usage_sources"]["workflow_emails_sent_in_period"] == resolved_mode
+        assert temporal_per_org[str(org_a.id)]["usage_sources"]["workflow_emails_sent_in_period"] == mode
         missing_events = [
             call.kwargs
             for call in capture.call_args_list
             if call.kwargs.get("event") == "usage counter shadow missing organizations"
         ]
-        assert len(missing_events) == 2
-        assert {event["properties"]["caller"] for event in missing_events} == {"daily_report", "usage_reports_v2"}
+        assert len(missing_events) == 1
+        assert missing_events[0]["properties"]["caller"] == "usage_reports_v2"
         expected_missing = {deleted_org_id: {"workflow_emails_sent_in_period": {"legacy": 0, "realtime": 6}}}
-        if resolved_mode == "both":
+        if mode == "both":
             expected_missing[str(idle_org.id)] = {"workflow_emails_sent_in_period": {"legacy": 0, "realtime": 4}}
         else:
             expected_missing[str(legacy_only_org.id)] = {"workflow_emails_sent_in_period": {"legacy": 5, "realtime": 0}}

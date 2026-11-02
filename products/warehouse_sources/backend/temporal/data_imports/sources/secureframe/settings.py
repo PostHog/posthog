@@ -103,6 +103,31 @@ SECUREFRAME_ENDPOINTS: dict[str, SecureframeEndpointConfig] = {
         path="/comments",
         partition_key="created_at",
     ),
+    "trust_center_requests": SecureframeEndpointConfig(
+        name="trust_center_requests",
+        path="/trust_center_requests",
+        partition_key="created_at",
+    ),
+    "ssp_reports": SecureframeEndpointConfig(
+        name="ssp_reports",
+        path="/ssp_reports",
+        partition_key="created_at",
+    ),
+    "ssp_report_sections": SecureframeEndpointConfig(
+        name="ssp_report_sections",
+        path="/ssp_report_sections",
+        partition_key="created_at",
+    ),
+    # The section block schema has no created_at, so no partitioning.
+    "ssp_report_section_blocks": SecureframeEndpointConfig(
+        name="ssp_report_section_blocks",
+        path="/ssp_report_section_blocks",
+    ),
+    "ssp_report_assessment_objectives": SecureframeEndpointConfig(
+        name="ssp_report_assessment_objectives",
+        path="/ssp_report_assessment_objectives",
+        partition_key="created_at",
+    ),
     # Secureframe lists framework scopes only per asset, so this fans out over every device, cloud
     # resource and repository. Each row carries its own asset_type and asset_id.
     "framework_asset_scopes": SecureframeEndpointConfig(

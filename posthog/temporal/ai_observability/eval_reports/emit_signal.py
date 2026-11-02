@@ -21,6 +21,8 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
+from django.db.models import Q
+
 import structlog
 import temporalio
 import temporalio.activity
@@ -28,10 +30,13 @@ import temporalio.workflow
 from pydantic import BaseModel, Field
 from temporalio.common import RetryPolicy
 
+from posthog.models import PropertyDefinition
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 
+from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.ai_observability.backend.models.evaluation_reports import EvaluationReportRun
 from products.signals.backend.models import SignalSourceConfig
 from products.signals.backend.temporal.llm import call_llm
@@ -174,6 +179,22 @@ async def emit_eval_report_signal_activity(inputs: EmitEvalReportSignalInputs) -
             inputs.team_id,
             SignalSourceConfig.SourceProduct.LLM_ANALYTICS,
             SignalSourceConfig.SourceType.EVALUATION_REPORT,
+        ):
+            return None
+        # Inbox copies cannot enforce the source's property or evaluation permissions.
+        # Include member and role denials, since Inbox readers need not share the same access.
+        if (
+            PropertyAccessControl.objects.filter(
+                team_id=inputs.team_id,
+                property_definition__type=PropertyDefinition.Type.EVENT,
+                access_level="none",
+            ).exists()
+            or AccessControl.objects.filter(
+                Q(resource_id__isnull=True) | Q(resource_id=inputs.evaluation_id),
+                team_id=inputs.team_id,
+                resource="evaluation",
+                access_level="none",
+            ).exists()
         ):
             return None
         return Team.objects.get(id=inputs.team_id)

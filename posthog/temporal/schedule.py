@@ -132,6 +132,7 @@ from products.replay_vision.backend.temporal.estimates import create_replay_visi
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
     create_replay_vision_gemini_cleanup_sweep_schedule,
 )
+from products.replay_vision.backend.temporal.highlight_rebuild import create_replay_vision_highlight_rebuild_schedule
 from products.replay_vision.backend.temporal.learned_rules import create_replay_vision_learned_rules_schedule
 from products.replay_vision.backend.temporal.read_meter import create_replay_vision_read_meter_schedule
 from products.replay_vision.backend.temporal.reconciler import create_replay_vision_reconciler_schedule
@@ -139,7 +140,10 @@ from products.replay_vision.backend.temporal.vision_alerts.schedule import creat
 from products.review_hog.backend.facade.temporal import create_review_hog_finding_outcomes_schedule
 from products.security.backend.facade.temporal import create_sync_access_rules_schedule
 from products.signals.backend.activity_summary.schedule import create_activity_summary_tick_schedule
-from products.signals.backend.anomaly_scores.schedule import create_anomaly_scoring_tick_schedule
+from products.signals.backend.anomaly_scores.schedule import (
+    create_anomaly_scoring_due_list_refresh_schedule,
+    create_anomaly_scoring_tick_schedule,
+)
 from products.signals.backend.emission.conversations_schedule import create_conversations_signals_coordinator_schedule
 from products.signals.backend.ranking.schedule import create_inbox_ranking_scoring_schedule
 from products.signals.backend.temporal.agentic.schedule import (
@@ -1020,6 +1024,7 @@ schedules = [
     create_inbox_ranking_scoring_schedule,
     create_activity_summary_tick_schedule,
     create_anomaly_scoring_tick_schedule,
+    create_anomaly_scoring_due_list_refresh_schedule,
     create_scout_suggestions_coordinator_schedule,
     create_support_reply_coordinator_schedule,
     create_channel_summary_coordinator_schedule,
@@ -1033,6 +1038,7 @@ schedules = [
     create_replay_vision_learned_rules_schedule,
     create_vision_alert_check_schedule,
     create_replay_vision_read_meter_schedule,
+    create_replay_vision_highlight_rebuild_schedule,
     create_github_job_logs_coordinator_schedule,
     create_review_hog_finding_outcomes_schedule,
     create_ci_signals_coordinator_schedule,

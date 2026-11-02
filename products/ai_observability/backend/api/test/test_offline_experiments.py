@@ -20,6 +20,7 @@ from posthog.models import OrganizationMembership, Project, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.redis import get_client
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.api.offline_experiment_reads import OfflineScorerViewSet
@@ -230,7 +231,12 @@ class TestOfflineExperimentsAPI(APIBaseTest):
         self.assertEqual(completed_event.args[0], completed_event.kwargs["request"].user)
         self.assertTrue(completed_event.args[0].distinct_id)
 
-    def test_ledger_failure_returns_server_error_and_mixed_upload_can_retry(self) -> None:
+    @parameterized.expand(
+        [("ledger", status.HTTP_500_INTERNAL_SERVER_ERROR), ("quota", status.HTTP_402_PAYMENT_REQUIRED)]
+    )
+    def test_rejected_mixed_upload_preserves_existing_results_and_can_retry(
+        self, rejection: str, expected_status: int
+    ) -> None:
         definition = ScoreDefinition.objects.create(team=self.team, name="Correct", kind="boolean")
         version = definition.create_new_version(config={}, created_by=self.user)
         self._authenticate("project_key")
@@ -273,10 +279,22 @@ class TestOfflineExperimentsAPI(APIBaseTest):
             return execute(sql, params, many, context)
 
         upload = {"items": items, "results": results}
-        with connection.execute_wrapper(fail_ledger_insert):
+        if rejection == "ledger":
+            with connection.execute_wrapper(fail_ledger_insert):
+                failed = self.client.post(endpoint, upload, format="json")
+        else:
+            redis_client = get_client()
+            quota_key = "@posthog/quota-limits/llm_events"
+            redis_client.zadd(quota_key, {self.team.api_token: timezone.now().timestamp() + 3600})
+            self.addCleanup(redis_client.zrem, quota_key, self.team.api_token)
+            replayed = self.client.post(endpoint, {"items": items[:1], "results": results[:1]}, format="json")
+            self.assertEqual(replayed.status_code, status.HTTP_200_OK, replayed.data)
+            self.assertEqual(replayed.data["results"][0], accepted.data["results"][0] | {"created": False})
             failed = self.client.post(endpoint, upload, format="json")
+            self.assertEqual(failed.data["code"], "quota_limit_exceeded", failed.data)
+            redis_client.zadd(quota_key, {self.team.api_token: timezone.now().timestamp() - 1})
 
-        self.assertEqual(failed.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR, failed.data)
+        self.assertEqual(failed.status_code, expected_status, failed.data)
         for model, rows in rows_before_failure.items():
             self.assertEqual(list(model.objects.for_team(self.team.id).values()), rows)
 

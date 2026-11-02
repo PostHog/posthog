@@ -37,11 +37,19 @@ class EverflowEndpointConfig:
     default_incremental_lookback_seconds: int | None = None
     # Columns that carry credentials and must never reach the warehouse.
     drop_columns: tuple[str, ...] = ()
+    # Fields Everflow documents as numbers but sends as a JSON integer when whole. Without the cast, a
+    # first batch of whole values creates the column as int64 and a later fractional value fails the load.
+    float_columns: tuple[str, ...] = ()
 
 
 EVERFLOW_ENDPOINTS: dict[str, EverflowEndpointConfig] = {
     "offers": EverflowEndpointConfig(
-        name="offers", path="/networks/offerstable", data_selector="offers", primary_keys=("network_offer_id",)
+        name="offers",
+        path="/networks/offerstable",
+        data_selector="offers",
+        primary_keys=("network_offer_id",),
+        # `payout` and `revenue` hold formatted text, so only the `*_amount` fields are numbers.
+        float_columns=("payout_amount", "revenue_amount", "today_payout_amount", "today_revenue_amount"),
     ),
     "affiliates": EverflowEndpointConfig(
         name="affiliates",
@@ -64,6 +72,7 @@ EVERFLOW_ENDPOINTS: dict[str, EverflowEndpointConfig] = {
         primary_keys=("conversion_id",),
         page_size=CONVERSIONS_PAGE_SIZE,
         partition_key="conversion_unix_timestamp",
+        float_columns=("payout", "revenue", "sale_amount"),
         incremental_fields=(
             {
                 "label": "conversion_unix_timestamp",
@@ -79,6 +88,31 @@ EVERFLOW_ENDPOINTS: dict[str, EverflowEndpointConfig] = {
         data_selector="table",
         primary_keys=("date", "network_offer_id", "network_affiliate_id"),
         page_size=None,
+        # Every amount and rate in the report's `reporting` object. Its counts (clicks, conversions, events)
+        # are documented as integers and stay int64.
+        float_columns=(
+            "avg_sale_value",
+            "cpa",
+            "cpc",
+            "cpm",
+            "ctr",
+            "cvr",
+            "epc",
+            "event_revenue",
+            "evr",
+            "gross_sales",
+            "margin",
+            "media_buying_cost",
+            "on_hold_potential_payout",
+            "on_hold_potential_revenue",
+            "payout",
+            "profit",
+            "revenue",
+            "roas",
+            "rpa",
+            "rpc",
+            "rpm",
+        ),
         incremental_fields=(
             {
                 "label": "date",

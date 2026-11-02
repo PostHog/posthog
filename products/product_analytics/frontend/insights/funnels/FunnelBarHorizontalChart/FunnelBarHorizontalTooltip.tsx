@@ -1,6 +1,6 @@
 import type { TooltipContext } from '@posthog/quill-charts'
 
-import type { BreakdownFilter } from '~/queries/schema/schema-general'
+import type { BreakdownFilter, FunnelsQuery } from '~/queries/schema/schema-general'
 import type { FunnelStepWithConversionMetrics } from '~/types'
 
 import { funnelComparePeriodDateRange, getFunnelAggregateConversionRate } from '../funnelUtils'
@@ -13,6 +13,7 @@ interface FunnelBarHorizontalTooltipProps {
     stepIndex: number
     /** First funnel step — basis for a compare stack drop-off's period-aggregate from-start rate. */
     firstStep: FunnelStepWithConversionMetrics
+    querySource: FunnelsQuery | null
     breakdownFilter: BreakdownFilter | null | undefined
     groupTypeLabel: string
     showPersonsModal: boolean
@@ -26,6 +27,7 @@ export function FunnelBarHorizontalTooltip({
     step,
     stepIndex,
     firstStep,
+    querySource,
     breakdownFilter,
     groupTypeLabel,
     showPersonsModal,
@@ -49,6 +51,7 @@ export function FunnelBarHorizontalTooltip({
         stepIndex,
         series,
         groupTypeLabel,
+        querySource,
         breakdownFilter,
         aggregateConversionRate,
         isPartialBreakdownSelection,

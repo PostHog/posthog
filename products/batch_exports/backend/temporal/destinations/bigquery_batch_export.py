@@ -41,7 +41,8 @@ from temporalio.common import RetryPolicy
 
 from posthog.credentials_service.callers import CredentialsCaller
 from posthog.credentials_service.settings_fallback import get_or_settings
-from posthog.models.integration import GoogleCloudServiceAccountIntegration, Integration
+from posthog.integrations import IntegrationManager, IntegrationNotFound
+from posthog.models.integration import GoogleCloudServiceAccountIntegration
 from posthog.models.integration.google_cloud import InvalidGoogleTokenUriError, require_google_token_uri
 from posthog.models.team import Team
 from posthog.temporal.common.base import PostHogWorkflow
@@ -62,6 +63,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     is_over_billing_limit_error,
     start_batch_export_run,
 )
+from products.batch_exports.backend.temporal.errors import ColumnTypeMappingError
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
@@ -80,6 +82,7 @@ from products.batch_exports.backend.temporal.queue import (
 )
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
+    handle_column_type_mapping_errors,
     handle_non_retryable_errors,
     make_retryable_with_exponential_backoff,
 )
@@ -271,7 +274,10 @@ class BigQueryField(Field):
 
     @classmethod
     def from_arrow_field(cls, field: pa.Field) -> typing.Self:
-        type = data_type_to_bigquery_type(field.type)
+        try:
+            type = data_type_to_bigquery_type(field.type)
+        except ValueError as err:
+            raise ColumnTypeMappingError("BigQuery", field.name, field.type) from err
         return cls(field.name, type, nullable=field.nullable)
 
     @classmethod
@@ -1486,8 +1492,10 @@ async def _get_google_cloud_service_account_integration(
         return None
 
     try:
-        integration = await Integration.objects.aget(id=inputs.integration_id, team_id=inputs.team_id)
-    except Integration.DoesNotExist:
+        integration = await IntegrationManager.google_cloud_service_account.credentials.aget(
+            inputs.team_id, inputs.integration_id
+        )
+    except IntegrationNotFound:
         raise BigQueryIntegrationNotFoundError(
             f"Google Cloud service account integration with id '{inputs.integration_id}' not found"
         )
@@ -1574,14 +1582,15 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
             json_fields = set()
 
         requires_merge = model.incremental_mode == IncrementalMode.MERGE
-        target_table = BigQueryTable.from_arrow_schema(
-            record_batch_schema,
-            table_id=inputs.table_id,
-            project_id=project_id,
-            dataset_id=inputs.dataset_id,
-            primary_key=model.primary_key if requires_merge else (),
-            version_key=model.version_key if requires_merge else (),
-        )
+        with handle_column_type_mapping_errors(model):
+            target_table = BigQueryTable.from_arrow_schema(
+                record_batch_schema,
+                table_id=inputs.table_id,
+                project_id=project_id,
+                dataset_id=inputs.dataset_id,
+                primary_key=model.primary_key if requires_merge else (),
+                version_key=model.version_key if requires_merge else (),
+            )
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
         attempt = activity.info().attempt
