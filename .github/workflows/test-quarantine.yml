@@ -37,6 +37,12 @@ jobs:
                       /tools/hogli-commands/hogli_commands/quarantine/
                   sparse-checkout-cone-mode: false
 
+            - name: Restore product directories for selector validation
+              run: |
+                  git ls-tree -dz --name-only HEAD:products | while IFS= read -r -d '' product; do
+                      mkdir -p "products/$product"
+                  done
+
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
