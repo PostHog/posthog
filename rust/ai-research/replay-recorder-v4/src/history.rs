@@ -1,6 +1,3 @@
-//! Every recorder pod sends each reference it sees once a day, so without a read of the fetcher's crawl history most
-//! jobs are ones the fetcher drops on arrival.
-
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::time::{Duration, Instant};
 

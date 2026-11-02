@@ -24,8 +24,7 @@ const MAX_RECORD_BYTES: usize = 512 * 1024;
 const REMAINING_HOPS: u32 = 10;
 
 /// Builds one job per new remote image URL, grouped by registrable domain, the topic's key. Counts each block's URLs
-/// in the stats paired with it. `already_sent` names references this process sent today, or found fresh in the
-/// fetcher's history.
+/// in the stats paired with it. `already_sent` names references this process sent or found fresh today.
 pub fn fetch_jobs<'b>(
     blocks: impl IntoIterator<Item = (&'b Block, &'b mut BlockStats)>,
     keys: &FlushKeys,

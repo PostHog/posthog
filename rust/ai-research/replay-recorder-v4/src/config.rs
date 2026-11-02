@@ -127,8 +127,7 @@ pub struct Config {
     )]
     pub image_fetch_topic: String,
 
-    /// The fetcher's crawl history table, read so that no job goes out that the fetcher would drop. Empty sends every
-    /// new reference of the day.
+    /// The fetcher's crawl history table. Empty turns off the read, so every new reference of the day goes out.
     #[envconfig(from = "AI_RESEARCH_V4_IMAGE_FETCH_HISTORY_TABLE", default = "")]
     pub image_fetch_history_table: String,
 
