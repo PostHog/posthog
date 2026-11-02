@@ -561,10 +561,10 @@ export class EmailService {
             // so record a skip with its own metric instead of an `email_failed`. Otherwise one project
             // with bad data inflates the platform send failure rate.
             if (!params.to?.email?.trim()) {
-                addLog(
-                    'warn',
+                const skipReason =
                     'Skipping send: the recipient has no email address. Add a filter so only people with an email address reach this step.'
-                )
+                addLog('warn', skipReason)
+                result.emailSendResult = { status: 'skipped', reason: skipReason }
                 if (!isTest) {
                     result.metrics.push({
                         team_id: invocation.teamId,
