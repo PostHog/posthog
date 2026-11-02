@@ -1,9 +1,10 @@
 import { useFocusEffect, useRouter } from 'expo-router'
 import { type ReactElement, useCallback, useEffect, useRef, useState } from 'react'
-import { FlatList, RefreshControl, View } from 'react-native'
+import { FlatList, RefreshControl, Text, View } from 'react-native'
 
 import { useBootGate } from '@/auth/bootGate'
 import { track } from '@/lib/analytics'
+import { formatRelativeAgo } from '@/lib/dates'
 import { useNow } from '@/lib/useNow'
 import type { InboxItem } from '@/model/types'
 import { FilterIcon } from '@/ui/icons/FilterIcon'
@@ -198,6 +199,13 @@ export function InboxScreen(): ReactElement {
                 data={query.data ?? []}
                 keyExtractor={keyFor}
                 renderItem={renderItem}
+                ListHeaderComponent={
+                    query.cachedAt ? (
+                        <Text style={styles.cached} testID="inbox-cached">
+                            {`Saved on this device ${formatRelativeAgo(new Date(query.cachedAt).toISOString(), now).toLowerCase()}. Refresh when connected. Report details need a connection.`}
+                        </Text>
+                    ) : null
+                }
                 ListEmptyComponent={empty}
                 ListFooterComponent={
                     <InboxListFooter
@@ -241,6 +249,7 @@ export function InboxScreen(): ReactElement {
 }
 
 const useStyles = createStyles(({ colors }) => ({
+    cached: { color: colors.tertiary, fontSize: 13, lineHeight: 18, marginBottom: 12 },
     screen: {
         flex: 1,
         backgroundColor: colors.background,

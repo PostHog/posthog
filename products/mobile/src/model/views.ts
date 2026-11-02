@@ -66,6 +66,7 @@ export interface DeviceRecentEntry {
 
 /** The refresh fields of one data item. They change only on a response with a result and no error. */
 export interface Freshness {
+    restoredFromDevice?: boolean
     lastRefreshAt: string | null
     cacheTargetAge: string | null
     nextAllowedRefreshAt: string | null

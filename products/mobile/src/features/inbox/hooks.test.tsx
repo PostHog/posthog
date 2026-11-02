@@ -3,9 +3,11 @@ import { act, renderHook, waitFor } from '@testing-library/react-native'
 import type { ReactElement, ReactNode } from 'react'
 import { AppState, type AppStateStatus } from 'react-native'
 import { setAuthProvider } from '@/api/client'
+import { inboxCacheKey, type SavedInbox } from '@/api/readCacheKeys'
 import { INBOX_PAGE_SIZE, postReadStates, reportKeys } from '@/api/reports'
 import { useAuthStore } from '@/auth/authStore'
 import { type DataMode, useDemoMode } from '@/demo/demoMode'
+import { inboxFromReports } from '@/model/adapters/inbox'
 import { reportFixture } from '@/model/adapters/testFixtures'
 
 import { useInboxItems, useMarkReadOnOpen, useSetReportRead } from './hooks'
@@ -469,5 +471,33 @@ describe('inbox hooks', () => {
         expect(result.current.isLoadingMore).toBe(false)
         expect(result.current.data?.map((item) => item.id).slice(0, 3)).toEqual(['last', 'r19', 'r18'])
         expect(result.current.data?.at(-1)?.id).toBe('r0')
+    })
+    test('shows a saved inbox offline with its age, then replaces it with a successful live list', async () => {
+        const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
+        const scope = scopeOf()
+        const cached = inboxFromReports([reportFixture({ id: 'saved-report' })])
+        const sourceUpdatedAt = Date.now() - 60_000
+        queryClient.setQueryData<SavedInbox>(inboxCacheKey(scope), { items: cached, sourceUpdatedAt })
+        globalThis.fetch = jest.fn(async () => {
+            throw new TypeError('Offline')
+        }) as typeof fetch
+        const wrapper = ({ children }: { children: ReactNode }): ReactElement => (
+            <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+        )
+        const hook = renderHook(() => useInboxItems(), { wrapper })
+        await waitFor(() => expect(hook.result.current.data?.[0]?.id).toBe('saved-report'))
+        expect(hook.result.current.cachedAt).toBe(sourceUpdatedAt)
+        globalThis.fetch = jest.fn(async (url: string) =>
+            new URL(url).pathname.endsWith('/read_state/')
+                ? jsonResponse({ states: {} })
+                : jsonResponse({ results: [reportFixture({ id: 'live-report' })], count: 1, next: null })
+        ) as typeof fetch
+        await act(async () => {
+            await hook.result.current.refetch()
+        })
+        await waitFor(() => expect(hook.result.current.data?.[0]?.id).toBe('live-report'))
+        expect(hook.result.current.cachedAt).toBeUndefined()
+        hook.unmount()
+        queryClient.clear()
     })
 })

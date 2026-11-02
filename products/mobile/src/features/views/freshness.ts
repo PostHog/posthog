@@ -105,11 +105,16 @@ export function statusLine(
     const refreshed = snapshots.flatMap((snapshot) =>
         snapshot?.lastRefreshAt ? [Date.parse(snapshot.lastRefreshAt)] : []
     )
+    const saved = snapshots.some((snapshot) => snapshot?.restoredFromDevice)
+    if (refreshed.length === 0 && saved) {
+        return { kind: 'age', text: 'Saved on this device. Connect to check for updates.', failed: false }
+    }
     if (refreshed.length === 0) {
         return { kind: 'hidden', text: null }
     }
     const age = Math.max(0, now - Math.min(...refreshed))
     const failed = snapshots.some((snapshot) => snapshot?.refreshFailed)
+    if (saved) return { kind: 'age', text: `Saved on this device. Updated ${ageText(age)}`, failed }
     if (failed) {
         return { kind: 'age', text: `Couldn't refresh. Updated ${ageText(age)}`, failed: true }
     }

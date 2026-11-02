@@ -85,6 +85,12 @@ describe('freshness', () => {
             false,
             "Couldn't refresh. Updated 1 min ago",
         ],
+        [
+            'a saved device snapshot',
+            [snap({ restoredFromDevice: true })],
+            false,
+            'Saved on this device. Updated 10 min ago',
+        ],
         ['no data items', [undefined, snap({ lastRefreshAt: null })], false, null],
     ])('statusLine for %s', (_name, snapshots, busy, expected) => {
         expect(statusLine(snapshots, busy, T).text).toBe(expected)

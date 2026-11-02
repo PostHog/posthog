@@ -2,14 +2,16 @@ import {
     type InfiniteData,
     type QueryClient,
     type QueryKey,
+    skipToken,
     type UseQueryResult,
     useInfiniteQuery,
     useQueries,
+    useQuery,
     useQueryClient,
 } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-
 import { NotSignedInError } from '@/api/client'
+import { inboxCacheKey, type SavedInbox } from '@/api/readCacheKeys'
 import {
     fetchInboxPage,
     INBOX_PAGE_SIZE,
@@ -40,6 +42,7 @@ import { applyInboxFilters, DEFAULT_INBOX_FILTERS, type InboxFilters, isDefaultI
 
 /** The inbox list, which loads one page of reports at a time. */
 export interface InboxQueryState extends QueryState<InboxItem[]> {
+    cachedAt?: number
     /** The server has ranked reports after the loaded ones. */
     hasMore: boolean
     isLoadingMore: boolean
@@ -136,8 +139,9 @@ function useLiveInboxItems(
         getNextPageParam: nextOffset,
         enabled: active,
     })
+    const saved = useQuery<SavedInbox>({ queryKey: inboxCacheKey(scope), queryFn: skipToken })
     const reports = useMemo(() => (list.data ? reportsFromPages(list.data.pages) : undefined), [list.data])
-    const baseItems = useMemo(() => (reports ? inboxFromReports(reports) : undefined), [reports])
+    const baseItems = useMemo(() => (reports ? inboxFromReports(reports) : saved.data?.items), [reports, saved.data])
     const signalCounts = useMemo(() => (reports ? signalCountsFromReports(reports) : {}), [reports])
 
     // One read-state request per page, so loading a page does not ask again for the pages before it.
@@ -168,6 +172,28 @@ function useLiveInboxItems(
         combine: mergeReadStates,
     })
 
+    const savedItems = useMemo(
+        () =>
+            reports?.length !== undefined
+                ? inboxFromReports(reports.slice(0, INBOX_PAGE_SIZE)).map((item) => ({
+                      ...item,
+                      read: readStates[item.reportId] !== false,
+                  }))
+                : undefined,
+        [reports, readStates]
+    )
+    useEffect(() => {
+        if (!active || !scope || !list.isSuccess || !savedItems) return
+        const key = inboxCacheKey(scope)
+        const previous = queryClient.getQueryData<SavedInbox>(key)
+        if (previous?.items === savedItems && previous.sourceUpdatedAt === list.dataUpdatedAt) return
+        queryClient.setQueryData<SavedInbox>(
+            key,
+            { items: savedItems, sourceUpdatedAt: list.dataUpdatedAt },
+            { updatedAt: list.dataUpdatedAt }
+        )
+    }, [active, scope, list.isSuccess, list.dataUpdatedAt, savedItems, queryClient])
+
     const polling = active && appActive && refreshWhileVisible
     const wasPolling = useRef(polling)
     useEffect(() => {
@@ -181,9 +207,11 @@ function useLiveInboxItems(
         if (!baseItems || !scope) {
             return undefined
         }
-        const withRead = baseItems.map((item) => ({ ...item, read: readStates[item.reportId] !== false }))
+        const withRead = reports
+            ? baseItems.map((item) => ({ ...item, read: readStates[item.reportId] !== false }))
+            : baseItems
         return applySnoozes(applyInboxFilters(withRead, filters, now.getTime()), snoozes, scope, now, signalCounts)
-    }, [baseItems, readStates, filters, snoozes, scope, now, signalCounts])
+    }, [baseItems, reports, readStates, filters, snoozes, scope, now, signalCounts])
 
     const {
         refetch: refetchList,
@@ -250,6 +278,7 @@ function useLiveInboxItems(
     if (items) {
         return {
             data: items,
+            cachedAt: !reports ? saved.data?.sourceUpdatedAt : undefined,
             isLoading: false,
             isError: false,
             error: null,
