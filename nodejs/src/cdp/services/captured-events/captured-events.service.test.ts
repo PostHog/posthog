@@ -158,38 +158,62 @@ describe('CapturedEventsService', () => {
         })
 
         it.each([
-            ['source_webhook', [], 400, 'small', ['batch a,b,c,d'], 'x'],
+            ['source_webhook', [], 400, 'small', ['batch a,b,c,d'], ['a', 'b', 'c', 'd'], 'x'],
             [
                 'source_webhook',
                 ['c'],
                 400,
                 'small',
                 ['batch a,b,c,d', 'batch a,b', 'batch c,d', 'single c', 'single d'],
+                ['a', 'b', 'd'],
                 'x',
             ],
-            ['source_webhook', ['c'], 413, 'small', ['batch a,b,c,d'], 'x'],
+            ['source_webhook', ['c'], 413, 'small', ['batch a,b,c,d'], ['a', 'b'], 'x'],
             [
                 'source_webhook',
                 ['a', 'd'],
                 400,
                 'small',
                 ['batch a,b,c,d', 'batch a,b', 'batch c,d', 'single a', 'single b', 'single c', 'single d'],
+                ['b', 'c'],
                 'x',
             ],
-            ['source_webhook', [], 400, 'one 300 KB', ['batch a,c,d', 'single b'], '漢'.repeat(100_000)],
-            ['destination', [], 400, 'small', ['single a', 'single b', 'single c', 'single d'], 'x'],
+            [
+                'source_webhook',
+                [],
+                400,
+                'one 300 KB',
+                ['batch a,c,d', 'single b'],
+                ['a', 'b', 'c', 'd'],
+                '漢'.repeat(100_000),
+            ],
+            [
+                'destination',
+                [],
+                400,
+                'small',
+                ['single a', 'single b', 'single c', 'single d'],
+                ['a', 'b', 'c', 'd'],
+                'x',
+            ],
         ])(
-            'sends a %s result with invalid events %j refused with %s and %s events as %j',
-            async (type, invalid, refusal, _size, expected, blob) => {
+            'sends a %s result with invalid events %j refused with %s and %s events as %j, storing %j',
+            async (type, invalid, refusal, _size, expected, stored, blob) => {
                 teamManager.getTeam.mockResolvedValue(buildTeam(1, 'token-team-1'))
-                const statusOf = (events: InternalCaptureEvent[]): number =>
-                    events.some((event) => invalid.includes(event.event)) ? refusal : 200
-                internalCaptureService.captureBatch.mockImplementation((events) =>
-                    Promise.resolve({ status: statusOf(events) } as any)
-                )
-                internalCaptureService.capture.mockImplementation((event) =>
-                    Promise.resolve({ status: statusOf([event]) } as any)
-                )
+                const published: string[] = []
+                const ingest = (events: InternalCaptureEvent[]): any => {
+                    const firstInvalid = events.findIndex((event) => invalid.includes(event.event))
+                    if (firstInvalid === -1) {
+                        published.push(...events.map((event) => event.event))
+                        return { status: 200 }
+                    }
+                    if (refusal === 413) {
+                        published.push(...events.slice(0, firstInvalid).map((event) => event.event))
+                    }
+                    return { status: refusal }
+                }
+                internalCaptureService.captureBatch.mockImplementation((events) => Promise.resolve(ingest(events)))
+                internalCaptureService.capture.mockImplementation((event) => Promise.resolve(ingest([event])))
                 await service.queueInvocationResults([
                     {
                         ...buildResult(
@@ -208,14 +232,7 @@ describe('CapturedEventsService', () => {
                     ),
                     ...internalCaptureService.capture.mock.calls.map(([event]) => `single ${event.event}`),
                 ]).toEqual(expected)
-                const accepted = [
-                    ...internalCaptureService.captureBatch.mock.calls.map(([events]) => events),
-                    ...internalCaptureService.capture.mock.calls.map(([event]) => [event]),
-                ]
-                    .filter((events) => statusOf(events) !== 400)
-                    .flatMap((events) => events.map((event) => event.event))
-                    .filter((event) => !invalid.includes(event))
-                expect(accepted.sort()).toEqual(['a', 'b', 'c', 'd'].filter((event) => !invalid.includes(event)))
+                expect(published.sort()).toEqual(stored)
             }
         )
 
