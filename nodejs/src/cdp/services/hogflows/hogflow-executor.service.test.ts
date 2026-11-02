@@ -3240,7 +3240,7 @@ describe('Hogflow Executor', () => {
             jest.restoreAllMocks()
         })
 
-        it('should route email actions to the email queue', async () => {
+        const insertEmailSetup = async (provider: 'maildev' | 'ses'): Promise<void> => {
             await insertIntegration(hub.postgres, team.id, {
                 id: integrationId,
                 kind: 'email',
@@ -3249,10 +3249,9 @@ describe('Hogflow Executor', () => {
                     name: 'Test User',
                     domain: 'posthog.com',
                     verified: true,
-                    provider: 'maildev',
+                    provider,
                 },
             })
-
             await insertHogFunctionTemplate(hub.postgres, {
                 id: 'template-email-routing-test',
                 name: 'Email Routing Test',
@@ -3277,6 +3276,29 @@ describe('Hogflow Executor', () => {
                     },
                 ],
             })
+        }
+
+        const emailAction = (subject: string) =>
+            ({
+                type: 'function_email',
+                config: {
+                    template_id: 'template-email-routing-test',
+                    inputs: {
+                        email: {
+                            value: {
+                                to: { email: 'recipient@example.com', name: 'Recipient' },
+                                from: { integrationId, email: 'test@posthog.com' },
+                                subject,
+                                text: `${subject} text`,
+                                html: `<p>${subject}</p>`,
+                            },
+                        },
+                    },
+                },
+            }) as const
+
+        it('should route email actions to the email queue', async () => {
+            await insertEmailSetup('maildev')
 
             const hogFlow = new FixtureHogFlowBuilder()
                 .withTeamId(team.id)
@@ -3290,23 +3312,7 @@ describe('Hogflow Executor', () => {
                                 filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
                             },
                         },
-                        email_1: {
-                            type: 'function_email',
-                            config: {
-                                template_id: 'template-email-routing-test',
-                                inputs: {
-                                    email: {
-                                        value: {
-                                            to: { email: 'recipient@example.com', name: 'Recipient' },
-                                            from: { integrationId, email: 'test@posthog.com' },
-                                            subject: 'Test Email',
-                                            text: 'Test',
-                                            html: '<p>Test</p>',
-                                        },
-                                    },
-                                },
-                            },
-                        },
+                        email_1: emailAction('Test Email'),
                     },
                     edges: [
                         { from: 'trigger', to: 'email_1', type: 'continue' },
@@ -3333,17 +3339,7 @@ describe('Hogflow Executor', () => {
         })
 
         it('returns consecutive emails and push retries to their origin queue and priority: hogflow → email queue → messages sent → workflow continues', async () => {
-            await insertIntegration(hub.postgres, team.id, {
-                id: integrationId,
-                kind: 'email',
-                config: {
-                    email: 'test@posthog.com',
-                    name: 'Test User',
-                    domain: 'posthog.com',
-                    verified: true,
-                    provider: 'ses',
-                },
-            })
+            await insertEmailSetup('ses')
             const pushIntegrationId = uniqueTestId()
             await insertIntegration(hub.postgres, team.id, {
                 id: pushIntegrationId,
@@ -3372,31 +3368,6 @@ describe('Hogflow Executor', () => {
                 .mockResolvedValueOnce({ MessageId: 'first-email' })
                 .mockRejectedValueOnce(new TooManyRequestsException({ $metadata: {}, message: 'Too many requests' }))
                 .mockResolvedValue({ MessageId: 'follow-up-email' })
-
-            await insertHogFunctionTemplate(hub.postgres, {
-                id: 'template-email-routing-test',
-                name: 'Email Routing Test',
-                code: `sendEmail(inputs.email)`,
-                inputs_schema: [
-                    {
-                        type: 'native_email',
-                        key: 'email',
-                        label: 'Email message',
-                        integration: 'email',
-                        required: true,
-                        default: {
-                            to: { email: '', name: '' },
-                            from: { email: '', name: '' },
-                            subject: '',
-                            text: 'Hello!',
-                            html: '<div>Hello!</div>',
-                        },
-                        secret: false,
-                        description: '',
-                        templating: 'liquid',
-                    },
-                ],
-            })
 
             await insertHogFunctionTemplate(hub.postgres, {
                 id: 'template-push-queue-routing-test',
@@ -3428,42 +3399,10 @@ if (not res.success) { throw Error(res.error) }`,
                                 filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
                             },
                         },
-                        email_1: {
-                            type: 'function_email',
-                            config: {
-                                template_id: 'template-email-routing-test',
-                                inputs: {
-                                    email: {
-                                        value: {
-                                            to: { email: 'recipient@example.com', name: 'Recipient' },
-                                            from: { integrationId, email: 'test@posthog.com' },
-                                            subject: 'Test Email',
-                                            text: 'Test text',
-                                            html: '<p>Test html</p>',
-                                        },
-                                    },
-                                },
-                            },
-                        },
+                        email_1: emailAction('Test Email'),
                         push_1: transactionalPush,
                         push_2: transactionalPush,
-                        email_2: {
-                            type: 'function_email',
-                            config: {
-                                template_id: 'template-email-routing-test',
-                                inputs: {
-                                    email: {
-                                        value: {
-                                            to: { email: 'recipient@example.com', name: 'Recipient' },
-                                            from: { integrationId, email: 'test@posthog.com' },
-                                            subject: 'Follow-up Email',
-                                            text: 'Follow-up text',
-                                            html: '<p>Follow-up html</p>',
-                                        },
-                                    },
-                                },
-                            },
-                        },
+                        email_2: emailAction('Follow-up Email'),
                         webhook: {
                             type: 'function',
                             config: {
@@ -3547,6 +3486,46 @@ if (not res.success) { throw Error(res.error) }`,
             expect(sentMetrics).toEqual(['email_sent', 'push_sent', 'push_sent', 'email_sent'])
             expect(sesSend).toHaveBeenCalledTimes(3)
             expect(mockPushProviderFetch).toHaveBeenCalledTimes(4)
+        })
+
+        it('keeps the team cap label on the delayed email only, not on the email after it', async () => {
+            await insertEmailSetup('ses')
+            const sesSend = jest.spyOn(SESv2Client.prototype, 'send') as jest.SpyInstance
+            sesSend
+                .mockResolvedValueOnce({ MessageId: 'capped-email' })
+                .mockRejectedValueOnce(new TooManyRequestsException({ $metadata: {}, message: 'Too many requests' }))
+
+            const hogFlow = new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withExitCondition('exit_only_at_end')
+                .withWorkflow({
+                    actions: {
+                        trigger: {
+                            type: 'trigger',
+                            config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                        },
+                        email_1: emailAction('Capped Email'),
+                        email_2: emailAction('Next Email'),
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'email_1', type: 'continue' },
+                        { from: 'email_1', to: 'email_2', type: 'continue' },
+                        { from: 'email_2', to: 'exit', type: 'continue' },
+                    ],
+                })
+                .build()
+            const invocation = createExampleHogFlowInvocation(hogFlow, {
+                event: { ...createHogExecutionGlobals().event, event: '$pageview' },
+            })
+
+            const routed = await executor.execute(invocation)
+            // As if the team sending cap had delayed email_1 on the email queue.
+            routed.invocation.queueMetadata = { ...routed.invocation.queueMetadata, teamCapped: true }
+
+            const result = await executor.execute(routed.invocation)
+
+            expect(result.invocation.state.currentAction?.id).toBe('email_2')
+            expect(result.invocation.queueMetadata).toEqual({ originQueue: 'hogflow', originPriority: 0 })
         })
     })
 })
