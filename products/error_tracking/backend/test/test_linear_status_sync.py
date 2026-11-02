@@ -84,8 +84,8 @@ class _FakeLinear:
             body = {"data": {"issues": {"nodes": nodes}}}
         elif "WorkflowStateType" in query:
             assert variables["id"] == PREVIOUS_STATE_ID
-            visible = self.previous_state_type and token not in self.tokens_without_previous_state
-            nodes = [{"type": self.previous_state_type}] if visible else []
+            visible = token not in self.tokens_without_previous_state
+            nodes = [{"type": self.previous_state_type}] if self.previous_state_type and visible else []
             body = {"data": {"workflowStates": {"nodes": nodes}}}
         else:
             raise AssertionError(f"Unexpected Linear query: {query}")
