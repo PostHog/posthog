@@ -20,6 +20,7 @@ from products.experiments.stats.shared.statistics import (
     SampleMeanStatistic,
     StatisticError,
 )
+from products.experiments.stats.tests.test_statistics import QUANTILE_CONTROL, QUANTILE_TREATMENT
 
 
 def create_test_result_dict(result: Any) -> dict[str, Any]:
@@ -164,6 +165,33 @@ class TestTwoSidedTTest(TestCase):
         expected_uplift = get_expected_uplift(expected_dict)
         self.assertAlmostEqual(uplift["mean"], expected_uplift["mean"], places=4)
         self.assertAlmostEqual(uplift["stddev"], expected_uplift["stddev"], places=4)
+
+    @parameterized.expand(
+        [
+            (
+                "absolute",
+                DifferenceType.ABSOLUTE,
+                1.415000000000001,
+                (0.08506091978298969, 2.744939080217012),
+                0.0370517987954897,
+            ),
+            (
+                "relative",
+                DifferenceType.RELATIVE,
+                0.12982842462611258,
+                (0.003037963247587039, 0.2566188860046381),
+                0.044762375592802384,
+            ),
+        ]
+    )
+    def test_two_sided_ttest_with_quantile_statistic(self, _name, difference_type, expected, ci, p_value):
+        method = FrequentistMethod(FrequentistConfig(alpha=0.05, difference_type=difference_type))
+        result = method.run_test(QUANTILE_TREATMENT, QUANTILE_CONTROL)
+
+        self.assertAlmostEqual(result.point_estimate, expected, places=12)
+        self.assertAlmostEqual(result.confidence_interval[0], ci[0], places=10)
+        self.assertAlmostEqual(result.confidence_interval[1], ci[1], places=10)
+        self.assertAlmostEqual(result.p_value, p_value, places=9)
 
 
 class TestSequentialMath(TestCase):
