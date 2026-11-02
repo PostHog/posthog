@@ -278,7 +278,12 @@ def pytest_runtest_setup(item: pytest.Item) -> Generator[None]:
     marker = item.get_closest_marker("covers_authentication")
     authentication_checks.start_test(marker.args if marker else ())
     peer_lazy_loads.start_test()
-    result = yield
+    try:
+        result = yield
+    except pytest.skip.Exception:
+        # A skip must not hide a blocked load caught before it.
+        _fail_on_caught_peer_lazy_loads()
+        raise
     _fail_on_caught_peer_lazy_loads()
     return result
 
@@ -287,7 +292,11 @@ def pytest_runtest_setup(item: pytest.Item) -> Generator[None]:
 def pytest_runtest_call(item: pytest.Item) -> Generator[None]:
     from posthog.test import authentication_checks  # noqa: PLC0415
 
-    result = yield
+    try:
+        result = yield
+    except pytest.skip.Exception:
+        _fail_on_caught_peer_lazy_loads()
+        raise
     if problems := authentication_checks.finish_test():
         pytest.fail("\n".join(problems))
     _fail_on_caught_peer_lazy_loads()
