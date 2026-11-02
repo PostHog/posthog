@@ -59,7 +59,7 @@ function matchesProductName(value: string | undefined, names: readonly string[])
     return !!product && names.includes(product)
 }
 
-// Coding agents and LLM-driven clients that render text rather than MCP Apps UI.
+// Coding agents and LLM-driven clients that read `content[].text` and do not render MCP Apps UI.
 // Matched by `isCliModeEnabled()`, which gates dropping `structuredContent` when a
 // `formatted_results` override is set. Mode selection does NOT read this list — CLI
 // (single-exec) is the default for every client; `TOOLS_MODE_CLIENT_NAME_FRAGMENTS`
@@ -76,36 +76,20 @@ export const CODING_AGENT_CLIENT_NAME_FRAGMENTS = [
     'aider',
     'copilot',
     'gemini-cli',
-    // Devin self-reports `clientInfo.name` as `Devin`; it's a coding agent and
-    // benefits from the same single-exec mode.
+    // Devin self-reports `clientInfo.name` as `Devin`.
     'devin',
-    // LibreChat is a general MCP client, but benefits from the same CLI-shaped
-    // single-exec mode as coding agents.
-    'librechat',
-    // Notion AI ships its own `notion-mcp-client` (not a coding agent per se,
-    // but an LLM-driven consumer that benefits from the same single-exec mode
-    // and formatted-text rendering as coding agents).
+    // Notion AI self-reports `notion-mcp-client`.
     'notion',
-    // OpenCode is a terminal coding agent (and the engine behind clients like
-    // OpenWork). It connects through OpenCode's MCP client, which self-reports
-    // `clientInfo.name` as `opencode`. It renders text, not MCP Apps UI, so it
-    // wants single-exec mode like the other coding agents.
+    // OpenCode (also the engine behind OpenWork) self-reports `opencode`.
     'opencode',
-    // Amp is Sourcegraph's coding agent; its MCP client self-reports
-    // `clientInfo.name` as `amp-mcp-client` and benefits from single-exec mode.
+    // Sourcegraph Amp self-reports `amp-mcp-client`.
     'amp-mcp-client',
-    // Poke is an LLM-driven assistant that renders text, not MCP Apps UI, so it
-    // wants the same single-exec mode as the coding agents.
-    'poke',
-    // Grok (xAI) — both Grok Build (the terminal coding agent) and the grok.com
-    // assistant connect custom MCP servers and render text rather than MCP Apps
-    // UI, so they benefit from the same single-exec mode and formatted-text
-    // rendering as the other coding agents.
+    // Grok Build and the grok.com assistant both match `grok`.
     'grok',
-    // Ando is an LLM-driven assistant (Slack, chat, calls) whose MCP client
-    // self-reports `clientInfo.name` as `ando-mcp-gateway`; it renders text and
-    // benefits from the same single-exec mode as the coding agents.
+    // Ando self-reports `ando-mcp-gateway`.
     'ando-mcp-gateway',
+    'librechat',
+    'poke',
 ] as const
 
 // Clients that wedge after a stateless `server/discover` but complete the legacy
@@ -246,9 +230,7 @@ const CLIENT_CAPABILITY_OVERRIDES: readonly CapabilityOverride[] = [
 
 type MCPClientProfileInput = {
     clientName?: string | undefined
-    clientVersion?: string | undefined
     consumer?: string | undefined
-    oauthClientName?: string | undefined
     // Per-request `x-anthropic-client` value (e.g. `ClaudeCode`, `ClaudeAI`).
     // Anthropic pools MCP transports across products, so the live inner client
     // can disagree with the session-pinned `clientName` from `initialize`.
@@ -260,9 +242,7 @@ type MCPClientProfileInput = {
 
 export class MCPClientProfile {
     readonly clientName: string | undefined
-    readonly clientVersion: string | undefined
     readonly consumer: string | undefined
-    readonly oauthClientName: string | undefined
     readonly vendorClient: string | undefined
     readonly userAgent: string | undefined
     readonly uiSupported: boolean | undefined
@@ -271,9 +251,7 @@ export class MCPClientProfile {
 
     constructor(input: MCPClientProfileInput) {
         this.clientName = input.clientName
-        this.clientVersion = input.clientVersion
         this.consumer = input.consumer
-        this.oauthClientName = input.oauthClientName
         this.vendorClient = input.vendorClient
         this.userAgent = input.userAgent
         this.uiSupported = input.uiSupported

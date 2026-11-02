@@ -520,16 +520,12 @@ describe('MCPClientProfile', () => {
     it('exposes constructor inputs as readonly fields', () => {
         const profile = new MCPClientProfile({
             clientName: 'claude-code',
-            clientVersion: '1.2.3',
             consumer: POSTHOG_CODE_CONSUMER,
-            oauthClientName: 'Lovable',
             vendorClient: 'ClaudeCode',
             userAgent: 'Claude-User',
         })
         expect(profile.clientName).toBe('claude-code')
-        expect(profile.clientVersion).toBe('1.2.3')
         expect(profile.consumer).toBe(POSTHOG_CODE_CONSUMER)
-        expect(profile.oauthClientName).toBe('Lovable')
         expect(profile.vendorClient).toBe('ClaudeCode')
         expect(profile.userAgent).toBe('Claude-User')
     })
