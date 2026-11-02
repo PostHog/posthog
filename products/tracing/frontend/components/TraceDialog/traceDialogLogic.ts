@@ -3,6 +3,12 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import {
+    type TraceDialogCloseReason,
+    type TraceDialogEntryPoint,
+    type TraceDialogSource,
+    traceDialogOpenLogic,
+} from 'lib/components/ViewTraceButton/traceDialogOpenLogic'
 import type { TraceLinkParams } from 'lib/components/ViewTraceButton/traceUrl'
 import { dayjs } from 'lib/dayjs'
 
@@ -19,12 +25,6 @@ import { tracingCorrelationConfigLogic } from 'products/tracing/frontend/tracing
 import type { Span, SpanInspectorTab, TraceViewMode } from 'products/tracing/frontend/types'
 
 import { traceViewLogic } from '../TraceView/traceViewLogic'
-import {
-    type TraceDialogCloseReason,
-    type TraceDialogEntryPoint,
-    type TraceDialogSource,
-    traceDialogOpenLogic,
-} from './traceDialogOpenLogic'
 
 // The trace endpoint pages at 2,000 spans, so this caps the dialog at 10,000. Bigger traces open in
 // Tracing, which pages in on scroll.
@@ -91,7 +91,7 @@ export interface traceDialogLogicActions {
     } // traceDialogOpenLogic
     openTraceDialog: (
         trace: TraceLinkParams,
-        options: import('./traceDialogOpenLogic').OpenTraceDialogOptions
+        options: import('lib/components/ViewTraceButton/traceDialogOpenLogic').OpenTraceDialogOptions
     ) => {
         entryPoint: TraceDialogEntryPoint
         openedFrom: TraceDialogSource | null

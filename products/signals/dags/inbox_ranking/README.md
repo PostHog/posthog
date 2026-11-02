@@ -43,7 +43,8 @@ s3://<bucket>/<prefix>/
 ├── inbox_user_report_interactions/v1/dt=YYYY-MM-DD/ # cumulative interactions per (report, person)
 ├── inbox_project_vectors/v1/dt=YYYY-MM-DD/    # per-team mean report vectors of past engagement, by kind
 ├── inbox_user_vectors/v1/dt=YYYY-MM-DD/       # per-user mean report vectors of past engagement, by kind
-└── inbox_activity_summary_vectors/v1/dt=YYYY-MM-DD/ # one row per activity summary vector generated during the day
+├── inbox_activity_summary_vectors/v1/dt=YYYY-MM-DD/ # one row per activity summary vector generated during the day
+└── inbox_activity_summary_profile_vectors/v1/dt=YYYY-MM-DD/ # the same shape, for the rendering with the profile
 ```
 
 The first four are report grain and land in one table. `inbox_signal_embeddings` is signal grain, feeds the group-level model, and is read on its own — training joins it to `inbox_report_model_data` by `report_id`.
@@ -190,6 +191,13 @@ That table drops a row 3 months after its `timestamp`, and `UserActivitySummaryV
 - A re-run replaces the rows the source still returns and keeps the rows it no longer returns, so a re-run after the TTL does not erase history. It drops the rows of teams without training consent.
 - **It is a leaf.** Nothing joins it, so a failure here does not fail the training table. A day of vectors is small, so it has no ordering dependency.
 - Backfill: materialize every partition from the first activity summary build that is still inside the source TTL. Repeat for the matching partitions after a backfill of past-dated summaries, before those vectors expire.
+
+`inbox_activity_summary_profile_vectors` is the same leaf for the `summary_profile` rendering, with its own `ACTIVITY_SUMMARY_PROFILE_VECTORS_SCHEMA_VERSION`.
+That rendering embeds `summary_profile_text`: the headline, the theme labels and the profile.
+It shares the `document_id` and `timestamp` of the `summary_text` vector of the same build, so a backtest can compare the two user vectors on the same builds.
+The tick emits it only while `emit_profile_embeddings` is on in the `activity-summary` flag payload, and only for a summary with a profile.
+The activity summary backfill does not emit it.
+Each asset reads only its own rendering.
 
 ## The training dag
 
@@ -546,7 +554,7 @@ The dags train only on reports from organizations whose `Organization.is_ai_trai
 `consent.training_consent_team_ids()` returns the consenting teams that hold an inbox report, and every asset reads it once per run.
 
 - `inbox_report_state` keeps only the spine reports of those teams. A label event that names another team's report does not pull it back in. That report's labels still land in `inbox_report_model_data` as a label-only row, which training skips.
-- `inbox_report_embeddings`, `inbox_report_title_embeddings`, `inbox_signal_embeddings` and `inbox_activity_summary_vectors` read only those teams, through `team_id IN (...)` in the ClickHouse query.
+- `inbox_report_embeddings`, `inbox_report_title_embeddings`, `inbox_signal_embeddings`, `inbox_activity_summary_vectors` and `inbox_activity_summary_profile_vectors` read only those teams, through `team_id IN (...)` in the ClickHouse query.
 - The `nn` examples asset drops every state row whose `report_team_id` is not in the current set, before it builds examples. The lookback window reaches partitions written before an organization opted out, so this filter is what makes an opt-out take effect on the next training run.
 
 The filter follows the current setting, so an organization that opts back in is trained on again.

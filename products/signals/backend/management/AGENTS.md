@@ -269,6 +269,9 @@ Idempotent. A reactivated check no longer matches.
 
 `run_personal_inbox_ranking` builds one person's ranked inbox list with one LLM call (`../personal_ranking/`) and prints it, with each report's rank, tier and reason.
 It reads its limits from the `personal-inbox-ranking` flag payload, and `"enabled": false` there stops every build.
+It prints the effective config first: the model, `reasoning_effort`, `rank_top`, `max_candidates`, `timeout_seconds` and `max_completion_tokens`.
+The model ranks only the best `rank_top` candidates. The other candidates follow in model order, with `ranked_by: model`.
+At most `top_max` entries (default 5) get the `top` tier and at most `worth_a_look_max` (default 10) get `worth_a_look`. An entry past a cap moves down to the next tier with room and keeps its rank.
 
 ```bash
 # Call the model, but store no PersonalInboxRanking row and capture no event
@@ -278,8 +281,37 @@ uv run manage.py run_personal_inbox_ranking --team-id 1 --user-id 1 --dry-run
 uv run manage.py run_personal_inbox_ranking --team-id 1 --user-id 1 --focus "checkout errors"
 ```
 
-A person with no ready activity summary still gets a list, marked `personalized: False`.
+An optional `pools` list in the payload replaces the default candidate pools, in merge order:
+
+```json
+{
+  "pools": [
+    { "source": "priority", "size": 5, "lowest_priority": "P1" },
+    { "source": "for_you_recommended", "size": 10 },
+    { "source": "assigned", "size": 0 },
+    { "source": "scored", "size": 10, "head": "fixed", "actionable_only": true, "has_pr": false, "window_days": 30 }
+  ]
+}
+```
+
+Each entry takes a `source` (`for_you_recommended`, `for_you_updated`, `assigned`, `scored` or `priority`), a `size` (0 turns it off) and an optional `name`.
+`scored` needs a `head` (`open`, `action` or `fixed`) and only joins for a person who can see the ranking model.
+`scored` and `priority` also take `actionable_only`, `has_pr` and `window_days`.
+The build logs and drops an invalid entry, and uses the default pools when no entry is valid.
+
+A person with no ready activity summary gets a list in model order with no model call, marked `personalized: False` and `fallback_reason: no_activity_summary`.
 When the model call fails or answers outside the schema, the list is in model order and `fallback_reason` says why.
+The `personal inbox ranking built` event records `model_called`, so builds with and without a model call can be counted apart.
+The command spends no build limit, so use it only for single runs.
+
+`GET /api/projects/:id/signals/reports/for_me/` (`../personal_ranking/serve.py`) serves the same list to the user it describes, when the flag is on for that user.
+It reuses the latest row for `freshness_minutes` while the input hash matches.
+Otherwise it queues one `build_personal_inbox_ranking` Celery task per person behind a cache lock, and serves the latest row as stale, or the candidates in inbox order with `fallback_reason: building`.
+It limits builds per person with `build_burst`, `builds_per_hour` and `builds_per_day` from the same payload.
+`max_builds_per_day` (default 500, at most 10000) limits the builds that call the model across every person, in one Redis token bucket per region (`../personal_ranking/build_budget.py`).
+A build with no ready activity summary, or for an organization that has not approved AI data processing, does not call the model and does not spend that limit.
+When a limit refuses a build, the read serves the latest row as stale, or the candidates in inbox order with `fallback_reason: rate_limited`.
+A scheduled caller must spend from the same bucket with `spend_shared_build` before it builds.
 
 ## Tips
 

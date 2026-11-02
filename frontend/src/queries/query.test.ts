@@ -6,11 +6,10 @@ import { NetworkError } from 'lib/api-error'
 
 import { useMocks } from '~/mocks/jest'
 import { performQuery, pollForResults, queryExportContext, waitForPageVisible } from '~/queries/query'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import { EventsQuery, HogQLQuery, NodeKind, RefreshType, WebStatsBreakdown } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
-
-import { setLatestVersionsOnQuery } from './utils'
 
 describe('query', () => {
     beforeEach(() => {
