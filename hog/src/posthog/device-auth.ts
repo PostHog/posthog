@@ -143,7 +143,11 @@ export async function pollDeviceLogin(
         { grant_type: DEVICE_CODE_GRANT, device_code: pending.deviceCode, client_id: HOG_CLIENT_ID },
         timeoutMs
     )
-    if (response.status === 429 || response.status >= 500) {
+    // A rate limit asks for slower polling, the same as RFC 8628's slow_down.
+    if (response.status === 429) {
+        return { state: 'slow_down' }
+    }
+    if (response.status >= 500) {
         return { state: 'retry', reason: `PostHog answered with HTTP ${response.status}.` }
     }
     const body = (response.json ?? {}) as TokenResponse & { error?: string }

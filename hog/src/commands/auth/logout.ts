@@ -5,6 +5,7 @@ import { PERSONAL_API_KEY_ENV_VAR, legacyCredentialsPath } from '@/posthog/crede
 import { revokeLogin } from '@/posthog/device-auth'
 import { LOGIN_COMMAND } from '@/posthog/login'
 import { readLogin, removeLogin } from '@/posthog/logins'
+import { withLoginLock } from '@/posthog/oauth'
 import { readSettings } from '@/posthog/settings'
 
 interface LogoutResult {
@@ -37,13 +38,19 @@ export default defineCommand({
         // posthog.json must not stop a logout.
         const configHost = (await ctx.config().catch(() => undefined))?.config.host
         const host = ctx.globals.host ?? configHost ?? settings.host
-        const login = host ? await readLogin(runtime, settings, host) : undefined
-        const stored = login?.credential
+        // Under the renewal lock, so a renewal in another hog process can neither restore the login
+        // after this removes it, nor rotate the refresh token this revokes.
+        const { stored, revoked, removed } = host
+            ? await withLoginLock(runtime, host, async () => {
+                  const login = await readLogin(runtime, await readSettings(runtime), host)
+                  const [revokeResult, removeResult] = await Promise.all([
+                      login?.credential.type === 'oauth' ? revokeLogin(runtime, login.credential) : null,
+                      login ? removeLogin(runtime, login) : false,
+                  ])
+                  return { stored: login?.credential, revoked: revokeResult, removed: removeResult }
+              })
+            : { stored: undefined, revoked: null, removed: false }
         const personalApiKey = stored?.type === 'personal_api_key'
-        const [revoked, removed] = await Promise.all([
-            stored?.type === 'oauth' ? revokeLogin(runtime, stored) : null,
-            login ? removeLogin(runtime, login) : false,
-        ])
         await clearPending(runtime, LOGIN_COMMAND)
         const legacyFile = legacyCredentialsPath(runtime)
         return {
