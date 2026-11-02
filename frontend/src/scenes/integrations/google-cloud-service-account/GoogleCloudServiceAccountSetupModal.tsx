@@ -22,6 +22,7 @@ export const GoogleCloudServiceAccountSetupModal = (
     const { serviceAccountMode, isGoogleCloudServiceAccountIntegrationSubmitting } = useValues(logic)
     const { setServiceAccountMode, submitGoogleCloudServiceAccountIntegration } = useActions(logic)
     const googleCloudOrganizationId = getAppContext()?.batch_export_google_cloud_organization_id
+    const bigQueryServiceAccount = getAppContext()?.batch_export_bigquery_service_account
 
     return (
         <LemonModal
@@ -127,9 +128,13 @@ export const GoogleCloudServiceAccountSetupModal = (
                                         2
                                     </span>
                                     <p className="m-0 text-secondary">
-                                        Assign PostHog's service account:{' '}
-                                        <code>posthog-batch-exports@posthog-external.iam.gserviceaccount.com</code> as a
-                                        principal with access to your service account with the role{' '}
+                                        Assign PostHog's service account
+                                        {bigQueryServiceAccount && (
+                                            <>
+                                                : <code translate="no">{bigQueryServiceAccount}</code>
+                                            </>
+                                        )}{' '}
+                                        as a principal with access to your service account with the role{' '}
                                         <code>roles/iam.serviceAccountTokenCreator</code> to allow impersonation, and
                                         any role containing <code>iam.serviceAccounts.get</code> permission to allow us
                                         to verify ownership.

@@ -5371,6 +5371,7 @@ export interface AppContext {
     project_access_denied?: string | null
     livestream_host?: string
     batch_export_google_cloud_organization_id?: string
+    batch_export_bigquery_service_account?: string
     oauth_application?: OAuthApplicationPublicMetadata
     /** Server-resolved MCP scopes for OAuth consent when the client omits `scope`. */
     oauth_mcp_consent?: OAuthMcpConsentContext

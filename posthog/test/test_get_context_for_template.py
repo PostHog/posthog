@@ -190,6 +190,7 @@ class TestGetContextForTemplate(APIBaseTest):
                 STRIPE_PUBLIC_KEY=None,
                 PERSISTED_FEATURE_FLAGS=["the_persisted_flags"],
                 BATCH_EXPORT_GOOGLE_CLOUD_ORGANIZATION_ID="123456789012",
+                BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT="batch-exports@example.com",
             ),
             mock.patch("posthog.settings.CLOUD_DEPLOYMENT", "LOCAL"),
         ):
@@ -213,6 +214,7 @@ class TestGetContextForTemplate(APIBaseTest):
                 "anonymous": False,
                 "run_mode": "LOCAL",
                 "batch_export_google_cloud_organization_id": "123456789012",
+                "batch_export_bigquery_service_account": "batch-exports@example.com",
             },
             "posthog_bootstrap": {},
             "posthog_js_uuid_version": "v7",
