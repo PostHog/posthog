@@ -218,6 +218,32 @@ export function IntegrationView({
                             : `There was an error with this integration: ${errors[0]}`}
                     </LemonBanner>
                 </div>
+            ) : integration.needs_webhook_reconnect ? (
+                <div className="p-2">
+                    <LemonBanner
+                        type="warning"
+                        action={{
+                            children: 'Reconnect',
+                            disableClientSideRouting: true,
+                            to: integrationAuthorizeUrl({
+                                kind: integration.kind,
+                                next: reconnectReturnUrl(window.location.pathname, window.location.search),
+                            }),
+                            onClick: () =>
+                                reportIntegrationConnectClicked(
+                                    integration.kind,
+                                    integration.kind,
+                                    'webhook_banner_reconnect'
+                                ),
+                            disabledReason: restrictedReason,
+                        }}
+                    >
+                        <span>
+                            Reconnect this workspace so that linked error tracking issues resolve and reopen with their
+                            Linear tickets. First switch to <strong>{integration.display_name}</strong> in Linear.
+                        </span>
+                    </LemonBanner>
+                </div>
             ) : (
                 <IntegrationScopesWarning integration={integration} schema={schema} />
             )}
