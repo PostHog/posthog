@@ -24,9 +24,12 @@ export type RateLimiterValkeyConfig = Pick<
  * callers treat that as "feature disabled in this environment" and proceed
  * without it.
  */
+const OPTIONAL_POOL_TIMEOUT_MS = 1000
+
 export function createSesRateLimiterValkeyPool(
     config: RateLimiterValkeyConfig,
-    name = 'ses-rate-limiter'
+    name = 'ses-rate-limiter',
+    { optional = false }: { optional?: boolean } = {}
 ): RedisV2 | null {
     if (!config.SES_RATE_LIMITER_VALKEY_HOST) {
         logger.info('🪙', `[${name}] no SES Valkey host configured — feature disabled`)
@@ -47,10 +50,13 @@ export function createSesRateLimiterValkeyPool(
                 port: config.SES_RATE_LIMITER_VALKEY_PORT,
                 password: config.SES_RATE_LIMITER_VALKEY_PASSWORD,
                 tls,
+                ...(optional ? { commandTimeout: OPTIONAL_POOL_TIMEOUT_MS } : {}),
             },
             name,
+            exitOnRepeatedErrors: !optional,
         },
-        poolMinSize: config.REDIS_POOL_MIN_SIZE,
+        poolMinSize: optional ? 0 : config.REDIS_POOL_MIN_SIZE,
         poolMaxSize: config.REDIS_POOL_MAX_SIZE,
+        ...(optional ? { acquireTimeoutMillis: OPTIONAL_POOL_TIMEOUT_MS } : {}),
     })
 }

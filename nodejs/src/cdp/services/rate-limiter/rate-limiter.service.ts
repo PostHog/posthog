@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto'
 import { Counter, Histogram } from 'prom-client'
 
 import { RedisV2 } from '~/common/redis/redis-v2'
@@ -249,10 +250,83 @@ end
 return {1, 0, 0, 0}
 `
 
+const CLAIM_ALL_OR_NOTHING_LUA = `
+local time = redis.call('TIME')
+local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
+local claimKey = KEYS[#KEYS]
+local previous = redis.call('GET', claimKey)
+if previous then
+    return cjson.decode(previous)
+end
+if now > tonumber(ARGV[#ARGV - 1]) then
+    return {0}
+end
+local replayTtlMs = tonumber(ARGV[#ARGV])
+local available = {}
+local denied = {0}
+for i = 1, #KEYS - 1 do
+    local offset = (i - 1) * 4
+    local requested = tonumber(ARGV[offset + 1])
+    local capacity = tonumber(ARGV[offset + 2])
+    local refillPerSecond = tonumber(ARGV[offset + 3])
+    local existing = redis.call('hmget', KEYS[i], 'ts', 'pool')
+    local avail
+    if existing[1] == false then
+        avail = capacity
+    else
+        local elapsedMs = math.max(0, now - tonumber(existing[1]))
+        local currentTokens = capacity
+        if existing[2] ~= false then
+            currentTokens = tonumber(existing[2])
+        end
+        avail = math.min(capacity, currentTokens + (elapsedMs / 1000.0) * refillPerSecond)
+    end
+    available[i] = avail
+    if avail < requested then
+        table.insert(denied, i)
+    end
+end
+if #denied > 1 then
+    redis.call('SET', claimKey, cjson.encode(denied), 'NX', 'PX', replayTtlMs)
+    return denied
+end
+for i = 1, #KEYS - 1 do
+    local offset = (i - 1) * 4
+    redis.call('hset', KEYS[i], 'ts', now, 'pool', available[i] - tonumber(ARGV[offset + 1]))
+    redis.call('expire', KEYS[i], tonumber(ARGV[offset + 4]))
+end
+local granted = {1}
+redis.call('SET', claimKey, cjson.encode(granted), 'NX', 'PX', replayTtlMs)
+return granted
+`
+
+// ioredis can replay unanswered commands, so returns need deduplication and an expiry.
+const RETURN_CLAIM_LUA = `
+local time = redis.call('TIME')
+local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
+local buckets = #KEYS - 1
+if now > tonumber(ARGV[buckets + 1]) then
+    return 0
+end
+if not redis.call('set', KEYS[#KEYS], 1, 'NX', 'PX', ARGV[buckets + 2]) then
+    return 0
+end
+for i = 1, buckets do
+    if redis.call('hexists', KEYS[i], 'pool') == 1 then
+        redis.call('hincrbyfloat', KEYS[i], 'pool', ARGV[i])
+    end
+end
+return 1
+`
+
+const RETURN_WINDOW_MS = 5 * 60 * 1000
+
 export interface RateLimiterConfig {
     /** Logical name for metrics/logging only (e.g. 'ses'). */
     name: string
 }
+
+export type IssuedClaim = { granted: true; claimId: string; returnBy: number }
 
 export interface ClaimRequest {
     key: string
@@ -373,6 +447,61 @@ export class RateLimiterService {
         }
     }
 
+    // All bucket keys must share a hash tag because clustered Valkey rejects cross-slot Lua calls.
+    public async claimAllOrNothing(
+        buckets: ClaimRequest[]
+    ): Promise<IssuedClaim | { granted: false; deniedIndexes: number[] | null }> {
+        const endTimer = claimLatency.startTimer({ limiter: this.config.name })
+        const keys = buckets.map((bucket) => bucket.key)
+        const claimId = randomUUID()
+        const deadline = Date.now() + RETURN_WINDOW_MS
+        try {
+            const result = await this.valkey.useClient(
+                { name: `rate-limiter:${this.config.name}:claimAllOrNothing`, timeout: 1000 },
+                (client) =>
+                    client.eval(
+                        CLAIM_ALL_OR_NOTHING_LUA,
+                        buckets.length + 1,
+                        ...keys,
+                        `${keys[0]}/claimed/${claimId}`,
+                        ...buckets.flatMap((bucket) =>
+                            [bucket.requested, bucket.capacity, bucket.refillPerSecond, bucket.ttlSeconds ?? 3600].map(
+                                String
+                            )
+                        ),
+                        String(deadline),
+                        String(2 * RETURN_WINDOW_MS)
+                    )
+            )
+            if (Array.isArray(result) && result.length === 1 && result[0] === 1) {
+                claimCounter.inc({ limiter: this.config.name, result: 'granted_full' })
+                return { granted: true, claimId, returnBy: deadline }
+            }
+            if (
+                Array.isArray(result) &&
+                result[0] === 0 &&
+                result.length > 1 &&
+                result.slice(1).every((index) => Number.isInteger(index) && index >= 1 && index <= buckets.length) &&
+                new Set(result.slice(1)).size === result.length - 1
+            ) {
+                claimCounter.inc({ limiter: this.config.name, result: 'denied' })
+                return { granted: false, deniedIndexes: result.slice(1).map((index) => index - 1) }
+            }
+            logger.warn('🪙', `RateLimiterService(${this.config.name}) claim returned invalid result`, {
+                keys,
+                raw: result,
+            })
+            claimCounter.inc({ limiter: this.config.name, result: 'valkey_error' })
+            return { granted: false, deniedIndexes: null }
+        } catch (err) {
+            logger.warn('🪙', `RateLimiterService(${this.config.name}) claim threw`, { keys, error: String(err) })
+            claimCounter.inc({ limiter: this.config.name, result: 'valkey_error' })
+            return { granted: false, deniedIndexes: null }
+        } finally {
+            endTimer()
+        }
+    }
+
     /**
      * Atomically claim `requested` tokens from BOTH buckets, or neither. A denial consumes no
      * tokens, so a caller that retries a multi-token claim cannot drain the buckets while never
@@ -447,6 +576,33 @@ export class RateLimiterService {
             return { granted: false, deniedIndex: null, retryAfterMs: null, reserved: false }
         } finally {
             endTimer()
+        }
+    }
+
+    public async returnClaim(
+        claim: Pick<IssuedClaim, 'claimId' | 'returnBy'>,
+        buckets: Pick<ClaimRequest, 'key' | 'requested'>[]
+    ): Promise<void> {
+        const keys = buckets.map((bucket) => bucket.key)
+        try {
+            await this.valkey.useClient(
+                { name: `rate-limiter:${this.config.name}:returnClaim`, timeout: 1000 },
+                (client) =>
+                    client.eval(
+                        RETURN_CLAIM_LUA,
+                        buckets.length + 1,
+                        ...keys,
+                        `${keys[0]}/returned/${claim.claimId}`,
+                        ...buckets.map((bucket) => String(bucket.requested)),
+                        String(claim.returnBy),
+                        String(2 * RETURN_WINDOW_MS)
+                    )
+            )
+        } catch (err) {
+            logger.warn('🪙', `RateLimiterService(${this.config.name}) claim return threw`, {
+                keys,
+                error: String(err),
+            })
         }
     }
 }

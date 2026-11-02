@@ -177,6 +177,8 @@ export type CdpCoreServicesConfig = Pick<
         | 'SES_SANDBOX_TENANT_NAME'
         | 'SES_SANDBOX_CONFIGURATION_SET'
         | 'SES_SANDBOX_FROM_ADDRESS'
+        | 'WORKFLOWS_SANDBOX_DAILY_TEAM_CAP'
+        | 'WORKFLOWS_SANDBOX_DAILY_RECIPIENT_CAP'
         | 'EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD'
         | 'EMAIL_TEAM_SENDING_CAP_MODE'
         | 'EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER'
@@ -221,13 +223,15 @@ export interface CdpCoreServicesDeps {
     /**
      * SES Valkey pool shared with the SES rate limiter, opened only on pods whose
      * capabilities actually execute email actions (hogflow/email cyclotron workers).
-     * `null` on every other CDP consumer and on cdp-api so idle pods don't hold
-     * open connections against the SES Valkey instance.
+     * Sandbox-enabled cdp-api opens it too, for the sandbox daily caps of test sends.
+     * `null` on every other CDP consumer so idle pods don't hold open connections
+     * against the SES Valkey instance.
      */
     emailValidationValkey: RedisV2 | null
     /**
-     * Dedicated frequency cap Valkey pool, opened only on the same pods as `emailValidationValkey`.
-     * `null` elsewhere, and when no host is configured, which turns the cap off.
+     * Dedicated frequency cap Valkey pool, opened only on the email workers. `null` elsewhere,
+     * cdp-api included because its test sends skip the cap, and when no host is configured,
+     * which turns the cap off.
      */
     frequencyCapValkey: RedisV2 | null
 }
@@ -466,6 +470,9 @@ export function createCdpCoreServices(
     const teamEmailRateLimiter = deps.emailValidationValkey
         ? new RateLimiterService(deps.emailValidationValkey, { name: 'team-email' })
         : null
+    const sandboxEmailRateLimiter = deps.emailValidationValkey
+        ? new RateLimiterService(deps.emailValidationValkey, { name: 'sandbox-email' })
+        : null
     const emailService = new EmailService(
         {
             sesAccessKeyId: config.SES_ACCESS_KEY_ID,
@@ -495,9 +502,12 @@ export function createCdpCoreServices(
                 tenantName: config.SES_SANDBOX_TENANT_NAME,
                 configurationSetName: config.SES_SANDBOX_CONFIGURATION_SET,
                 fromAddress: config.SES_SANDBOX_FROM_ADDRESS,
+                dailyTeamCap: config.WORKFLOWS_SANDBOX_DAILY_TEAM_CAP,
+                dailyRecipientCap: config.WORKFLOWS_SANDBOX_DAILY_RECIPIENT_CAP,
             },
             deps.teamManager,
-            redis
+            redis,
+            sandboxEmailRateLimiter
         ),
         new OrganizationMembersService(deps.postgres)
     )
@@ -565,9 +575,9 @@ export function createCdpCoreServices(
             : undefined
     )
     // MX verdicts live on the dedicated SES Valkey (same instance as the SES rate
-    // limiter, separate pool). The pool is created by the server only on pods
-    // whose capabilities execute email actions; everywhere else this is null
-    // and EmailValidationService degrades to the local cache + DNS.
+    // limiter, separate pool). The server creates the pool only on pods whose
+    // capabilities execute email actions and on sandbox-enabled cdp-api; everywhere
+    // else this is null and EmailValidationService degrades to the local cache + DNS.
     const emailValidationService = new EmailValidationService(deps.emailValidationValkey)
     const cohortMembershipRepository = new PostgresCohortMembershipRepository(deps.postgres)
     // Observer writes to both stores; the read source decides which verdict drives the metric.

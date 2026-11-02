@@ -137,8 +137,9 @@ export class PluginServer implements NodeServer {
 
         // Build typed deps objects for consumers. `emailValidationValkey` and `frequencyCapValkey`
         // are null in the shared deps and set only by the cyclotron workers that run the hogflow
-        // email action (see `withEmailActionValkeys` at their loaders below) — no
-        // other consumer touches the SES or frequency cap Valkey.
+        // email action (see `withEmailActionValkeys` at their loaders below). Sandbox-enabled
+        // cdp-api gets only the SES pool, because its test sends skip the frequency cap.
+        // No other consumer touches the SES or frequency cap Valkey.
         const cdpDeps: CdpConsumerBaseDeps | undefined = needsCdp
             ? {
                   postgres: this.postgres!,
@@ -245,7 +246,19 @@ export class PluginServer implements NodeServer {
                     : null
                 const api = new CdpApi(
                     this.config,
-                    { ...cdpDeps!, idempotencyValkey: createIdempotencyValkeyPool(this.config) },
+                    {
+                        ...cdpDeps!,
+                        ...(this.config.WORKFLOWS_SANDBOX_SENDER_ENABLED
+                            ? {
+                                  emailValidationValkey: createSesRateLimiterValkeyPool(
+                                      this.config,
+                                      'email-mx-validation',
+                                      { optional: true }
+                                  ),
+                              }
+                            : {}),
+                        idempotencyValkey: createIdempotencyValkeyPool(this.config),
+                    },
                     { hogQueue: kafkaQueue, hogflowQueue: postgresV2Queue },
                     batchResolverProducer
                 )
@@ -456,9 +469,8 @@ export class PluginServer implements NodeServer {
 
     /**
      * Grants the SES Valkey pool that backs the shared MX-verdict cache to a worker's
-     * deps. Only the cyclotron workers that run the hogflow email action call this, so
-     * the pool is never opened on other CDP consumers or cdp-api — an idle Valkey sized
-     * for the SES rate limiter shouldn't hold connections from pods that never validate.
+     * deps. Only the email workers call this. Sandbox-enabled cdp-api opens the SES pool on its
+     * own, without the frequency cap pool, and the pool stays closed on other CDP consumers.
      * Null when no SES Valkey host is configured (local dev), in which case
      * EmailValidationService degrades to its local cache + DNS.
      *
