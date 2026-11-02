@@ -106,15 +106,15 @@ const SCOUT_RECENCY_TIMESTAMPS: Record<
 }
 
 /** When a refused scout chat may start again, from the `Retry-After` of the server's daily-cap 429. */
-export function scoutChatRetryAt(error: unknown, now: number = Date.now()): number | null {
+function scoutChatRetryAtFromError(error: unknown): number | null {
     if (!(error instanceof ApiError) || error.status !== 429 || error.code !== 'throttled') {
         return null
     }
     const seconds = Number(error.headers?.get('Retry-After'))
-    return Number.isSafeInteger(seconds) && seconds > 0 ? now + seconds * 1000 : null
+    return Number.isSafeInteger(seconds) && seconds > 0 ? Date.now() + seconds * 1000 : null
 }
 
-export function scoutChatLimitReason(retryAt: number): string {
+function scoutChatLimitReason(retryAt: number): string {
     return `You've reached today's limit for scout chats. Try again after ${dayjs(retryAt).format('h:mm A')}.`
 }
 
@@ -2115,7 +2115,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 actions.startScoutChatTaskSuccess()
                 router.actions.push(urls.taskDetail(task.task_id))
             } catch (error: any) {
-                const retryAt = scoutChatRetryAt(error)
+                const retryAt = scoutChatRetryAtFromError(error)
                 if (retryAt !== null) {
                     lemonToast.error(scoutChatLimitReason(retryAt))
                     actions.setScoutChatRetryAt(retryAt)
