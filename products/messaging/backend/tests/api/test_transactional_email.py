@@ -39,7 +39,8 @@ from products.messaging.backend.presentation.views.message_templates import (
 from products.messaging.backend.services import transactional_email
 from products.messaging.backend.services.transactional_email import TransactionalEmailStage, make_transactional
 from products.workflows.backend.facade.api import set_default_email_sender_if_unset
-from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
+from products.workflows.backend.facade.models import HogFlow
+from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 
 PASSWORD_RESET_HASH = "v1:973d41bbe3fdca5c52bb951cd4b5fd7159ae630b56c8f3997cbb31afd1ea76fd"
 SUPERSEDED_HASH = f"v1:{'1' * 64}"

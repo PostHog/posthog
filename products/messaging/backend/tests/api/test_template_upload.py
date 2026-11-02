@@ -25,7 +25,7 @@ from products.messaging.backend.presentation.views.message_templates import (
 from products.messaging.backend.services import template_uploads
 from products.messaging.backend.services.transactional_email import make_transactional
 from products.workflows.backend.facade.api import set_default_email_sender_if_unset
-from products.workflows.backend.models import HogFlow
+from products.workflows.backend.facade.models import HogFlow
 
 WELCOME: dict[str, Any] = {
     "name": "Welcome",
