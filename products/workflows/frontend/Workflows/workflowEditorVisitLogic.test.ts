@@ -311,6 +311,20 @@ describe('workflowEditorVisitLogic', () => {
                 }),
         ],
         [
+            'replaying edits made while a save was in flight',
+            'variables',
+            (editor: ReturnType<typeof workflowLogic.build>) => {
+                const saved = editor.values.workflow
+                editor.actions.setWorkflowValues({ actions: [...saved.actions, slackStep('notify')] })
+                editor.actions.setWorkflowInfo({
+                    variables: [{ key: 'plan', label: 'Plan', type: 'string', default: 'free' }],
+                })
+                const { actions, edges, variables } = editor.values.workflow
+                editor.actions.resetWorkflow(saved)
+                editor.actions.setWorkflowValues({ actions, edges, variables })
+            },
+        ],
+        [
             'adding a schedule',
             'trigger',
             (editor: ReturnType<typeof workflowLogic.build>) => editor.actions.addSchedule(),

@@ -46,6 +46,9 @@ export interface workflowEditorVisitLogicActions {
     leaveConfirmed: () => {
         value: true
     } // workflowLogic
+    resetWorkflow: (values?: HogFlow | undefined) => {
+        values?: HogFlow
+    } // workflowLogic
     saveWorkflowPartial: (workflow: Partial<HogFlow>) => {
         workflow: Partial<HogFlow>
     } // workflowLogic
@@ -107,6 +110,7 @@ export const workflowEditorVisitLogic = kea<workflowEditorVisitLogicType>([
             [
                 'setWorkflowValue',
                 'setWorkflowValues',
+                'resetWorkflow',
                 'saveWorkflowPartial',
                 'workflowCreated',
                 'enableBlocked',
@@ -128,6 +132,12 @@ export const workflowEditorVisitLogic = kea<workflowEditorVisitLogicType>([
         const recordFormEdit = (previousState: any): void => {
             const editor = workflowLogic(props)
             const before = editor.selectors.workflow(previousState)
+            const formBeforeReset = cache.formBeforeReset as HogFlow | null
+            cache.formBeforeReset = null
+            // A save response resets the form, then puts back the edits made while it was in flight.
+            if (formBeforeReset && classifyEdit(formBeforeReset, editor.values.workflow) === null) {
+                return
+            }
             const edit = classifyEdit(before, editor.values.workflow)
             const visit = cache.visit as EditorVisit | null
             if (!visit || !edit) {
@@ -147,6 +157,9 @@ export const workflowEditorVisitLogic = kea<workflowEditorVisitLogicType>([
         return {
             setWorkflowValue: (_, __, ___, previousState) => recordFormEdit(previousState),
             setWorkflowValues: (_, __, ___, previousState) => recordFormEdit(previousState),
+            resetWorkflow: (_, __, ___, previousState) => {
+                cache.formBeforeReset = workflowLogic(props).selectors.workflow(previousState)
+            },
             setScheduleState: recordScheduleEdit,
             setScheduleStartsAtFromPicker: recordScheduleEdit,
             setScheduleTimezone: recordScheduleEdit,
