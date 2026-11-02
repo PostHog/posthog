@@ -1,10 +1,8 @@
 from collections.abc import Callable
-from concurrent.futures import (
-    ThreadPoolExecutor,
-    TimeoutError as FutureTimeoutError,
-)
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from threading import Event
+from time import monotonic, sleep
 from types import SimpleNamespace
 from typing import Any
 
@@ -295,28 +293,50 @@ class TestEmailSenderVerification(APIBaseTest):
 
         assert read_times == {"verification": [0.0, 3.0], "dkim": [3.0, 5.0], "mail_from": [3.0, 5.0]}
 
+    @parameterized.expand(
+        [
+            param(
+                "leaves_time_for_the_sender_check",
+                status_read_seconds=EmailSenderVerification.STATUS_READ_WORST_CASE_SECONDS - 1,
+                first_sweep=[True],
+            ),
+            param(
+                "leaves_less_than_a_sender_check_with_a_cold_account_lookup",
+                status_read_seconds=EmailSenderVerification.STATUS_READ_WORST_CASE_SECONDS + 9,
+                first_sweep=[False],
+            ),
+        ]
+    )
     @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
     @patch("products.workflows.backend.providers.ses.boto3.client")
-    def test_slow_status_read_inside_its_bound_still_verifies_and_advances(
-        self, mock_boto_client: MagicMock, mock_resolver: MagicMock
+    def test_slow_status_read_verifies_the_sender_only_when_its_check_fits_the_budget(
+        self,
+        _name: str,
+        mock_boto_client: MagicMock,
+        mock_resolver: MagicMock,
+        status_read_seconds: int,
+        first_sweep: list[bool],
     ) -> None:
         sender = self._create_sender("example.com")
         ses = self._mock_ses(mock_boto_client, mock_resolver)
         clock = {"now": 0.0}
         read_statuses = ses.get_identity_verification_attributes.side_effect
 
-        def slow_read(Identities: list[str]) -> Any:
-            clock["now"] += EmailSenderVerification.STATUS_READ_WORST_CASE_SECONDS - 1
+        def slow_first_read(Identities: list[str]) -> Any:
+            if ses.get_identity_verification_attributes.call_count == 1:
+                clock["now"] += status_read_seconds
             return read_statuses(Identities=Identities)
 
-        ses.get_identity_verification_attributes.side_effect = slow_read
+        ses.get_identity_verification_attributes.side_effect = slow_first_read
 
         with patch(
             "products.workflows.backend.services.email_sender_verification.monotonic", side_effect=lambda: clock["now"]
         ):
             refresh_new_email_senders()
+            assert self._verified(sender) == first_sweep
 
-        assert self._verified(sender) == [True]
+            refresh_new_email_senders()
+            assert self._verified(sender) == [True]
 
     @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
     @patch("products.workflows.backend.providers.ses.boto3.client")
@@ -464,11 +484,15 @@ class TestDomainVerificationConcurrency(NonAtomicBaseTest):
                 release_first.wait(timeout=10)
             set_default(team_id, integration_id)
 
+        backend_pids: dict[int, int] = {}
+
         def verify(sender: Integration) -> None:
             close_old_connections()
             try:
                 with connection.cursor() as cursor:
                     cursor.execute("SET lock_timeout = '10s'")
+                    cursor.execute("SELECT pg_backend_pid()")
+                    backend_pids[sender.id] = cursor.fetchone()[0]
                 EmailIntegration(Integration.objects.get(id=sender.id)).verify(on_domain_verified=on_domain_verified)
             finally:
                 close_old_connections()
@@ -480,13 +504,21 @@ class TestDomainVerificationConcurrency(NonAtomicBaseTest):
             first = executor.submit(verify, senders[0])
             assert first_inside_transaction.wait(timeout=10)
             second = executor.submit(verify, senders[1])
-            try:
-                second.result(timeout=1)
-            except FutureTimeoutError:
-                pass
+            deadline = monotonic() + 10
+            while not (second.done() or self._waits_for_a_lock(backend_pids.get(senders[1].id))):
+                assert monotonic() < deadline, "the second verification neither finished nor waited for a lock"
+                sleep(0.05)
             release_first.set()
             first.result(timeout=10)
             second.result(timeout=10)
 
         assert [Integration.objects.get(id=sender.id).config["verified"] for sender in senders] == [True, True]
         assert on_domain_verified.call_count == 1
+
+    def _waits_for_a_lock(self, backend_pid: int | None) -> bool:
+        if backend_pid is None:
+            return False
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT wait_event_type FROM pg_stat_activity WHERE pid = %s", [backend_pid])
+            row = cursor.fetchone()
+        return row is not None and row[0] == "Lock"
