@@ -745,6 +745,20 @@ describe('EmailService', () => {
                 expect(capture).not.toHaveBeenCalled()
             })
 
+            it('keeps a bounded number of blocked-event captures waiting on a stalled store', async () => {
+                const useClient = jest.fn(() => new Promise<never>(() => {}))
+                service = createSandboxService(true, hub.postgres, {}, null, undefined, { useClient })
+                const invocations = Array.from({ length: 15 }, () => ({
+                    ...invocation,
+                    queueParameters: createSandboxParams({ to: { email: 'outsider@example.com', name: '' } }),
+                }))
+
+                const results = await Promise.all(invocations.map((blocked) => service.executeSendEmail(blocked)))
+
+                results.forEach(expectSkipped)
+                expect(useClient).toHaveBeenCalledTimes(10)
+            })
+
             it('fails closed when the member check fails', async () => {
                 const membersPostgres = new PostgresRouter(hub)
                 await membersPostgres.end()
