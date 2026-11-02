@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/catalog"
-	"github.com/PostHog/posthog/services/hogql-language-service/internal/hogqlparser"
 )
 
 type selectAlias struct {
@@ -54,31 +53,36 @@ func (b Bindings) aliasCutoff() int {
 	if b.scope == nil {
 		return -1
 	}
-	q := b.scope.query
-	if items := q.Children("select"); len(items) > 0 && clauseContains(items, b.position) {
+	s := b.scope
+	if s.clauseSpans == nil {
+		s.clauseSpans = make(map[string][2]int)
+		for _, clause := range append([]string{"select"}, clausesAfterSelect...) {
+			start, end := -1, -1
+			for _, node := range s.query.Children(clause) {
+				if node.Start < 0 {
+					continue
+				}
+				if start < 0 || node.Start < start {
+					start = node.Start
+				}
+				end = max(end, node.End)
+			}
+			s.clauseSpans[clause] = [2]int{start, end}
+		}
+	}
+	contains := func(clause string) bool {
+		span := s.clauseSpans[clause]
+		return span[0] >= 0 && span[0] <= b.position && b.position <= span[1]
+	}
+	if contains("select") {
 		return b.position
 	}
-	// Resolver.visit_select_query resolves FROM/JOIN before SELECT, then these clauses.
 	for _, clause := range clausesAfterSelect {
-		if clauseContains(q.Children(clause), b.position) {
-			return q.End
+		if contains(clause) {
+			return s.query.End
 		}
 	}
 	return -1
-}
-
-func clauseContains(nodes []*hogqlparser.Node, position int) bool {
-	start, end := -1, -1
-	for _, node := range nodes {
-		if node.Start < 0 {
-			continue
-		}
-		if start < 0 || node.Start < start {
-			start = node.Start
-		}
-		end = max(end, node.End)
-	}
-	return start >= 0 && start <= position && position <= end
 }
 
 func (b Bindings) SelectAlias(name string) (catalog.Entry, bool) {

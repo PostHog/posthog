@@ -2,6 +2,7 @@ package completion
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"iter"
 	"regexp"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/analysis"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/catalog"
+	"github.com/PostHog/posthog/services/hogql-language-service/internal/hogqlparser"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/querylimits"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/textposition"
 )
@@ -132,6 +134,9 @@ func Complete(schema *catalog.PreparedCatalog, query string, position int, posit
 	}
 	repaired := query[:start] + "__posthog_cursor__" + query[position:]
 	document, bindings, qualified, parseErr := cursorBindings(schema, repaired, start, qualifier)
+	if errors.Is(parseErr, hogqlparser.ErrInternal) {
+		return Result{}, parseErr
+	}
 
 	var suggestions []Suggestion
 	if document != nil && document.LimitError() != nil {

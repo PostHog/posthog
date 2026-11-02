@@ -805,6 +805,7 @@ func TestCompletesScopedProjections(t *testing.T) {
 		name, query string
 		fields      map[string]string
 	}{
+		{"union root cte", "WITH t AS (SELECT event FROM events) SELECT event FROM t UNION ALL SELECT t.| FROM t", map[string]string{"event": "string"}},
 		{"cte", "WITH t AS (SELECT order_id, amount AS total FROM orders) SELECT t.| FROM t", map[string]string{"order_id": "string", "total": "float"}},
 		{"boolean literal type", "WITH t AS (SELECT TRUE AS enabled FROM events) SELECT t.| FROM t", map[string]string{"enabled": "boolean"}},
 		{"closed comment after cursor", "WITH t AS (SELECT uuid FROM events) SELECT t.uu| FROM t /* finished */", map[string]string{"uuid": "string"}},

@@ -307,6 +307,9 @@ func (b Bindings) PropertyNamespace(parts []string) (string, bool) {
 			}
 		}
 	}
+	if !strings.EqualFold(parts[len(parts)-2], "properties") {
+		return "", false
+	}
 	names := make(map[string]string, len(b.relations))
 	for name, relation := range b.relations {
 		if relation.cte != nil {

@@ -301,6 +301,12 @@ func (s *server) autocomplete(w http.ResponseWriter, r *http.Request, authorizat
 	}
 	started := time.Now()
 	result, err := completion.Complete(current, input.Query, position, positionEncoding, input.Cursor)
+	if errors.Is(err, hogqlparser.ErrInternal) {
+		setRequestResult(r, "parser_error")
+		slog.ErrorContext(r.Context(), "hogql parser failed", "error", err)
+		http.Error(w, "parser failed", http.StatusInternalServerError)
+		return
+	}
 	if err != nil {
 		setRequestResult(r, "invalid_query")
 		http.Error(w, err.Error(), http.StatusBadRequest)

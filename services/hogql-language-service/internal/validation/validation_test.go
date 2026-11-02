@@ -809,3 +809,11 @@ func TestValidatePropertiesAcrossGenericNamespaces(t *testing.T) {
 		}
 	}
 }
+
+func TestSetQueryInheritsRootCTE(t *testing.T) {
+	query := "WITH t AS (SELECT event FROM events) SELECT event FROM t UNION ALL SELECT event FROM t"
+	result := Validate(schema(), query)
+	if !result.Valid {
+		t.Fatalf("query %q returned %#v", query, result)
+	}
+}

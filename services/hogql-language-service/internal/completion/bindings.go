@@ -1,22 +1,35 @@
 package completion
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/analysis"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/catalog"
+	"github.com/PostHog/posthog/services/hogql-language-service/internal/hogqlparser"
 )
 
 func cursorBindings(schema *catalog.PreparedCatalog, query string, position int, qualifier string) (*analysis.Document, analysis.Bindings, analysis.Relation, error) {
 	document, parseErr := analysis.Analyze(schema, query)
+	if errors.Is(parseErr, hogqlparser.ErrInternal) {
+		return nil, analysis.Bindings{}, analysis.Relation{}, parseErr
+	}
 	if parseErr != nil {
 		parseErr = fmt.Errorf("parse incomplete SQL: %w", parseErr)
 		if recovered, recoveredPosition, ok := recoverCTEOuterSelect(query, position); ok {
-			document, _ = analysis.Analyze(schema, recovered)
+			var recoveryErr error
+			document, recoveryErr = analysis.Analyze(schema, recovered)
+			if errors.Is(recoveryErr, hogqlparser.ErrInternal) {
+				return nil, analysis.Bindings{}, analysis.Relation{}, recoveryErr
+			}
 			position = recoveredPosition
 		} else if recovered := recoverSingleSelect(query); recovered != "" {
-			document, _ = analysis.Analyze(schema, recovered)
+			var recoveryErr error
+			document, recoveryErr = analysis.Analyze(schema, recovered)
+			if errors.Is(recoveryErr, hogqlparser.ErrInternal) {
+				return nil, analysis.Bindings{}, analysis.Relation{}, recoveryErr
+			}
 			position = len("SELECT ")
 		}
 	}

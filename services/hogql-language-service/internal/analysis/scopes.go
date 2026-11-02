@@ -57,6 +57,7 @@ type queryScope struct {
 	ctes               []*cteBinding
 	cteRoot            bool
 	aliases            map[string]selectAlias
+	clauseSpans        map[string][2]int
 	propertyNamespaces map[string]propertyNamespace
 	sourceNames        map[string]int
 	duplicateSources   []Source
@@ -108,6 +109,22 @@ func queryScopes(statement *hogqlparser.Node, source string, budget *projectionB
 			scope.ctes = append(scope.ctes, cte)
 		}
 	}
+	statement.Walk(func(node *hogqlparser.Node) bool {
+		if !node.Is("SelectSetQuery") {
+			return true
+		}
+		branches := selectBranches(node)
+		if len(branches) < 2 || byQuery[branches[0]] == nil {
+			return true
+		}
+		ctes := byQuery[branches[0]].ctes
+		for _, branch := range branches[1:] {
+			if scope := byQuery[branch]; scope != nil {
+				scope.ctes = append(append([]*cteBinding{}, ctes...), scope.ctes...)
+			}
+		}
+		return true
+	})
 	return scopes, byQuery
 }
 
