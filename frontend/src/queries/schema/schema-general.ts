@@ -6100,7 +6100,7 @@ export interface ExperimentApiMetric {
     /** Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when
      *  conversion_window is set. */
     conversion_window_unit?: FunnelConversionWindowTimeUnit
-    /** For mean metrics: event source. */
+    /** For mean and quantile metrics: event source. Quantile metrics need `math_property`. */
     source?: ExperimentApiEventSource
     /** For funnel metrics: array of EventsNode/ActionsNode steps. */
     series?: ExperimentApiEventSource[]
@@ -6128,6 +6128,11 @@ export interface ExperimentApiMetric {
     /** For mean metrics: when set, reports the percentage of users whose per-user summed/counted value
      *  reaches or exceeds this threshold. Only meaningful for sum/count math types. */
     threshold?: number
+    /** For quantile metrics: the quantile level, for example 0.9 for p90. The metric takes this
+     *  quantile of `source.math_property` over all qualifying events of a variant.
+     *  @minimum 0.01
+     *  @maximum 0.99 */
+    quantile?: number
     /** For ratio metrics: winsorization applied to the numerator aggregate, independently of the
      *  denominator and each with its own percentile thresholds. */
     numerator_outlier_handling?: ExperimentMetricOutlierHandling
@@ -6216,6 +6221,7 @@ export const enum ExperimentMetricType {
     MEAN = 'mean',
     RATIO = 'ratio',
     RETENTION = 'retention',
+    QUANTILE = 'quantile',
 }
 
 export interface ExperimentMetricBaseProperties extends Node {
@@ -6368,6 +6374,27 @@ export type ExperimentRatioMetric = ExperimentMetricBaseProperties & {
 export const isExperimentRatioMetric = (metric: ExperimentMetric): metric is ExperimentRatioMetric =>
     metric.metric_type === ExperimentMetricType.RATIO
 
+/**
+ * @discriminator kind
+ */
+export type ExperimentQuantileMetricSourceUnion = EventsNode | ActionsNode
+
+export type ExperimentQuantileMetricSource = ExperimentQuantileMetricSourceUnion
+
+/** Event-level quantile of `source.math_property`, pooled over all qualifying events of a variant. */
+export type ExperimentQuantileMetric = ExperimentMetricBaseProperties & {
+    metric_type: ExperimentMetricType.QUANTILE
+    /** Must set `math_property`, the numeric property to take the quantile of. `math` is ignored. */
+    source: ExperimentQuantileMetricSource
+    /** Quantile level, for example 0.9 for p90.
+     *  @minimum 0.01
+     *  @maximum 0.99 */
+    quantile: number
+}
+
+export const isExperimentQuantileMetric = (metric: ExperimentMetric): metric is ExperimentQuantileMetric =>
+    metric.metric_type === ExperimentMetricType.QUANTILE
+
 export type ExperimentRetentionMetric = ExperimentMetricBaseProperties & {
     metric_type: ExperimentMetricType.RETENTION
     // Event that defines the start of the retention window. An ExperimentExposureNode
@@ -6394,12 +6421,14 @@ export type ExperimentMeanMetricTypeProps = Omit<ExperimentMeanMetric, keyof Exp
 export type ExperimentFunnelMetricTypeProps = Omit<ExperimentFunnelMetric, keyof ExperimentMetricBaseProperties>
 export type ExperimentRatioMetricTypeProps = Omit<ExperimentRatioMetric, keyof ExperimentMetricBaseProperties>
 export type ExperimentRetentionMetricTypeProps = Omit<ExperimentRetentionMetric, keyof ExperimentMetricBaseProperties>
+export type ExperimentQuantileMetricTypeProps = Omit<ExperimentQuantileMetric, keyof ExperimentMetricBaseProperties>
 
 export type ExperimentMetricTypeProps =
     | ExperimentMeanMetricTypeProps
     | ExperimentFunnelMetricTypeProps
     | ExperimentRatioMetricTypeProps
     | ExperimentRetentionMetricTypeProps
+    | ExperimentQuantileMetricTypeProps
 
 // Named separately from `ExperimentMetric` so the JSDoc `@discriminator` tag below
 // can attach without colliding with the `NodeKind.ExperimentMetric` enum value
@@ -6413,6 +6442,7 @@ export type ExperimentMetricUnion =
     | ExperimentFunnelMetric
     | ExperimentRatioMetric
     | ExperimentRetentionMetric
+    | ExperimentQuantileMetric
 
 export type ExperimentMetric = ExperimentMetricUnion
 
@@ -6489,6 +6519,8 @@ export interface ExperimentStatsBase {
     denominator_sum?: number
     denominator_sum_squares?: number
     numerator_denominator_sum_product?: number
+    /** For quantile metrics: the quantile, then the lower and upper bound for each reference sample size. */
+    quantile_grid?: number[]
     step_counts?: integer[]
     step_sessions?: SessionData[][]
 }

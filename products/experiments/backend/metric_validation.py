@@ -23,6 +23,7 @@ from posthog.schema import (
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetric as ExperimentMetricUnion,
+    ExperimentQuantileMetric,
     ExperimentRetentionMetric,
 )
 
@@ -112,6 +113,13 @@ def _semantic_error(metric: ExperimentMetric) -> str | None:
             return "a threshold cannot be combined with outlier handling (winsorization)."
     elif isinstance(metric, ExperimentRetentionMetric):
         return retention_metric_error(metric)
+    elif isinstance(metric, ExperimentQuantileMetric):
+        # The schema already limits the source to events or actions and the quantile to [0.01, 0.99].
+        if not metric.source.math_property:
+            return "percentile metrics require a numeric property (math_property) on the source."
+        # The runner sums breakdown rows to get the overall row of each variant, and quantiles cannot be summed.
+        if metric.breakdownFilter and metric.breakdownFilter.breakdowns:
+            return "breakdowns are not supported for percentile metrics yet."
     return None
 
 
@@ -136,7 +144,7 @@ def parse_and_validate_metric(metric: object, *, error_prefix: str) -> Experimen
         raise ValidationError(f"{error_prefix}ExperimentMetric requires a metric_type")
     if not isinstance(metric_type, str) or metric_type not in METRIC_BUILDERS:
         raise ValidationError(
-            f"{error_prefix}ExperimentMetric metric_type must be 'mean', 'funnel', 'ratio', or 'retention'"
+            f"{error_prefix}ExperimentMetric metric_type must be 'mean', 'funnel', 'ratio', 'retention', or 'quantile'"
         )
 
     try:
@@ -180,7 +188,7 @@ def metric_nodes(metric: dict) -> list[dict]:
     """The event, action and warehouse nodes that a stored metric definition reads."""
     nodes: list[dict] = []
     metric_type = metric.get("metric_type")
-    if metric_type == "mean":
+    if metric_type in ("mean", "quantile"):
         if source := metric.get("source"):
             nodes.append(source)
     elif metric_type == "funnel":

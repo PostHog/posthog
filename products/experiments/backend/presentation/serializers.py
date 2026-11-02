@@ -655,7 +655,10 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: "
             "'mean' (set source to an EventsNode with an event name), "
             "'funnel' (set series to an array of EventsNode steps), "
-            "'ratio' (set numerator and denominator EventsNode entries), or "
+            "'ratio' (set numerator and denominator EventsNode entries), "
+            "'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric "
+            "property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; "
+            "breakdowns and sequential testing are not supported), or "
             "'retention' (set start_event and completion_event; pass start_event "
             '{"kind": "ExperimentExposureNode"} to start retention from the experiment\'s exposure event). '
             "Use the read-data-schema tool with query kind 'events' to find available events in the project."
@@ -3028,7 +3031,9 @@ class ExperimentSetupCandidateMetricSerializer(serializers.Serializer):
 
 class ExperimentSetupOutcomeSerializer(serializers.Serializer):
     metric_type = serializers.CharField(
-        help_text="metric_type of the metric this outcome describes: 'funnel', 'mean', 'ratio' or 'retention'."
+        help_text=(
+            "metric_type of the metric this outcome describes: 'funnel', 'mean', 'ratio', 'retention' or 'quantile'."
+        )
     )
     metric_samples = serializers.IntegerField(
         allow_null=True,
@@ -3160,7 +3165,9 @@ class ExperimentSetupPreviousExperimentSerializer(serializers.Serializer):
     shared_metric_count = serializers.IntegerField(help_text="Shared metrics attached to the experiment.")
     primary_metric_types = serializers.ListField(
         child=serializers.CharField(),
-        help_text="metric_type of each primary metric, for example 'mean', 'funnel', 'ratio' or 'retention'.",
+        help_text=(
+            "metric_type of each primary metric, for example 'mean', 'funnel', 'ratio', 'retention' or 'quantile'."
+        ),
     )
     primary_metric_events = serializers.ListField(
         child=serializers.CharField(), help_text="Event names the primary metrics count."
@@ -3237,7 +3244,8 @@ class ExperimentSetupSharedMetricSerializer(serializers.Serializer):
     id = serializers.IntegerField(help_text="Shared metric id, to attach it instead of creating an inline metric.")
     name = serializers.CharField(help_text="Shared metric name.")
     metric_type = serializers.CharField(
-        allow_null=True, help_text="'mean', 'funnel', 'ratio' or 'retention', or null for older metrics."
+        allow_null=True,
+        help_text="'mean', 'funnel', 'ratio', 'retention' or 'quantile', or null for older metrics.",
     )
     events = serializers.ListField(child=serializers.CharField(), help_text="Event names the metric counts.")
     action_ids = serializers.ListField(child=serializers.IntegerField(), help_text="Actions the metric counts.")
@@ -3258,7 +3266,7 @@ class ExperimentSetupSharedMetricSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "Where metric_event sits in the metric: 'funnel_step' and 'funnel_final_step' for a funnel, "
-            "'mean_source', 'ratio_numerator', 'ratio_denominator', 'retention_start' or "
+            "'mean_source', 'quantile_source', 'ratio_numerator', 'ratio_denominator', 'retention_start' or "
             "'retention_completion'. A metric that only starts from the event is a different precedent from one "
             "that converts on it. Empty when the metric does not count it, and null when no metric_event was "
             "passed."

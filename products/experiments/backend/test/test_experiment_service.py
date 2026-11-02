@@ -82,6 +82,13 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
 )
 
+_QUANTILE_METRIC: dict[str, Any] = {
+    "kind": "ExperimentMetric",
+    "metric_type": "quantile",
+    "source": {"kind": "EventsNode", "event": "app_ready", "math_property": "app_ready_ms"},
+    "quantile": 0.9,
+}
+
 
 def _calculation_key(experiment: Experiment, metric_uuid: str) -> str:
     calculation_config = get_metric_calculation_config(Experiment.objects.get(pk=experiment.pk), metric_uuid)
@@ -1100,6 +1107,7 @@ class TestExperimentService(APIBaseTest):
                     "start_handling": "first_seen",
                 },
             ),
+            ("valid_quantile", _QUANTILE_METRIC),
             (
                 "valid_retention_exposure_start",
                 {
@@ -1136,6 +1144,43 @@ class TestExperimentService(APIBaseTest):
                 "funnel_with_no_series",
                 [{"kind": "ExperimentMetric", "metric_type": "funnel", "series": []}],
                 "funnel metrics require at least one step",
+            ),
+            (
+                "quantile_above_range",
+                [{**_QUANTILE_METRIC, "quantile": 0.999}],
+                "less_than_equal",
+            ),
+            (
+                "quantile_below_range",
+                [{**_QUANTILE_METRIC, "quantile": 0.001}],
+                "greater_than_equal",
+            ),
+            (
+                "quantile_without_math_property",
+                [{**_QUANTILE_METRIC, "source": {"kind": "EventsNode", "event": "app_ready"}}],
+                "percentile metrics require a numeric property",
+            ),
+            (
+                "quantile_with_breakdown",
+                [{**_QUANTILE_METRIC, "breakdownFilter": {"breakdowns": [{"property": "$browser"}]}}],
+                "breakdowns are not supported for percentile metrics",
+            ),
+            (
+                "quantile_with_data_warehouse_source",
+                [
+                    {
+                        **_QUANTILE_METRIC,
+                        "source": {
+                            "kind": "ExperimentDataWarehouseNode",
+                            "table_name": "app_loads",
+                            "timestamp_field": "ts",
+                            "events_join_key": "distinct_id",
+                            "data_warehouse_join_key": "user_id",
+                            "math_property": "app_ready_ms",
+                        },
+                    }
+                ],
+                "union_tag_invalid",
             ),
         ]
     )

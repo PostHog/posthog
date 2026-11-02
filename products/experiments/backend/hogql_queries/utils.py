@@ -8,6 +8,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import (
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
+    ExperimentQuantileMetric,
     ExperimentQueryResponse,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
@@ -40,14 +41,26 @@ from products.experiments.stats.shared.cuped import CupedCovariate, cuped_adjust
 from products.experiments.stats.shared.enums import DifferenceType
 from products.experiments.stats.shared.statistics import (
     ProportionStatistic,
+    QuantileBounds,
+    QuantileStatistic,
     RatioStatistic,
     SampleMeanStatistic,
     StatisticError,
+    choose_quantile_bounds,
+    quantile_grid_levels,
 )
 
 logger = structlog.get_logger(__name__)
 
 V = TypeVar("V", bound=ExperimentStatsBase)
+
+AnyExperimentMetric = (
+    ExperimentMeanMetric
+    | ExperimentFunnelMetric
+    | ExperimentRatioMetric
+    | ExperimentRetentionMetric
+    | ExperimentQuantileMetric
+)
 
 
 def get_experiment_query_debug(
@@ -164,6 +177,7 @@ _ALIAS_TO_STATS_FIELD: dict[str, str] = {
     "covariate_sum": "covariate_sum",
     "covariate_sum_squares": "covariate_sum_squares",
     "covariate_sum_product": "covariate_sum_product",
+    "quantile_grid": "quantile_grid",
 }
 
 
@@ -260,9 +274,38 @@ def aggregate_variants_across_breakdowns(
     return aggregated_variants
 
 
+@frozen
+class VariantQuantile:
+    """The quantile of one variant and the outer-interval bounds chosen for it."""
+
+    quantile: float
+    bounds: QuantileBounds
+
+
+def read_variant_quantile(quantile_level: float, quantile_grid: list[float] | None, n: int) -> VariantQuantile | None:
+    """
+    Read the quantile and the chosen bounds from the quantile_grid array of a variant with n events.
+
+    The array holds the quantile, then Y_L and Y_U for each n* in the grid, in the order of
+    quantile_query_levels(). Returns None when the variant has no events, or when Y_L == Y_U
+    for every eligible n* (too many tied values).
+    """
+    levels = quantile_grid_levels(quantile_level)
+    if n <= 0 or not quantile_grid or len(quantile_grid) != 1 + 2 * len(levels):
+        return None
+    grid_bounds = [
+        QuantileBounds(n_star=level.n_star, lower=quantile_grid[1 + 2 * j], upper=quantile_grid[2 + 2 * j])
+        for j, level in enumerate(levels)
+    ]
+    chosen = choose_quantile_bounds(n, grid_bounds)
+    if chosen is None:
+        return None
+    return VariantQuantile(quantile=quantile_grid[0], bounds=chosen)
+
+
 def validate_variant_result(
     variant_result: ExperimentStatsBase,
-    metric: ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
+    metric: AnyExperimentMetric,
     is_baseline=False,
 ) -> ExperimentStatsBaseValidated:
     validation_failures = []
@@ -277,7 +320,16 @@ def validate_variant_result(
     if isinstance(metric, ExperimentRatioMetric) and not variant_result.denominator_sum:
         validation_failures.append(ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA)
 
-    if is_baseline and variant_result.sum == 0:
+    if isinstance(metric, ExperimentQuantileMetric):
+        # sum holds the count of events at or below the quantile, so the baseline check reads the quantile instead.
+        variant_quantile = read_variant_quantile(
+            metric.quantile, variant_result.quantile_grid, int(variant_result.denominator_sum or 0)
+        )
+        if variant_quantile is None:
+            validation_failures.append(ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA)
+        elif is_baseline and variant_quantile.quantile == 0:
+            validation_failures.append(ExperimentStatsValidationFailure.BASELINE_MEAN_IS_ZERO)
+    elif is_baseline and variant_result.sum == 0:
         validation_failures.append(ExperimentStatsValidationFailure.BASELINE_MEAN_IS_ZERO)
 
     validated_result = ExperimentStatsBaseValidated(
@@ -296,6 +348,9 @@ def validate_variant_result(
         validated_result.denominator_sum_squares = variant_result.denominator_sum_squares
         validated_result.numerator_denominator_sum_product = variant_result.numerator_denominator_sum_product
 
+    if variant_result.quantile_grid is not None:
+        validated_result.quantile_grid = variant_result.quantile_grid
+
     if hasattr(variant_result, "covariate_sum") and variant_result.covariate_sum is not None:
         validated_result.covariate_sum = variant_result.covariate_sum
         validated_result.covariate_sum_squares = variant_result.covariate_sum_squares
@@ -305,9 +360,9 @@ def validate_variant_result(
 
 
 def metric_variant_to_statistic(
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
+    metric: AnyExperimentMetric,
     variant: ExperimentStatsBaseValidated,
-) -> SampleMeanStatistic | ProportionStatistic | RatioStatistic:
+) -> SampleMeanStatistic | ProportionStatistic | RatioStatistic | QuantileStatistic:
     if isinstance(metric, ExperimentMeanMetric):
         # A thresholded mean is a binary "did the user reach N" outcome, so it must be
         # analyzed as a proportion (Bernoulli), not a continuous mean (Gaussian).
@@ -360,6 +415,28 @@ def metric_variant_to_statistic(
             d_statistic=denominator_stat,
             m_d_sum_of_products=variant.numerator_denominator_sum_product or 0.0,
         )
+    elif isinstance(metric, ExperimentQuantileMetric):
+        n_events = int(variant.denominator_sum or 0)
+        variant_quantile = read_variant_quantile(metric.quantile, variant.quantile_grid, n_events)
+        if variant_quantile is None:
+            raise StatisticError("Quantile bounds are unavailable - no events or too many tied values")
+        quantile_stat = QuantileStatistic(
+            nu=metric.quantile,
+            n=n_events,
+            n_clusters=variant.number_of_samples,
+            quantile=variant_quantile.quantile,
+            quantile_lower=variant_quantile.bounds.lower,
+            quantile_upper=variant_quantile.bounds.upper,
+            n_star=variant_quantile.bounds.n_star,
+            s_sum=variant.sum,
+            s_sum_squares=variant.sum_squares,
+            n_sum=variant.denominator_sum or 0.0,
+            n_sum_squares=variant.denominator_sum_squares or 0.0,
+            s_n_sum_of_products=variant.numerator_denominator_sum_product or 0.0,
+        )
+        if quantile_stat.has_zero_variance:
+            raise StatisticError("Quantile has zero variance - not enough events or too many tied values")
+        return quantile_stat
     else:
         # ExperimentFunnelMetric case
         return ProportionStatistic(
@@ -391,7 +468,7 @@ def _copy_cuped_fields(
     result.covariate_sum_product = variant.covariate_sum_product
 
 
-ExperimentStatistic = SampleMeanStatistic | ProportionStatistic | RatioStatistic
+ExperimentStatistic = SampleMeanStatistic | ProportionStatistic | RatioStatistic | QuantileStatistic
 
 
 @frozen
@@ -402,7 +479,7 @@ class CupedAdjustment:
 
 
 def _apply_cuped_adjustment_if_enabled(
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
+    metric: AnyExperimentMetric,
     cuped_config: CupedQueryConfig,
     test_stat: ExperimentStatistic,
     control_stat: ExperimentStatistic,
@@ -523,7 +600,7 @@ def resolve_frequentist_settings(
 
 
 def get_frequentist_experiment_result(
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
+    metric: AnyExperimentMetric,
     control_variant: ExperimentStatsBase,
     test_variants: list[ExperimentStatsBase],
     stats_config: dict | None = None,
@@ -537,6 +614,12 @@ def get_frequentist_experiment_result(
         team_default_sequential_testing_enabled=team_default_sequential_testing_enabled,
         team_default_sequential_tuning_parameter=team_default_sequential_tuning_parameter,
     )
+    # The sequential test scales the variance by n, and n is the event count for a quantile metric, not the
+    # user count. That combination is not validated, so the metric fails instead of showing a wrong interval.
+    if settings.sequential_testing_enabled and isinstance(metric, ExperimentQuantileMetric):
+        raise ValidationError(
+            "Sequential testing isn't supported for percentile metrics yet.", code="sequential_testing_unsupported"
+        )
 
     config = FrequentistConfig(
         alpha=settings.alpha,
@@ -580,6 +663,7 @@ def get_frequentist_experiment_result(
             experiment_variant_result.numerator_denominator_sum_product = (
                 test_variant_validated.numerator_denominator_sum_product
             )
+        experiment_variant_result.quantile_grid = test_variant_validated.quantile_grid
         _copy_cuped_fields(experiment_variant_result, test_variant_validated)
 
         if control_stat and not test_variant_validated.validation_failures:
@@ -625,7 +709,7 @@ def get_frequentist_experiment_result(
 
 
 def get_bayesian_experiment_result(
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
+    metric: AnyExperimentMetric,
     control_variant: ExperimentStatsBase,
     test_variants: list[ExperimentStatsBase],
     stats_config: dict | None = None,
@@ -670,6 +754,7 @@ def get_bayesian_experiment_result(
             experiment_variant_result.numerator_denominator_sum_product = (
                 test_variant_validated.numerator_denominator_sum_product
             )
+        experiment_variant_result.quantile_grid = test_variant_validated.quantile_grid
         _copy_cuped_fields(experiment_variant_result, test_variant_validated)
 
         if control_stat and not test_variant_validated.validation_failures:

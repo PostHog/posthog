@@ -1,6 +1,8 @@
-from typing import cast
+from typing import Any, cast
 
 import pytest
+
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     Breakdown,
@@ -9,11 +11,13 @@ from posthog.schema import (
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetricMathType,
+    ExperimentQuantileMetric,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
     ExperimentStatsBase,
     ExperimentStatsBaseValidated,
     ExperimentStatsValidationFailure,
+    ExperimentVariantResultFrequentist,
     FunnelConversionWindowTimeUnit,
     StartHandling,
 )
@@ -23,13 +27,45 @@ from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL
 from products.experiments.backend.hogql_queries.utils import (
     aggregate_variants_across_breakdowns,
     get_experiment_query_debug,
+    get_frequentist_experiment_result,
     get_variant_result,
     get_variant_results,
     metric_variant_to_statistic,
     sanitize_non_finite,
     validate_variant_result,
 )
-from products.experiments.stats.shared.statistics import ProportionStatistic, SampleMeanStatistic
+from products.experiments.stats.shared.statistics import (
+    QUANTILE_N_STAR_GRID,
+    ProportionStatistic,
+    QuantileStatistic,
+    SampleMeanStatistic,
+    StatisticError,
+)
+
+P90_OF_APP_READY = ExperimentQuantileMetric(
+    source=EventsNode(event="app_ready", math_property="app_ready_ms"), quantile=0.9
+)
+
+
+def _quantile_grid(quantile: float, lower: float, upper: float) -> list[float]:
+    """The quantile_grid column of one variant, with the same bounds at every grid size."""
+    return [quantile, *[bound for _ in QUANTILE_N_STAR_GRID for bound in (lower, upper)]]
+
+
+def _quantile_variant(
+    key: str = "test", *, quantile: float = 5, lower: float = 4, upper: float = 6, scale: int = 1
+) -> ExperimentStatsBase:
+    """Per-user sums of 500 users with 1000 events, multiplied by scale."""
+    return ExperimentStatsBase(
+        key=key,
+        number_of_samples=500 * scale,
+        sum=900 * scale,
+        sum_squares=2000 * scale,
+        denominator_sum=1000 * scale,
+        denominator_sum_squares=2500 * scale,
+        numerator_denominator_sum_product=2200 * scale,
+        quantile_grid=_quantile_grid(quantile, lower, upper),
+    )
 
 
 def _columns_for(
@@ -920,6 +956,31 @@ class TestValidateVariantResult:
         assert result.validation_failures is not None
         assert ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA not in result.validation_failures
 
+    @pytest.mark.parametrize(
+        "denominator_sum,quantile_grid,is_baseline,expected_failures",
+        [
+            (0, None, False, [ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA]),
+            (1000, _quantile_grid(5, 5, 5), False, [ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA]),
+            (1000, _quantile_grid(0, 0, 1), True, [ExperimentStatsValidationFailure.BASELINE_MEAN_IS_ZERO]),
+            (1000, _quantile_grid(5, 4, 6), True, []),
+        ],
+    )
+    def test_quantile_metric_validation(self, denominator_sum, quantile_grid, is_baseline, expected_failures):
+        # sum is 0 in every case, so a baseline check on sum instead of the quantile fails the last case.
+        variant = ExperimentStatsBase(
+            key="control",
+            number_of_samples=100,
+            sum=0,
+            sum_squares=0,
+            denominator_sum=denominator_sum,
+            quantile_grid=quantile_grid,
+        )
+
+        result = validate_variant_result(variant, P90_OF_APP_READY, is_baseline=is_baseline)
+
+        assert result.validation_failures == expected_failures
+        assert result.quantile_grid == quantile_grid
+
     def test_validation_not_enough_exposures(self):
         """Test that all metrics trigger NOT_ENOUGH_EXPOSURES with < 50 samples."""
         metric = ExperimentRetentionMetric(
@@ -1018,6 +1079,10 @@ class TestGetExperimentQueryDebug:
             assert clickhouse_sql.count("[HIDDEN]") == 2
 
 
+def _validated_quantile_variant(**kwargs: Any) -> ExperimentStatsBaseValidated:
+    return ExperimentStatsBaseValidated(**_quantile_variant(**kwargs).model_dump())
+
+
 class TestMetricVariantToStatistic:
     def _validated(self, *, n: int = 10, sum: float = 4, sum_squares: float = 4) -> ExperimentStatsBaseValidated:
         return ExperimentStatsBaseValidated(key="test", number_of_samples=n, sum=sum, sum_squares=sum_squares)
@@ -1042,6 +1107,18 @@ class TestMetricVariantToStatistic:
         assert stat.n == 10
         assert stat.sum == 4
 
+    def test_quantile_maps_events_to_n_and_users_to_clusters(self) -> None:
+        stat = metric_variant_to_statistic(P90_OF_APP_READY, _validated_quantile_variant())
+
+        assert isinstance(stat, QuantileStatistic)
+        # n = 1000 events picks n* = 800, the largest grid size at or below n.
+        assert (stat.n, stat.n_clusters, stat.n_star, stat.quantile) == (1000, 500, 800, 5)
+        assert stat.variance == pytest.approx(150.55653084479633, rel=1e-12)
+
+    def test_quantile_with_tied_bounds_raises(self) -> None:
+        with pytest.raises(StatisticError):
+            metric_variant_to_statistic(P90_OF_APP_READY, _validated_quantile_variant(lower=5, upper=5))
+
     def test_threshold_proportion_coerces_sum_to_int(self) -> None:
         """ClickHouse may return total_sum as a float; ProportionStatistic.sum must be an int count."""
         metric = ExperimentMeanMetric(
@@ -1052,6 +1129,30 @@ class TestMetricVariantToStatistic:
         assert isinstance(stat, ProportionStatistic)
         assert isinstance(stat.sum, int)
         assert stat.sum == 4
+
+
+class TestQuantileExperimentResult:
+    def test_frequentist_result_compares_quantiles(self) -> None:
+        control = _quantile_variant("control", scale=4)
+        test = _quantile_variant("test", quantile=6, lower=5, upper=7, scale=4)
+
+        result = get_frequentist_experiment_result(P90_OF_APP_READY, control, [test])
+
+        assert result.variant_results is not None
+        variant = cast(ExperimentVariantResultFrequentist, result.variant_results[0])
+        assert variant.quantile_grid == test.quantile_grid
+        assert variant.confidence_interval is not None
+        # The relative effect is (6 - 5) / 5.
+        assert variant.confidence_interval[0] < 0.2 < variant.confidence_interval[1]
+
+    def test_frequentist_result_rejects_sequential_testing(self) -> None:
+        with pytest.raises(ValidationError, match="Sequential testing isn't supported for percentile metrics"):
+            get_frequentist_experiment_result(
+                P90_OF_APP_READY,
+                _quantile_variant("control"),
+                [_quantile_variant("test")],
+                stats_config={"frequentist": {"sequential_testing_enabled": True}},
+            )
 
 
 class TestSanitizeNonFinite:
