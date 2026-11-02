@@ -356,6 +356,11 @@ class TestMessagePreferencesViews(BaseTest):
             ),
             ("a link whose run id is not a string", {**SEND_CLAIMS, "invocation_id": 42}, {}),
             (
+                "a link whose step id the metric rejects",
+                {**SEND_CLAIMS, "instance_id": "action 1"},
+                {"$workflow_id": "flow-1", "$workflow_invocation_id": "run-1", "$workflow_version": 3},
+            ),
+            (
                 "a link whose version is not an integer",
                 {**SEND_CLAIMS, "workflow_version": True},
                 {"$workflow_id": "flow-1", "$workflow_action_id": "action-1", "$workflow_invocation_id": "run-1"},

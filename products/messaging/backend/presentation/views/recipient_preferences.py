@@ -8,7 +8,6 @@ from django.views.decorators.http import require_http_methods
 import structlog
 
 from posthog.api.capture import capture_internal
-from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.plugins.plugin_server_api import validate_messaging_preferences_token
@@ -16,9 +15,11 @@ from posthog.plugins.plugin_server_api import validate_messaging_preferences_tok
 from products.messaging.backend.facade.preferences import (
     ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
     EMAIL_TRACKING_PREFERENCE_ID,
+    EmailSendReference,
     PreferenceStatus,
     all_preference_statuses,
     category_ids as team_category_ids,
+    email_send_reference,
     get_or_create_recipient,
     marketing_categories,
     preference_status,
@@ -29,40 +30,6 @@ from products.messaging.backend.facade.preferences import (
 from products.workflows.backend.facade.enums import EmailTrackingConsentMode
 
 logger = structlog.get_logger(__name__)
-
-
-@frozen
-class EmailSendReference:
-    workflow_id: str
-    action_id: str | None
-    invocation_id: str
-    workflow_version: int | None
-
-    @classmethod
-    def from_token(cls, token_data: dict[str, Any]) -> "EmailSendReference | None":
-        workflow_id = token_data.get("workflow_id")
-        invocation_id = token_data.get("invocation_id")
-        if not isinstance(workflow_id, str) or not isinstance(invocation_id, str):
-            return None
-        action_id = token_data.get("instance_id")
-        workflow_version = token_data.get("workflow_version")
-        return cls(
-            workflow_id=workflow_id,
-            action_id=action_id if isinstance(action_id, str) else None,
-            invocation_id=invocation_id,
-            workflow_version=workflow_version
-            if isinstance(workflow_version, int) and not isinstance(workflow_version, bool)
-            else None,
-        )
-
-    def event_properties(self) -> dict[str, Any]:
-        properties = {
-            "$workflow_id": self.workflow_id,
-            "$workflow_action_id": self.action_id,
-            "$workflow_invocation_id": self.invocation_id,
-            "$workflow_version": self.workflow_version,
-        }
-        return {key: value for key, value in properties.items() if value is not None}
 
 
 def report_workflows_email_unsubscribed(
@@ -205,7 +172,7 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
                 identifier,
                 [ALL_MESSAGE_PREFERENCE_CATEGORY_ID],
                 "one_click",
-                EmailSendReference.from_token(data),
+                email_send_reference(data),
             )
 
         if request.method == "POST":
@@ -335,7 +302,7 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
         if newly_opted_out:
             record_unsubscribe_metric(team_id, data, newly_opted_out)
             report_workflows_email_unsubscribed(
-                team_id, identifier, newly_opted_out, "preferences_page", EmailSendReference.from_token(data)
+                team_id, identifier, newly_opted_out, "preferences_page", email_send_reference(data)
             )
 
         new_tracking_consent = preferences_dict.get(EMAIL_TRACKING_PREFERENCE_ID)
