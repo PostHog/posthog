@@ -75,7 +75,9 @@ export class LocalSes {
             })
         } catch (error) {
             const cause = isNativeError(error) && isNativeError(error.cause) ? error.cause.message : String(error)
-            throw new Error(`Local SES fake unreachable at ${this.fakeEndpoint}: ${cause}`)
+            throw new Error(
+                `Local SES fake unreachable at ${this.fakeEndpoint}: ${cause}. Start it with: docker compose -f docker-compose.dev.yml up ses -d --wait`
+            )
         }
     }
 
