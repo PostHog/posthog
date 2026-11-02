@@ -437,7 +437,7 @@ def deliver_scout_slack_thread_replies(
     with scout_report_delivery_lock(report_id, integration_id, channel):
         if preflight_emit_gates(run.team, run) is not None:
             return
-        if report_id is not None and not assignment_side_effects_allowed(team_id=team_id, report_id=report_id):
+        if not assignment_side_effects_allowed(team_id=team_id, report_id=report_id):
             return
         team = Team.objects.only("project_id").get(id=team_id)
         integration = _slack_integration_for_project(integration_id=integration_id, project_id=team.project_id)
