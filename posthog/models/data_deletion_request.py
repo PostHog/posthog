@@ -816,16 +816,24 @@ class LogsRemovalTable:
     # Width of the buckets in ``time_column`` for a rollup table, None for raw rows. A bucket that
     # starts before the range can still hold rows from inside it, so the start rounds down to it.
     bucket_minutes: int | None = None
+    # A day column that leads the sort key after team_id. Bounding it lets the primary index skip
+    # the team's other days, which a bound on ``time_column`` alone does not.
+    day_bucket_column: str | None = None
 
     def removal_where(self, obj: LogsRemovalCriteria, suffix: str = "") -> tuple[str, dict]:
         # ``suffix`` keeps the parameter names of several requests apart when they share one command.
         start = f"%(start_time{suffix})s"
+        end = f"%(end_time{suffix})s"
         if self.bucket_minutes:
             start = f"toStartOfInterval(toDateTime64({start}, 6), toIntervalMinute({self.bucket_minutes}))"
-        predicate = (
-            f"team_id = %(team_id{suffix})s AND {self.time_column} >= {start} "
-            f"AND {self.time_column} < %(end_time{suffix})s"
-        )
+        predicate = f"team_id = %(team_id{suffix})s AND {self.time_column} >= {start} AND {self.time_column} < {end}"
+        if self.day_bucket_column:
+            # One day of slack on each side, so a time zone difference between the parameter and the
+            # column can only widen the pruning bound. The ``time_column`` bounds select the rows.
+            predicate += (
+                f" AND {self.day_bucket_column} >= toStartOfDay(toDateTime64(%(start_time{suffix})s, 6)) - toIntervalDay(1)"
+                f" AND {self.day_bucket_column} <= toStartOfDay(toDateTime64({end}, 6)) + toIntervalDay(1)"
+            )
         return predicate, {
             f"team_id{suffix}": obj.team_id,
             f"start_time{suffix}": obj.start_time,
@@ -843,10 +851,11 @@ class LogsRemovalTable:
         return " OR ".join(predicates), params
 
 
-LOGS_TABLE = LogsRemovalTable(data_table="logs34", read_table="logs_distributed", time_column="timestamp")
+LOGS_TABLE = LogsRemovalTable(
+    data_table="logs34", read_table="logs_distributed", time_column="timestamp", day_bucket_column="time_bucket"
+)
 
-# Every logs table that keeps text from a log record. logs_volume_buckets keeps only counts, so it
-# ages out on its own TTL.
+# Every logs table that keeps text from a log record.
 LOGS_REMOVAL_TABLES = (
     LOGS_TABLE,
     # Attribute keys and values, rolled up from logs34 in 10-minute buckets.
@@ -863,6 +872,13 @@ LOGS_REMOVAL_TABLES = (
         read_table="logs_pattern_buckets_distributed",
         time_column="time_bucket",
         bucket_minutes=60,
+    ),
+    # Log counts in 5-minute buckets, keyed by the service, namespace and environment of the logs.
+    LogsRemovalTable(
+        data_table="logs_volume_buckets",
+        read_table="logs_volume_buckets_distributed",
+        time_column="time_bucket",
+        bucket_minutes=5,
     ),
 )
 
@@ -932,6 +948,9 @@ def count_remaining_logs(request: "DataDeletionRequest") -> int:
         query_type="data_deletion_request_verify_logs",
     ):
         for table in LOGS_REMOVAL_TABLES:
+            # The deletion job skips a rollup table that this deployment does not have, so the count does too.
+            if table is not LOGS_TABLE and not _logs_table_exists(table.read_table, request.team_id):
+                continue
             predicate, params = table.removal_where(request)
             result = sync_execute(
                 surviving_rows_sql(table.read_table, predicate),
@@ -939,9 +958,24 @@ def count_remaining_logs(request: "DataDeletionRequest") -> int:
                 team_id=request.team_id,
                 readonly=True,
                 workload=Workload.LOGS,
+                settings={"max_execution_time": _STATS_MAX_EXECUTION_TIME},
             )
             total += int(result[0][0]) if result else 0
     return total
+
+
+def _logs_table_exists(table: str, team_id: int) -> bool:
+    from posthog.clickhouse.client import sync_execute
+    from posthog.clickhouse.workload import Workload
+
+    result = sync_execute(
+        "SELECT count() FROM system.tables WHERE database = currentDatabase() AND name = %(name)s",
+        {"name": table},
+        team_id=team_id,
+        readonly=True,
+        workload=Workload.LOGS,
+    )
+    return bool(result and result[0][0])
 
 
 def _append_hogql_predicate(fragment: str, params: dict, obj) -> tuple[str, dict]:
@@ -1458,15 +1492,17 @@ VERIFIABLE_STATUSES = (RequestStatus.QUEUED, RequestStatus.FAILED)
 
 
 def verify_queued_request(request: "DataDeletionRequest") -> VerifyOutcome:
-    """Verify an event-removal request and promote it to COMPLETED when its events are gone.
+    """Verify a queued request and promote it to COMPLETED when its rows are gone.
 
-    Counts matching events for criteria-backed requests and pending queue rows for query-backed
-    requests. When zero remain and the request is in a verifiable status (QUEUED or FAILED),
+    Counts matching events for criteria-backed event requests, pending queue rows for query-backed
+    requests, and matching log rows for logs requests. When zero remain and the request is in a verifiable status (QUEUED or FAILED),
     atomically promotes it to COMPLETED via a status-guarded update. Idempotent; safe to call from
     both the Dagster sweep job and the Django admin button.
     """
     if request.request_type == RequestType.HOGQL_EVENT_REMOVAL:
         remaining = count_pending_hogql_event_removals(request)
+    elif request.request_type == RequestType.LOGS_REMOVAL:
+        remaining = count_remaining_logs(request)
     else:
         remaining = count_remaining_matching_events(request)
     if remaining > 0 or request.status not in VERIFIABLE_STATUSES:

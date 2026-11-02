@@ -3505,7 +3505,12 @@ def _insert_logs_rows(team_id: int, at: datetime, client: Client) -> None:
 
 def _count_logs_rows(team_id: int, at: datetime, client: Client) -> dict[str, int]:
     database = django_settings.CLICKHOUSE_DATABASE
-    columns = {"logs34": "timestamp", "log_attributes3": "time_bucket", "logs_pattern_buckets": "time_bucket"}
+    columns = {
+        "logs34": "timestamp",
+        "log_attributes3": "time_bucket",
+        "logs_pattern_buckets": "time_bucket",
+        "logs_volume_buckets": "time_bucket",
+    }
     return {
         table: client.execute(
             f"SELECT count() FROM {database}.{table} WHERE team_id = %(team_id)s AND {column} = %(at)s",
@@ -3553,16 +3558,14 @@ def test_full_job_logs_removal(cluster: ClickhouseCluster, execution_mode: Execu
     )
     assert result.success
 
+    kept = {"logs34": 1, "log_attributes3": 1, "logs_pattern_buckets": 1, "logs_volume_buckets": 1}
+    gone = dict.fromkeys(kept, 0)
     request.refresh_from_db()
     if execution_mode == ExecutionMode.DEFERRED:
         assert request.status == RequestStatus.QUEUED
-        assert cluster.any_host(partial(_count_logs_rows, team, in_range)).result() == {
-            "logs34": 1,
-            "log_attributes3": 1,
-            "logs_pattern_buckets": 1,
-        }
+        assert cluster.any_host(partial(_count_logs_rows, team, in_range)).result() == kept
         # A second queued request with another range shares the drain's mutation with the first.
-        DataDeletionRequest.objects.create(
+        queued_request = DataDeletionRequest.objects.create(
             team_id=queued_team,
             request_type=RequestType.LOGS_REMOVAL,
             start_time=before_range - timedelta(hours=1),
@@ -3571,31 +3574,23 @@ def test_full_job_logs_removal(cluster: ClickhouseCluster, execution_mode: Execu
             execution_mode=ExecutionMode.DEFERRED,
         )
         delete_queued_logs(build_op_context(resources={"cluster": cluster}))
-        assert cluster.any_host(partial(_count_logs_rows, queued_team, before_range)).result() == {
-            "logs34": 0,
-            "log_attributes3": 0,
-            "logs_pattern_buckets": 0,
-        }
-    else:
-        assert request.status == RequestStatus.COMPLETED
+        assert cluster.any_host(partial(_count_logs_rows, queued_team, before_range)).result() == gone
+        queued_request.refresh_from_db()
+        assert queued_request.status == RequestStatus.COMPLETED
 
-    assert cluster.any_host(partial(_count_logs_rows, team, in_range)).result() == {
-        "logs34": 0,
-        "log_attributes3": 0,
-        "logs_pattern_buckets": 0,
-    }
-    # The raw record at `hour` is before the range, but the rollup buckets starting there overlap it.
+    request.refresh_from_db()
+    assert request.status == RequestStatus.COMPLETED
+    assert cluster.any_host(partial(_count_logs_rows, team, in_range)).result() == gone
+    # The raw record and the 5-minute volume bucket at `hour` are before the range, but the
+    # longer rollup buckets starting there overlap it.
     assert cluster.any_host(partial(_count_logs_rows, team, hour)).result() == {
         "logs34": 1,
         "log_attributes3": 0,
         "logs_pattern_buckets": 0,
+        "logs_volume_buckets": 1,
     }
     for team_id, at in [(team, before_range), (other_team, in_range), (queued_team, in_range)]:
-        assert cluster.any_host(partial(_count_logs_rows, team_id, at)).result() == {
-            "logs34": 1,
-            "log_attributes3": 1,
-            "logs_pattern_buckets": 1,
-        }
+        assert cluster.any_host(partial(_count_logs_rows, team_id, at)).result() == kept
 
 
 @pytest.mark.django_db

@@ -1324,7 +1324,7 @@ def cleanup_delete_assets(
     return True
 
 
-@dagster.op
+@dagster.op(ins={"start_after": dagster.In(dagster.Nothing)})
 def record_deletes_run_succeeded(context: dagster.OpExecutionContext, cleaned_up: bool) -> None:
     record_run_succeeded(context, DeletionRunJob.DELETES)
 
@@ -1361,6 +1361,12 @@ def delete_logs_rows(
     a run adopts. When it is None, the logs cluster's clock at the start of this call bounds it.
     Returns the data tables it deleted from.
     """
+    # Table discovery, the mutations and their waits all address CLICKHOUSE_DATABASE.
+    if settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE != settings.CLICKHOUSE_DATABASE:
+        raise dagster.Failure(
+            f"The logs tables are in {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE!r}, but this job deletes only from "
+            f"{settings.CLICKHOUSE_DATABASE!r}. No logs were deleted."
+        )
     placements: list[tuple[LogsRemovalTable, TargetPlacement]] = []
     for table in LOGS_REMOVAL_TABLES:
         placement = placement_for(cluster, _logs_deletion_target(table))
@@ -1407,7 +1413,7 @@ def delete_logs_rows(
     return [table.data_table for table, _, _ in enqueued]
 
 
-@dagster.op(ins={"start_after": dagster.In(dagster.Nothing)})
+@dagster.op(ins={"start_after": dagster.In(dagster.Nothing)}, out=dagster.Out(dagster.Nothing))
 def delete_queued_logs(
     context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
@@ -1415,7 +1421,8 @@ def delete_queued_logs(
     """Delete the rows of every queued deferred logs removal request.
 
     The request rows in Postgres are the queue: a deferred logs removal stays QUEUED until this op
-    deletes its rows, and verify_queued_deletion_requests then moves it to COMPLETED.
+    deletes its rows and moves it to COMPLETED. A request that reaches QUEUED after the query below
+    waits for the next run.
     """
     requests = list(
         DataDeletionRequest.objects.filter(
@@ -1430,6 +1437,10 @@ def delete_queued_logs(
 
     context.log.info(f"Deleting logs for {len(requests)} queued logs removal request(s)")
     swept_tables = delete_logs_rows(context, cluster, requests)
+    completed = DataDeletionRequest.objects.filter(
+        pk__in=[request.pk for request in requests], status=RequestStatus.QUEUED
+    ).update(status=RequestStatus.COMPLETED, updated_at=timezone.now())
+    context.log.info(f"Marked {completed} logs removal request(s) as completed")
     context.add_output_metadata(
         {
             "requests": dagster.MetadataValue.text(", ".join(str(request.pk) for request in requests)),
@@ -1489,10 +1500,12 @@ def deletes_job():
     )
 
     # Clean up
-    record_deletes_run_succeeded(cleanup_delete_assets(swept_targets, verified_deletion_resources))
-
     # The logs tables are on their own cluster and share nothing with the steps above.
-    delete_queued_logs(start_after=no_concurrent_run)
+    logs_deleted = delete_queued_logs(start_after=no_concurrent_run)
+
+    record_deletes_run_succeeded(
+        cleaned_up=cleanup_delete_assets(swept_targets, verified_deletion_resources), start_after=logs_deleted
+    )
 
 
 # What every sensor-launched deletes_job run carries. retry_max_attempts is raised because

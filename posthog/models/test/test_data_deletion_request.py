@@ -881,6 +881,29 @@ def test_cached_compile_hogql_predicate_blank_predicate_skips_compile():
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("remaining,expected_status", [(3, RequestStatus.QUEUED), (0, RequestStatus.COMPLETED)])
+def test_verify_queued_logs_request_counts_logs(team, remaining, expected_status):
+    request = DataDeletionRequest.objects.create(
+        team_id=team.pk,
+        request_type=RequestType.LOGS_REMOVAL,
+        start_time=datetime(2026, 1, 1, tzinfo=UTC),
+        end_time=datetime(2026, 1, 2, tzinfo=UTC),
+        execution_mode="deferred",
+        status=RequestStatus.QUEUED,
+    )
+
+    with (
+        patch.object(ddr, "count_remaining_logs", return_value=remaining),
+        patch.object(ddr, "count_remaining_matching_events", side_effect=AssertionError("counted events")),
+    ):
+        outcome = ddr.verify_queued_request(request)
+
+    assert outcome.remaining == remaining
+    request.refresh_from_db()
+    assert request.status == expected_status
+
+
+@pytest.mark.django_db
 def test_verify_queued_query_backed_request_counts_pending_queue_rows(team):
     request = DataDeletionRequest.objects.create(
         team_id=team.pk,
