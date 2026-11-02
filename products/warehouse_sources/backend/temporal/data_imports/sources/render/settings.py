@@ -328,7 +328,9 @@ RENDER_ENDPOINTS: dict[str, RenderEndpointConfig] = {
 }
 
 
-def _service_metric(name: str, path: str, resolution_seconds: int | None = 300) -> RenderEndpointConfig:
+def _service_metric(
+    name: str, path: str, resolution_seconds: int | None = 300, skip_parent_on_bad_request: bool = False
+) -> RenderEndpointConfig:
     return RenderEndpointConfig(
         name=name,
         path=path,
@@ -352,6 +354,7 @@ def _service_metric(name: str, path: str, resolution_seconds: int | None = 300) 
         extra_params={"resolutionSeconds": resolution_seconds} if resolution_seconds else {},
         # High-volume time series: opt-in rather than synced with every new source.
         should_sync_default=False,
+        skip_parent_on_bad_request=skip_parent_on_bad_request,
     )
 
 
@@ -360,7 +363,13 @@ RENDER_ENDPOINTS.update(
         "metrics_cpu": _service_metric("metrics_cpu", "/metrics/cpu"),
         "metrics_memory": _service_metric("metrics_memory", "/metrics/memory"),
         "metrics_http_requests": _service_metric("metrics_http_requests", "/metrics/http-requests"),
-        "metrics_http_latency": _service_metric("metrics_http_latency", "/metrics/http-latency"),
+        "metrics_http_latency": _service_metric(
+            # Render 400s HTTP latency for services in Hobby workspaces. One such service must not
+            # fail the table for a key that also spans paid workspaces.
+            "metrics_http_latency",
+            "/metrics/http-latency",
+            skip_parent_on_bad_request=True,
+        ),
         "metrics_instance_count": _service_metric("metrics_instance_count", "/metrics/instance-count"),
         "metrics_bandwidth": _service_metric(
             # The bandwidth endpoint takes no resolution param.
