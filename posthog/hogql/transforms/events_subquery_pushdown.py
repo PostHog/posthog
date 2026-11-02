@@ -32,8 +32,9 @@ Two rewrites, each result-equivalent:
 A moved key read is lowered to a raw extract on the spot, as the lazy-join wrapper does, so it keeps the untyped
 string value the outer read has today rather than the property-definition type a direct read gets: an outer
 `toFloatOrZero(properties.amount)` would otherwise receive a Float and fail. On the native JSON table a property read
-decodes a JSON string while the outer read of the rebuilt document keeps its escapes, so there the moved read stays the
-outer read's `JSONExtractRaw` over the events document, which the ClickHouse property pass turns into one subcolumn read.
+decodes a JSON string while the outer read of the rebuilt document keeps its escapes, so there the moved read takes the
+key's JSON text, `toJSONString(properties.<key>)`, which the ClickHouse property pass serves from one subcolumn, and
+extracts any deeper keys from that text as the outer read extracted them from the document.
 
 Runs after type resolution, before projection pruning (so a blob nobody reads anymore can be pruned) and before the
 lazy-join pass (so the subquery is still a bare events scan). A pure optimization: an unexpected error leaves the
@@ -129,7 +130,7 @@ def _output_name(expr: ast.Expr) -> str | None:
     return None
 
 
-def _document_key_extract(document: ast.Field, chain: list[str | int]) -> ast.Expr:
+def _document_key_extract(document: ast.Expr, chain: list[str | int]) -> ast.Expr:
     """The key's raw JSON text with the quotes trimmed, as the printer renders a property read of a text document."""
     extract = ast.Call(
         name="JSONExtractRaw",
@@ -183,8 +184,18 @@ class _ExportedColumns:
             return None
         chain = list(property_type.chain)
         if self.context.uses_new_events_schema():
-            # A native property read decodes the JSON string; the outer read of the rebuilt document did not.
-            return _document_key_extract(clone_expr(source, clear_types=False), chain)
+            # A native property read decodes the JSON string; the outer read of the rebuilt document did not. The JSON
+            # text of the first key comes from toJSONString over an untyped property read, which the property swapper
+            # leaves alone and the ClickHouse pass serves from one subcolumn.
+            first_key = ast.Field(
+                chain=[*source.chain, chain[0]], type=ast.PropertyType(chain=chain[:1], field_type=source.type)
+            )
+            json_text = ast.Call(
+                name="toJSONString",
+                args=[lower_property_access(first_key, self.context)],
+                type=ast.StringType(nullable=False),
+            )
+            return _document_key_extract(json_text, chain[1:])
         read = ast.Field(chain=[*source.chain, *chain], type=ast.PropertyType(chain=chain, field_type=source.type))
         return lower_property_access(read, self.context)
 
