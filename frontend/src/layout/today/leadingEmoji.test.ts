@@ -1,12 +1,16 @@
 import { leadingEmoji, withoutLeadingEmoji } from './leadingEmoji'
 
 describe('leadingEmoji', () => {
+    // A subdivision flag is a black flag plus tag characters that nothing shows on their own.
+    const ENGLAND_FLAG = '\u{1F3F4}\u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F}'
+
     const CASES: [string, string | null, string][] = [
         ['🎉 PostHog App', '🎉', 'PostHog App'],
         ['🎉PostHog App', '🎉', 'PostHog App'],
         ['👩‍💻 Dev team', '👩‍💻', 'Dev team'],
         ['❤️ Fans', '❤️', 'Fans'],
         ['👍🏽 Thumbs', '👍🏽', 'Thumbs'],
+        [`${ENGLAND_FLAG} England`, ENGLAND_FLAG, 'England'],
         ['🎉', '🎉', '🎉'],
         ['PostHog 🎉', null, 'PostHog 🎉'],
         ['PostHog', null, 'PostHog'],

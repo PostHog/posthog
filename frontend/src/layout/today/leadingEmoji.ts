@@ -1,10 +1,7 @@
 let segmenter: Intl.Segmenter | null | undefined
 
-/**
- * The grapheme segmenter, built on first use and only if the browser has it. At module scope a
- * browser without `Intl.Segmenter`, such as Firefox before 125, fails the import and takes the whole
- * top bar down.
- */
+// Firefox before 125 has no `Intl.Segmenter`. At module scope the constructor throws there and fails
+// the import, which takes the top bar down, so build it on first use and only if it exists.
 function graphemeSegmenter(): Intl.Segmenter | null {
     if (segmenter === undefined) {
         segmenter =
@@ -13,11 +10,10 @@ function graphemeSegmenter(): Intl.Segmenter | null {
     return segmenter
 }
 
-/**
- * A leading emoji for a browser with no segmenter: one pictograph, then the skin tones, the
- * variation selectors and the zero-width joins that extend it into one character.
- */
-const LEADING_EMOJI = /^\p{Extended_Pictographic}(?:\p{Emoji_Modifier}|️|‍\p{Extended_Pictographic})*/u
+// A leading emoji for a browser with no segmenter: one pictograph, then the skin tones, variation
+// selectors, flag tags and zero-width joins that extend it into one character.
+const LEADING_EMOJI =
+    /^\p{Extended_Pictographic}(?:\p{Emoji_Modifier}|\u{FE0F}|[\u{E0020}-\u{E007F}]|\u{200D}\p{Extended_Pictographic})*/u
 
 export function leadingEmoji(name: string): string | null {
     const segments = graphemeSegmenter()
