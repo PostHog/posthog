@@ -32,6 +32,7 @@ from posthog.ph_client import feature_enabled_or_false
 from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.temporal.common.client import sync_connect
 
+from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
 from products.experiments.backend.metric_calculation.config import build_calculation_configs
 from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.metric_resolution import get_metrics_for_calculation
@@ -644,8 +645,9 @@ def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
     metrics-recalculation run exists yet. Timeseries rows live in ExperimentMetricResult under the metric's
     CONFIG fingerprint (not a per-run recalc fingerprint), so they're found without any recalc row.
 
-    Running experiments only accept points younger than TIMESERIES_FALLBACK_MAX_AGE. Ended experiments keep their
-    latest compatible point from any time since launch, including results under earlier settings. The frontend
+    Only points younger than TIMESERIES_FALLBACK_MAX_AGE count, except that an ended experiment keeps its latest
+    compatible point from any time since launch, including a result under earlier settings, when that point reaches
+    the end date. The frontend
     accepts a fallback that covers every metric without starting a run, so an older point must read as a gap or
     the page would show weeks-old numbers as completed. Returns None when no metric has a fresh completed point
     (caller then keeps the 404). query_to and completed_at both pin to the freshest point's date. GET never triggers anything itself.
@@ -659,14 +661,16 @@ def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
         for calculation_config in calculation_configs:
             # Bounded on both sides: the backfill writes end-of-day points, so today's point can carry a future
             # query_to that would surface here as a future completion time.
-            row = store.latest_daily_point(
-                calculation_config,
-                since=experiment.start_date
-                if experiment.is_stopped and experiment.start_date
-                else now - TIMESERIES_FALLBACK_MAX_AGE,
-                until=now,
-                preserve_history=experiment.is_stopped,
-            )
+            row = None
+            if experiment.is_stopped and experiment.start_date:
+                row = store.latest_daily_point(
+                    calculation_config, since=experiment.start_date, until=now, preserve_history=True
+                )
+                # A point that ends before the end date misses the final hours, so a run must compute them.
+                if row is not None and row.query_to < experiment_window_end(experiment, now):
+                    row = None
+            if row is None:
+                row = store.latest_daily_point(calculation_config, since=now - TIMESERIES_FALLBACK_MAX_AGE, until=now)
             if row is None:
                 continue
             results.append(

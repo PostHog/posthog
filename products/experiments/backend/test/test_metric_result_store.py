@@ -194,9 +194,18 @@ class TestMetricResultStore(BaseTest):
 
     @parameterized.expand(
         [
-            (f"{reader}_{case}", reader, case)
-            for reader in ("for_run", "latest_daily_point", "timeseries", "current_outcome")
-            for case in ("only_a_version_1_row", "a_version_2_row_covers_it")
+            *(
+                (f"{reader}_{case}", reader, case)
+                for reader in ("for_run", "latest_daily_point", "timeseries", "current_outcome")
+                for case in ("only_a_version_1_row", "a_version_2_row_covers_it")
+            ),
+            *(
+                (f"{reader}_{case}", reader, case)
+                for reader in ("latest_daily_point", "current_outcome")
+                # After a return to version 1, newer version 2 rows of the same settings must not hide behind an
+                # older version 1 row. Under version 2, a backfill of past days must not hide the newer end-date row.
+                for case in ("rolled_back_with_a_newer_version_2_row", "a_newer_version_1_row_than_the_version_2_row")
+            ),
         ]
     )
     def test_a_version_1_row_stands_in_only_where_no_version_2_row_covers_it(
@@ -206,20 +215,33 @@ class TestMetricResultStore(BaseTest):
         calculation_config = get_metric_calculation_config(experiment, "m1")
         assert calculation_config is not None
         salt = _recalc_fingerprint if reader == "for_run" else (lambda key: key)
+        version_1_window, version_2_window = {
+            "rolled_back_with_a_newer_version_2_row": (_WINDOW - timedelta(days=1), _WINDOW),
+            "a_newer_version_1_row_than_the_version_2_row": (_WINDOW, _WINDOW - timedelta(days=1)),
+        }.get(case, (_WINDOW, _WINDOW))
         self._allow_rows_sharing_a_window()
-        # The version 1 row is the newer write, so only the key family keeps it behind the version 2 row.
-        self._row(experiment, salt(calculation_config.legacy_key()), query_to=_WINDOW, completed_at=_WINDOW, samples=1)
-        if case == "a_version_2_row_covers_it":
+        if case != "only_a_version_1_row":
             self._row(
                 experiment,
-                salt(calculation_config.calculation_key()),
-                query_to=_WINDOW,
-                completed_at=_WINDOW - timedelta(hours=1),
+                salt(calculation_config.key_for_version(2)),
+                display_key=salt(calculation_config.legacy_key()),
+                query_to=version_2_window,
+                completed_at=version_2_window,
                 samples=2,
             )
+        # On a shared window the version 1 row is the newer write, so only the key family keeps it behind the
+        # version 2 row.
+        self._row(
+            experiment,
+            salt(calculation_config.legacy_key()),
+            query_to=version_1_window,
+            completed_at=version_1_window,
+            samples=1,
+        )
+        active_version = 1 if case == "rolled_back_with_a_newer_version_2_row" else 2
 
-        expected = [2] if case == "a_version_2_row_covers_it" else [1]
-        assert self._read(reader, experiment, calculation_config) == expected
+        expected = [1] if case in ("only_a_version_1_row", "a_newer_version_1_row_than_the_version_2_row") else [2]
+        assert self._read(reader, experiment, calculation_config.with_key_version(active_version)) == expected
 
     def test_the_latest_window_inside_a_day_stands_for_that_day(self) -> None:
         experiment = self._experiment()
@@ -262,9 +284,11 @@ class TestMetricResultStore(BaseTest):
 
         assert self._read("current_outcome", experiment, calculation_config) == [2]
 
-    @parameterized.expand([("without_a_current_row", False, 1), ("with_an_older_current_row", True, 2)])
+    @parameterized.expand(
+        [("without_a_current_row", False, 1), ("with_a_current_row_whose_data_ends_as_late", True, 2)]
+    )
     def test_a_batch_outcome_ranks_each_experiment_by_its_own_keys(
-        self, _name: str, older_current_row: bool, expected_samples: int
+        self, _name: str, tied_current_row: bool, expected_samples: int
     ) -> None:
         earlier_stats = {"method": "bayesian", "bayesian": {"ci_level": 0.9}}
         experiment = self._experiment()
@@ -277,20 +301,21 @@ class TestMetricResultStore(BaseTest):
             earlier_config.calculation_key(),
             display_key=earlier_config.legacy_key(),
             query_to=_WINDOW,
-            completed_at=_WINDOW,
+            completed_at=_WINDOW + timedelta(minutes=30),
             samples=1,
         )
         experiment.stats_config = {"method": "bayesian", "bayesian": {"ci_level": 0.99}}
         experiment.save()
         calculation_config = get_metric_calculation_config(experiment, "m1")
         assert calculation_config is not None
-        if older_current_row:
-            day_before = _WINDOW - timedelta(days=1)
+        if tied_current_row:
+            # Its data ends at _WINDOW too, and the earlier row is the newer write, so only the experiment's own
+            # current key breaks the tie.
             self._row(
                 experiment,
                 calculation_config.calculation_key(),
-                query_to=day_before,
-                completed_at=day_before,
+                query_to=_WINDOW + timedelta(hours=1),
+                completed_at=_WINDOW,
                 samples=2,
             )
         # Another experiment on the same flag and start date now has the first experiment's earlier settings.
