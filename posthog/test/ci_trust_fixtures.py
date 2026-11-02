@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING
 
 from unittest.mock import patch
 
-from posthog.api.oauth.ci_providers import AudienceCheck, CIClaimMapping, CIProvider
+from posthog.ci_providers import AudienceCheck, CIClaimMapping, CIProvider
 
 if TYPE_CHECKING:
     from unittest.mock import _patch
@@ -31,4 +31,4 @@ FAKE_CI_PROVIDER = CIProvider(
 
 
 def with_fake_ci_provider() -> "_patch[tuple[CIProvider, ...]]":
-    return patch("posthog.api.oauth.ci_providers.SUPPORTED_CI_PROVIDERS", (FAKE_CI_PROVIDER,))
+    return patch("posthog.ci_providers.SUPPORTED_CI_PROVIDERS", (FAKE_CI_PROVIDER,))

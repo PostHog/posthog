@@ -4819,6 +4819,11 @@ export interface PatchedCITrustPolicyApi {
     readonly updated_at?: string
 }
 
+/**
+ * What each grantable risky scope lets a token do, keyed by scope. Show it so people add the scope with care.
+ */
+export type CIProvidersResponseApiRiskyScopes = { [key: string]: string }
+
 export interface CIProviderClaimsApi {
     /** Claim that carries the repository's full name. */
     repository: string
@@ -4865,6 +4870,8 @@ export interface CIProvidersResponseApi {
     unsupported: UnsupportedCIProviderApi[]
     /** Every scope a policy's ceiling may hold. */
     grantable_scopes: string[]
+    /** What each grantable risky scope lets a token do, keyed by scope. Show it so people add the scope with care. */
+    risky_scopes: CIProvidersResponseApiRiskyScopes
 }
 
 export interface SharePasswordApi {
