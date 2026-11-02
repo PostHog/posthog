@@ -83,6 +83,13 @@ Every To, CC, and BCC address must belong to an active member of the team's acti
 Membership snapshots expire within one minute, and the worker checks recipients again right before delivery.
 A failed or stale membership check skips the send and lists the blocked addresses in the run log.
 The blocked event fires at most once an hour per team, reason, and send kind (workflow or test).
-Sandbox sends never spend the team's tier budget, because they reach only its own members.
-The sandbox route is not built yet, so a send that passes every check still skips as unavailable.
-Keep the switch off in production until the sandbox caps are deployed.
+A send that passes every check goes out through the fixed SES tenant, configuration set, and From address, whatever the step's custom sender and Reply-To say.
+Sandbox sends skip the team's tier budget, click and open tracking, and unsubscribe headers, because they reach only members of the sending organization.
+The worker parses and normalizes the HTML, then appends a footer that names the sender and the organization ID.
+It overrides root clipping and visibility styles and keeps the template's typography, so malformed markup may render differently from an own-domain send.
+A template whose HTML cannot keep the footer fails the send.
+The visible footer is best effort across email clients and template CSS; the signed tracking header still attributes the message.
+Each delivered send emits a `workflows sandbox email sent` event.
+Test sends never record `email_sent`, so they do not count toward the sending tier.
+Live workflow sends still count as `email_sent`, which the sending tier reads, until sandbox sends get their own metric.
+Keep the switch off in production until the sandbox caps are deployed, and use it for test sends only until that metric is deployed.

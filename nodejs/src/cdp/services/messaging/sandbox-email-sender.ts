@@ -1,7 +1,12 @@
+import { type DefaultTreeAdapterMap, defaultTreeAdapter, parse, parseFragment, serialize } from 'parse5'
+
+import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
 import { RedisV2 } from '~/common/redis/redis-v2'
 import { logger } from '~/common/utils/logger'
 import { captureTeamEvent } from '~/common/utils/posthog'
 import { TeamManager } from '~/common/utils/team-manager'
+
+import { maybeAddPreheaderToEmail } from './helpers/preheader'
 
 export interface SandboxEmailSenderConfig {
     enabled: boolean
@@ -26,6 +31,87 @@ export type SandboxEmailBlockReason = 'switch_off' | 'recipient_not_member' | 'r
 
 const BLOCKED_EVENT_WINDOW_SECONDS = 3600
 
+function htmlBody(document: DefaultTreeAdapterMap['document']): DefaultTreeAdapterMap['element'] | undefined {
+    const root = document.childNodes.find(defaultTreeAdapter.isElementNode)
+    return root?.childNodes.find(
+        (node): node is DefaultTreeAdapterMap['element'] =>
+            defaultTreeAdapter.isElementNode(node) && node.tagName === 'body' && node.namespaceURI === root.namespaceURI
+    )
+}
+
+function protectFooterAncestors(
+    document: DefaultTreeAdapterMap['document'],
+    body: DefaultTreeAdapterMap['element']
+): void {
+    const root = document.childNodes.find(defaultTreeAdapter.isElementNode)!
+    const visibleLayout =
+        'display:block!important;position:static!important;overflow:visible!important;height:auto!important;max-height:none!important;clip:auto!important;clip-path:none!important;transform:none!important;opacity:1!important;visibility:visible!important;filter:none!important;contain:none!important;content-visibility:visible!important;zoom:1!important'
+    for (const ancestor of [root, body]) {
+        const style = ancestor.attrs.find((attribute) => attribute.name === 'style')
+        if (style) {
+            style.value = `${style.value};${visibleLayout}`
+        } else {
+            ancestor.attrs.push({ name: 'style', value: visibleLayout })
+        }
+    }
+}
+
+function appendHtmlFooter(html: string, footer: string, preheader?: string): string {
+    const preheaderText = parseFragment(preheader ?? '', { scriptingEnabled: false })
+    const document = parse(maybeAddPreheaderToEmail(html, serialize(preheaderText, { scriptingEnabled: false })), {
+        scriptingEnabled: false,
+    })
+    const body = htmlBody(document)
+    if (!body) {
+        throw new Error('The sandbox email template must have an HTML body. Update the template and try again.')
+    }
+    const nodes: DefaultTreeAdapterMap['childNode'][] = [...document.childNodes]
+    for (const node of nodes) {
+        if (defaultTreeAdapter.isElementNode(node)) {
+            if (node.tagName === 'plaintext' && node.namespaceURI === body.namespaceURI) {
+                node.tagName = 'pre'
+            }
+            if (node.tagName === 'noscript' && node.namespaceURI === body.namespaceURI) {
+                node.tagName = 'div'
+            }
+            nodes.push(...node.childNodes)
+            if (node.tagName === 'template' && node.namespaceURI === body.namespaceURI) {
+                nodes.push(
+                    ...defaultTreeAdapter.getTemplateContent(node as DefaultTreeAdapterMap['template']).childNodes
+                )
+            }
+        }
+    }
+    protectFooterAncestors(document, body)
+    const paragraph = defaultTreeAdapter.createElement('div', body.namespaceURI, [
+        {
+            name: 'style',
+            value: 'all:initial!important;display:block!important;visibility:visible!important;opacity:1!important;font:12px sans-serif!important;color:#525252!important;background:#fff!important;padding:16px 0!important',
+        },
+    ])
+    defaultTreeAdapter.insertText(paragraph, footer)
+    defaultTreeAdapter.appendChild(body, paragraph)
+    const serialized = serialize(document, { scriptingEnabled: false })
+    for (const scriptingEnabled of [false, true]) {
+        const deliveredFooter = htmlBody(parse(serialized, { scriptingEnabled }))?.childNodes.at(-1)
+        if (
+            !deliveredFooter ||
+            !defaultTreeAdapter.isElementNode(deliveredFooter) ||
+            deliveredFooter.tagName !== 'div' ||
+            deliveredFooter.namespaceURI !== body.namespaceURI ||
+            deliveredFooter.attrs.find((attribute) => attribute.name === 'style')?.value !== paragraph.attrs[0].value ||
+            deliveredFooter.childNodes.length !== 1 ||
+            !defaultTreeAdapter.isTextNode(deliveredFooter.childNodes[0]) ||
+            deliveredFooter.childNodes[0].value !== footer
+        ) {
+            throw new Error(
+                'The sandbox email template could not retain its identification footer. Update the template and try again.'
+            )
+        }
+    }
+    return serialized
+}
+
 export class SandboxEmailSender {
     public readonly canSend: boolean
 
@@ -49,26 +135,69 @@ export class SandboxEmailSender {
         this.canSend = config.enabled && !emptySettings.length
     }
 
+    public async withIdentificationFooter(
+        params: CyclotronInvocationQueueParametersEmailType,
+        senderName: string,
+        teamId: number
+    ): Promise<CyclotronInvocationQueueParametersEmailType> {
+        if (!params.text && !params.html) {
+            throw new Error(
+                'The sandbox email template must include HTML or text content. Update the template and try again.'
+            )
+        }
+        const team = await this.teamManager.getTeam(teamId)
+        if (!team) {
+            throw new Error('Could not identify the organization sending this sandbox email. Try again.')
+        }
+        const footer = `This email was sent by ${senderName} with the PostHog sandbox sender. Organization ID: ${team.organization_id}.`
+        return {
+            ...params,
+            from: { ...params.from, name: senderName, email: this.config.fromAddress },
+            replyTo: undefined,
+            preheader: undefined,
+            ...(params.text ? { text: `${params.text}\n\n${footer}` } : {}),
+            ...(params.html ? { html: appendHtmlFooter(params.html, footer, params.preheader) } : {}),
+        }
+    }
+
+    public async captureSent(teamId: number, isTest: boolean, recipientCount: number): Promise<void> {
+        await this.captureEvent(teamId, 'workflows sandbox email sent', {
+            recipient_count: recipientCount,
+            source: isTest ? 'test' : 'workflow',
+            is_test: isTest,
+        })
+    }
+
     public async captureBlocked(
         teamId: number,
         isTest: boolean,
         reason: SandboxEmailBlockReason,
         blockedRecipientCount: number
     ): Promise<void> {
+        await this.captureEvent(
+            teamId,
+            'workflows sandbox email blocked',
+            { reason, blocked_recipient_count: blockedRecipientCount, is_test: isTest },
+            () => this.isFirstBlockInWindow(teamId, isTest, reason)
+        )
+    }
+
+    private async captureEvent(
+        teamId: number,
+        event: string,
+        properties: Record<string, string | number | boolean>,
+        shouldCapture: () => Promise<boolean> = () => Promise.resolve(true)
+    ): Promise<void> {
         try {
-            if (!(await this.isFirstBlockInWindow(teamId, isTest, reason))) {
+            if (!(await shouldCapture())) {
                 return
             }
             const team = await this.teamManager.getTeam(teamId)
             if (team) {
-                captureTeamEvent(team, 'workflows sandbox email blocked', {
-                    reason,
-                    blocked_recipient_count: blockedRecipientCount,
-                    is_test: isTest,
-                })
+                captureTeamEvent(team, event, properties)
             }
         } catch (error) {
-            logger.warn('Could not capture sandbox email event', { teamId, error })
+            logger.warn('Could not capture sandbox email event', { teamId, event, error })
         }
     }
 

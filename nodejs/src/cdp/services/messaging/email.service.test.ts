@@ -1,6 +1,11 @@
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
-import { MessageRejected, SendingPausedException, TooManyRequestsException } from '@aws-sdk/client-sesv2'
+import {
+    MessageRejected,
+    SendEmailCommand,
+    SendingPausedException,
+    TooManyRequestsException,
+} from '@aws-sdk/client-sesv2'
 import { DateTime } from 'luxon'
 import { register } from 'prom-client'
 
@@ -280,7 +285,8 @@ describe('EmailService', () => {
                 enabled: boolean,
                 membersPostgres: PostgresRouter = hub.postgres,
                 routeSettings: Partial<SandboxEmailSenderConfig> = {},
-                teamEmailRateLimiter: RateLimiterService | null = null
+                teamEmailRateLimiter: RateLimiterService | null = null,
+                messageAssetsService?: MessageAssetsService
             ): EmailService => {
                 const workflowsConfig = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
                 jest.spyOn(workflowsConfig, 'getEmailSendingTier').mockResolvedValue(0)
@@ -304,7 +310,7 @@ describe('EmailService', () => {
                     new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
                     new RecipientsManagerService(hub.postgres),
                     null,
-                    undefined,
+                    messageAssetsService,
                     null,
                     teamEmailRateLimiter,
                     new SandboxEmailSender(
@@ -432,29 +438,96 @@ describe('EmailService', () => {
 
                     const result = await service.executeSendEmail(destination, isTest)
 
-                    expectSkipped(result)
-                    expect(result.logs).toContainEqual(
-                        expect.objectContaining({
-                            message: isTest
-                                ? UNAVAILABLE_LOG
-                                : 'Skipping send: the sandbox sender is only available for workflows and test sends.',
-                        })
-                    )
+                    expect(result.error).toBeUndefined()
+                    expect(sendEmailSpy).toHaveBeenCalledTimes(isTest ? 1 : 0)
+                    expect(result.invocation.state.vmState?.stack).toEqual([{ success: isTest }])
+                    if (!isTest) {
+                        expectSkipped(result)
+                        expect(result.logs).toContainEqual(
+                            expect.objectContaining({
+                                message:
+                                    'Skipping send: the sandbox sender is only available for workflows and test sends.',
+                            })
+                        )
+                    }
                 }
             )
 
-            it.each([false, true])(
-                'skips a member send as unavailable until the sandbox route exists (isTest=%s)',
-                async (isTest) => {
-                    service = createSandboxService(true)
+            it.each([
+                [false, '<body>Hello <a href="https://example.com">there</a>.</body>', 'Hello ', false],
+                [true, '<body>Hello <a href="https://example.com">there</a>.</body>', 'Hello ', false],
+                [false, '<body><p>Hello</p></body>', '<p>Hello</p>', true],
+            ] as const)(
+                'sends untracked with the fixed identity and organization footer (isTest=%s, html=%s)',
+                async (isTest, html, expectedContent, htmlOnly) => {
+                    const outputs = {
+                        produce: jest.fn().mockResolvedValue(undefined),
+                    } as unknown as IngestionOutputs<'message_assets'>
+                    service = createSandboxService(true, hub.postgres, {}, null, new MessageAssetsService(outputs))
+                    invocation.state.actionId = 'send-email'
+                    invocation.queueParameters = createSandboxParams({
+                        from: { integrationId: 4, email: 'override@example.com', name: 'Custom sender' },
+                        replyTo: 'reply@example.com',
+                        cc: memberEmail('cc'),
+                        bcc: memberEmail('bcc'),
+                        text: htmlOnly ? undefined : 'Hello there.',
+                        html,
+                    })
+                    invocation.hogFunction.metadata = {
+                        message_category_type: 'marketing',
+                        tracking_enabled: true,
+                        utm_tags_enabled: true,
+                    }
 
                     const result = await service.executeSendEmail(invocation, isTest)
 
-                    expectSkipped(result)
-                    expect(result.logs).toContainEqual(
-                        expect.objectContaining({ level: 'info', message: UNAVAILABLE_LOG })
+                    expect(result.error).toBeUndefined()
+                    expect(result).toMatchObject({ finished: true, emailSendResult: { status: 'accepted' } })
+                    expect(result.skipped).not.toBe(true)
+                    expect(result.invocation.state.vmState?.stack).toEqual([{ success: true }])
+                    expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                    const input = (sendEmailSpy.mock.calls[0][0] as SendEmailCommand).input
+                    const footer = `This email was sent by Example organization via PostHog with the PostHog sandbox sender. Organization ID: ${team.organization_id}.`
+                    expect(input).toMatchObject({
+                        TenantName: 'sandbox-tenant',
+                        ConfigurationSetName: 'sandbox-email',
+                        FromEmailAddress: '"Example organization via PostHog" <fixed-sandbox@example.com>',
+                        FeedbackForwardingEmailAddress: 'fixed-sandbox@example.com',
+                        Destination: {
+                            ToAddresses: [`"Example member" <${memberEmail()}>`],
+                            CcAddresses: [memberEmail('cc')],
+                            BccAddresses: [memberEmail('bcc')],
+                        },
+                    })
+                    expect(input.Content?.Simple?.Body?.Text).toEqual(
+                        htmlOnly ? undefined : { Data: `Hello there.\n\n${footer}`, Charset: 'UTF-8' }
                     )
-                    expect(capture).not.toHaveBeenCalled()
+                    const sentHtml = input.Content?.Simple?.Body?.Html?.Data
+                    expect(sentHtml).toContain(expectedContent)
+                    if (html.includes('<a href')) {
+                        expect(sentHtml).toContain('utm_source=posthog')
+                    }
+                    expect(sentHtml?.endsWith(`>${footer}</div></body></html>`)).toBe(true)
+                    expect(input.ReplyToAddresses).toBeUndefined()
+                    const headerNames = input.Content?.Simple?.Headers?.map((header) => header.Name)
+                    expect(headerNames).toContain('X-PostHog-Tracking-Code')
+                    expect(headerNames).not.toContain('List-Unsubscribe')
+                    expect(result.logs.filter((log) => log.message.startsWith('Ignoring custom sender'))).toEqual([
+                        expect.objectContaining({
+                            level: 'info',
+                            message:
+                                'Ignoring custom sender and Reply-To settings: the sandbox sender uses a fixed identity.',
+                        }),
+                    ])
+                    expect(result.metrics.map((metric) => metric.metric_name)).toEqual(
+                        isTest ? [] : ['email_sent', 'email_untracked']
+                    )
+                    expect(capture).toHaveBeenCalledWith(
+                        expect.objectContaining({ id: team.id }),
+                        'workflows sandbox email sent',
+                        { is_test: isTest, recipient_count: 3, source: isTest ? 'test' : 'workflow' }
+                    )
+                    expect(result.messageAssets).toEqual(isTest ? [] : [expect.objectContaining({ html: sentHtml })])
                 }
             )
 
@@ -468,9 +541,23 @@ describe('EmailService', () => {
 
                 const result = await service.executeSendEmail(invocation)
 
-                expectSkipped(result)
-                expect(result.logs).toContainEqual(expect.objectContaining({ level: 'info', message: UNAVAILABLE_LOG }))
+                expect(result.error).toBeUndefined()
+                expect(result.finished).toBe(true)
+                expect(sendEmailSpy).toHaveBeenCalledTimes(1)
                 expect(claimAllOrNothingPair).not.toHaveBeenCalled()
+            })
+
+            it('fails the send when the template cannot keep its identification footer', async () => {
+                service = createSandboxService(true)
+                invocation.queueParameters = createSandboxParams({ html: '<body><p>Hello</p><script><!--<script>' })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(sendEmailSpy).not.toHaveBeenCalled()
+                expect(result).toMatchObject({
+                    finished: true,
+                    error: 'The sandbox email template could not retain its identification footer. Update the template and try again.',
+                })
             })
 
             it.each([
@@ -478,7 +565,7 @@ describe('EmailService', () => {
                 ['a quoted comma', '"Example, colleague"', false],
                 ['an escaped quote', '"Example \\"colleague, teammate\\""', false],
                 ['mixed-case stored addresses', 'Example colleague', true],
-            ])('passes members through the gate whatever the case and %s', async (_case, name, storedMixedCase) => {
+            ])('delivers to members whatever the case and %s', async (_case, name, storedMixedCase) => {
                 if (storedMixedCase) {
                     await hub.postgres.query(
                         PostgresUse.COMMON_WRITE,
@@ -496,9 +583,32 @@ describe('EmailService', () => {
 
                 const result = await service.executeSendEmail(invocation)
 
-                expectSkipped(result)
-                expect(result.logs).toContainEqual(expect.objectContaining({ message: UNAVAILABLE_LOG }))
-                expect(capture).not.toHaveBeenCalled()
+                expect(result.error).toBeUndefined()
+                expect(result.skipped).not.toBe(true)
+                expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                expect((sendEmailSpy.mock.calls[0][0] as SendEmailCommand).input.Destination).toEqual({
+                    ToAddresses: [memberEmail().toUpperCase()],
+                    CcAddresses: [memberEmail('cc').toUpperCase()],
+                    BccAddresses: [memberEmail('bcc').toUpperCase()],
+                })
+                expect(capture).toHaveBeenCalledWith(
+                    expect.objectContaining({ id: team.id }),
+                    'workflows sandbox email sent',
+                    { recipient_count: 3, source: 'workflow', is_test: false }
+                )
+            })
+
+            it.each(['cc', 'bcc'] as const)('delivers a quoted %s mailbox whole', async (field) => {
+                const email = `"example,colleague-${team.id}"@example.com`
+                await createMember(email)
+                service = createSandboxService(true)
+                invocation.queueParameters = createSandboxParams({ [field]: `Example colleague <${email}>` })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.error).toBeUndefined()
+                const destination = (sendEmailSpy.mock.calls[0][0] as SendEmailCommand).input.Destination
+                expect(field === 'cc' ? destination?.CcAddresses : destination?.BccAddresses).toEqual([email])
             })
 
             it.each([false, true])('blocks a non-member To address (isTest=%s)', async (isTest) => {
@@ -614,7 +724,7 @@ describe('EmailService', () => {
                 try {
                     service = createSandboxService(true)
                     await service.executeSendEmail(invocation)
-                    expect(capture).not.toHaveBeenCalled()
+                    expect(sendEmailSpy).toHaveBeenCalledTimes(1)
                     await hub.postgres.query(
                         PostgresUse.COMMON_WRITE,
                         'DELETE FROM posthog_organizationmembership WHERE user_id = $1',
@@ -631,7 +741,8 @@ describe('EmailService', () => {
 
                     const result = await service.executeSendEmail(invocation)
 
-                    expectSkipped(result)
+                    expect(result).toMatchObject({ finished: true, skipped: true, metrics: [] })
+                    expect(sendEmailSpy).toHaveBeenCalledTimes(1)
                     expectBlockedEvent('recipient_not_member', false, 1)
                 } finally {
                     clock.mockRestore()
