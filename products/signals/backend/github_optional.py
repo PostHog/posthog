@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from typing import Literal
+
+from django.db import models
 from django.db.models import Q
 
 import structlog
@@ -7,21 +10,52 @@ import posthoganalytics
 from requests import RequestException
 from rest_framework.exceptions import APIException
 
+from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.integrations import IntegrationManager
 from posthog.models.github_integration_base import _is_safe_github_repo_path
 from posthog.models.integration import GitHubIntegration, GitHubIntegrationError
+from posthog.models.integration.github_readiness import GitHubReadinessStatus
 from posthog.models.team.team import Team
 from posthog.ph_client import feature_enabled_or_false
 
 from products.signals.backend.models import SignalTeamConfig
+from products.tasks.backend.facade.github_readiness import get_team_github_readiness
 
 logger = structlog.get_logger(__name__)
 
 GITHUB_OPTIONAL_FLAG = "self-driving-github-optional"
+GITHUB_OPTIONAL_FLAGS = (GITHUB_OPTIONAL_FLAG, "self-driving-ubp")
 GITHUB_OPTIONAL_ACTIVATION = "github_optional"
+
+
+class ResearchAccessMode(models.TextChoices):
+    CODE = "code", "Code research"
+    REPOSITORY_DISCOVERY = "repository_discovery", "Repository discovery"
+    DATA_ONLY = "data_only", "Project data research"
+    BLOCKED = "blocked", "Research blocked"
+
+
+@frozen
+class ResearchAccess:
+    mode: Literal["code", "repository_discovery", "data_only", "blocked"]
+    blocker: str | None = None
+
+
+def research_access(
+    *, github_optional_allowed: bool, github_status: GitHubReadinessStatus, repository: str | None = None
+) -> ResearchAccess:
+    if github_status == GitHubReadinessStatus.READY:
+        if repository:
+            return ResearchAccess(mode="code")
+        if github_optional_allowed:
+            return ResearchAccess(mode="repository_discovery")
+        return ResearchAccess(mode="blocked", blocker="repo_selection_required")
+    if github_optional_allowed:
+        return ResearchAccess(mode="data_only")
+    return ResearchAccess(mode="blocked", blocker=github_status.value)
 
 
 class RepositoryAccessTemporarilyUnavailable(APIException):
@@ -62,21 +96,27 @@ class ResearchAccessPolicy:
 
     @staticmethod
     def enabled_for_project(project: Team, *, only_evaluate_locally: bool = False) -> bool:
-        try:
-            return (
-                feature_enabled_or_false(
-                    GITHUB_OPTIONAL_FLAG,
-                    str(project.uuid),
-                    groups={"project": str(project.uuid)},
-                    group_properties={"project": {"id": project.id, "uuid": str(project.uuid)}},
-                    send_feature_flag_events=False,
-                    only_evaluate_locally=only_evaluate_locally,
-                )
-                is True
-            )
-        except Exception:
-            logger.warning("github_optional_pilot_flag_failed", team_id=project.id, exc_info=True)
-            return False
+        project = project.parent_team or project
+        for key in GITHUB_OPTIONAL_FLAGS:
+            try:
+                if (
+                    feature_enabled_or_false(
+                        key,
+                        str(project.uuid),
+                        groups={"project": str(project.uuid), "organization": str(project.organization_id)},
+                        group_properties={
+                            "project": {"id": project.id, "uuid": str(project.uuid)},
+                            "organization": {"id": str(project.organization_id)},
+                        },
+                        send_feature_flag_events=False,
+                        only_evaluate_locally=only_evaluate_locally,
+                    )
+                    is True
+                ):
+                    return True
+            except Exception:
+                logger.warning("github_optional_flag_failed", team_id=project.id, flag=key, exc_info=True)
+        return False
 
     @staticmethod
     def enabled(team_id: int) -> bool:
@@ -85,9 +125,9 @@ class ResearchAccessPolicy:
 
     @staticmethod
     def enrolled(team_id: int) -> bool:
+        team_id = Team.objects.values_list("parent_team_id", flat=True).get(id=team_id) or team_id
         return SignalTeamConfig.objects.filter(
             Q(team_id=team_id) | Q(team__parent_team_id=team_id),
-            onboarding__draft__activation_mode=GITHUB_OPTIONAL_ACTIVATION,
             onboarding__completed_at__isnull=False,
         ).exclude(onboarding__completed_at=None).exists() and ResearchAccessPolicy.enabled(team_id)
 
@@ -100,7 +140,6 @@ class ResearchAccessPolicy:
         projects = {
             parent_id or team_id
             for team_id, parent_id in SignalTeamConfig.objects.filter(
-                onboarding__draft__activation_mode=GITHUB_OPTIONAL_ACTIVATION,
                 onboarding__completed_at__isnull=False,
             )
             .exclude(onboarding__completed_at=None)
@@ -109,9 +148,29 @@ class ResearchAccessPolicy:
         projects -= exclude_team_ids or set()
         return {
             project.id
-            for project in Team.objects.filter(id__in=projects).only("id", "uuid")
+            for project in Team.objects.filter(id__in=projects).only("id", "uuid", "parent_team_id", "organization_id")
             if ResearchAccessPolicy.enabled_for_project(project, only_evaluate_locally=True)
         }
+
+
+@frozen
+class ProjectResearchAccess:
+    github_optional_available: bool
+    github_readiness: GitHubReadinessStatus
+    research_access: ResearchAccess
+
+
+def project_research_access(team_id: int) -> ProjectResearchAccess:
+    optional = ResearchAccessPolicy.enabled(team_id)
+    readiness = get_team_github_readiness(team_id)
+    access = research_access(
+        github_optional_allowed=optional,
+        github_status=readiness.status,
+        repository=None if optional else "selected_per_report",
+    )
+    return ProjectResearchAccess(
+        github_optional_available=optional, github_readiness=readiness.status, research_access=access
+    )
 
 
 def team_has_code_access(team_id: int) -> bool:

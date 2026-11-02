@@ -3,6 +3,8 @@ from types import SimpleNamespace
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from requests import Timeout
 
@@ -25,8 +27,11 @@ class TestResearchAccessPolicy(BaseTest):
         child = Team.objects.create(organization=self.organization, parent_team=self.team)
         with patch("products.signals.backend.github_optional.feature_enabled_or_false", return_value=True) as flag:
             assert ResearchAccessPolicy.enabled(child.id)
-        assert flag.call_args.args == (GITHUB_OPTIONAL_FLAG, str(self.team.uuid))
-        assert flag.call_args.kwargs["groups"] == {"project": str(self.team.uuid)}
+        assert flag.call_args.args[1] == str(self.team.uuid)
+        assert flag.call_args.kwargs["groups"] == {
+            "project": str(self.team.uuid),
+            "organization": str(self.organization.id),
+        }
         with patch("products.signals.backend.github_optional.feature_enabled_or_false", side_effect=RuntimeError):
             assert not ResearchAccessPolicy.enabled(self.team.id)
 
@@ -55,7 +60,7 @@ class TestResearchAccessPolicy(BaseTest):
             team=self.team,
             defaults={
                 "onboarding": {
-                    "draft": {"activation_mode": "github_optional"},
+                    "draft": {"setup_mode": "guided"},
                     "completed_at": "2026-10-26T00:00:00Z" if completed else None,
                 }
             },
@@ -99,3 +104,31 @@ class TestResearchAccessPolicy(BaseTest):
                 assert ResearchAccessPolicy.repository_integration_id(self.team.id, "example/product") == (
                     second.id if other_available else None
                 )
+
+
+class TestResearchAccessFlags(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (True, False, True),
+            (False, True, True),
+            (True, True, True),
+            (False, False, False),
+            (None, None, False),
+            (RuntimeError(), True, True),
+            (True, RuntimeError(), True),
+            (RuntimeError(), False, False),
+            (False, RuntimeError(), False),
+        ]
+    )
+    def test_access_flags_are_independent(
+        self, optional: bool | Exception | None, ubp: bool | Exception | None, expected: bool
+    ) -> None:
+        def evaluate(key: str, *args: object, **kwargs: object) -> bool | None:
+            value = optional if key == GITHUB_OPTIONAL_FLAG else ubp
+            if isinstance(value, Exception):
+                raise value
+            return value
+
+        project = Team(id=1, organization_id="00000000-0000-0000-0000-000000000001")
+        with patch("products.signals.backend.github_optional.feature_enabled_or_false", side_effect=evaluate):
+            assert ResearchAccessPolicy.enabled_for_project(project) is expected
