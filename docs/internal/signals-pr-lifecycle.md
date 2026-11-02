@@ -156,6 +156,8 @@ The check coordinator dispatches one report-level assessment workflow per reques
 
 Assessment dispatch requires organization AI consent and uses at most a quarter of the coordinator's remaining budget, with a two-second connection/RPC cap per dispatch. Assessment tokens grant reads and their own run lifecycle only. The acting user's metric permissions filter the private task prompt. Tasks use that user's personal channel, which restricts commands and traces to that user. Assessment notes containing agent reasoning also require that user and their current source-data permissions, because additional evidence may come from beyond the original checks. Public task descriptions contain no metric evidence.
 
+Protected assessment notes are excluded from shared Today figure-mark sources.
+
 The collector completes an assessment run only after saving valid structured output. Already-completed runs get two minutes for delayed output delivery. Exhausted collector retries reconnect to existing tasks and preserve their original deadlines before recording technical exhaustion; workflow cancellation propagates without closing the report.
 
 Before accepting a decision, the worker locks the report and repeats aggregation. Pending evaluations, changed definitions, rollout pauses, and archive pauses cannot produce a decision. Sufficient final failures take precedence. Reopening, replacing the attempt, or manually completing the report makes late assessment work obsolete. Archive/restore retains the same workflow and original windows.
