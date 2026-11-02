@@ -36,8 +36,7 @@ from products.data_modeling.backend.facade.models import (
     NodeType,
 )
 from products.data_modeling.backend.logic.cohort_scheduling import is_tier_schedule_id
-from products.data_modeling.backend.logic.freshness import UnsatisfiableFrequencyError
-from products.data_modeling.backend.logic.node_frequency import get_declared_target, set_declared_target
+from products.data_modeling.backend.logic.node_frequency import get_declared_target
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
 SCHEDULE_MATERIALIZATION = (
@@ -192,33 +191,37 @@ class TestManagedViewSetProviders(BaseTest):
             viewset.sync_views()
 
         view = next(v for v in self._views(viewset) if v.name == fake_view.name)
-        self.assertEqual(view.sync_frequency_interval, timedelta(minutes=15))
+        self.assertIsNone(view.sync_frequency_interval)
         self.assertEqual(view.incremental_config, INCREMENTAL_CONFIG)
-        self.assertEqual(Node.objects.get(saved_query=view).type, NodeType.MAT_VIEW)
+        node = Node.objects.get(saved_query=view)
+        self.assertEqual(node.type, NodeType.MAT_VIEW)
+        self.assertEqual(get_declared_target(node), timedelta(minutes=15))
         mock_schedule.assert_called_once()
 
-    @parameterized.expand([False, True])
     @patch(SCHEDULE_MATERIALIZATION)
-    def test_a_cadence_the_sources_cannot_feed_leaves_the_view_computed_at_query_time(
-        self, existing: bool, mock_schedule: Mock
-    ) -> None:
-        fake_view = _fake_view(sync_frequency=timedelta(minutes=15))
-        with patch.dict(_expected_views_providers, clear=True):
-            register_expected_views_provider(KIND, lambda team: [fake_view])
+    def test_upstream_and_downstream_cadences_change_together(self, _: Mock) -> None:
+        def views(cadence: timedelta) -> list[ProvidedView]:
+            return [
+                _fake_view(name="upstream", sync_frequency=cadence),
+                ProvidedView(
+                    name="downstream",
+                    query="SELECT id FROM upstream",
+                    fields={"id": IntegerDatabaseField(name="id")},
+                    sync_frequency=cadence,
+                ),
+            ]
 
+        provided = views(timedelta(minutes=15))
+        with patch.dict(_expected_views_providers, clear=True):
+            register_expected_views_provider(KIND, lambda team: provided)
             viewset = self._viewset()
-            if existing:
-                viewset.sync_views()
-                set_declared_target(Node.objects.get(saved_query__managed_viewset=viewset), timedelta(hours=12))
-            mock_schedule.side_effect = UnsatisfiableFrequencyError("sources sync every 6 hours")
+            viewset.sync_views()
+            provided = views(timedelta(hours=12))
             viewset.sync_views()
 
-        view = next(v for v in self._views(viewset) if v.name == fake_view.name)
-        self.assertFalse(view.is_materialized)
-        self.assertIsNone(view.sync_frequency_interval)
-        node = Node.objects.get(saved_query=view)
-        self.assertEqual(node.type, NodeType.VIEW)
-        self.assertIsNone(get_declared_target(node))
+        for view in self._views(viewset):
+            self.assertTrue(view.is_materialized)
+            self.assertEqual(get_declared_target(Node.objects.get(saved_query=view)), timedelta(hours=12))
 
     @patch(SCHEDULE_MATERIALIZATION)
     def test_resync_revalidates_incremental_config_against_updated_upstream_definitions(self, _: Mock) -> None:
@@ -329,6 +332,10 @@ class TestManagedViewSetProviders(BaseTest):
             viewset.sync_views()
 
         self.assertEqual(self._views(viewset), [])
+
+    def test_a_provider_cannot_declare_an_unschedulable_cadence(self):
+        with self.assertRaisesRegex(ValueError, "not a schedulable cadence"):
+            _fake_view(sync_frequency=timedelta(minutes=45))
 
     def test_sync_views_raises_for_unregistered_kind(self):
         with patch.dict(_expected_views_providers, clear=True):

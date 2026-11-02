@@ -133,7 +133,10 @@ def _warn_on_invalid_targets(dag: DAG, graph: FrequencyGraph | None = None) -> N
     if graph is None:
         graph = build_frequency_graph(dag)
     for invalid in find_invalid_targets(
-        edges=graph.edges, declared_targets=graph.declared_targets, source_intervals=graph.source_intervals
+        edges=graph.edges,
+        declared_targets=graph.declared_targets,
+        source_intervals=graph.source_intervals,
+        floor_exempt=graph.managed_node_ids,
     ):
         logger.warning(
             "Declared freshness target outside its legal range",
@@ -200,6 +203,19 @@ def apply_saved_query_frequency_target(
             if reconcile:
                 maybe_reconcile_dag(node.dag)
     return written
+
+
+def apply_managed_view_frequency_targets(team_id: int, targets: Mapping[str, timedelta | None]) -> None:
+    """Store each managed view's provider cadence on its DAG node(s), keyed by saved query id.
+
+    The provider owns these cadences, so no source floor or consumer ceiling is checked: the
+    scheduler already runs a node no finer than its sources deliver (`clamp_to_source_floor`), and
+    the stored value stays equal to what the provider declares. One atomic write, so a batch that
+    moves an upstream and a downstream view together never lands half-applied. Callers reconcile.
+    """
+    with transaction.atomic():
+        for node in Node.objects.select_for_update(of=("self",)).filter(team_id=team_id, saved_query_id__in=targets):
+            set_declared_target(node, targets[str(node.saved_query_id)])
 
 
 def check_saved_query_frequency_target(
@@ -326,7 +342,10 @@ def preview_dag_schedules(dag: DAG, *, seed: bool = False) -> DagSchedulePreview
         best_effort_source_ids=graph.best_effort_source_ids,
         clamped=clamped,
         invalid_targets=find_invalid_targets(
-            edges=graph.edges, declared_targets=declared, source_intervals=graph.source_intervals
+            edges=graph.edges,
+            declared_targets=declared,
+            source_intervals=graph.source_intervals,
+            floor_exempt=graph.managed_node_ids,
         ),
         unsupported_tiers=sorted({tier.interval for tier in desired_tiers if tier.interval not in SCHEDULABLE_BUCKETS}),
         seeded=seed,
