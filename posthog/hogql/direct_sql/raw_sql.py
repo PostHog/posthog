@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, cast
 
 from sqlparse import tokens as sqlparse_tokens
 from sqlparse.engine.grouping import group
+from sqlparse.exceptions import SQLParseError
 from sqlparse.lexer import tokenize
 from sqlparse.sql import Statement, Token
 
@@ -67,7 +68,8 @@ def _guard_tokens(token: "DialectToken", *, is_call: bool, sql: str, dialect: st
     }
     if token.token_type == TokenType.IDENTIFIER:
         kind = sqlparse_tokens.Name if dialect == "mysql" else sqlparse_tokens.String.Symbol
-        return [Token(kind, token.text if dialect == "mysql" else f'"{token.text}"')]
+        quote = "`" if dialect == "mysql" else '"'
+        return [Token(kind, quote + token.text + quote)]
     if token.token_type in literal_types:
         # ANSI_QUOTES can make a double-quoted MySQL callee an identifier.
         if dialect == "mysql" and sql[token.start] == '"' and is_call:
@@ -75,6 +77,21 @@ def _guard_tokens(token: "DialectToken", *, is_call: bool, sql: str, dialect: st
         return [Token(sqlparse_tokens.String.Single, "'literal'")]
     classified = list(tokenize(token.text + ("(" if is_call else "")))
     return [Token(kind, value) for kind, value in (classified[:-1] if is_call else classified)]
+
+
+def _single_statement_tokens(sql: str, dialect: str) -> list["DialectToken"]:
+    from sqlglot.tokens import TokenType  # noqa: PLC0415 -- load dialect grammars only for direct queries
+
+    statement: list[DialectToken] = []
+    terminated = False
+    for token in _lex_direct_sql(sql, dialect):
+        if token.token_type == TokenType.SEMICOLON:
+            terminated = bool(statement)
+        elif terminated:
+            raise ExposedHogQLError("Raw queries must contain a single statement.")
+        else:
+            statement.append(token)
+    return statement
 
 
 def parse_direct_statements(sql: str, *, dialect: str) -> list[Statement]:
@@ -85,23 +102,16 @@ def parse_direct_statements(sql: str, *, dialect: str) -> list[Statement]:
     """
     from sqlglot.tokens import TokenType  # noqa: PLC0415 -- load dialect grammars only for direct queries
 
-    lexed = _lex_direct_sql(sql, dialect)
-    statements: list[Statement] = []
+    lexed = _single_statement_tokens(sql, dialect)
     tokens: list[Token] = []
     for index, token in enumerate(lexed):
-        if token.token_type == TokenType.SEMICOLON:
-            if tokens:
-                statements.append(group(Statement(tokens)))
-                tokens = []
-            continue
         is_call = index + 1 < len(lexed) and lexed[index + 1].token_type == TokenType.L_PAREN
         tokens.extend(_guard_tokens(token, is_call=is_call, sql=sql, dialect=dialect))
         tokens.append(Token(sqlparse_tokens.Whitespace, " "))
-    if tokens:
-        statements.append(group(Statement(tokens)))
-    if len(statements) > 1:
-        raise ExposedHogQLError("Raw queries must contain a single statement.")
-    return statements
+    try:
+        return [group(Statement(tokens))] if tokens else []
+    except (SQLParseError, RecursionError) as error:
+        raise ExposedHogQLError("Raw query is too complex to validate. Simplify the query and try again.") from error
 
 
 def ensure_single_direct_statement(sql: str, *, dialect: str) -> str:
@@ -114,5 +124,5 @@ def ensure_single_direct_statement(sql: str, *, dialect: str) -> str:
     guard protects direct MySQL queries (PyMySQL additionally disables the
     MULTI_STATEMENTS client flag by default).
     """
-    parse_direct_statements(sql, dialect=dialect)
+    _single_statement_tokens(sql, dialect)
     return sql

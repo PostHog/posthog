@@ -33,6 +33,7 @@ class TestDirectSQLQuoting(SimpleTestCase):
             ("duckdb", r"SELECT E'one\'two' AS label"),
             ("mysql", "SELECT 17 # ; SELECT 29\n"),
             ("bigquery", 'SELECT """one; \'two\'""" AS label'),
+            ("postgres", "SELECT " + " + ".join(["17"] * 1000)),
         ]
     )
     def test_accepts_dialect_literals(self, dialect: str, sql: str) -> None:
@@ -89,10 +90,16 @@ class TestDirectSQLQuoting(SimpleTestCase):
             ("mysql", ensure_read_only_raw_mysql_statement),
             ("trino", ensure_read_only_raw_trino_statement),
             ("bigquery", ensure_read_only_raw_bigquery_statement),
+            ("mysql_quoted_into", ensure_read_only_raw_mysql_statement, "SELECT `INTO` FROM example_rows"),
+            ("mysql_quoted_alias", ensure_read_only_raw_mysql_statement, "SELECT `FOR` AS `UPDATE` FROM example_rows"),
         ]
     )
-    def test_preserves_read_only_queries_with_patterns(self, _name: str, validate: Callable[[str], str]) -> None:
-        sql = r"WITH labels AS (SELECT 'folder\\report' AS label) SELECT * FROM labels WHERE label LIKE '%\_%'"
+    def test_preserves_read_only_queries(
+        self,
+        _name: str,
+        validate: Callable[[str], str],
+        sql: str = r"WITH labels AS (SELECT 'folder\\report' AS label) SELECT * FROM labels WHERE label LIKE '%\_%'",
+    ) -> None:
         self.assertEqual(validate(sql), sql)
 
     @parameterized.expand(
