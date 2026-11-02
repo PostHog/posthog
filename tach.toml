@@ -456,6 +456,8 @@ depends_on = [
     "products.experiments",
     "products.feature_flags",
     "products.product_analytics",
+    # Facade-only: new local demo projects get seeded Inbox reports and a demo chat.
+    "products.signals",
     "products.warehouse_sources",
 ]
 layer = "modules"
