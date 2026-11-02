@@ -84,12 +84,9 @@ export interface InstructionsContext {
      *  as `docsSearchEnabled`: the line names three tools, and the reference drops `tools`. */
     replayVisionEnabled?: boolean | undefined
     businessKnowledgeContent?: BusinessKnowledgeContent | undefined
-    /** Whether to tell the agent to look for an existing Inbox report before it
-     *  investigates. The caller sets it only when the experiment flag is on and the
-     *  report list and retrieve tools are advertised. */
+    /** Set only when the experiment flag is on and the report list and retrieve tools are advertised. */
     inboxFirstEnabled?: boolean | undefined
-    /** Whether `inbox-reports-claim` is advertised. Read-only connections lack it, so the
-     *  line that tells the agent to attach its pull request is left out for them. */
+    /** Read-only connections lack `inbox-reports-claim`, so they get no pull-request line. */
     inboxClaimEnabled?: boolean | undefined
 }
 
@@ -217,8 +214,7 @@ export class InstructionsFormatter {
         ]
     }
 
-    /** Kept out of the exec tool description: Claude Code cuts that description at 2,048
-     *  characters, and the skills and knowledge mandates already fill it. */
+    /** Kept out of the exec tool description: Claude Code cuts it at 2,048 characters. */
     private inboxFirstSections(ctx: InstructionsContext, execSyntax: boolean): string[] {
         if (!ctx.inboxFirstEnabled) {
             return []
