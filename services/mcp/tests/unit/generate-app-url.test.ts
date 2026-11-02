@@ -65,6 +65,7 @@ describe('generate-app-url', () => {
             '/ai-evals/evaluations/offline/experiments?tab=datasets',
         ],
         ['/ai-evals/evaluations/offline/experiments', {}, '/ai-evals/evaluations/offline/experiments'],
+        ['/experiments/{id}?tab=recordings', { id: '387170' }, '/experiments/387170?tab=recordings'],
         [
             '/ai-evals/evaluations/offline/datasets/{id}',
             { id: 'example-dataset' },
