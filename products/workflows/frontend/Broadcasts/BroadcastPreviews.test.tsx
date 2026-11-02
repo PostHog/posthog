@@ -57,7 +57,6 @@ describe('broadcast previews', () => {
             </Provider>
         )
 
-        // The test send runs a test workflow, which the API refuses without editor access to Workflows.
         expect(
             document.querySelector(`[data-attr="broadcast-open-test-${channel === 'email' ? 'email' : 'push'}"]`)
         ).toHaveAttribute('aria-disabled', expected)

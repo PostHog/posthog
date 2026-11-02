@@ -128,7 +128,6 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         )
     }
 
-    // The template API needs Editor access to workflows, the same check as the library's "New template" card.
     const editDisabledReason =
         getAccessControlDisabledReason(AccessControlResourceType.Workflow, AccessControlLevel.Editor) ?? undefined
     const saveDisabledReason =
@@ -142,7 +141,6 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                 : !template.name
                   ? 'Name is required'
                   : undefined)
-    // A test send runs a test workflow, which needs the same Editor access.
     const sendTestDisabledReason =
         editDisabledReason ?? (!template.content.email?.subject ? 'Add a subject first' : undefined)
 

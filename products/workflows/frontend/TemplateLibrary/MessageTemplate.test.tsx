@@ -65,7 +65,6 @@ describe('MessageTemplate', () => {
                 expect(document.querySelector('.scene-title-section')).toHaveTextContent('Order receipt')
             )
             expect(document.querySelector('.scene-title-section')).toHaveAttribute('data-editable', expectedEditable)
-            // Send test runs a test workflow, which the API refuses without editor access.
             expect(document.querySelector('[data-attr="send-test-message-template"]')).toHaveAttribute(
                 'aria-disabled',
                 expectedWriteDisabled
