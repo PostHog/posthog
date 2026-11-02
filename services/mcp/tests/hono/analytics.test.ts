@@ -274,21 +274,6 @@ describe('Hono MCP analytics contexts', () => {
         expect(mockCaptureToolCall.mock.calls[0]![0].properties.$mcp_llm_model_missing_reason).toBe(expected)
     })
 
-    it.each([false, true])('stamps whether the project has data: %s', async (projectHasData) => {
-        const state = makeState({
-            reqCtx: {
-                ...makeState().reqCtx,
-                safelyGetAnalyticsContext: vi.fn(async () => ({ projectId: '1', projectHasData })),
-            } as any,
-        })
-
-        await trackToolCall('query-trends', 0, false, state)
-        await trackInitEvent(state)
-
-        expect(mockCaptureToolCall.mock.calls[0]![0].properties.mcp_project_has_data).toBe(projectHasData)
-        expect(mockCaptureInitialize.mock.calls[0]![0].properties.mcp_project_has_data).toBe(projectHasData)
-    })
-
     it('categorizes a proxied third-party tool and names its server', async () => {
         // A gateway tool has no catalog entry, so without the fallback it lands
         // uncategorized and disappears from every category-sliced view.

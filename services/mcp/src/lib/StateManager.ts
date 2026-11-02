@@ -691,7 +691,6 @@ export class StateManager {
         projectId?: string
         projectUuid?: string
         projectName?: string
-        projectHasData?: boolean
     }> {
         const [orgId, project] = await Promise.all([
             this._pinned ? this._pinned.orgId : this._cache.get('orgId'),
@@ -707,7 +706,6 @@ export class StateManager {
             ...(project?.id !== undefined ? { projectId: String(project.id) } : {}),
             ...(project?.uuid ? { projectUuid: project.uuid } : {}),
             ...(project?.name ? { projectName: project.name } : {}),
-            ...(typeof project?.ingested_event === 'boolean' ? { projectHasData: project.ingested_event } : {}),
         }
     }
 

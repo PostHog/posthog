@@ -1380,7 +1380,6 @@ describe('StateManager', () => {
                 uuid: 'project-uuid-456',
                 name: 'My Project',
                 organization: 'org-1',
-                ingested_event: false,
             } as any)
 
             const result = await stateManager.getAnalyticsContext()
@@ -1390,7 +1389,6 @@ describe('StateManager', () => {
                 projectId: '456',
                 projectUuid: 'project-uuid-456',
                 projectName: 'My Project',
-                projectHasData: false,
             })
         })
 

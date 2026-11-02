@@ -201,13 +201,8 @@ describe('ToolExecutor analytics capture', () => {
         'keeps a %s switch-project call on the project its flags were evaluated for',
         async (mode) => {
             const capture = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
-            const source = { organizationId: 'org-1', projectId: '1', projectUuid: 'uuid-1', projectHasData: false }
-            const destination = {
-                organizationId: 'org-1',
-                projectId: '2',
-                projectUuid: 'uuid-2',
-                projectHasData: false,
-            }
+            const source = { organizationId: 'org-1', projectId: '1', projectUuid: 'uuid-1' }
+            const destination = { organizationId: 'org-1', projectId: '2', projectUuid: 'uuid-2' }
             let active = source
             const tool = {
                 name: 'switch-project',
@@ -250,7 +245,6 @@ describe('ToolExecutor analytics capture', () => {
             expect(event.groups).toEqual({ organization: 'org-1', project: 'uuid-1' })
             expect(event.properties).toMatchObject({
                 $mcp_project_id: '1',
-                mcp_project_has_data: false,
             })
         }
     )
