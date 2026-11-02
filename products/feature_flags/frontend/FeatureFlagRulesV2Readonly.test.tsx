@@ -1,8 +1,9 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, render, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { FeatureFlagRulesV2Config } from '~/types'
 
@@ -29,6 +30,11 @@ const CONFIG: FeatureFlagRulesV2Config = {
 
 describe('FeatureFlagRulesV2Readonly', () => {
     beforeEach(() => {
+        useMocks({
+            post: {
+                '/api/projects/:team/feature_flags/user_blast_radius': () => [200, { affected: 200, total: 2000 }],
+            },
+        })
         initKeaTests()
     })
 
@@ -113,16 +119,110 @@ describe('FeatureFlagRulesV2Readonly', () => {
             </Provider>
         )
 
-        const [pausedRow, runningRow] = Array.from(container.querySelectorAll('tbody tr'))
-        expect(pausedRow).toHaveTextContent('Experiment')
-        expect(pausedRow).toHaveTextContent('Paused')
-        expect(pausedRow).toHaveTextContent('control33.34%"standard"')
-        expect(pausedRow).toHaveTextContent('compact66.66%"compact-layout"')
-        expect(pausedRow).toHaveTextContent('50%Miss: next rule')
-        expect(pausedRow).toHaveTextContent('Holdout excludes 5%')
-        expect(runningRow).toHaveTextContent('Experiment')
-        expect(runningRow).not.toHaveTextContent('Paused')
-        expect(runningRow).not.toHaveTextContent('Holdout')
+        const [pausedRule, runningRule] = Array.from(container.querySelectorAll('[data-attr="rules-v2-rule-readonly"]'))
+        expect(pausedRule).toHaveTextContent('Experiment')
+        expect(pausedRule).toHaveTextContent('Paused')
+        expect(pausedRule).toHaveTextContent('Matching users get the default value')
+        const variants = Array.from(pausedRule.querySelectorAll('[data-attr="rules-v2-variant-readonly"]'))
+        expect(variants.map((variant) => variant.textContent)).toEqual([
+            'control33.34%standard',
+            'compact66.66%compact-layout',
+        ])
+        expect(pausedRule).toHaveTextContent('50% of the rest are enrolled. The others continue to the next rule.')
+        expect(pausedRule).toHaveTextContent('Holdout excludes 5%')
+        expect(runningRule).toHaveTextContent('Experiment')
+        expect(runningRule).not.toHaveTextContent('Paused')
+        expect(runningRule).not.toHaveTextContent('Holdout')
         expect(container).not.toHaveTextContent('must-not-render')
+    })
+
+    it('ends the rules with the default value, and estimates who each rule matches and reaches', async () => {
+        const { container } = render(
+            <Provider>
+                <FeatureFlagRulesV2Readonly config={CONFIG} />
+            </Provider>
+        )
+
+        const rule = container.querySelector('[data-attr="rules-v2-rule-readonly"]')
+        await waitFor(() => expect(rule).toHaveTextContent('≈ 200 users'))
+        expect(rule).toHaveTextContent('≈ 100 users')
+        expect(container.querySelector('[data-attr="rules-v2-default-step"]')).toHaveTextContent(
+            'Rule 1 decides the value for every user'
+        )
+        expect(container.querySelector('[data-attr="rules-v2-default-step"]')).toHaveTextContent('false')
+    })
+
+    it('warns about a rule that an earlier rule hides', () => {
+        const { container } = render(
+            <Provider>
+                <FeatureFlagRulesV2Readonly
+                    config={{
+                        ...CONFIG,
+                        rules: [
+                            CONFIG.rules[0],
+                            {
+                                id: 'rule-2',
+                                rule_type: 'targeted_release',
+                                targeting: { properties: [] },
+                                value: true,
+                            },
+                        ],
+                    }}
+                />
+            </Provider>
+        )
+
+        const [first, second] = Array.from(container.querySelectorAll('[data-attr="rules-v2-rule-readonly"]'))
+        expect(first.querySelector('[data-attr="rules-v2-rule-unreachable"]')).toBeNull()
+        expect(second.querySelector('[data-attr="rules-v2-rule-unreachable"]')).toHaveTextContent(
+            'This rule is never reached: rule 1 already decides the value'
+        )
+    })
+
+    it('shows a paused experiment without an enrolled estimate, since it enrolls no one', async () => {
+        const { container } = render(
+            <Provider>
+                <FeatureFlagRulesV2Readonly
+                    config={{
+                        ...CONFIG,
+                        rules: [
+                            {
+                                id: 'rule-paused',
+                                rule_type: 'experiment',
+                                targeting: { properties: [] },
+                                paused: true,
+                                rollout_percentage: 50,
+                                on_rollout_miss: 'continue',
+                                assignment_algorithm: 'sha1_60_v1',
+                                seed: 'seed',
+                                variants: [
+                                    { key: 'control', weight: 50, value: false },
+                                    { key: 'test', weight: 50, value: true },
+                                ],
+                            },
+                        ],
+                    }}
+                />
+            </Provider>
+        )
+
+        const rule = container.querySelector('[data-attr="rules-v2-rule-readonly"]')
+        await waitFor(() => expect(rule).toHaveTextContent('≈ 200 users'))
+        expect(rule).not.toHaveTextContent('≈ 100 users')
+    })
+
+    it('shows a rule type it does not know instead of failing', () => {
+        const { container } = render(
+            <Provider>
+                <FeatureFlagRulesV2Readonly
+                    config={{
+                        ...CONFIG,
+                        rules: [{ id: 'rule-old', rule_type: 'variant_rollout', targeting: { properties: [] } } as any],
+                    }}
+                />
+            </Provider>
+        )
+
+        expect(container.querySelector('[data-attr="rules-v2-rule-readonly"]')).toHaveTextContent('variant_rollout')
     })
 })

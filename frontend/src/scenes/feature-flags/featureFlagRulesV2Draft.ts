@@ -1,3 +1,6 @@
+import { isEmptyProperty } from 'lib/components/PropertyFilters/utils'
+import { objectsEqual } from 'lib/utils/objects'
+
 import {
     FeatureFlagRulesV2DraftConfig,
     FeatureFlagRulesV2DraftExperimentRule,
@@ -95,6 +98,22 @@ export function withRuleType(
                 })),
             }
     }
+}
+
+/**
+ * A copy to insert after the original. It has no id, so the server treats it as a new rule, and no seeds, so its users
+ * are assigned independently of the original's.
+ */
+export function duplicatedRule(rule: FeatureFlagRulesV2DraftRule): FeatureFlagRulesV2DraftRule {
+    const { id: _id, ...copy } = rule
+    if (copy.rule_type === 'targeted_release') {
+        return copy
+    }
+    const { seed: _seed, ...withoutSeed } = copy
+    if (withoutSeed.rule_type === 'experiment' && withoutSeed.holdout) {
+        return { ...withoutSeed, holdout: { exclusion_percentage: withoutSeed.holdout.exclusion_percentage } }
+    }
+    return withoutSeed
 }
 
 export const NEW_HOLDOUT: FeatureFlagRulesV2DraftHoldout = { exclusion_percentage: 10 }
@@ -233,4 +252,46 @@ export function rulesV2DraftErrors(config: FeatureFlagRulesV2DraftConfig): Recor
         }
     })
     return errors
+}
+
+type RulesV2ReachabilityRule = Pick<FeatureFlagRulesV2DraftRule, 'rule_type' | 'targeting'> &
+    Partial<{ rollout_percentage: number; on_rollout_miss: 'continue' | 'return_default'; paused: boolean }>
+
+/** Whether every user a rule matches leaves it with a value, so later rules never see them. */
+function claimsEveryMatch(rule: RulesV2ReachabilityRule): boolean {
+    if (rule.rule_type === 'targeted_release' || (rule.rule_type === 'experiment' && rule.paused)) {
+        return true
+    }
+    return (rule.rollout_percentage ?? 0) >= 100 || rule.on_rollout_miss === 'return_default'
+}
+
+/** Whether `earlier` matches every user `later` matches: its conditions are a subset of the later rule's. */
+function matchesEveryoneOf(earlier: RulesV2ReachabilityRule, later: RulesV2ReachabilityRule): boolean {
+    const earlierProperties = earlier.targeting.properties
+    // A condition without a value never matches, so a rule that has one claims no one.
+    if (earlierProperties.some(isEmptyProperty)) {
+        return false
+    }
+    return earlierProperties.every((property) =>
+        later.targeting.properties.some((candidate) => objectsEqual(property, candidate))
+    )
+}
+
+/**
+ * For each rule, the index of an earlier rule that claims every user it matches, or null when the rule can serve
+ * someone. It only spots shadowing it can prove from the conditions; overlapping conditions are not compared.
+ */
+export function rulesV2ShadowingRules(rules: RulesV2ReachabilityRule[]): (number | null)[] {
+    return rules.map((rule, index) => {
+        const shadowing = rules
+            .slice(0, index)
+            .findIndex((earlier) => claimsEveryMatch(earlier) && matchesEveryoneOf(earlier, rule))
+        return shadowing >= 0 ? shadowing : null
+    })
+}
+
+/** The first rule that claims every user, after which no one falls through to the default step; null if none does. */
+export function rulesV2CatchAllRule(rules: RulesV2ReachabilityRule[]): number | null {
+    const index = rules.findIndex((rule) => claimsEveryMatch(rule) && rule.targeting.properties.length === 0)
+    return index >= 0 ? index : null
 }

@@ -7,7 +7,7 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { mockGetEventDefinitions, mockGetPropertyDefinitions } from '~/test/mocks'
-import { FeatureFlagRulesV2DraftExperimentRule } from '~/types'
+import { FeatureFlagRulesV2DraftExperimentRule, FeatureFlagRulesV2DraftRule } from '~/types'
 
 import { NEW_FLAG, featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagRulesV2Editor } from './FeatureFlagRulesV2Editor'
@@ -102,6 +102,9 @@ describe('FeatureFlagRulesV2Editor', () => {
                 '/api/projects/:team/feature_flags/9/': STRING_EXPERIMENT_FLAG,
                 '/api/projects/:team/feature_flags/:id/status': { status: 'active', reason: 'mock reason' },
             },
+            post: {
+                '/api/projects/:team/feature_flags/user_blast_radius': () => [200, { affected: 120, total: 2000 }],
+            },
         })
         initKeaTests()
     })
@@ -113,29 +116,64 @@ describe('FeatureFlagRulesV2Editor', () => {
             await renderEditor(7)
         })
 
+        const rules = (): FeatureFlagRulesV2DraftRule[] =>
+            featureFlagRulesV2EditorLogic({ id: 7 }).values.draft.config.rules
+        const openRuleMenu = (index: number): void => {
+            fireEvent.click(screen.getByLabelText(`Rule ${index + 1} actions`))
+        }
+
         it('names each text input by its label', () => {
             expect(screen.getByLabelText('Flag key')).toHaveValue('new-checkout')
-            expect(screen.getAllByLabelText(/^Description/).map((input) => input.tagName)).toEqual([
-                'TEXTAREA',
-                'INPUT',
-                'INPUT',
-            ])
+            expect(screen.getByLabelText(/^Description/).tagName).toBe('TEXTAREA')
+            expect(screen.getByLabelText('Rule 1 description')).toHaveValue('Beta users')
+            expect(screen.getByLabelText('Rule 2 description')).toHaveValue('Everyone else')
             expect(screen.getByLabelText('Rollout percentage')).toHaveValue('20')
         })
 
-        // Moving the card re-inserts it, which drops focus. React's commit then refocuses the button,
-        // because it is still mounted.
-        it('keeps focus on the rule a keyboard user moved down', async () => {
-            const [moveDown] = document.querySelectorAll<HTMLElement>('[data-attr="rules-v2-move-rule-down"]')
-            moveDown.focus()
-            fireEvent.click(moveDown)
+        it('estimates how many users each rule matches and its rollout reaches', async () => {
+            const [, rolloutRule] = document.querySelectorAll('[data-attr="rules-v2-rule"]')
+            await waitFor(() => expect(rolloutRule).toHaveTextContent('≈ 120 users'))
+            expect(rolloutRule).toHaveTextContent('≈ 24 users')
+        })
 
-            await waitFor(() =>
-                expect(document.querySelector('[data-attr="rules-v2-rule"] input')).toHaveValue('Everyone else')
+        it('warns that a rule after a rule claiming everyone is never reached, until it moves up', async () => {
+            const [beta, rollout] = document.querySelectorAll('[data-attr="rules-v2-rule"]')
+            expect(beta.querySelector('[data-attr="rules-v2-rule-unreachable"]')).toBeNull()
+            expect(rollout.querySelector('[data-attr="rules-v2-rule-unreachable"]')).toHaveTextContent(
+                'rule 1 already decides the value'
             )
-            const focusedRule = document.activeElement?.closest('[data-attr="rules-v2-rule"]')
-            expect(focusedRule).toHaveTextContent('Rule 2')
-            expect(focusedRule?.querySelector('input')).toHaveValue('Beta users')
+
+            openRuleMenu(1)
+            fireEvent.click(await screen.findByText('Move up'))
+
+            await waitFor(() => expect(rules().map((rule) => rule.id)).toEqual(['rule-rollout', 'rule-beta']))
+            expect(document.querySelector('[data-attr="rules-v2-rule-unreachable"]')).toBeNull()
+        })
+
+        it('adds a rule of the type picked from the add menu', async () => {
+            fireEvent.click(document.querySelector<HTMLElement>('[data-attr="rules-v2-add-rule"]')!)
+            fireEvent.click(await screen.findByText('Percentage rollout', { selector: '.font-semibold' }))
+
+            expect(rules()).toHaveLength(3)
+            expect(rules()[2]).toEqual({
+                rule_type: 'percentage_rollout',
+                targeting: { properties: [] },
+                value: true,
+                rollout_percentage: 0,
+                on_rollout_miss: 'continue',
+                assignment_algorithm: 'sha1_60_v1',
+                assign_by: 'person',
+            })
+        })
+
+        it('duplicates a rule below itself without its id or seed', async () => {
+            openRuleMenu(1)
+            fireEvent.click(await screen.findByText('Duplicate'))
+
+            const { id: _id, seed: _seed, ...copy } = V2_FLAG.filters.rules[1]
+            expect(rules().map((rule) => rule.id)).toEqual(['rule-beta', 'rule-rollout', undefined])
+            expect(rules()[2]).toEqual(copy)
+            await waitFor(() => expect(screen.getByLabelText('Rule 3 description')).toHaveValue('Everyone else'))
         })
     })
 

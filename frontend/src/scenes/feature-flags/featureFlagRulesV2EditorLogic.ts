@@ -57,11 +57,12 @@ import {
     variantKeyToIndexFeatureFlagPayloads,
 } from './featureFlagLogic'
 import {
-    NEW_TARGETED_RELEASE_RULE,
+    duplicatedRule,
     moved,
     rulesV2DraftErrors,
     rulesV2InitialValue,
     withReturnType,
+    withRuleType,
 } from './featureFlagRulesV2Draft'
 
 export interface FeatureFlagRulesV2Draft {
@@ -227,8 +228,11 @@ export interface featureFlagRulesV2EditorLogicActions {
     setRulesV2DraftDirty: (dirty: boolean) => {
         dirty: boolean
     } // featureFlagLogic
-    addRule: () => {
-        value: true
+    addRule: (ruleType?: FeatureFlagRulesV2DraftRule['rule_type']) => {
+        ruleType: 'experiment' | 'percentage_rollout' | 'targeted_release'
+    }
+    duplicateRule: (index: number) => {
+        index: number
     }
     loadDraft: (draft: FeatureFlagRulesV2Draft) => {
         draft: FeatureFlagRulesV2Draft
@@ -329,7 +333,8 @@ export const featureFlagRulesV2EditorLogic = kea<featureFlagRulesV2EditorLogicTy
         setDraft: (draft: Partial<FeatureFlagRulesV2Draft>) => ({ draft }),
         setConfig: (config: Partial<FeatureFlagRulesV2DraftConfig>) => ({ config }),
         setReturnType: (returnType: FeatureFlagRulesV2ReturnType) => ({ returnType }),
-        addRule: true,
+        addRule: (ruleType: FeatureFlagRulesV2DraftRule['rule_type'] = 'targeted_release') => ({ ruleType }),
+        duplicateRule: (index: number) => ({ index }),
         updateRule: (index: number, rule: FeatureFlagRulesV2DraftRule) => ({ index, rule }),
         setRule: (index: number, rule: FeatureFlagRulesV2DraftRule) => ({ index, rule }),
         removeRule: (index: number) => ({ index }),
@@ -350,13 +355,32 @@ export const featureFlagRulesV2EditorLogic = kea<featureFlagRulesV2EditorLogicTy
                     ...state,
                     config: withReturnType(state.config, returnType),
                 }),
-                addRule: (state) => ({
+                addRule: (state, { ruleType }) => ({
                     ...state,
                     config: {
                         ...state.config,
                         rules: [
                             ...state.config.rules,
-                            { ...NEW_TARGETED_RELEASE_RULE, value: rulesV2InitialValue(state.config.return_type) },
+                            withRuleType(
+                                {
+                                    rule_type: 'targeted_release',
+                                    targeting: { properties: [] },
+                                    value: rulesV2InitialValue(state.config.return_type),
+                                },
+                                ruleType,
+                                state.config.return_type
+                            ),
+                        ],
+                    },
+                }),
+                duplicateRule: (state, { index }) => ({
+                    ...state,
+                    config: {
+                        ...state.config,
+                        rules: [
+                            ...state.config.rules.slice(0, index + 1),
+                            duplicatedRule(state.config.rules[index]),
+                            ...state.config.rules.slice(index + 1),
                         ],
                     },
                 }),
@@ -381,6 +405,11 @@ export const featureFlagRulesV2EditorLogic = kea<featureFlagRulesV2EditorLogicTy
                 setDraft: (state, { draft }) => (draft.config ? draft.config.rules.map(nextRuleKey) : state),
                 setConfig: (state, { config }) => (config.rules ? config.rules.map(nextRuleKey) : state),
                 addRule: (state) => [...state, nextRuleKey()],
+                duplicateRule: (state, { index }) => [
+                    ...state.slice(0, index + 1),
+                    nextRuleKey(),
+                    ...state.slice(index + 1),
+                ],
                 removeRule: (state, { index }) => state.filter((_, i) => i !== index),
                 moveRule: (state, { from, to }) => moved(state, from, to),
             },
@@ -395,6 +424,7 @@ export const featureFlagRulesV2EditorLogic = kea<featureFlagRulesV2EditorLogicTy
                 setConfig: () => null,
                 setReturnType: () => null,
                 addRule: () => null,
+                duplicateRule: () => null,
                 setRule: () => null,
                 removeRule: () => null,
                 moveRule: () => null,
@@ -409,6 +439,7 @@ export const featureFlagRulesV2EditorLogic = kea<featureFlagRulesV2EditorLogicTy
                 setConfig: () => true,
                 setReturnType: () => true,
                 addRule: () => true,
+                duplicateRule: () => true,
                 setRule: () => true,
                 removeRule: () => true,
                 moveRule: () => true,
@@ -539,7 +570,7 @@ export const featureFlagRulesV2EditorLogic = kea<featureFlagRulesV2EditorLogicTy
             }
         },
         saveRulesV2FlagSuccess: ({ flag }) => {
-            lemonToast.success('Flag saved')
+            lemonToast.success(props.id === 'new' ? 'Flag created' : 'Flag saved')
             if (flag.id) {
                 refreshTreeItem('feature_flag', String(flag.id))
             }

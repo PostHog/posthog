@@ -70,6 +70,7 @@ export function QuillNewFeatureFlagMenu({
                             data-attr="new-rules-v2-feature-flag"
                             disabledReason={disabledReason || rulesV2DisabledReason}
                             onClick={() => router.actions.push(urls.featureFlagNew({ format: 'rules_v2' }))}
+                            description="Ordered rules, rollouts and experiments"
                         >
                             <IconFlag />
                             New rules v2 flag

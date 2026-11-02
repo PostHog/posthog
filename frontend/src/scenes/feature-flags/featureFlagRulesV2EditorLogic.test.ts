@@ -766,6 +766,43 @@ describe('featureFlagRulesV2EditorLogic', () => {
             logic.mount()
         })
 
+        it('adds a rule of the chosen type with the starting values of the flag type', () => {
+            logic.actions.addRule('experiment')
+
+            expect(logic.values.draft.config.rules[2]).toEqual({
+                rule_type: 'experiment',
+                targeting: { properties: [] },
+                paused: false,
+                rollout_percentage: 100,
+                on_rollout_miss: 'continue',
+                assignment_algorithm: 'sha1_60_v1',
+                assign_by: 'person',
+                variants: [
+                    { key: 'control', weight: 50, value: 'control' },
+                    { key: 'test', weight: 50, value: 'test' },
+                ],
+            })
+            expect(new Set(logic.values.ruleKeys).size).toBe(3)
+            expect(logic.values.hasUnsavedChanges).toBe(true)
+        })
+
+        it('duplicates a rule below itself without its id or seeds, so the server assigns new ones', async () => {
+            const update = jest.spyOn(api, 'update').mockResolvedValue({ ...STRING_FLAG, version: 6 })
+
+            logic.actions.duplicateRule(1)
+            expect(new Set(logic.values.ruleKeys).size).toBe(3)
+            await expectLogic(logic, () => logic.actions.saveRulesV2Flag())
+                .toDispatchActions(['saveRulesV2FlagSuccess'])
+                .toFinishAllListeners()
+
+            const { id: _id, seed: _seed, holdout, ...copy } = EXPERIMENT_RULE
+            expect((update.mock.calls[0][1] as Record<string, any>).filters.rules).toEqual([
+                STRING_FLAG_RULES[0],
+                EXPERIMENT_RULE,
+                { ...copy, holdout: { exclusion_percentage: holdout.exclusion_percentage } },
+            ])
+        })
+
         it('changes another rule and moves the experiment rule without touching any of its fields', async () => {
             const update = jest.spyOn(api, 'update').mockResolvedValue({ ...STRING_FLAG, version: 6 })
 
