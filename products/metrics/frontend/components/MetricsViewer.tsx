@@ -13,6 +13,7 @@ import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { type MetricsQueryLanguage, NodeKind } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { useOpenTraceDialog } from 'products/tracing/frontend/components/TraceDialog/useOpenTraceDialog'
@@ -20,27 +21,33 @@ import { useOpenTraceDialog } from 'products/tracing/frontend/components/TraceDi
 import { getMetricsInsightEditorDisabledReason } from '../metricsAccess'
 import { MetricsHistogramQueryNode } from '../nodes/MetricsHistogramQueryNode'
 import { MetricsPanel } from '../panels/MetricsPanel'
-import { MetricsFacetRailLayout, MetricsFacetRailToggle } from './FacetRail/MetricsFacetRail'
+import { MetricsFacetRail, MetricsFacetRailToggle } from './FacetRail/MetricsFacetRail'
 import { MetricsAnomalyPanel } from './MetricsAnomalyPanel'
+import { MetricsChartSettings } from './MetricsChartSettings'
+import { MetricsDateRangeFilter } from './MetricsDateRangeFilter'
+import { MetricsDisplayTypeSelect } from './MetricsDisplayTypeSelect'
 import { type MetricsExemplar } from './MetricsExemplarMarkers'
+import { MetricsIntervalPicker } from './MetricsIntervalPicker'
 import { MetricsLogsSourceTag } from './MetricsLogsSourceTag'
 import { MetricsPercentileResolutionHint } from './MetricsPercentileResolutionHint'
-import { MetricsQueryControls } from './MetricsQueryControls'
+import { MetricsQueryLanguagePicker } from './MetricsQueryLanguagePicker'
 import { switchMetricsQueryLanguage } from './metricsQueryLanguageSwitch'
+import { MetricsQueryTextEditor } from './MetricsQueryTextEditor'
+import { MetricsRefreshButton } from './MetricsRefreshButton'
 import { MetricsRelatedMenu } from './MetricsRelatedMenu'
 import { metricsSamplesLogic } from './metricsSamplesLogic'
 import { MetricsSamplesPanel } from './MetricsSamplesPanel'
-import { metricsStarterDashboardLogic } from './metricsStarterDashboardLogic'
+import { MetricsSeriesBuilder } from './MetricsSeriesBuilder'
 import { MetricsStarterDashboardModal } from './MetricsStarterDashboardModal'
 import { metricsUsageTrackingLogic } from './metricsUsageTrackingLogic'
-import { LIVE_REFRESH_MS, MAX_UNAGGREGATED_SERIES, metricsViewerLogic } from './metricsViewerLogic'
+import { MAX_UNAGGREGATED_SERIES, metricsViewerLogic } from './metricsViewerLogic'
+import { MetricsViewerSaveMenu } from './MetricsViewerSaveMenu'
 
 export const MetricsViewer = (): JSX.Element => {
     const logic = metricsViewerLogic()
     // The side panel's logic listens to this viewer's filter changes; mounting it
     // here keeps samples in sync even while the panel itself is off-screen.
     useMountedLogic(metricsSamplesLogic())
-    const { openModal: openStarterDashboardModal } = useActions(metricsStarterDashboardLogic)
     const {
         formula,
         queryFingerprint,
@@ -50,10 +57,8 @@ export const MetricsViewer = (): JSX.Element => {
         dateTo,
         chartSeries,
         anomalyBadge,
-        liveRefresh,
         queryLoading,
         queryError,
-        savedInsightLoading,
         savedInsight,
         isAddToDashboardModalOpen,
         hasMetricName,
@@ -69,17 +74,7 @@ export const MetricsViewer = (): JSX.Element => {
         histogramQueryNode,
         metricsQueryNode,
     } = useValues(logic)
-    const {
-        setLiveRefresh,
-        fetchQueryResults,
-        fetchAnomaly,
-        clearAnomaly,
-        saveAsInsight,
-        addToDashboard,
-        createAlert,
-        closeAddToDashboardModal,
-        applyQuery,
-    } = useActions(logic)
+    const { fetchQueryResults, fetchAnomaly, clearAnomaly, closeAddToDashboardModal, applyQuery } = useActions(logic)
     const { traceExemplars, errorSpikes, showErrorSpikes } = useValues(metricsSamplesLogic)
     const { timezone } = useValues(teamLogic)
     const { toggleShowErrorSpikes } = useActions(metricsSamplesLogic)
@@ -177,100 +172,72 @@ export const MetricsViewer = (): JSX.Element => {
     const languagesEnabled = useFeatureFlag('METRICS_QUERY_LANGUAGES')
     // The rail writes builder filter chips, which PromQL and SQL queries do not read.
     const facetRailEnabled = useFeatureFlag('METRICS') && language === 'builder'
+    const { interval, queryDraft } = useValues(logic)
+    const { setInterval, runQueryText: runQueryTextAction } = useActions(logic)
+    const mountedLogic = useMountedLogic(logic)
+    // A changed query runs through the query node. An unchanged one (after a failure) runs again in place.
+    const runQueryText = (): void =>
+        mountedLogic.values.queryTextChanged ? runQueryTextAction() : fetchQueryResults({})
+    const switchLanguage = (to: MetricsQueryLanguage): void => {
+        // Read the logic at click time, so a draft the user has not run yet still converts.
+        const { metricsQueryNode: node, queryDraft: draft } = mountedLogic.values
+        const current = node ?? { kind: NodeKind.MetricsQuery, clauses: [] }
+        switchMetricsQueryLanguage(
+            language === 'builder' ? current : { ...current, [language]: draft.trim() },
+            to,
+            applyQuery
+        )
+    }
 
     return (
-        <MetricsFacetRailLayout enabled={facetRailEnabled}>
-            <MetricsQueryControls
-                dataAttrPrefix="metrics-viewer"
-                onSwitchLanguage={
-                    languagesEnabled ? (current, to) => switchMetricsQueryLanguage(current, to, applyQuery) : undefined
-                }
-                onRerun={() => fetchQueryResults({})}
-                resultIsGrouped={resultIsGrouped}
-                heatmap={{ eligible: heatmapEligible }}
-                toolbarExtras={
-                    <>
-                        {facetRailEnabled && <MetricsFacetRailToggle />}
-                        <LemonSwitch
-                            label="Auto-refresh"
-                            checked={liveRefresh}
-                            onChange={setLiveRefresh}
-                            tooltip={`Refreshes every ${LIVE_REFRESH_MS / 1000}s`}
-                            bordered
-                            data-attr="metrics-viewer-live-toggle"
+        <div
+            className="@container/facet-rail-host flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto"
+            data-attr="metrics-viewer"
+        >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                {languagesEnabled ? (
+                    <MetricsQueryLanguagePicker
+                        value={language}
+                        onChange={switchLanguage}
+                        disabledReason={metricsViewerDisabledReason}
+                    />
+                ) : (
+                    <span />
+                )}
+                <div className="flex flex-wrap items-center gap-2">
+                    <MetricsDateRangeFilter disabledReason={metricsViewerDisabledReason} />
+                    <MetricsIntervalPicker
+                        value={interval}
+                        onChange={setInterval}
+                        disabledReason={metricsViewerDisabledReason}
+                    />
+                    <MetricsRefreshButton disabledReason={metricsViewerDisabledReason} noQueryReason={noQueryReason} />
+                </div>
+            </div>
+            {language === 'builder' ? (
+                <MetricsSeriesBuilder dataAttrPrefix="metrics-viewer" disabledReason={metricsViewerDisabledReason} />
+            ) : (
+                <div className="flex items-start gap-2">
+                    <div className="flex-1 min-w-0">
+                        <MetricsQueryTextEditor
+                            language={language}
                             disabledReason={metricsViewerDisabledReason}
+                            onRun={runQueryText}
                         />
-                        {/* Hidden (not disabled) without Error Tracking view access, so the
-                            toggle never references a product the user cannot see. */}
-                        {errorOverlaysEnabled && !errorTrackingDisabledReason && (
-                            <LemonSwitch
-                                label="Error spikes"
-                                checked={showErrorSpikes}
-                                onChange={toggleShowErrorSpikes}
-                                tooltip="Mark Error Tracking issue spikes on the chart (team-wide, PoC)"
-                                bordered
-                                data-attr="metrics-viewer-error-spikes-toggle"
-                                disabledReason={metricsViewerDisabledReason}
-                            />
-                        )}
-                    </>
-                }
-                displayExtras={
-                    <>
-                        <MetricsRelatedMenu />
-                        {anomalyBadge && <MetricsAnomalyPanel anomaly={anomalyBadge} />}
-                        <MetricsLogsSourceTag metricName={metricName} />
-                    </>
-                }
-                actions={
-                    <>
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            onClick={() => saveAsInsight()}
-                            loading={savedInsightLoading}
-                            disabledReason={insightEditorDisabledReason ?? noQueryReason}
-                        >
-                            Save as insight
-                        </LemonButton>
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            onClick={() => createAlert()}
-                            loading={savedInsightLoading}
-                            tooltip="Get notified when this metric crosses a threshold (uses insight alerts)"
-                            disabledReason={
-                                insightEditorDisabledReason ??
-                                noQueryReason ??
-                                (isHeatmap ? 'Alerts are not supported for the heatmap display' : undefined)
-                            }
-                            data-attr="metrics-viewer-create-alert"
-                        >
-                            Create alert
-                        </LemonButton>
-                        <LemonButton
-                            size="small"
-                            type="primary"
-                            onClick={() => addToDashboard()}
-                            loading={savedInsightLoading}
-                            disabledReason={insightEditorDisabledReason ?? noQueryReason}
-                            data-attr="metrics-viewer-add-to-dashboard"
-                        >
-                            Add to dashboard
-                        </LemonButton>
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            onClick={openStarterDashboardModal}
-                            tooltip="Create a dashboard with one insight per metric, charted as one line per series"
-                            data-attr="metrics-viewer-starter-dashboard"
-                            disabledReason={insightEditorDisabledReason}
-                        >
-                            New service dashboard
-                        </LemonButton>
-                    </>
-                }
-            />
+                    </div>
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        onClick={runQueryText}
+                        disabledReason={
+                            metricsViewerDisabledReason ?? (queryDraft.trim() ? undefined : 'Write a query first')
+                        }
+                        data-attr={`metrics-query-editor-run-${language}`}
+                    >
+                        Run
+                    </LemonButton>
+                </div>
+            )}
             <MetricsStarterDashboardModal />
             {savedInsight && (
                 <>
@@ -286,59 +253,97 @@ export const MetricsViewer = (): JSX.Element => {
                     <NewDashboardModal />
                 </>
             )}
-            <div className="flex flex-col xl:flex-row gap-3 items-stretch">
-                <div className="flex-1 min-w-0">
-                    {seriesCapReached && (
-                        <LemonBanner type="info" className="mb-2" data-attr="metrics-series-cap-banner">
-                            Showing the {MAX_UNAGGREGATED_SERIES} most recently active series. Add a filter or an
-                            operation to narrow the chart.
-                        </LemonBanner>
-                    )}
-                    <div className="relative h-[360px] border rounded p-3">
-                        {!hasQuery ? (
-                            <div className="h-full flex items-center justify-center text-secondary text-sm">
-                                {language === 'builder'
-                                    ? 'Pick a metric to see its time series.'
-                                    : 'Run a query to see results.'}
-                            </div>
-                        ) : isHeatmap && histogramQueryNode ? (
-                            // The heatmap runs its own histogram query, so it mounts the histogram
-                            // node rather than consuming the time-series result the other panels share.
-                            // It comes before the error/loading branches: the shared time-series
-                            // request still runs for the samples panel, and its failure must not
-                            // mask an independently loaded histogram.
-                            <MetricsHistogramQueryNode query={histogramQueryNode} context={{}} />
-                        ) : queryError ? (
-                            <div className="h-full flex items-center justify-center">
-                                <LemonBanner type="error" className="w-full max-w-md">
-                                    {queryError}
-                                </LemonBanner>
-                            </div>
-                        ) : hasResults ? (
-                            <MetricsPanel
-                                series={chartSeries}
-                                fallbackName={formula || metricName || (language === 'promql' ? queryText : 'metric')}
-                                display={metricsDisplay}
-                                exemplars={chartMarkers}
-                                query={metricsQueryNode ?? undefined}
+            <div className="flex flex-col border rounded bg-surface-primary shrink-0">
+                <div className="flex flex-wrap items-center justify-between gap-2 px-2 py-1.5 border-b">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <MetricsDisplayTypeSelect
+                            dataAttrPrefix="metrics-viewer"
+                            resultIsGrouped={resultIsGrouped}
+                            heatmap={{ eligible: heatmapEligible }}
+                            disabledReason={metricsViewerDisabledReason}
+                        />
+                        <MetricsChartSettings />
+                        {/* Hidden (not disabled) without Error Tracking view access, so the
+                            toggle never references a product the user cannot see. */}
+                        {errorOverlaysEnabled && !errorTrackingDisabledReason && (
+                            <LemonSwitch
+                                label="Error spikes"
+                                checked={showErrorSpikes}
+                                onChange={toggleShowErrorSpikes}
+                                tooltip="Mark Error Tracking issue spikes on the chart (team-wide, PoC)"
+                                size="small"
+                                bordered
+                                data-attr="metrics-viewer-error-spikes-toggle"
+                                disabledReason={metricsViewerDisabledReason}
                             />
-                        ) : !queryLoading ? (
-                            <div className="h-full flex items-center justify-center text-secondary text-sm">
-                                No data for this metric in the selected range.
-                            </div>
-                        ) : null}
-                        {queryLoading && !isHeatmap && <SpinnerOverlay />}
+                        )}
+                        <MetricsRelatedMenu />
+                        {anomalyBadge && <MetricsAnomalyPanel anomaly={anomalyBadge} />}
+                        <MetricsLogsSourceTag metricName={metricName} />
                     </div>
-                    {hasResults && !isHeatmap && !queryError && (
-                        <MetricsPercentileResolutionHint series={queryResults} metricName={metricName} />
-                    )}
+                    <MetricsViewerSaveMenu noQueryReason={noQueryReason} isHeatmap={isHeatmap} />
                 </div>
-                {hasMetricName && (
-                    <div className="xl:w-[26rem] shrink-0 xl:max-h-[360px] flex flex-col">
-                        <MetricsSamplesPanel />
+                {seriesCapReached && (
+                    <LemonBanner type="info" className="m-2 mb-0" data-attr="metrics-series-cap-banner">
+                        Showing the {MAX_UNAGGREGATED_SERIES} most recently active series. Add a filter or an operation
+                        to narrow the chart.
+                    </LemonBanner>
+                )}
+                <div className="relative h-[360px] p-3">
+                    {!hasQuery ? (
+                        <div className="h-full flex items-center justify-center text-secondary text-sm">
+                            {language === 'builder'
+                                ? 'Pick a metric to see its time series.'
+                                : 'Run a query to see results.'}
+                        </div>
+                    ) : isHeatmap && histogramQueryNode ? (
+                        // The heatmap runs its own histogram query, so it mounts the histogram
+                        // node rather than consuming the time-series result the other panels share.
+                        // It comes before the error/loading branches: the shared time-series
+                        // request still runs for the samples panel, and its failure must not
+                        // mask an independently loaded histogram.
+                        <MetricsHistogramQueryNode query={histogramQueryNode} context={{}} />
+                    ) : queryError ? (
+                        <div className="h-full flex items-center justify-center">
+                            <LemonBanner type="error" className="w-full max-w-md">
+                                {queryError}
+                            </LemonBanner>
+                        </div>
+                    ) : hasResults ? (
+                        <MetricsPanel
+                            series={chartSeries}
+                            fallbackName={formula || metricName || (language === 'promql' ? queryText : 'metric')}
+                            display={metricsDisplay}
+                            exemplars={chartMarkers}
+                            query={metricsQueryNode ?? undefined}
+                        />
+                    ) : !queryLoading ? (
+                        <div className="h-full flex items-center justify-center text-secondary text-sm">
+                            No data for this metric in the selected range.
+                        </div>
+                    ) : null}
+                    {queryLoading && !isHeatmap && <SpinnerOverlay />}
+                </div>
+                {hasResults && !isHeatmap && !queryError && (
+                    <div className="px-3 pb-2">
+                        <MetricsPercentileResolutionHint series={queryResults} metricName={metricName} />
                     </div>
                 )}
             </div>
-        </MetricsFacetRailLayout>
+            {(facetRailEnabled || hasMetricName) && (
+                // At least the rail's own minimum, so its facets stay usable when the scene is short.
+                <div className="flex flex-row gap-2 flex-1 min-h-96 @max-[48rem]/facet-rail-host:flex-col">
+                    {facetRailEnabled && <MetricsFacetRail />}
+                    <div className="flex flex-col gap-2 flex-1 min-w-0 min-h-0">
+                        {facetRailEnabled && (
+                            <div className="flex">
+                                <MetricsFacetRailToggle />
+                            </div>
+                        )}
+                        {hasMetricName && <MetricsSamplesPanel />}
+                    </div>
+                </div>
+            )}
+        </div>
     )
 }

@@ -294,7 +294,7 @@ function SeriesTab(): JSX.Element {
     )
 }
 
-/** Side panel next to the chart: per-series totals, or the raw emissions
+/** Panel under the chart: per-series totals, or the raw emissions
  * behind the chart with a link to the trace each one was recorded in. */
 export function MetricsSamplesPanel(): JSX.Element {
     const { activeTab } = useValues(metricsSamplesLogic)
@@ -307,7 +307,7 @@ export function MetricsSamplesPanel(): JSX.Element {
     )
 
     return (
-        <div className="border rounded p-2 overflow-y-auto">
+        <div className="border rounded p-2 overflow-y-auto bg-surface-primary flex-1 min-h-0">
             {/* Samples and the anomaly badge describe one series at a time; with several
                 clauses this picks which one they follow. The Series tab always covers all series. */}
             {viewerClauses.length > 1 && (
