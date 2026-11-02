@@ -274,6 +274,43 @@ describe('workflowEditorVisitLogic', () => {
             (editor: ReturnType<typeof workflowLogic.build>) => editor.actions.setScheduleRepeating(true),
         ],
         [
+            'limiting how often the trigger fires per person',
+            'trigger',
+            (editor: ReturnType<typeof workflowLogic.build>) =>
+                editor.actions.setWorkflowValue('trigger_masking', {
+                    ttl: 1800,
+                    hash: '{person_id}',
+                    bytecode: [],
+                    threshold: null,
+                }),
+        ],
+        [
+            'setting a conversion goal',
+            'trigger',
+            (editor: ReturnType<typeof workflowLogic.build>) =>
+                editor.actions.setWorkflowValue('conversion', { window: '7d', filters: [] }),
+        ],
+        [
+            'changing the exit condition',
+            'trigger',
+            (editor: ReturnType<typeof workflowLogic.build>) =>
+                editor.actions.setWorkflowValue('exit_condition', 'exit_on_conversion'),
+        ],
+        [
+            'pacing email sends',
+            'trigger',
+            (editor: ReturnType<typeof workflowLogic.build>) =>
+                editor.actions.setWorkflowValue('email_sending_rate_limit', { count: 100, period: 'hour' }),
+        ],
+        [
+            'adding a workflow variable',
+            'variables',
+            (editor: ReturnType<typeof workflowLogic.build>) =>
+                editor.actions.setWorkflowInfo({
+                    variables: [{ key: 'plan', label: 'Plan', type: 'string', default: 'free' }],
+                }),
+        ],
+        [
             'adding a schedule',
             'trigger',
             (editor: ReturnType<typeof workflowLogic.build>) => editor.actions.addSchedule(),

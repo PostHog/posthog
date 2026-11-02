@@ -5,7 +5,7 @@ import type { WorkflowLogicProps } from './workflowLogic'
 
 export type WorkflowStartPath = 'template' | 'prefilled' | 'blank' | 'existing'
 
-export type WorkflowBuilderEdit = 'trigger' | 'step_added' | 'step_edited' | 'none'
+export type WorkflowBuilderEdit = 'trigger' | 'step_added' | 'step_edited' | 'variables' | 'none'
 
 export type ValidationById = Record<string, HogFlowActionValidationResult | null>
 
@@ -73,14 +73,27 @@ export function builderProgress(workflow: HogFlow, validationById: ValidationByI
     }
 }
 
+function triggerSettings(workflow: HogFlow): Record<string, unknown> {
+    return {
+        config: triggerOf(workflow)?.config,
+        trigger_masking: workflow.trigger_masking,
+        conversion: workflow.conversion,
+        exit_condition: workflow.exit_condition,
+        email_sending_rate_limit: workflow.email_sending_rate_limit,
+    }
+}
+
 export function classifyEdit(before: HogFlow, after: HogFlow): WorkflowBuilderEdit | null {
     if (after.actions.filter(isStep).length > before.actions.filter(isStep).length) {
         return 'step_added'
     }
-    if (!objectsEqual(triggerOf(before)?.config, triggerOf(after)?.config)) {
+    if (!objectsEqual(triggerSettings(before), triggerSettings(after))) {
         return 'trigger'
     }
-    return objectsEqual(before.actions, after.actions) && objectsEqual(before.edges, after.edges) ? null : 'step_edited'
+    if (!objectsEqual(before.actions, after.actions) || !objectsEqual(before.edges, after.edges)) {
+        return 'step_edited'
+    }
+    return objectsEqual(before.variables, after.variables) ? null : 'variables'
 }
 
 export function addedStepKind(before: HogFlow, after: HogFlow): string | null {
