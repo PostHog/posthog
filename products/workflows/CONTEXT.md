@@ -101,9 +101,10 @@ _Avoid_: Audience, Subscriptions, Contacts, Consent
 **Topic**:
 A kind of message, either marketing or transactional.
 A person can opt out of a marketing topic.
-An email is **marked transactional** when it is a transactional email, when it is saved with a transactional topic, or when an import marks it so.
+Each email, SMS or push step saves its own **transactional mark**.
+The editors set the mark from the chosen topic's kind, every transactional email has it, and an import can set it too.
 The mark stays as saved, even if the topic changes kind later.
-An email marked transactional ignores opt-outs.
+A message with the mark ignores opt-outs.
 _Avoid_: Message category, Category, Subscription type
 
 **Opt-out**:
@@ -112,7 +113,7 @@ _Avoid_: Unsubscribe list (as a noun for the area)
 
 **Suppression list**:
 The email addresses PostHog stops sending to, from bounces, complaints or manual adds.
-An email marked transactional still reaches a suppressed address unless that address hard-bounced.
+An email with the transactional mark still reaches a suppressed address unless that address hard-bounced.
 A **suppressed address** is one entry.
 _Avoid_: Blocklist
 
