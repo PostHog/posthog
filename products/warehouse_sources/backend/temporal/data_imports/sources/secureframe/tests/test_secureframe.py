@@ -74,16 +74,30 @@ class TestExtractRows:
 
 
 class TestPagination:
-    def test_top_level_array_envelopes_are_flattened(self):
+    @pytest.mark.parametrize(
+        "endpoint, expected_path",
+        [
+            ("controls", "/controls"),
+            ("trust_center_requests", "/trust_center_requests"),
+            ("ssp_reports", "/ssp_reports"),
+            ("ssp_report_sections", "/ssp_report_sections"),
+            ("ssp_report_section_blocks", "/ssp_report_section_blocks"),
+            ("ssp_report_assessment_objectives", "/ssp_report_assessment_objectives"),
+        ],
+    )
+    def test_top_level_array_envelopes_are_flattened(self, endpoint, expected_path):
         # The declared shape: a top-level array of per-item JSON:API envelopes.
         result = _driver().run(
-            "controls",
+            endpoint,
             [
-                _response([{"data": {"id": "a", "type": "control", "attributes": {"name": "x"}}}]),
+                _response([{"data": {"id": "a", "type": "x", "attributes": {"name": "x"}}}]),
+                _response([{"data": {"id": "b", "type": "x", "attributes": {"name": "y"}}}]),
                 _response([]),
             ],
         )
-        assert result.rows == [{"id": "a", "name": "x"}]
+        assert result.rows == [{"id": "a", "name": "x"}, {"id": "b", "name": "y"}]
+        assert result.paths == [expected_path] * 3
+        assert result.params("page") == ["1", "2", "3"]
 
     def test_resumes_from_saved_page(self):
         result = _driver().run(

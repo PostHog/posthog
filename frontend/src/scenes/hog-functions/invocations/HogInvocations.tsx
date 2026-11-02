@@ -24,14 +24,14 @@ import {
 import api from 'lib/api'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
+import { CUSTOM_OPTION_KEY } from 'lib/utils/dateFilters'
 import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils/datetime'
+import { escapeHogQLString, hogql } from 'lib/utils/hogql'
 import { urls } from 'scenes/urls'
 
-import { escapeHogQLString, hogql } from '~/queries/utils'
 import { DateMappingOption, HogFunctionTypeType, PersonType } from '~/types'
 
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'

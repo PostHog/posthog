@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { Provider } from 'kea'
 import { router } from 'kea-router'
 
+import { traceDialogOpenLogic } from 'lib/components/ViewTraceButton/traceDialogOpenLogic'
 import { ViewTraceButton } from 'lib/components/ViewTraceButton/ViewTraceButton'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -11,7 +12,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
-import { traceDialogOpenLogic } from './traceDialogOpenLogic'
 import { useOpenTraceDialog } from './useOpenTraceDialog'
 
 function DialogTraceButton(): JSX.Element | null {

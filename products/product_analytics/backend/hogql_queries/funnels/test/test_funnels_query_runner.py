@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -11,8 +12,11 @@ from posthog.schema import (
     DateRange,
     EventsNode,
     FunnelsQuery,
+    FunnelsQueryResponse,
     IntervalType,
 )
+
+from posthog.hogql_queries.query_runner import ExecutionMode
 
 from products.product_analytics.backend.hogql_queries.funnels.funnels_query_runner import FunnelsQueryRunner
 
@@ -189,3 +193,21 @@ class TestFunnelsSeriesCustomNames(BaseTest):
 
         self.assertEqual(patched_response.results, expected_results)
         self.assertEqual(was_modified, expect_modified)
+
+    def test_raw_cache_read_patches_a_step_renamed_after_caching(self) -> None:
+        cached_steps = [{"order": 0, "custom_name": None, "count": 100}, {"order": 1, "custom_name": None, "count": 50}]
+        with patch.object(FunnelsQueryRunner, "calculate", return_value=FunnelsQueryResponse(results=cached_steps)):
+            FunnelsQueryRunner(
+                query=FunnelsQuery(series=[EventsNode(event="step1"), EventsNode(event="step2")]), team=self.team
+            ).run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        runner = FunnelsQueryRunner(
+            query=FunnelsQuery(series=[EventsNode(event="step1", custom_name="Renamed"), EventsNode(event="step2")]),
+            team=self.team,
+        )
+        runner.serve_raw_cached_results = True
+        response = runner.run(execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
+
+        assert isinstance(response, CachedFunnelsQueryResponse)
+        assert runner.raw_cached_results_bytes is None
+        assert [step["custom_name"] for step in response.results] == ["Renamed", None]
