@@ -196,6 +196,8 @@ describe('view-only workflow', () => {
         ['copies', { key: 'c', ctrlKey: true }],
         ['selects all', { key: 'a', metaKey: true }],
         ['moves the cursor', { key: 'ArrowLeft' }],
+        ['moves the cursor by word', { key: 'ArrowLeft', altKey: true }],
+        ['selects by word', { key: 'ArrowRight', altKey: true, shiftKey: true }],
         ['tabs onward', { key: 'Tab' }],
     ])('lets a viewer who %s read a step field', (_, keyPress) => {
         renderForViewer(

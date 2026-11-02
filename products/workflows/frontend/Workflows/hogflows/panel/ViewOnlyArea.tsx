@@ -18,6 +18,7 @@ const TEXT_CURSOR_KEYS = new Set([
     'PageUp',
     'PageDown',
 ])
+const CODE_LINE_MOVE_KEYS = new Set(['ArrowUp', 'ArrowDown'])
 const TEXT_FIELDS =
     'textarea, input:not([type]), input[type="text"], input[type="search"], input[type="email"], input[type="url"], .monaco-editor'
 const READING_SHORTCUTS = new Set(['a', 'c'])
@@ -37,8 +38,12 @@ function isInTextField(event: React.SyntheticEvent): boolean {
     return event.target instanceof Element && event.target.closest(TEXT_FIELDS) !== null
 }
 
+function isCodeLineMoveOrCopy(event: React.KeyboardEvent): boolean {
+    return event.altKey && CODE_LINE_MOVE_KEYS.has(event.key)
+}
+
 function isCursorMove(event: React.KeyboardEvent): boolean {
-    return TEXT_CURSOR_KEYS.has(event.key) && !event.altKey && isInTextField(event)
+    return TEXT_CURSOR_KEYS.has(event.key) && !isCodeLineMoveOrCopy(event) && isInTextField(event)
 }
 
 function isReadingKey(event: React.KeyboardEvent): boolean {
