@@ -197,11 +197,15 @@ def posthog_code_billing_synced(organization: "Organization") -> bool:
 _PAID_TRUST_MINIMUM = 7.0
 
 
-def posthog_code_trusted(organization: "Organization") -> bool:
-    """Whether the org's best trust score shows a paid invoice; a missing or malformed score counts as zero."""
+def best_customer_trust_score(organization: "Organization") -> float:
+    """The org's best trust score across billed resources; a missing or malformed score counts as zero."""
     scores = organization.customer_trust_scores or {}
-    best = max((float(v) for v in scores.values() if isinstance(v, int | float)), default=0.0)
-    return best >= _PAID_TRUST_MINIMUM
+    return max((float(v) for v in scores.values() if isinstance(v, int | float)), default=0.0)
+
+
+def posthog_code_trusted(organization: "Organization") -> bool:
+    """Whether the org's best trust score shows a paid invoice."""
+    return best_customer_trust_score(organization) >= _PAID_TRUST_MINIMUM
 
 
 def _override_tier(raw: object) -> LimitTier | None:

@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     ActivitySummaryApi,
+    ActivitySummarySearchResultApi,
     ActivitySummaryVersionApi,
     AnomalyInsightResponseApi,
     AnomalySearchResponseApi,
@@ -145,6 +146,7 @@ import type {
     SignalTeamConfigApi,
     SignalUserAutonomyConfigApi,
     SignalUserAutonomyConfigCreateApi,
+    SignalsActivitySummaryMembersSearchParams,
     SignalsActivitySummaryVersionsRetrieveParams,
     SignalsAnomaliesInsightRetrieveParams,
     SignalsAnomaliesSearchRetrieveParams,
@@ -252,6 +254,40 @@ export const signalsActivitySummaryVersionsRetrieve = async (
     options?: RequestInit
 ): Promise<ActivitySummaryVersionApi[]> => {
     return apiMutator<ActivitySummaryVersionApi[]>(getSignalsActivitySummaryVersionsRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsActivitySummaryMembersSearchUrl = (
+    projectId: string,
+    params?: SignalsActivitySummaryMembersSearchParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/activity_summary_members/search/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/activity_summary_members/search/`
+}
+
+/**
+ * Find the project members whose activity summary matches a topic, an object or a product, including people who only open the work and never edit it. Returns 404 when the search is not available for this project.
+ * @summary Search member activity summaries
+ */
+export const signalsActivitySummaryMembersSearch = async (
+    projectId: string,
+    params?: SignalsActivitySummaryMembersSearchParams,
+    options?: RequestInit
+): Promise<ActivitySummarySearchResultApi> => {
+    return apiMutator<ActivitySummarySearchResultApi>(getSignalsActivitySummaryMembersSearchUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
