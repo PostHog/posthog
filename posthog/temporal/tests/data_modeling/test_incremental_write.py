@@ -22,6 +22,7 @@ from posthog.temporal.data_modeling.activities.incremental_write import (
     MAX_UNIQUE_KEY_SPILL_BYTES,
     IncrementalWriteError,
     UniqueKeyTracker,
+    _TrackerClosed,
     upsert_batch,
 )
 
@@ -165,10 +166,9 @@ def test_closing_during_a_check_stops_it_and_removes_the_index(tmp_path: Path) -
         return dumps(*args, **kwargs)
 
     ids = list(range(1, 20_000))
-    with patch(f"{_MODULE}.json.dumps", side_effect=close_mid_insert), pytest.raises(Exception) as raised:
+    with patch(f"{_MODULE}.json.dumps", side_effect=close_mid_insert), pytest.raises(_TrackerClosed):
         tracker.check(_batch(ids, ["x"] * len(ids)))
 
-    assert not isinstance(raised.value, IncrementalWriteError)
     assert not list(tmp_path.iterdir())
 
 
