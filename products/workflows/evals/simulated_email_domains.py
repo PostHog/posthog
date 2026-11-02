@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 import hashlib
+import logging
 import threading
 from collections.abc import Iterable, Iterator
 from contextlib import ExitStack, contextmanager
@@ -20,10 +21,13 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 
 from posthog import domain_connect
 from posthog.dataclasses import frozen
+from posthog.security.oob_domains import matched_oob_domain
 
 from products.workflows.backend import providers
 from products.workflows.backend.facade.contracts import EmailDomainCheck, EmailDomainVerification
 from products.workflows.backend.providers.ses import SESProvider
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "DOMAIN_CONNECT_ROOT_DOMAIN",
@@ -319,6 +323,8 @@ def simulated_email_domains(domains: SimulatedEmailDomains = SIMULATED_EMAIL_DOM
     ) -> list[dns.rdata.Rdata] | dns.resolver.Answer:
         if domains.covers(str(qname)):
             return _simulated_answers(domains, qname, rdtype)
+        if (oob_domain := matched_oob_domain(str(qname).rstrip("."))) is not None:
+            logger.info("security.oob_domain_seen domain=%s guard=workflows_email_eval", oob_domain)
         return original_resolver_method(resolver, qname, rdtype, *args, **kwargs)
 
     def fetch_provider_settings(endpoint: str, domain: str) -> dict | None:
