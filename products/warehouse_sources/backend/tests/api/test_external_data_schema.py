@@ -18,6 +18,8 @@ from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
+from rest_framework.request import Request
+from rest_framework.test import APIRequestFactory
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.api.test.test_organization import create_organization
@@ -45,6 +47,8 @@ from products.warehouse_sources.backend.facade.models import (
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
     UNREADABLE_SOURCE_CONFIG_ERROR,
+    ExternalDataSchemaSerializer,
+    ExternalDataSchemaViewset,
     schema_display_status,
 )
 from products.warehouse_sources.backend.presentation.views.external_data_source.helpers import (
@@ -5102,6 +5106,38 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
         assert detail["pending_self_managed_table"] is expected
         assert [row["pending_self_managed_table"] for row in listed] == [expected]
 
+    def test_list_serializer_batches_pinned_table_lookups(self) -> None:
+        source, _ = self._create()
+        schemas = []
+        expected = {}
+        for index in range(3):
+            table = DataWarehouseTable.objects.create(
+                team=self.team, name=f"orders_{index}", format="Parquet", url_pattern="https://example.com/a/*.parquet"
+            )
+            schema = ExternalDataSchema.objects.create(
+                team=self.team,
+                source=source,
+                name=table.name,
+                sync_type_config={
+                    "schema_metadata": {
+                        "self_managed_table": {
+                            "table_id": str(table.pk),
+                            "url_pattern": table.url_pattern,
+                            "format": table.format,
+                        }
+                    }
+                },
+            )
+            schemas.append(schema)
+            expected[str(schema.pk)] = table.pk
+        view = ExternalDataSchemaViewset()
+        view.team_id = self.team.pk
+
+        with self.assertNumQueries(1):
+            rows = view.get_serializer(schemas, many=True, context={"include_columns": False}).data
+
+        assert {row["id"]: row["table_id"] for row in rows} == expected
+
     def test_list_omits_source_summary(self):
         self._create()
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/")
@@ -5561,3 +5597,16 @@ class TestSchemaDisplayStatus(SimpleTestCase):
     )
     def test_maps_billing_statuses_to_labels(self, raw_status, expected):
         assert schema_display_status(ExternalDataSchema(status=raw_status)) == expected
+
+
+class TestExternalDataSchemaIntrospection(SimpleTestCase):
+    def test_schema_generation_needs_no_team_context(self) -> None:
+        view = ExternalDataSchemaViewset()
+        view.request = Request(APIRequestFactory().get("/"))
+        view.format_kwarg = None
+        view.kwargs = {}
+
+        with mock.patch.object(view, "swagger_fake_view", True, create=True):
+            serializer = view.get_serializer()
+        assert isinstance(serializer, ExternalDataSchemaSerializer)
+        assert "table_id" in serializer.fields

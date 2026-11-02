@@ -6732,6 +6732,44 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         if breakdown is not None:
             assert response.results[0]["breakdown_value"] == "true"
 
+    def test_flag_call_series_broken_down_by_two_cohorts_reads_flag_evaluations_once_events_gets_no_flag_calls(self):
+        OrganizationFeatureFlagsConfig.objects.update_or_create(
+            organization=self.organization,
+            defaults={"flag_evaluations_mode": FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY},
+        )
+        cohorts = []
+        for name, calls in (("p1", 2), ("p2", 1)):
+            person = _create_person(team=self.team, distinct_ids=[name], properties={"name": name})
+            _create_flag_evaluations(self.team.pk, "probe-flag", count=calls, distinct_id=name, person_id=person.uuid)
+            cohort = Cohort.objects.create(
+                team=self.team,
+                groups=[{"properties": [{"key": "name", "value": name, "type": "person"}]}],
+                name=f"cohort {name}",
+            )
+            cohort.calculate_people_ch(pending_version=0)
+            cohorts.append(cohort)
+
+        with patch(
+            "posthog.hogql.database.database.feature_enabled_or_false",
+            side_effect=lambda key, *args, **kwargs: key == "hogql-flag-calls-from-flag-evaluations",
+        ):
+            # Two cohorts make the runner join `__in_cohort`, and the series pin compares `event` without a table name.
+            response = self._run_trends_query(
+                "-7d",
+                None,
+                IntervalType.DAY,
+                [_flag_call_event_series(self.team, ["probe-flag"])],
+                breakdown=BreakdownFilter(breakdown_type=BreakdownType.COHORT, breakdown=[c.pk for c in cohorts]),
+                hogql_modifiers=HogQLQueryModifiers(
+                    personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+                ),
+            )
+
+        assert {result["breakdown_value"]: result["count"] for result in response.results} == {
+            cohorts[0].pk: 2,
+            cohorts[1].pk: 1,
+        }
+
     def test_multiple_breakdowns_work_with_formula(self):
         self._create_test_events()
         flush_persons_and_events()

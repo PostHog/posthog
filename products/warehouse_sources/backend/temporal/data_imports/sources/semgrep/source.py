@@ -30,6 +30,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.semgrep.se
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
+INVALID_TOKEN_MESSAGE = "Your Semgrep API token is invalid or has been revoked. Create a new token with the Web API scope under Settings → Tokens in Semgrep, then reconnect."
+MISSING_SCOPE_MESSAGE = "Your Semgrep API token does not have permission to read this data. Grant the token the Web API scope (and make sure your plan includes API access), then reconnect."
+UNREACHABLE_MESSAGE = (
+    "PostHog couldn't reach Semgrep to check your API token. This is usually temporary, so wait a moment and try again."
+)
+
 
 @SourceRegistry.register
 class SemgrepSource(ResumableSource[SemgrepSourceConfig, SemgrepResumeConfig]):
@@ -81,8 +87,8 @@ Create a token in Semgrep AppSec Platform under **Settings → Tokens** and gran
             # An invalid or revoked API token surfaces as a requests HTTPError when `_fetch_page`
             # calls `raise_for_status()`. Retrying can never satisfy a credential problem, so stop
             # the sync. Match the stable status text and base host, not the per-request path/query.
-            "401 Client Error: Unauthorized for url: https://semgrep.dev": "Your Semgrep API token is invalid or has been revoked. Create a new token with the Web API scope under Settings → Tokens in Semgrep, then reconnect.",
-            "403 Client Error: Forbidden for url: https://semgrep.dev": "Your Semgrep API token does not have permission to read this data. Grant the token the Web API scope (and make sure your plan includes API access), then reconnect.",
+            "401 Client Error: Unauthorized for url: https://semgrep.dev": INVALID_TOKEN_MESSAGE,
+            "403 Client Error: Forbidden for url: https://semgrep.dev": MISSING_SCOPE_MESSAGE,
         }
 
     def get_schemas(
@@ -121,10 +127,14 @@ Create a token in Semgrep AppSec Platform under **Settings → Tokens** and gran
     ) -> tuple[bool, str | None]:
         # /deployments is the cheapest probe and the root every synced endpoint fans out from, so
         # it confirms the token for any schema.
-        if validate_semgrep_credentials(config.api_token):
+        ok, status = validate_semgrep_credentials(config.api_token)
+        if ok:
             return True, None
-
-        return False, "Invalid Semgrep API token"
+        if status == 401:
+            return False, INVALID_TOKEN_MESSAGE
+        if status == 403:
+            return False, MISSING_SCOPE_MESSAGE
+        return False, UNREACHABLE_MESSAGE
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[SemgrepResumeConfig]:
         return ResumableSourceManager[SemgrepResumeConfig](inputs, SemgrepResumeConfig)

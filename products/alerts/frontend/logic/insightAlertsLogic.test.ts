@@ -6,10 +6,11 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightsApi } from 'scenes/insights/utils/api'
 
 import { Node, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { ChartDisplayType, HogFunctionType, InsightLogicProps, InsightShortId } from '~/types'
+import { ChartDisplayType, HogFunctionType, InsightLogicProps, InsightModel, InsightShortId } from '~/types'
 
 import type { AlertType } from '../types'
 import {
@@ -104,6 +105,31 @@ describe('insightAlertsLogic', () => {
         await expectLogic(alertsLogic).toFinishAllListeners().toMatchValues({ alerts: inlineAlerts })
         expect(listSpy).not.toHaveBeenCalled()
         expect(hogFunctionsListSpy).not.toHaveBeenCalled()
+    })
+
+    it('reloads alerts after the insight saves', async () => {
+        const updateSpy = jest
+            .spyOn(insightsApi, 'update')
+            .mockResolvedValue({ ...createEmptyInsight(Insight42), id: 42 } as InsightModel)
+        const insightLogicProps: InsightLogicProps = {
+            dashboardItemId: Insight42,
+            dashboardId: 1,
+            cachedInsight: {
+                ...createEmptyInsight(Insight42),
+                id: 42,
+                query: API_QUERY,
+                alerts: [{ id: 'alert-a', name: 'Inline' }] as AlertType[],
+            },
+        }
+        mountInsightStack(insightLogicProps)
+        const alertsLogic = insightAlertsLogic({ insightId: 42, insightLogicProps, deferInitialAlertsLoad: true })
+        alertsLogic.mount()
+
+        insightLogic(insightLogicProps).actions.saveInsight()
+
+        await expectLogic(alertsLogic).toDispatchActions(['loadAlerts', 'loadAlertsSuccess'])
+        expect(listSpy).toHaveBeenCalled()
+        updateSpy.mockRestore()
     })
 
     it('does not fetch on a deferred mount when the cached insight has no alerts field', async () => {

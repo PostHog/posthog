@@ -19,8 +19,8 @@ catalogs:
       specifier: 1.60.0
       version: 1.60.0
     '@posthog/brand':
-      specifier: 0.16.0
-      version: 0.16.0
+      specifier: 0.17.0
+      version: 0.17.0
     '@posthog/icons':
       specifier: ^0.39.0
       version: 0.39.0
@@ -611,7 +611,7 @@ importers:
         version: 1.2.11(@shikijs/themes@4.3.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/docs-onboarding':
         specifier: workspace:*
         version: link:../docs/onboarding
@@ -1523,16 +1523,34 @@ importers:
       '@clack/prompts':
         specifier: 1.8.1
         version: 1.8.1
+      '@posthog/mcp':
+        specifier: workspace:*
+        version: link:../services/mcp
       cli-table3:
         specifier: 0.6.5
         version: 0.6.5
       commander:
         specifier: 15.0.0
         version: 15.0.0
+      diff:
+        specifier: 8.0.4
+        version: 8.0.4
+      pako:
+        specifier: 2.1.0
+        version: 2.1.0
+      yaml:
+        specifier: 2.9.0
+        version: 2.9.0
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
     devDependencies:
       '@types/bun':
         specifier: 1.3.14
         version: 1.3.14
+      '@types/pako':
+        specifier: 2.0.4
+        version: 2.0.4
       typescript:
         specifier: 6.0.3
         version: 6.0.3
@@ -2367,7 +2385,7 @@ importers:
     dependencies:
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -2440,7 +2458,7 @@ importers:
     dependencies:
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -2539,7 +2557,7 @@ importers:
     dependencies:
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -2640,7 +2658,7 @@ importers:
     dependencies:
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -2721,7 +2739,7 @@ importers:
     dependencies:
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -2859,7 +2877,7 @@ importers:
     dependencies:
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -2960,7 +2978,7 @@ importers:
     dependencies:
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -2991,7 +3009,7 @@ importers:
     dependencies:
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -3047,7 +3065,7 @@ importers:
     dependencies:
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -3155,7 +3173,7 @@ importers:
     dependencies:
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -3213,7 +3231,7 @@ importers:
         version: 3.2.1(react@18.3.1)
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -3279,7 +3297,7 @@ importers:
         version: 0.27.19(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -3355,7 +3373,7 @@ importers:
     dependencies:
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -3413,7 +3431,7 @@ importers:
     dependencies:
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -3474,7 +3492,7 @@ importers:
     dependencies:
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -3513,7 +3531,7 @@ importers:
     dependencies:
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -3570,7 +3588,7 @@ importers:
     dependencies:
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -3613,7 +3631,7 @@ importers:
     dependencies:
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -3662,7 +3680,7 @@ importers:
     dependencies:
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -3723,7 +3741,7 @@ importers:
         version: 3.2.1(react@18.3.1)
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -3831,7 +3849,7 @@ importers:
         version: 3.2.1(react@18.3.1)
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -3897,7 +3915,7 @@ importers:
     dependencies:
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -4132,7 +4150,7 @@ importers:
         version: 3.2.1(react@18.3.1)
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -4261,7 +4279,7 @@ importers:
     dependencies:
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -4304,7 +4322,7 @@ importers:
     dependencies:
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -4410,7 +4428,7 @@ importers:
     dependencies:
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -4493,7 +4511,7 @@ importers:
     dependencies:
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -4554,7 +4572,7 @@ importers:
     dependencies:
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -4684,7 +4702,7 @@ importers:
     dependencies:
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -4784,7 +4802,7 @@ importers:
     dependencies:
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -4815,7 +4833,7 @@ importers:
     dependencies:
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -4851,7 +4869,7 @@ importers:
     dependencies:
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -4888,7 +4906,7 @@ importers:
     dependencies:
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -5042,7 +5060,7 @@ importers:
         version: 1.2.11(@shikijs/themes@4.3.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -5118,7 +5136,7 @@ importers:
     dependencies:
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -5166,7 +5184,7 @@ importers:
     dependencies:
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -5236,7 +5254,7 @@ importers:
     dependencies:
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -5297,7 +5315,7 @@ importers:
     dependencies:
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -5402,7 +5420,7 @@ importers:
     dependencies:
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -5474,7 +5492,7 @@ importers:
     dependencies:
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -5520,7 +5538,7 @@ importers:
     dependencies:
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -5611,7 +5629,7 @@ importers:
     dependencies:
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -5743,7 +5761,7 @@ importers:
         version: 6.0.8(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -6119,7 +6137,7 @@ importers:
         version: 4.20260207.0
       '@posthog/brand':
         specifier: 'catalog:'
-        version: 0.16.0(react@18.3.1)
+        version: 0.17.0(react@18.3.1)
       typescript:
         specifier: 6.0.3
         version: 6.0.3
@@ -11224,8 +11242,8 @@ packages:
   '@poppinss/exception@1.2.3':
     resolution: {integrity: sha512-dCED+QRChTVatE9ibtoaxc+WkdzOSjYTKi/+uacHWIsfodVfpsueo3+DKpgU5Px8qXjgmXkSvhXvSCz3fnP9lw==}
 
-  '@posthog/brand@0.16.0':
-    resolution: {integrity: sha512-FMuq9ot/yJ32WDjRxziTySAOjvIBAgUKswOaon3/Vi1DiolkjpmTx/xEU6GLk4VVOo8T4XC2R/l4KB5B6VRUXw==}
+  '@posthog/brand@0.17.0':
+    resolution: {integrity: sha512-zso8ODYQIaTHZduy12WO/whwevFypAU5JLkpfnIl1TC0uroPcoPWRmTvVjG8ADNagrk7+t1TFCWFU5TcDPMJjw==}
     engines: {node: '>=22.18'}
     peerDependencies:
       react: 18.3.1
@@ -13917,6 +13935,9 @@ packages:
 
   '@types/oracledb@6.5.2':
     resolution: {integrity: sha512-kK1eBS/Adeyis+3OlBDMeQQuasIDLUYXsi2T15ccNJ0iyUpQ4xDF7svFu3+bGVrI0CMBUclPciz+lsQR3JX3TQ==}
+
+  '@types/pako@2.0.4':
+    resolution: {integrity: sha512-VWDCbrLeVXJM9fihYodcLiIv0ku+AlOa/TQ1SvYOaBuyrSKgEcro95LJyIsJ4vSo6BXIxOKxiJAat04CmST9Fw==}
 
   '@types/papaparse@5.3.8':
     resolution: {integrity: sha512-ArKIEOOWULbhi53wkAiRy1ze4wvrTfhpAj7Yfzva+EkmX2sV8PpFB+xqzJfzXNzK4me95FJH9QZt5NXFVGzOoQ==}
@@ -20206,6 +20227,9 @@ packages:
 
   packet-reader@1.0.0:
     resolution: {integrity: sha512-HAKu/fG3HpHFO0AA8WE8q2g+gBJaZ9MG7fcKk+IJPLTGAD6Psw4443l+9DGRbOIh3/aXr7Phy0TjilYivJo5XQ==}
+
+  pako@2.1.0:
+    resolution: {integrity: sha512-w+eufiZ1WuJYgPXbV/PO3NCMEc3xqylkKHzp8bxp1uW4qaSNQUkwmLLEc3kKsfz8lpV1F8Ht3U1Cm+9Srog2ug==}
 
   papaparse@5.4.1:
     resolution: {integrity: sha512-HipMsgJkZu8br23pW15uvo6sib6wne/4woLZPlFf3rpDyMe9ywEXUsuD7+6K9PRkJlVT51j/sCOYDKGGS3ZJrw==}
@@ -30876,7 +30900,7 @@ snapshots:
 
   '@poppinss/exception@1.2.3': {}
 
-  '@posthog/brand@0.16.0(react@18.3.1)':
+  '@posthog/brand@0.17.0(react@18.3.1)':
     optionalDependencies:
       react: 18.3.1
 
@@ -33851,6 +33875,8 @@ snapshots:
   '@types/oracledb@6.5.2':
     dependencies:
       '@types/node': 22.18.8
+
+  '@types/pako@2.0.4': {}
 
   '@types/papaparse@5.3.8':
     dependencies:
@@ -42478,6 +42504,8 @@ snapshots:
   package-manager-detector@1.6.0: {}
 
   packet-reader@1.0.0: {}
+
+  pako@2.1.0: {}
 
   papaparse@5.4.1: {}
 

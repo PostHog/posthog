@@ -706,6 +706,39 @@ class TestGetTaskProcessingContextActivity:
         assert result.allowed_domains is None
 
     @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "environment,expected",
+        [
+            ("internal", []),
+            ("picked_by_a_person", None),
+            (None, []),
+        ],
+    )
+    def test_a_profiled_task_takes_its_network_from_the_profile_unless_a_person_picked_the_environment(
+        self, activity_environment, test_task, environment, expected
+    ):
+        test_task.profile = "business_knowledge"
+        test_task.save(update_fields=["profile"])
+        extra_state = {}
+        if environment is not None:
+            sandbox_environment = SandboxEnvironment.objects.create(
+                team=test_task.team,
+                created_by=test_task.created_by,
+                name="Full access env",
+                network_access_level=SandboxEnvironment.NetworkAccessLevel.FULL,
+                allowed_domains=[],
+                internal=environment == "internal",
+            )
+            extra_state["sandbox_environment_id"] = str(sandbox_environment.id)
+        task_run = test_task.create_run(extra_state=extra_state)
+
+        result = async_to_sync(activity_environment.run)(
+            get_task_processing_context, GetTaskProcessingContextInput(run_id=str(task_run.id))
+        )
+
+        assert result.allowed_domains == expected
+
+    @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_rejects_other_users_private_sandbox_environment(
         self, activity_environment, test_task
     ):

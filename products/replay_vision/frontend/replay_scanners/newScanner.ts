@@ -45,6 +45,7 @@ export function newScanner(teamName?: string | null): ScannerFormValues {
         sweep_throttle_factor: 1,
         dashboard_id: null,
         dashboard_suggested: false,
+        filter_error: null,
     } as const
 
     return {
