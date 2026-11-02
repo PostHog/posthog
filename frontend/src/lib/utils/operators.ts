@@ -232,21 +232,3 @@ export function isOperatorDate(operator: PropertyOperator): boolean {
 export function isOperatorBetween(operator: PropertyOperator): boolean {
     return [PropertyOperator.Between, PropertyOperator.NotBetween].includes(operator)
 }
-
-/** Whether the operator matches the values its positive form does not. Keep in sync with
- * `_NEGATIVE_OPERATOR_COMPLEMENTS` in `posthog/hogql/property.py`. */
-export function isOperatorNegated(operator: PropertyOperator): boolean {
-    return [
-        PropertyOperator.IsNot,
-        PropertyOperator.NotIn,
-        PropertyOperator.IsNotSet,
-        PropertyOperator.NotIContains,
-        PropertyOperator.NotIContainsMulti,
-        PropertyOperator.NotRegex,
-        PropertyOperator.NotStartsWith,
-        PropertyOperator.NotEndsWith,
-        PropertyOperator.NotBetween,
-        PropertyOperator.IsCleanedPathNotExact,
-        PropertyOperator.SemverNeq,
-    ].includes(operator)
-}
