@@ -446,6 +446,7 @@ export class HogExecutorAsyncService {
             return result
         }
 
+        const sentBody = ['GET', 'HEAD'].includes(method) ? '' : (params.body ?? '')
         let signedHeaders = headers
 
         // Secret headers are merged before signing so that the signatures cover them, and they are never written
@@ -466,7 +467,7 @@ export class HogExecutorAsyncService {
             signedHeaders = signAwsRequest({
                 method,
                 url: params.url,
-                body: params.body ?? '',
+                body: sentBody,
                 headers: signedHeaders,
                 credentials: resolved.credentials,
             })
@@ -485,7 +486,7 @@ export class HogExecutorAsyncService {
             }
             signedHeaders = signStandardWebhooksRequest({
                 webhookId: params.standard_webhooks.webhook_id,
-                body: params.body ?? '',
+                body: sentBody,
                 headers: signedHeaders,
                 key: resolved.key,
             })
@@ -498,7 +499,7 @@ export class HogExecutorAsyncService {
             }
             signedHeaders = signHmacSha256Request({
                 webhookId: params.hmac_sha256.webhook_id,
-                body: params.body ?? '',
+                body: sentBody,
                 headers: signedHeaders,
                 secret: resolved.secret,
             })
@@ -506,8 +507,8 @@ export class HogExecutorAsyncService {
 
         const fetchParams: FetchOptions = { method, headers: signedHeaders }
 
-        if (!['GET', 'HEAD'].includes(method) && params.body) {
-            fetchParams.body = params.body
+        if (sentBody) {
+            fetchParams.body = sentBody
         }
 
         const { fetchError, fetchResponse, fetchDuration } = await cdpTrackedFetch({

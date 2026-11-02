@@ -133,9 +133,7 @@ export const CyclotronInvocationQueueParametersFetchStandardWebhooksSchema = z.o
     webhook_id: z.string(),
 })
 
-// When `hmac_sha256` is present on a fetch queue payload, the cyclotron fetch
-// executor signs the body with HMAC-SHA256 in the GitHub style for receivers that
-// do not implement Standard Webhooks. The fields follow `standard_webhooks` above.
+// GitHub-style body signing for receivers that do not implement Standard Webhooks.
 export const CyclotronInvocationQueueParametersFetchHmacSha256Schema = z.object({
     secret_input: z.string(),
     webhook_id: z.string(),

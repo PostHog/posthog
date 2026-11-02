@@ -137,7 +137,7 @@ if (inputs.debug) {
             default: 'standard_webhooks',
             required: false,
             description:
-                'How the signing secret signs each request. [Standard Webhooks](https://www.standardwebhooks.com) sends the webhook-id, webhook-timestamp and webhook-signature headers. HMAC-SHA256 of the body sends the hex digest as `X-Hub-Signature-256: sha256=<digest>` and a webhook-id header that stays the same across retries.',
+                'Only applies when a signing secret is set. [Standard Webhooks](https://www.standardwebhooks.com) sends the webhook-id, webhook-timestamp and webhook-signature headers. HMAC-SHA256 of the body sends the hex digest as `X-Hub-Signature-256: sha256=<digest>` and a webhook-id header that stays the same across retries.',
         },
         {
             key: 'debug',
