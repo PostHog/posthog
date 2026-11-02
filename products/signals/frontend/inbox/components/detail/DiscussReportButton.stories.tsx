@@ -30,7 +30,7 @@ const meta: Meta<typeof ReportDiscussionComposer> = {
     parameters: { layout: 'centered' },
     decorators: [
         function ReportContext(Story, context): JSX.Element {
-            useAttachedContext([{ type: 'signal_report', key: report.id, label: `Report: ${report.title}` }])
+            useAttachedContext([{ type: 'inbox_report', key: report.id, label: `Report: ${report.title}` }])
             return (
                 <div className={context.name === 'Sidebar' ? 'w-[960px] max-w-[calc(100vw-2rem)]' : 'w-96 max-w-full'}>
                     <Story />

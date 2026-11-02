@@ -6,14 +6,28 @@ gives the priority order. The EU instance gives the priority order without evalu
 
 The merge key lets a client merge rows from different rankers without the raw score. It is the score
 decile then the priority rank, so it never says more about the score than one decimal place. Each
-head ranker sorts by the same decile, so the row order does not say more either. Keep
-`score_decile` and `inbox_merge_key` in step.
+head ranker sorts by the same decile, so the row order does not say more either. The database
+computes the decile with `score_decile`, and `inbox_merge_key` reads that value.
 """
 
 from typing import Literal, get_args
 
-from django.db.models import Case, F, FloatField, Value, When
-from django.db.models.functions import Floor
+from django.contrib.postgres.fields import ArrayField
+from django.db.models import (
+    Case,
+    CharField,
+    F,
+    FloatField,
+    Func,
+    IntegerField,
+    JSONField,
+    OuterRef,
+    Subquery,
+    Value,
+    When,
+)
+from django.db.models.expressions import Combinable
+from django.db.models.functions import Cast
 
 import structlog
 import posthoganalytics
@@ -22,8 +36,9 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.utils import get_instance_region
 
-from products.signals.backend.models import AutonomyPriority
+from products.signals.backend.models import AutonomyPriority, SignalReportArtefact
 from products.signals.backend.ranking.public_outcomes import PublicOutcomeName
+from products.signals.backend.ranking.staleness import annotate_stale_score
 
 logger = structlog.get_logger(__name__)
 
@@ -44,7 +59,8 @@ _DECILES = 10
 _PRIORITY_SLOTS = len(AutonomyPriority.values) + 1
 
 
-def resolve_recommended_ranker(team: Team, user: User) -> InboxRanker:
+def resolve_recommended_ranker(team: Team, user: User, *, send_feature_flag_events: bool = True) -> InboxRanker:
+    """`send_feature_flag_events=False` reads the variant without an exposure, for a caller that does not show the inbox."""
     if not user.distinct_id:
         return "priority"
     # EU reports have no ranking scores, so a head variant there sorts the same as `control`. Evaluating the
@@ -59,6 +75,7 @@ def resolve_recommended_ranker(team: Team, user: User) -> InboxRanker:
             # The web and desktop clients register the project group by uuid, so all clients get the same variant.
             groups={"project": str(team.uuid)},
             group_properties={"project": {"id": team.id, "uuid": str(team.uuid)}},
+            send_feature_flag_events=send_feature_flag_events,
         )
     except Exception:
         logger.exception("signals.inbox_sort.flag_failed", team_id=team.id, user_id=user.id)
@@ -69,23 +86,69 @@ def resolve_recommended_ranker(team: Team, user: User) -> InboxRanker:
     return "priority"
 
 
-def score_decile(field: str) -> Case:
-    """The SQL form of the decile in `inbox_merge_key`. NULL stays NULL."""
-    return Case(
-        When(**{f"{field}__isnull": True}, then=Value(None)),
-        When(**{f"{field}__lt": 0}, then=Value(0.0)),
-        When(**{f"{field}__gte": (_DECILES - 1) / _DECILES}, then=Value(float(_DECILES - 1))),
-        default=Floor(F(field) * _DECILES),
+def latest_ranking_value(head: str, key: Literal["scores", "lifts"]) -> Subquery:
+    # The served model's value for one head from the latest ranking_score artefact, as
+    # `results -> <served_key> -> <key> -> <head>`. A value that is not a JSON number reads as NULL,
+    # so one bad row cannot fail the list. The guard is in the CASE, not the filter: the latest
+    # artefact decides, as it does for the `ranking` field, so a bad latest row makes the report
+    # unscored rather than older-scored. A stale score (the report was edited after the text it
+    # scored) also reads as NULL.
+    content = Cast(F("content"), output_field=JSONField())
+    served_key = Func(content, Value("served_key"), function="jsonb_extract_path_text", output_field=CharField())
+    return Subquery(
+        annotate_stale_score(
+            SignalReportArtefact.objects.filter(
+                report_id=OuterRef("id"),
+                type=SignalReportArtefact.ArtefactType.RANKING_SCORE,
+            ).order_by("-created_at")
+        )
+        .annotate(
+            _score=Case(
+                When(
+                    content__startswith="{",
+                    then=Func(
+                        content,
+                        Value("results"),
+                        served_key,
+                        Value(key),
+                        Value(head),
+                        function="jsonb_extract_path",
+                        output_field=JSONField(),
+                    ),
+                ),
+                default=Value(None),
+                output_field=JSONField(),
+            ),
+        )
+        .annotate(_score_type=Func(F("_score"), function="jsonb_typeof", output_field=CharField()))
+        .annotate(
+            _score_value=Case(
+                When(
+                    _score_type="number",
+                    _score_is_stale=False,
+                    then=Cast(F("_score"), output_field=FloatField()),
+                ),
+                default=Value(None),
+                output_field=FloatField(),
+            )
+        )
+        .values("_score_value")[:1],
         output_field=FloatField(),
     )
 
 
-def inbox_merge_key(score: float | None, priority_rank: int | None) -> int:
+def score_decile(score: Combinable) -> Func:
+    """The score decile, 0 to 9. A score below 0 gives 0, a score of 0.9 or more gives 9, and NULL stays NULL.
+
+    `width_bucket` reads the score once. A CASE repeats the score in each branch, so when the score is a
+    correlated subquery, Postgres runs the subquery once per branch.
+    """
+    thresholds = Value([float(bound) for bound in range(1, _DECILES)], output_field=ArrayField(FloatField()))
+    return Func(score * _DECILES, thresholds, function="width_bucket", output_field=IntegerField())
+
+
+def inbox_merge_key(decile: int | None, priority_rank: int | None) -> int:
     """Lower keys rank first. A report without a score sorts after every scored report."""
-    if score is None:
-        decile_rank = _DECILES
-    else:
-        decile = min(max(int(score * _DECILES), 0), _DECILES - 1)
-        decile_rank = _DECILES - 1 - decile
+    decile_rank = _DECILES if decile is None else _DECILES - 1 - decile
     priority = _PRIORITY_SLOTS - 1 if priority_rank is None else min(max(priority_rank, 0), _PRIORITY_SLOTS - 1)
     return decile_rank * _PRIORITY_SLOTS + priority

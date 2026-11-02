@@ -526,7 +526,7 @@ class TestDataWarehouseAPI(APIBaseTest):
             finished_at=timezone.now(),
         )
 
-        with self.assertNumQueries(14):
+        with self.assertNumQueries(13):
             response = self.client.get(f"{endpoint}?days=1")
             data = response.json()
 
@@ -562,7 +562,7 @@ class TestDataWarehouseAPI(APIBaseTest):
             finished_at=timezone.now() - timedelta(days=10),
         )
 
-        with self.assertNumQueries(14):
+        with self.assertNumQueries(13):
             response = self.client.get(f"{endpoint}?days=30")
             data = response.json()
 
@@ -668,7 +668,7 @@ class TestDataWarehouseAPI(APIBaseTest):
         )
         DataModelingJob.objects.filter(pk=modeling_job.pk).update(created_at=today_start + timedelta(hours=4))
 
-        with self.assertNumQueries(14):
+        with self.assertNumQueries(13):
             response = self.client.get(f"{endpoint}?days=7")
             data = response.json()
 

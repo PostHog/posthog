@@ -13,6 +13,8 @@ from requests.exceptions import (
     JSONDecodeError as RequestsJSONDecodeError,
 )
 
+from posthog.integrations import IntegrationNotFound
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     VersionDeprecation,
     error_message_matches,
@@ -1753,8 +1755,10 @@ class TestNonRetryableErrors:
             # Token refresh failure raised by get_integration.
             META_TOKEN_REFRESH_ERROR_MESSAGE,
             # Integration row deleted/de-authorized while the source still references it —
-            # get_integration raises Django's Integration.DoesNotExist with this message.
+            # get_integration raises Django's IntegrationNotFound with this message.
             "Integration matching query does not exist.",
+            # `_fetch_integration_row` raises `IntegrationNotFound` with this text.
+            "Integration not found: 42",
             # 400 from Meta when the ad account no longer belongs to the authorised user.
             'Meta API request failed: 400 - {"error":{"message":"(#200) Ad account owner has NOT granted ads_management or ads_read permission.","type":"OAuthException","code":200}}',
             # 400 when a specific endpoint cannot be accessed with the granted permissions.
@@ -2113,10 +2117,10 @@ class TestGetIntegration:
         integration = mock.MagicMock()
 
         def fake_get(*args: Any, **kwargs: Any) -> mock.MagicMock:
-            calls.append("Integration.objects.get")
+            calls.append("IntegrationManager.get")
             return integration
 
-        monkeypatch.setattr(meta_ads_module.Integration.objects, "get", fake_get)
+        monkeypatch.setattr(meta_ads_module.IntegrationManager.meta_ads.oauth, "get", fake_get)
 
         meta_ads_integration = mock.MagicMock()
         meta_ads_integration.integration = integration
@@ -2126,7 +2130,7 @@ class TestGetIntegration:
         config = MetaAdsSourceConfig(account_id="act_123", meta_ads_integration_id=42)
         result = get_integration(config, team_id=1)
 
-        assert calls == ["close_old_connections", "Integration.objects.get"]
+        assert calls == ["close_old_connections", "IntegrationManager.get"]
         meta_ads_integration.refresh_access_token.assert_called_once()
         assert result is integration
 
@@ -2136,7 +2140,7 @@ class TestFetchIntegrationRowDbResilience:
         integration = object()
         get = mock.Mock(side_effect=[OperationalError("server closed the connection unexpectedly"), integration])
         close = mock.Mock()
-        monkeypatch.setattr(meta_ads_module.Integration.objects, "get", get)
+        monkeypatch.setattr(meta_ads_module.IntegrationManager.meta_ads.oauth, "get", get)
         monkeypatch.setattr(meta_ads_module, "close_old_connections", close)
         monkeypatch.setattr(meta_ads_module.time, "sleep", lambda _s: None)
 
@@ -2157,7 +2161,7 @@ class TestFetchIntegrationRowDbResilience:
             ]
         )
         sleeps: list[int] = []
-        monkeypatch.setattr(meta_ads_module.Integration.objects, "get", get)
+        monkeypatch.setattr(meta_ads_module.IntegrationManager.meta_ads.oauth, "get", get)
         monkeypatch.setattr(meta_ads_module, "close_old_connections", lambda: None)
         monkeypatch.setattr(meta_ads_module.time, "sleep", lambda s: sleeps.append(s))
 
@@ -2171,7 +2175,7 @@ class TestFetchIntegrationRowDbResilience:
     def test_reraises_after_exhausting_attempts(self, monkeypatch) -> None:
         get = mock.Mock(side_effect=OperationalError("query_wait_timeout"))
         sleeps: list[int] = []
-        monkeypatch.setattr(meta_ads_module.Integration.objects, "get", get)
+        monkeypatch.setattr(meta_ads_module.IntegrationManager.meta_ads.oauth, "get", get)
         monkeypatch.setattr(meta_ads_module, "close_old_connections", lambda: None)
         monkeypatch.setattr(meta_ads_module.time, "sleep", lambda s: sleeps.append(s))
 
@@ -2184,12 +2188,12 @@ class TestFetchIntegrationRowDbResilience:
         assert sleeps == [2, 4, 6]
 
     def test_missing_integration_is_not_retried(self, monkeypatch) -> None:
-        get = mock.Mock(side_effect=meta_ads_module.Integration.DoesNotExist())
-        monkeypatch.setattr(meta_ads_module.Integration.objects, "get", get)
+        get = mock.Mock(side_effect=IntegrationNotFound("SDK text"))
+        monkeypatch.setattr(meta_ads_module.IntegrationManager.meta_ads.oauth, "get", get)
         monkeypatch.setattr(meta_ads_module, "close_old_connections", lambda: None)
         monkeypatch.setattr(meta_ads_module.time, "sleep", lambda _s: None)
 
-        with pytest.raises(meta_ads_module.Integration.DoesNotExist):
+        with pytest.raises(IntegrationNotFound, match="^Integration not found: 1$"):
             _fetch_integration_row(integration_id=1, team_id=2)
 
         # A deleted integration row is non-retryable — don't mask it as a transient drop.

@@ -339,7 +339,7 @@ def _create_ready_materialized_endpoint(team, user, name: str, materialized_at) 
         query={"kind": "HogQLQuery", "query": "SELECT 1"},
         created_by=user,
         saved_query=saved_query,
-        data_freshness_seconds=3600,
+        cache_ttl_seconds=3600,
     )
 
 
@@ -605,7 +605,7 @@ class TestMaterializationStateCacheTimeout(APIBaseTest):
             query={"kind": "HogQLQuery", "query": "SELECT 1"},
             created_by=self.user,
             saved_query=saved_query,
-            data_freshness_seconds=3600,
+            cache_ttl_seconds=3600,
         )
 
         with patch("products.endpoints.backend.rate_limit.cache.set", wraps=cache.set) as cache_set:

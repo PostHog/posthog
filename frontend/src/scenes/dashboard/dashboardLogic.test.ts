@@ -2216,6 +2216,51 @@ describe('dashboardLogic', () => {
             }
         })
 
+        it.each([
+            ['a dashboard refresh', (): void => logic.actions.triggerDashboardRefresh()],
+            [
+                'a single tile refresh',
+                (): void => logic.actions.refreshDashboardItem({ tile: logic.values.insightTiles[0] }),
+            ],
+        ])('adds the tile request timing to refresh analytics after %s', async (_name, refreshTiles) => {
+            await expectLogic(logic).toFinishAllListeners()
+            const requestId = '11111111-1111-4111-8111-111111111111'
+            const refresh = jest
+                .spyOn(dashboardUtils, 'getInsightWithRetry')
+                .mockImplementation(async (_teamId, insight, _dashboardId, _queryId, _refresh, methodOptions) => {
+                    methodOptions?.onRequestTiming?.({
+                        request_total_ms: 20,
+                        http_request_id: requestId,
+                        resource_timing_status: 'matched',
+                        envoy_upstream_ms: 12,
+                        resource_pre_request_ms: 3,
+                        resource_ttfb_ms: 15,
+                        http_status: 200,
+                    })
+                    return insight
+                })
+            const capture = jest.spyOn(posthog, 'capture').mockClear()
+
+            try {
+                await expectLogic(logic, refreshTiles).toFinishAllListeners()
+
+                expect(capture).toHaveBeenCalledWith(
+                    'dashboard insight refreshed',
+                    expect.objectContaining({
+                        http_request_id: requestId,
+                        resource_timing_status: 'matched',
+                        envoy_upstream_ms: 12,
+                        resource_pre_request_ms: 3,
+                        resource_ttfb_ms: 15,
+                        request_total_ms: 20,
+                        http_status: 200,
+                    })
+                )
+            } finally {
+                refresh.mockRestore()
+            }
+        })
+
         it('refreshes a large builtin dashboard on a variable change, since it has no Preview button', async () => {
             const autoPreviewLimit = jest.replaceProperty(dashboardUtils, 'AUTO_PREVIEW_TILE_LIMIT', 0)
             logic.unmount()
@@ -3091,35 +3136,38 @@ describe('dashboardLogic', () => {
                 }
             })
 
-            it('restores filters when browser history changes the URL', async () => {
-                await expectLogic(logic).toFinishAllListeners()
+            it.each(['/dashboard/5', urls.analyticsProductHome()])(
+                'restores filters when browser history changes the URL on %s',
+                async (pathname) => {
+                    await expectLogic(logic).toFinishAllListeners()
 
-                await expectLogic(logic, () => {
-                    logic.actions.setDates('-30d', null)
-                }).toFinishAllListeners()
+                    await expectLogic(logic, () => {
+                        logic.actions.setDates('-30d', null)
+                    }).toFinishAllListeners()
 
-                const searchParams = {
-                    [dashboardUtils.SEARCH_PARAM_FILTERS_KEY]: JSON.stringify({ date_from: '-7d', date_to: null }),
+                    const searchParams = {
+                        [dashboardUtils.SEARCH_PARAM_FILTERS_KEY]: JSON.stringify({ date_from: '-7d', date_to: null }),
+                    }
+                    await expectLogic(logic, () => {
+                        router.actions.locationChanged({
+                            method: 'POP',
+                            pathname,
+                            search: '',
+                            searchParams,
+                            hash: '',
+                            hashParams: {},
+                            url: pathname,
+                        })
+                    }).toFinishAllListeners()
+
+                    expect(logic.values.currentDashboardSettings.filters).toEqual(
+                        expect.objectContaining({ date_from: '-7d', date_to: null })
+                    )
+                    expect(logic.values.filtersOverrideForLoad).toEqual(
+                        expect.objectContaining({ date_from: '-7d', date_to: null })
+                    )
                 }
-                await expectLogic(logic, () => {
-                    router.actions.locationChanged({
-                        method: 'POP',
-                        pathname: '/dashboard/5',
-                        search: '',
-                        searchParams,
-                        hash: '',
-                        hashParams: {},
-                        url: '/dashboard/5',
-                    })
-                }).toFinishAllListeners()
-
-                expect(logic.values.currentDashboardSettings.filters).toEqual(
-                    expect.objectContaining({ date_from: '-7d', date_to: null })
-                )
-                expect(logic.values.filtersOverrideForLoad).toEqual(
-                    expect.objectContaining({ date_from: '-7d', date_to: null })
-                )
-            })
+            )
         })
 
         describe('external filter overrides', () => {
@@ -6224,7 +6272,10 @@ describe('dashboardLogic', () => {
             expect(fetchRunWidgetsMock).not.toHaveBeenCalled()
         })
 
-        it('refreshDashboardWidgets sets friendly error when run_widgets fails', async () => {
+        it.each([
+            ['a network error', new Error('Network error')],
+            ['a gateway timeout', Object.assign(new Error('Gateway timeout'), { status: 504 })],
+        ])('refreshDashboardWidgets sets friendly error when run_widgets fails with %s', async (_name, error) => {
             logic = dashboardLogic({ id: 5 })
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
@@ -6233,7 +6284,7 @@ describe('dashboardLogic', () => {
             const previousFetchedAt = logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.fetchedAt
             logic.actions.updateDashboardLastRefresh(dayjs())
             expect(logic.values.blockRefresh).toBe(true)
-            fetchRunWidgetsMock.mockRejectedValueOnce(new Error('Network error'))
+            fetchRunWidgetsMock.mockRejectedValueOnce(error)
 
             await expectLogic(logic, () => {
                 logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], forceRefresh: true })
@@ -6415,41 +6466,151 @@ describe('dashboardLogic', () => {
             resumeKeaLoadersErrors()
         })
 
-        it('addWidgetTiles refreshes newly created widget tiles', async () => {
-            const addedTile = {
-                id: 99,
-                widget: { id: '3', widget_type: 'error_tracking_list', config: { limit: 5 } },
-                layouts: { sm: { i: '99', x: 0, y: 10, w: 6, h: 5 } },
+        it.each([
+            ['error_tracking_list', { limit: 5 }, null],
+            ['metrics', { query: { kind: 'MetricsQuery', clauses: [] } }, 99],
+        ])(
+            'addWidgetTiles refreshes a new %s tile, and opens its settings when the type asks: %s',
+            async (widgetType, config, expectedEditorTileId) => {
+                const addedTile = {
+                    id: 99,
+                    widget: { id: '3', widget_type: widgetType, config },
+                    layouts: { sm: { i: '99', x: 0, y: 10, w: 6, h: 5 } },
+                    color: null,
+                } as unknown as DashboardTile
+
+                jest.spyOn(api, 'create').mockResolvedValueOnce({
+                    tiles: [addedTile],
+                })
+
+                logic = dashboardLogic({ id: 5 })
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+
+                fetchRunWidgetsMock.mockResolvedValueOnce([
+                    {
+                        tile_id: addedTile.id,
+                        widget_type: widgetType,
+                        result: { results: [], hasMore: false },
+                        error: null,
+                    },
+                ])
+
+                await expectLogic(logic, () => {
+                    logic.actions.addWidgetTiles({
+                        dashboardId: 5,
+                        widgets: [{ widgetType, config }],
+                    })
+                })
+                    .toDispatchActions(['refreshDashboardWidgets'])
+                    .toFinishAllListeners()
+
+                expect(fetchRunWidgetsMock).toHaveBeenCalledWith(
+                    String(MOCK_TEAM_ID),
+                    5,
+                    [addedTile.id],
+                    expect.anything()
+                )
+                expect(logic.values.widgetEditorTileId).toEqual(expectedEditorTileId)
+            }
+        )
+
+        it('keeps the newest widget result when an older request for the tile returns last', async () => {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            let releaseOlder: (value: Awaited<ReturnType<typeof widgetFetchUtils.fetchRunWidgets>>) => void = () => {}
+            const result = (marker: string): Awaited<ReturnType<typeof widgetFetchUtils.fetchRunWidgets>> => [
+                { tile_id: WIDGET_TILE.id, widget_type: 'error_tracking_list', result: { marker }, error: null },
+            ]
+            fetchRunWidgetsMock.mockClear()
+            fetchRunWidgetsMock
+                .mockImplementationOnce(() => new Promise((resolve) => (releaseOlder = resolve)))
+                .mockResolvedValueOnce(result('newer'))
+
+            logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], forceRefresh: true })
+            // Let the older refresh pass its breakpoint and send its request before the newer one starts.
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            expect(fetchRunWidgetsMock).toHaveBeenCalledTimes(1)
+            await expectLogic(logic, () => {
+                logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], forceRefresh: true })
+            }).toDispatchActions(['setWidgetRunResults'])
+            releaseOlder(result('older'))
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.widgetResultsByTileId[WIDGET_TILE.id]?.result).toEqual({ marker: 'newer' })
+        })
+
+        it('keeps a previewed date range on a dashboard with only metric widgets', async () => {
+            const metricsTile = {
+                id: 9,
+                widget: {
+                    id: '4',
+                    widget_type: 'metrics',
+                    config: { query: { kind: 'MetricsQuery', clauses: [{ name: 'a', metricName: 'cpu' }] } },
+                },
+                layouts: {},
                 color: null,
             } as unknown as DashboardTile
-
-            jest.spyOn(api, 'create').mockResolvedValueOnce({
-                tiles: [addedTile],
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/dashboards/5/': () => [200, { ...dashboards[5], tiles: [metricsTile] }],
+                },
             })
-
             logic = dashboardLogic({ id: 5 })
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
 
-            fetchRunWidgetsMock.mockResolvedValueOnce([
-                {
-                    tile_id: addedTile.id,
-                    widget_type: 'error_tracking_list',
-                    result: { results: [], hasMore: false },
-                    error: null,
-                },
-            ])
-
             await expectLogic(logic, () => {
-                logic.actions.addWidgetTiles({
-                    dashboardId: 5,
-                    widgets: [{ widgetType: 'error_tracking_list', config: { limit: 5 } }],
-                })
-            })
-                .toDispatchActions(['refreshDashboardWidgets'])
-                .toFinishAllListeners()
+                logic.actions.setDates('-3h', null)
+            }).toFinishAllListeners()
 
-            expect(fetchRunWidgetsMock).toHaveBeenCalledWith(String(MOCK_TEAM_ID), 5, [addedTile.id], expect.anything())
+            expect(logic.values.previewedDashboardSettings?.filters.date_from).toEqual('-3h')
+            expect(logic.values.effectiveRefreshFilters.date_from).toEqual('-3h')
+        })
+
+        it('refetches only the widgets that follow dashboard filters when the filters change', async () => {
+            const metricsTile: DashboardTile = {
+                id: 9,
+                widget: {
+                    id: '4',
+                    widget_type: 'metrics',
+                    config: { query: { kind: 'MetricsQuery', clauses: [{ name: 'a', metricName: 'cpu' }] } },
+                },
+                layouts: {},
+                color: null,
+            } as unknown as DashboardTile
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/dashboards/5/': () => [
+                        200,
+                        { ...dashboards[5], tiles: [...dashboards[5].tiles, WIDGET_TILE, metricsTile] },
+                    ],
+                },
+            })
+            fetchRunWidgetsMock.mockImplementation(async (_projectId, _dashboardId, tileIds) =>
+                tileIds.map((tileId) => ({ tile_id: tileId, widget_type: 'any', result: { results: [] }, error: null }))
+            )
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(logic, () => {
+                logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id, metricsTile.id], forceRefresh: true })
+            }).toFinishAllListeners()
+            fetchRunWidgetsMock.mockClear()
+
+            logic.actions.setExternalFilters({ date_from: '-3h' })
+            await expectLogic(logic, () => {
+                logic.actions.refreshDashboardWidgets({
+                    tileIds: [WIDGET_TILE.id, metricsTile.id],
+                    forceRefresh: false,
+                })
+            }).toFinishAllListeners()
+
+            const fetchedTileIds = fetchRunWidgetsMock.mock.calls.flatMap(([, , tileIds]) => tileIds)
+            expect(fetchedTileIds).toContain(metricsTile.id)
+            expect(fetchedTileIds).not.toContain(WIDGET_TILE.id)
+            expect(fetchRunWidgetsMock.mock.calls.at(-1)?.[3]?.filtersOverride).toMatchObject({ date_from: '-3h' })
         })
 
         it('addWidgetTiles keeps an existing tile movement unsaved', async () => {
