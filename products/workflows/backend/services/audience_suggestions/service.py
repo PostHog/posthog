@@ -8,7 +8,6 @@ from typing import Any
 from django.core.cache import cache
 
 import structlog
-import posthoganalytics
 
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CH_TRANSIENT_ERRORS, InternalCHQueryError
@@ -41,8 +40,6 @@ from ee.hogai.utils.feature_flags import is_privacy_mode_enabled
 
 logger = structlog.get_logger(__name__)
 
-# pinned: feature flag key - the frontend gates the same surface on it
-FEATURE_FLAG_KEY = "workflows-broadcast-audience-suggestions"
 CACHE_TTL_SECONDS = 24 * 60 * 60
 FAILURE_CACHE_TTL_SECONDS = 5 * 60
 _GENERATION_LOCK_SECONDS = 15 * 60
@@ -58,18 +55,6 @@ _COUNT_ERRORS = (InternalCHQueryError, ClickHouseQueryTimeOut, ClickHouseQueryMe
 
 _GENERATING = AudienceSuggestionsResult(status="generating", suggestions=())
 _UNAVAILABLE = AudienceSuggestionsResult(status="unavailable", suggestions=())
-
-
-def is_enabled(user: User, organization_id: str) -> bool:
-    return bool(
-        user.distinct_id
-        and posthoganalytics.feature_enabled(
-            FEATURE_FLAG_KEY,
-            user.distinct_id,
-            groups={"organization": organization_id},
-            group_properties={"organization": {"id": organization_id}},
-        )
-    )
 
 
 def can_read_email(user: User, team_id: int) -> bool:
