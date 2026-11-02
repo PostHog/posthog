@@ -44,11 +44,6 @@ export const TODAY_CONTEXT_PANEL_DOCK_EDGE = 64
 
 const NO_OFFSET: TodayContextPanelOffset = { x: 0, y: 0 }
 
-// Read, never connected: connecting would mount the tickets logic on every page, and mounting it fetches tickets.
-// The support panel mounts it while the Support tab is open.
-const myTicketsUrl = (state: any): string | null =>
-    sidepanelTicketsLogic.findMounted()?.selectors.myTicketsUrl(state) ?? null
-
 /**
  * Tabs the top bar doesn't offer. Info is on its way out under the Today layout. Exports, Notebooks and Discussion
  * still open docked from their own entry points, such as "Add to notebook" or a comment button.
@@ -61,6 +56,8 @@ export interface todayContextPanelLogicValues {
     enabledTabs: SidePanelTab[] // sidePanelLogic
     selectedTab: SidePanelTab | null // sidePanelStateLogic
     sidePanelOpen: boolean // sidePanelStateLogic
+    canAccessTickets: boolean // sidepanelTicketsLogic
+    myTicketsUrl: string // sidepanelTicketsLogic
     onAiPage: boolean // todayShellLogic
     activeTab: SidePanelTab
     canUndock: boolean
@@ -151,7 +148,12 @@ export interface todayContextPanelLogicMeta {
         floatingActiveTab: (floatingTab: SidePanelTab, enabledTabs: SidePanelTab[]) => SidePanelTab
         canUndock: (activeTab: SidePanelTab, onAiPage: boolean) => boolean
         activeTab: (docked: boolean, selectedTab: SidePanelTab | null, floatingActiveTab: SidePanelTab) => SidePanelTab
-        fullScreenUrl: (activeTab: SidePanelTab, selectedNotebook: string, arg: string | null) => string | null
+        fullScreenUrl: (
+            activeTab: SidePanelTab,
+            selectedNotebook: string,
+            canAccessTickets: boolean,
+            myTicketsUrl: string
+        ) => string | null
     }
 }
 
@@ -176,6 +178,8 @@ export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
             ['enabledTabs'],
             notebookPanelLogic,
             ['selectedNotebook'],
+            sidepanelTicketsLogic,
+            ['canAccessTickets', 'myTicketsUrl'],
             todayShellLogic,
             ['onAiPage'],
         ],
@@ -313,16 +317,20 @@ export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
         ],
         fullScreenUrl: [
             // PostHog AI's URL comes from the chat logic, which the header reads only while the panel is open.
-            (s) => [s.activeTab, s.selectedNotebook, myTicketsUrl],
-            (activeTab: SidePanelTab, selectedNotebook: string, myTicketsUrl: string | null): string | null => {
+            (s) => [s.activeTab, s.selectedNotebook, s.canAccessTickets, s.myTicketsUrl],
+            (
+                activeTab: SidePanelTab,
+                selectedNotebook: string,
+                canAccessTickets: boolean,
+                myTicketsUrl: string
+            ): string | null => {
                 switch (activeTab) {
                     case SidePanelTab.Activity:
                         return urls.advancedActivityLogs()
                     case SidePanelTab.Notebooks:
                         return urls.notebook(selectedNotebook)
-                    // Matches the support panel's own expand button.
                     case SidePanelTab.Support:
-                        return myTicketsUrl
+                        return canAccessTickets ? myTicketsUrl : null
                     default:
                         return null
                 }

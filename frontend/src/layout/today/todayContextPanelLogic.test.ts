@@ -21,18 +21,19 @@ describe('todayContextPanelLogic', () => {
         logic.unmount()
     })
 
-    it('reads the Support tab URL without mounting the tickets logic, because mounting it fetches tickets', () => {
+    it.each([
+        ['the tickets page', 'list', urls.myTickets()],
+        ['the open ticket', 'ticket', urls.myTickets('t1')],
+    ] as const)('links the Support tab full screen item to %s', (_case, view, expectedUrl) => {
+        const ticket = { id: 't1', status: 'open', message_count: 1, created_at: '2026-07-13T00:00:00Z' }
         logic.actions.openSidePanel(SidePanelTab.Support)
-
-        expect(sidepanelTicketsLogic.findMounted()).toBeNull()
         expect(logic.values.fullScreenUrl).toBeNull()
 
-        const unmountTickets = sidepanelTicketsLogic.mount()
-        sidepanelTicketsLogic.actions.setTickets([
-            { id: 't1', status: 'open', message_count: 1, created_at: '2026-07-13T00:00:00Z' } as ConversationTicket,
-        ])
-        expect(logic.values.fullScreenUrl).toBe(urls.myTickets())
-        unmountTickets()
+        sidepanelTicketsLogic.actions.setTickets([ticket as ConversationTicket])
+        if (view === 'ticket') {
+            sidepanelTicketsLogic.actions.setCurrentTicket(ticket as ConversationTicket)
+        }
+        expect(logic.values.fullScreenUrl).toBe(expectedUrl)
     })
 
     it('keeps the floating button away until the user undocks the panel', () => {
