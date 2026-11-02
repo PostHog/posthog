@@ -39,7 +39,17 @@ const providers = {
             reason: "The token's audience is fixed per workspace and cannot be set to this PostHog instance.",
         },
     ],
-    grantable_scopes: ['annotation:read', 'annotation:write', 'error_tracking:read', 'error_tracking:write'],
+    grantable_scopes: [
+        'annotation:read',
+        'annotation:write',
+        'error_tracking:read',
+        'error_tracking:write',
+        'organization_member:read',
+        'organization_member:write',
+    ],
+    risky_scopes: {
+        'organization_member:write': 'Invites and removes organization members and changes their roles.',
+    },
 }
 
 const createdBy = { id: 1, uuid: 'test-user', first_name: 'Test', email: 'test@example.com', hedgehog_config: null }
