@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/react'
+import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { fireEvent, waitFor, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 import { ReactNode } from 'react'
@@ -476,10 +476,7 @@ const OPEN_REPORT_COUNT = 46
 // a story. Clearing it makes each story start clean, so only the sample stories show sample reports.
 // A story's `spaceFeedView` parameter is written after the clear, so it starts with that saved space feed view, the
 // way a returning person sees it.
-function clearTodayStorage(
-    Story: () => JSX.Element,
-    { parameters }: { parameters: { spaceFeedView?: Record<string, unknown> } }
-): JSX.Element {
+const clearTodayStorage: Decorator = (Story, { parameters }) => {
     for (const key of Object.keys(window.localStorage)) {
         if (/today|spaceFeedViewLogic/i.test(key)) {
             window.localStorage.removeItem(key)
@@ -663,6 +660,7 @@ const HIGHLIGHTS: HighlightsApi = {
             score: 0.85,
             priority: 'P1',
             source: 'alerts',
+            product: 'alerts',
         },
         {
             key: 'new_error:0195a0b2-0000-0000-0000-000000000001',
@@ -674,6 +672,7 @@ const HIGHLIGHTS: HighlightsApi = {
             score: 0.82,
             priority: 'P1',
             source: 'errors',
+            product: 'error_tracking',
         },
         {
             key: 'home:rev01',
@@ -685,6 +684,7 @@ const HIGHLIGHTS: HighlightsApi = {
             score: 0.6,
             priority: 'P2',
             source: 'home',
+            product: 'today',
         },
         {
             key: 'key_metric:payment_event',
@@ -696,6 +696,7 @@ const HIGHLIGHTS: HighlightsApi = {
             score: 0.57,
             priority: 'P2',
             source: 'key_metrics',
+            product: 'today',
         },
         {
             key: 'experiment_ended:12',
@@ -707,6 +708,7 @@ const HIGHLIGHTS: HighlightsApi = {
             score: 0.6,
             priority: 'P3',
             source: 'experiments',
+            product: 'experiments',
         },
         {
             key: 'assigned_quiet',
@@ -718,17 +720,10 @@ const HIGHLIGHTS: HighlightsApi = {
             score: 0.35,
             priority: 'P4',
             source: 'errors',
+            product: 'error_tracking',
         },
     ],
 }
-
-const SAVED_INSIGHTS = [
-    { id: 1, short_id: 'chk01', name: 'Checkout conversion' },
-    { id: 2, short_id: 'rev01', name: 'Refunds' },
-    { id: 3, short_id: 'arr01', name: 'Monthly recurring revenue' },
-    { id: 4, short_id: 'ret01', name: 'Week 1 retention' },
-    { id: 5, short_id: 'trl01', name: 'Trial to paid' },
-]
 
 const CHECKOUT_METRIC: HighlightsApi['pulse'][number] = {
     ...HIGHLIGHTS.pulse[0],
@@ -745,9 +740,6 @@ const CHECKOUT_METRIC: HighlightsApi['pulse'][number] = {
     previous_value: 0.329,
     movers: [],
 }
-
-let storyPins: { key: string; name: string }[] = []
-let storyComputingCalls = 0
 
 const RETENTION_METRIC: HighlightsApi['pulse'][number] = {
     ...CHECKOUT_METRIC,
@@ -772,36 +764,8 @@ const REVENUE_METRIC: HighlightsApi['pulse'][number] = {
     previous_value: 46600,
 }
 
-let storyLastReady: HighlightsApi | null = null
-
 function storyHighlights(): HighlightsApi {
-    if (storyComputingCalls > 0) {
-        storyComputingCalls -= 1
-        return storyLastReady
-            ? { ...storyLastReady, status: 'computing' }
-            : { ...HIGHLIGHTS, status: 'computing', generated_at: null, pulse: [], items: [] }
-    }
-    const offered = [CHECKOUT_METRIC, RETENTION_METRIC, REVENUE_METRIC, ...HIGHLIGHTS.pulse]
-    const chosen = storyPins.flatMap((pin) => {
-        const metric = offered.find((candidate) => candidate.key === pin.key)
-        return metric ? [metric] : []
-    })
-    const suggested = HIGHLIGHTS.pulse.filter((metric) => !storyPins.some((pin) => pin.key === metric.key))
-    const pins = storyPins.map((pin) => ({
-        key: pin.key,
-        status: chosen.some((metric) => metric.key === pin.key) ? ('ready' as const) : ('unavailable' as const),
-    }))
-    storyLastReady = { ...HIGHLIGHTS, pulse: [...chosen, ...suggested].slice(0, 4), pins }
-    return storyLastReady
-}
-
-function keepNumbers(pins: { key: string; name: string }[]) {
-    return function KeepNumbers(Story: () => JSX.Element): JSX.Element {
-        storyPins = pins
-        storyComputingCalls = 0
-        storyLastReady = null
-        return <Story />
-    }
+    return { ...HIGHLIGHTS, pulse: [...HIGHLIGHTS.pulse, CHECKOUT_METRIC, RETENTION_METRIC, REVENUE_METRIC] }
 }
 
 const meta: Meta = {
@@ -848,12 +812,6 @@ const meta: Meta = {
                 '/api/users/@me/integrations/': { results: [] },
                 '/api/users/@me/integrations/slack/linkable_workspaces/': { results: [] },
                 '/api/projects/:team_id/today/highlights/': () => [200, storyHighlights()],
-                '/api/projects/:team_id/today/pulse_pins/': () => [200, { pins: storyPins }],
-                '/api/projects/:team_id/insights/': ({ request }) => {
-                    const search = (new URL(request.url).searchParams.get('search') ?? '').toLowerCase()
-                    const results = SAVED_INSIGHTS.filter((insight) => insight.name.toLowerCase().includes(search))
-                    return [200, { results, count: results.length, next: null, previous: null }]
-                },
                 '/api/projects/:team_id/task_channels/': SPACES,
                 '/api/projects/:team_id/task_channels/:id/': (req) => [
                     200,
@@ -915,6 +873,7 @@ const meta: Meta = {
                     const results = type ? LIBRARY.filter((entry) => entry.type === type) : LIBRARY
                     return [200, { results, count: results.length }]
                 },
+                '/api/projects/:team_id/file_system/frequent/': [],
                 '/api/environments/:team_id/file_system/unfiled/': { results: [], count: 0 },
                 '/api/projects/:team_id/canvases/canvas-building/': VIEW_CANVASES[1],
                 '/api/projects/:team_id/tasks/task-canvas-building/': {
@@ -950,14 +909,6 @@ const meta: Meta = {
                     ],
                 },
             },
-            put: {
-                '/api/projects/:team_id/today/pulse_pins/': async ({ request }) => {
-                    const body = (await request.json()) as { pins: { key: string; name: string }[] }
-                    storyPins = body.pins
-                    storyComputingCalls = 1
-                    return [200, { pins: storyPins }]
-                },
-            },
         }),
     ],
     parameters: {
@@ -973,15 +924,51 @@ export default meta
 
 type Story = StoryObj<{}>
 
-export const Home: Story = { decorators: [keepNumbers([])] }
+export const Home: Story = {}
 
-export const HomeWithKeptNumbers: Story = {
+export const HomeWithFrequentItems: Story = {
+    parameters: {
+        featureFlags: {
+            [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            [FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS]: true,
+            [FEATURE_FLAGS.TODAY_JUMP_BACK_RANKING]: 'test',
+        },
+    },
     decorators: [
-        keepNumbers([
-            { key: 'insight:chk01', name: 'Checkout conversion' },
-            { key: 'activity_event', name: 'Active users' },
-        ]),
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/file_system/frequent/': [
+                    {
+                        id: 'fs-frequent-1',
+                        path: 'Dashboards/Daily operations',
+                        type: 'dashboard',
+                        ref: '81',
+                        href: '/dashboard/81',
+                        last_viewed_at: '2026-09-27T09:00:00Z',
+                    },
+                    {
+                        id: 'fs-frequent-2',
+                        path: 'Notebooks/Weekly review',
+                        type: 'notebook',
+                        ref: 'weekly-review',
+                        href: '/notebooks/weekly-review',
+                        last_viewed_at: '2026-09-21T09:00:00Z',
+                    },
+                ],
+            },
+        }),
     ],
+}
+
+export const HomeWithRecentRanking: Story = {
+    ...HomeWithFrequentItems,
+    parameters: {
+        featureFlags: {
+            [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            [FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS]: true,
+            [FEATURE_FLAGS.TODAY_JUMP_BACK_RANKING]: 'control',
+        },
+    },
 }
 
 export const HomeWithSampleReports: Story = {

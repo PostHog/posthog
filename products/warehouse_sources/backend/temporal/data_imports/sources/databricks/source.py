@@ -183,6 +183,7 @@ class DatabricksSource(SQLSource[DatabricksSourceConfig], ValidateDatabaseHostMi
                     ),
                     SourceFieldInputConfig(
                         name="schema",
+                        sync_setting=True,
                         label="Schema (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

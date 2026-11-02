@@ -37,14 +37,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.zapsign.settings import (
+    AUDIT_TRAIL_PATH,
+    AUDIT_TRAIL_RESOURCE,
     DOCUMENT_DETAIL_PATH,
     DOCUMENTS_RESOURCE,
     ENDPOINT_PATHS,
     PARTITION_KEYS,
     PRIMARY_KEYS,
+    SIGNER_VERIFICATION_PATH,
+    SIGNER_VERIFICATIONS_RESOURCE,
     SIGNERS_RESOURCE,
     TEMPLATES_RESOURCE,
     TIMESTAMP_COLUMNS,
+    USERS_RESOURCE,
     ZAPSIGN_BASE_URL,
     ZAPSIGN_SANDBOX_BASE_URL,
 )
@@ -56,13 +61,13 @@ REQUEST_TIMEOUT_SECONDS = 30
 WEBHOOK_CREATE_PATH = "/api/v1/user/company/webhook/"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class ZapSignResumeConfig:
     """Resume state for one endpoint's pagination.
 
     ``paginator_state`` holds whatever the framework paginator checkpoints: ``{"next_url": ...}``
     for the top-level list endpoints, or the fan-out state dict
-    (``{"completed": [...], "current": ..., "child_state": ...}``) for signers.
+    (``{"completed": [...], "current": ..., "child_state": ...}``) for single-level fan-outs.
     """
 
     endpoint: str
@@ -141,21 +146,39 @@ def _templates_resource() -> EndpointResource:
     }
 
 
-def _signers_resources() -> list[EndpointResource]:
-    """Parent documents list + per-document detail fan-out that extracts the signer arrays."""
-    parent: EndpointResource = {
-        "name": DOCUMENTS_RESOURCE,
-        "table_name": DOCUMENTS_RESOURCE,
+def _users_resource() -> EndpointResource:
+    # The users list exposes no filter or sort params — full refresh only.
+    return {
+        "name": USERS_RESOURCE,
+        "table_name": USERS_RESOURCE,
         "write_disposition": "replace",
         "endpoint": {
-            "path": ENDPOINT_PATHS[DOCUMENTS_RESOURCE],
-            "params": {"sort_order": "asc"},
+            "path": ENDPOINT_PATHS[USERS_RESOURCE],
             "data_selector": "results",
             "data_selector_required": True,
         },
         "table_format": "delta",
     }
-    child: EndpointResource = {
+
+
+def _documents_parent_resource() -> EndpointResource:
+    return {
+        "name": DOCUMENTS_RESOURCE,
+        "table_name": DOCUMENTS_RESOURCE,
+        "write_disposition": "replace",
+        "endpoint": {
+            "path": ENDPOINT_PATHS[DOCUMENTS_RESOURCE],
+            # `include_signers` guarantees the `results` envelope the selector requires.
+            "params": {"sort_order": "asc", "include_signers": "true"},
+            "data_selector": "results",
+            "data_selector_required": True,
+        },
+        "table_format": "delta",
+    }
+
+
+def _signers_child_resource() -> EndpointResource:
+    return {
         "name": SIGNERS_RESOURCE,
         "table_name": SIGNERS_RESOURCE,
         "write_disposition": "replace",
@@ -170,11 +193,69 @@ def _signers_resources() -> list[EndpointResource]:
                 },
             },
             "data_selector": "signers",
+            # A document deleted between the list and the detail request answers 404.
+            "response_actions": [{"status_code": 404, "action": "ignore"}],
         },
         "columns": _timestamp_columns(SIGNERS_RESOURCE),
         "table_format": "delta",
     }
-    return [parent, child]
+
+
+def _signers_resources() -> list[EndpointResource]:
+    """Parent documents list + per-document detail fan-out that extracts the signer arrays."""
+    return [_documents_parent_resource(), _signers_child_resource()]
+
+
+def _audit_trail_resources() -> list[EndpointResource]:
+    """Parent documents list + per-document audit trail, which answers with a bare JSON list."""
+    child: EndpointResource = {
+        "name": AUDIT_TRAIL_RESOURCE,
+        "table_name": AUDIT_TRAIL_RESOURCE,
+        "write_disposition": "replace",
+        "include_from_parent": ["token"],
+        "endpoint": {
+            "path": AUDIT_TRAIL_PATH,
+            "params": {
+                "token": {
+                    "type": "resolve",
+                    "resource": DOCUMENTS_RESOURCE,
+                    "field": "token",
+                },
+            },
+            "paginator": "single_page",
+            "data_selector_required": True,
+            # A document deleted between the list and the audit trail request answers 404.
+            "response_actions": [{"status_code": 404, "action": "ignore"}],
+        },
+        "columns": _timestamp_columns(AUDIT_TRAIL_RESOURCE),
+        "table_format": "delta",
+    }
+    return [_documents_parent_resource(), child]
+
+
+def _signer_verifications_resources() -> list[EndpointResource]:
+    """Documents list -> document detail (signers) -> one verification request per signer."""
+    child: EndpointResource = {
+        "name": SIGNER_VERIFICATIONS_RESOURCE,
+        "table_name": SIGNER_VERIFICATIONS_RESOURCE,
+        "write_disposition": "replace",
+        "include_from_parent": ["token"],
+        "endpoint": {
+            "path": SIGNER_VERIFICATION_PATH,
+            "params": {
+                "token": {
+                    "type": "resolve",
+                    "resource": SIGNERS_RESOURCE,
+                    "field": "token",
+                },
+            },
+            "paginator": "single_page",
+            # ZapSign answers 404 for a signer with no verification attempts, which is most signers.
+            "response_actions": [{"status_code": 404, "action": "ignore"}],
+        },
+        "table_format": "delta",
+    }
+    return [_documents_parent_resource(), _signers_child_resource(), child]
 
 
 def _webhook_table_transformer(table: pa.Table) -> pa.Table:
@@ -247,6 +328,12 @@ def zapsign_source(
         resources = [_documents_resource(should_use_incremental_field)]
     elif endpoint == TEMPLATES_RESOURCE:
         resources = [_templates_resource()]
+    elif endpoint == USERS_RESOURCE:
+        resources = [_users_resource()]
+    elif endpoint == AUDIT_TRAIL_RESOURCE:
+        resources = [*_audit_trail_resources()]
+    elif endpoint == SIGNER_VERIFICATIONS_RESOURCE:
+        resources = [*_signer_verifications_resources()]
     else:
         raise ValueError(f"Unknown ZapSign endpoint: {endpoint}")
 

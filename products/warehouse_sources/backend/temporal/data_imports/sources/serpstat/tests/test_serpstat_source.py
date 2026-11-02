@@ -1,3 +1,6 @@
+from datetime import UTC, date, datetime
+from typing import Any
+
 import pytest
 from unittest.mock import patch
 
@@ -67,3 +70,32 @@ def test_pipeline_does_not_apply_unavailable_incremental_filter(incremental: boo
     assert result.response.primary_keys == ["project_id", "id"]
     assert result.response.partition_keys == ["added"]
     assert result.response.sort_mode == "asc"
+
+
+@pytest.mark.parametrize(
+    "incremental,last_value,expected_filters",
+    [
+        (False, None, None),
+        (False, "2026-01-01", None),
+        (True, None, None),
+        (True, "2026-01-01", {"date_from": "2026-01-01"}),
+        (True, date(2026, 2, 3), {"date_from": "2026-02-03"}),
+        (True, datetime(2026, 3, 4, 5, 6, tzinfo=UTC), {"date_from": "2026-03-04"}),
+    ],
+)
+def test_domain_history_filters_from_watermark(
+    incremental: bool, last_value: Any, expected_filters: dict[str, str] | None
+) -> None:
+    config = SerpstatSourceConfig(
+        api_key="example-token", project_id="123", project_region_id="456", domain="example.com"
+    )
+    result = SourceDriver(SerpstatSource(), config).run(
+        "domain_history",
+        [ScriptedResponse(json={"result": {"data": [{"domain": "example.com", "date": "2026-03-10"}]}})],
+        should_use_incremental_field=incremental,
+        db_incremental_field_last_value=last_value,
+    )
+    assert result.raised is None
+    params = result.requests[0].json()["params"]
+    assert params.get("filters") == expected_filters
+    assert params["sort"] == {"date": "asc"}

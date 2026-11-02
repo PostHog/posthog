@@ -15,7 +15,7 @@ from rust_test_shards import PACKAGE_WEIGHTS, plan_shards
         ({"capture"}, [["capture"]]),
         (
             {"capture", "feature-flags", "cohort-stream-processor"},
-            [["cohort-stream-processor"], ["capture", "feature-flags"]],
+            [["feature-flags"], ["capture", "cohort-stream-processor"]],
         ),
         ({"new-crate", "capture"}, [["capture", "new-crate"]]),
     ],

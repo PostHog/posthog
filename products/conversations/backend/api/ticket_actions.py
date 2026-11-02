@@ -2,13 +2,17 @@
 
 Two routes wrap the get and patch handlers with different authentication: the public
 external route (legacy Team.secret_api_token bearer, api/external.py) and the internal
-service route (scoped service JWT, api/internal.py). The worker selects between them per
-environment by config presence (#82564), so those two handlers must behave identically.
+service route (scoped service JWT, api/internal.py). The worker calls only the internal
+route, and #82564 tracks retiring the external one. Until then the two behave identically,
+except that only the internal route offers the longer first-message excerpt.
 Sending a message is JWT-only. The legacy route does not expose it.
 """
 
 import re
+import json
 import uuid
+from collections.abc import Mapping
+from itertools import accumulate
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.db import connection, transaction
@@ -18,6 +22,7 @@ from django.utils import timezone
 from rest_framework import serializers, status
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.utils.encoders import JSONEncoder
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Tag, Team
@@ -176,6 +181,11 @@ def workflow_trigger_from_request(request: Request) -> Trigger | None:
 # message can still cost roughly twice the figure below.
 FIRST_MESSAGE_PREVIEW_BYTES = 200
 
+FIRST_MESSAGE_MAX_BYTES = 3000
+
+# A longer excerpt fills only what the rest of the response leaves, to stay inside the worker's 5KB.
+TICKET_RESPONSE_MAX_BYTES = 3584
+
 # How far down the thread to look for a message with something quotable in it. Bounded so a
 # ticket that opens with a run of attachments cannot turn this into a scan of the whole thread.
 FIRST_MESSAGE_CANDIDATES = 5
@@ -195,13 +205,6 @@ _LINK_MARKDOWN = re.compile(r"\[([^\[\]]*)\]\([^)]*\)")
 # ceiling is an order of magnitude wider than the preview it feeds.
 FIRST_MESSAGE_SCAN_CHARS = 2000
 
-# The database fetches one character more than the scan window, never the whole body. The extra
-# character is what lets `_quotable_text` still tell a cut body from a whole one: a body at or
-# under the scan window comes back untouched, and only a longer one comes back at this length,
-# which is strictly greater than the window. Fetch exactly the window and that test can no
-# longer fire. Keep this one above FIRST_MESSAGE_SCAN_CHARS.
-FIRST_MESSAGE_DB_FETCH_CHARS = FIRST_MESSAGE_SCAN_CHARS + 1
-
 # Taking that window can cut an attachment in half, and a fragment like `![shot.png](/uploaded`
 # no longer matches the patterns above, so it would survive into the preview. This drops the
 # unterminated construct a cut leaves behind. The run cannot cross a bracket, so a closed
@@ -217,19 +220,38 @@ _PARTIAL_MARKDOWN_TAIL = re.compile(r"!?\[[^\[\]]*(?:\](?:\([^)]*)?)?$")
 # matches the same character set the outbound Slack formatter unescapes (posthog/comment/formatting.py).
 _MARKDOWN_ESCAPE = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|])")
 
+# Email padding characters. A non-joiner between letters stays, because Persian and Indic words need it.
+_INVISIBLE_PADDING = re.compile(r"[\u00ad\u034f\u200b\u2060\ufeff]")
+_PADDING_NON_JOINER = re.compile(r"(?:^|(?<=[\s\u200c]))\u200c|\u200c(?=[\s\u200c]|$)")
 
-def _quotable_text(content: str, *, unescape_markdown: bool) -> str:
-    window = content[:FIRST_MESSAGE_SCAN_CHARS]
+
+def _strip_severed_link(window: str) -> str:
+    # A link whose long URL runs past the window starts before the tail strip reaches it.
+    opener = window.rfind("](")
+    start = window.rfind("[", 0, opener) if opener != -1 and ")" not in window[opener:] else -1
+    if start == -1:
+        return window
+    return window[: start - 1 if window[start - 1 : start] == "!" else start]
+
+
+def _quotable_text(content: str, *, scan_chars: int, unescape_markdown: bool, strip_padding: bool = False) -> str:
+    window = content[:scan_chars]
     # Only a window that actually cut the body can hold a severed construct. Applying this to a
     # whole short message would eat a trailing bracket the customer meant to type.
-    if len(content) > FIRST_MESSAGE_SCAN_CHARS:
-        window = _PARTIAL_MARKDOWN_TAIL.sub("", window)
+    if len(content) > scan_chars:
+        # Only the end can hold a severed attachment, and stripping the whole window is quadratic.
+        head, tail = window[:-FIRST_MESSAGE_SCAN_CHARS], window[-FIRST_MESSAGE_SCAN_CHARS:]
+        window = head + _PARTIAL_MARKDOWN_TAIL.sub("", tail)
+        if head:
+            window = _strip_severed_link(window)
     text = _LINK_MARKDOWN.sub(r"\1", _IMAGE_MARKDOWN.sub("", window))
     # Only the widget editor escapes the customer's punctuation on the way in (its escapeMarkdown),
     # so only a widget message is unescaped here. Email, Slack, Teams and imports store the text as
     # typed, where a backslash is the customer's own and must survive into the preview.
     if unescape_markdown:
         text = _MARKDOWN_ESCAPE.sub(r"\1", text)
+    if strip_padding:
+        text = _PADDING_NON_JOINER.sub("", _INVISIBLE_PADDING.sub("", text))
     return " ".join(text.split())
 
 
@@ -247,10 +269,34 @@ def _truncate_bytes(text: str, max_bytes: int) -> str:
     return (truncated[:-3] if len(truncated) > 3 else "") + "..."
 
 
-def _first_customer_message_text(team_id: int, ticket_id: str, *, unescape_markdown: bool) -> str | None:
+def _json_bytes(char: str) -> int:
+    if char in '"\\':
+        return 2
+    if char < " ":
+        return 6
+    return len(char.encode("utf-8"))
+
+
+def _truncate_json_bytes(text: str, max_bytes: int, *, window_cut: bool = False) -> str:
+    """Cut text to fit max_bytes once JSON-encoded, which is how the worker measures variables.
+
+    window_cut says the scan window already cut the body, so the text ends with the ellipsis even
+    when it fits. An AI step that reads it must not take a partial message for the whole one.
+    """
+    costs = [_json_bytes(char) for char in text]
+    if not window_cut and sum(costs) <= max_bytes:
+        return text
+    kept = sum(1 for total in accumulate(costs) if total <= max_bytes - len("..."))
+    return text[:kept].rstrip("\u200d") + "..."
+
+
+def _first_customer_message_text(
+    team_id: int, ticket_id: str, *, max_bytes: int | None, unescape_markdown: bool
+) -> str | None:
     """
     Preview of what the customer first asked, so a workflow can remind them which ticket it
-    is writing about on channels that carry no email subject.
+    is writing about on channels that carry no email subject. With max_bytes, a longer excerpt
+    instead, so a workflow's AI steps screen and route on more than the opening line.
 
     Only the customer's own messages qualify, because a ticket can open with a team message
     such as an agent composing outbound mail or a teammate's Slack post that seeded the
@@ -263,6 +309,7 @@ def _first_customer_message_text(team_id: int, ticket_id: str, *, unescape_markd
     unescape_markdown is on only for a widget ticket, whose editor markdown-escapes the customer's
     punctuation. Other channels store the text as typed and must keep their backslashes.
     """
+    scan_chars = FIRST_MESSAGE_SCAN_CHARS if max_bytes is None else max(FIRST_MESSAGE_SCAN_CHARS, 2 * max_bytes)
     candidates = (
         visible_ticket_messages(team_id, ticket_id)
         .filter(item_context__author_type="customer")
@@ -271,37 +318,67 @@ def _first_customer_message_text(team_id: int, ticket_id: str, *, unescape_markd
         # Fetch only the scan window plus one character, so a 50,000-character email never
         # crosses the wire in full. The preview keeps the same value it would from the whole
         # body: the strip and truncation below never look past the window anyway.
-        .annotate(content_preview=Substr("content", 1, FIRST_MESSAGE_DB_FETCH_CHARS))
+        # The extra character is how `_quotable_text` tells a cut body from a whole one.
+        .annotate(content_preview=Substr("content", 1, scan_chars + 1))
         # Zendesk-imported messages carry second-resolution timestamps, so created_at alone can
         # tie. Tie-breaking on id keeps the preview stable from one call to the next.
         .order_by("created_at", "id")
         .values_list("content_preview", flat=True)[:FIRST_MESSAGE_CANDIDATES]
     )
     for content in candidates:
-        quotable = _quotable_text(content or "", unescape_markdown=unescape_markdown)
+        body = content or ""
+        quotable = _quotable_text(
+            body, scan_chars=scan_chars, unescape_markdown=unescape_markdown, strip_padding=max_bytes is not None
+        )
         if quotable:
-            return _truncate_bytes(quotable, FIRST_MESSAGE_PREVIEW_BYTES) or None
+            if max_bytes is None:
+                return _truncate_bytes(quotable, FIRST_MESSAGE_PREVIEW_BYTES) or None
+            return _truncate_json_bytes(quotable, max_bytes, window_cut=len(body) > scan_chars)
     return None
+
+
+def _first_message_max_bytes(requested: int, payload: Mapping[str, object]) -> int:
+    with_empty_excerpt = {**payload, "first_customer_message_text": ""}
+    rest = len(json.dumps(with_empty_excerpt, cls=JSONEncoder, ensure_ascii=False, separators=(",", ":")).encode())
+    return max(FIRST_MESSAGE_PREVIEW_BYTES, min(requested, FIRST_MESSAGE_MAX_BYTES, TICKET_RESPONSE_MAX_BYTES - rest))
 
 
 def wants_first_customer_message_text(request: Request) -> bool:
     """True when the caller opted into first_customer_message_text with ?include_...=true.
 
-    The CDP async function only appends the parameter when the workflow enabled it, so it
-    arrives as the literal "true" or not at all. Parsing both routes the same way keeps them
-    identical.
+    The CDP async function only appends the parameter when the workflow enabled it or set a
+    length, so it arrives as the literal "true" or not at all. Parsing both routes the same way
+    keeps them identical.
     """
     return request.query_params.get("include_first_customer_message_text", "").lower() == "true"
 
 
+class TicketActionGetQuerySerializer(serializers.Serializer):
+    first_customer_message_max_bytes = serializers.IntegerField(
+        required=False,
+        help_text=(
+            "Return up to this many bytes of the customer's first message instead of the "
+            f"{FIRST_MESSAGE_PREVIEW_BYTES}-byte preview, counted after JSON encoding. Values are clamped "
+            f"to {FIRST_MESSAGE_PREVIEW_BYTES}-{FIRST_MESSAGE_MAX_BYTES}, and the excerpt is shorter when "
+            f"the rest of the ticket leaves less room under {TICKET_RESPONSE_MAX_BYTES} bytes, but never below "
+            f"the {FIRST_MESSAGE_PREVIEW_BYTES}-byte preview. Only used "
+            "with include_first_customer_message_text=true."
+        ),
+    )
+
+
 def handle_ticket_get(
-    team: Team, ticket_id: str | uuid.UUID, *, include_first_customer_message_text: bool = False
+    team: Team,
+    ticket_id: str | uuid.UUID,
+    *,
+    include_first_customer_message_text: bool = False,
+    first_customer_message_max_bytes: int | None = None,
 ) -> Response:
     """Fetch a ticket's data for an already-authenticated team.
 
     first_customer_message_text is opt-in: it runs an extra query, so a caller that does not ask
-    for it (the default) pays nothing and gets the response shape it always got. Only the CSAT
-    workflows request it.
+    for it (the default) pays nothing and gets the response shape it always got. CSAT workflows
+    request the short preview, and triage workflows ask for a longer excerpt.
     """
     if error := validate_ticket_id(ticket_id):
         return error
@@ -361,7 +438,12 @@ def handle_ticket_get(
 
     if include_first_customer_message_text:
         payload["first_customer_message_text"] = _first_customer_message_text(
-            team.id, str(ticket.id), unescape_markdown=ticket.channel_source == Channel.WIDGET
+            team.id,
+            str(ticket.id),
+            max_bytes=None
+            if first_customer_message_max_bytes is None
+            else _first_message_max_bytes(first_customer_message_max_bytes, payload),
+            unescape_markdown=ticket.channel_source == Channel.WIDGET,
         )
 
     return Response(payload)  # nosemgrep: api-response-must-match-schema
@@ -553,6 +635,8 @@ def handle_ticket_patch(request: Request, team: Team, ticket_id: str | uuid.UUID
             # the per-instance delete() so the signal fires for them too; a bulk queryset
             # delete would skip it. The trigger context attributes every resulting entry
             # to the workflow that made the change.
+            # Only a removed TaggedItem can orphan a tag, so the cleanup checks just those tags.
+            removed_tag_ids: set[uuid.UUID] = set()
             with ActivityTriggerContext(workflow_trigger):
                 if tags_mode == "remove":
                     for tagged_item in (
@@ -560,8 +644,10 @@ def handle_ticket_patch(request: Request, team: Team, ticket_id: str | uuid.UUID
                         .select_related("tag__team")
                         .prefetch_related("uuid_object")
                     ):
+                        removed_tag_ids.add(tagged_item.tag_id)
                         tagged_item.delete()
-                    Tag.objects.filter(team_id=team.id, tagged_items__isnull=True).delete()
+                    if removed_tag_ids:
+                        Tag.objects.filter(team_id=team.id, id__in=removed_tag_ids, tagged_items__isnull=True).delete()
                 elif tags_mode == "set":
                     for tag_name in normalized_tags:
                         tag_instance, _ = Tag.objects.get_or_create(name=tag_name, team_id=team.id)
@@ -571,8 +657,10 @@ def handle_ticket_patch(request: Request, team: Team, ticket_id: str | uuid.UUID
                         .select_related("tag__team")
                         .prefetch_related("uuid_object")
                     ):
+                        removed_tag_ids.add(tagged_item.tag_id)
                         tagged_item.delete()
-                    Tag.objects.filter(team_id=team.id, tagged_items__isnull=True).delete()
+                    if removed_tag_ids:
+                        Tag.objects.filter(team_id=team.id, id__in=removed_tag_ids, tagged_items__isnull=True).delete()
                 else:
                     for tag_name in normalized_tags:
                         tag_instance, _ = Tag.objects.get_or_create(name=tag_name, team_id=team.id)

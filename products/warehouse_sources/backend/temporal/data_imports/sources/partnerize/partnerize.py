@@ -1,7 +1,7 @@
 import dataclasses
 from collections.abc import Callable
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from dateutil import parser as dateutil_parser
 from requests import Request, Response
@@ -12,14 +12,22 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BaseNextUrlPaginator,
     BasePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.partnerize.settings import PARTNERIZE_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.partnerize.settings import (
+    PARTNERIZE_ENDPOINTS,
+    PartnerizeEndpointConfig,
+)
 
 PARTNERIZE_BASE_URL = "https://api.partnerize.com"
 # The report endpoints page at a fixed server-side size of 300 rows (echoed in the response's
@@ -30,13 +38,15 @@ REPORT_PAGE_LIMIT = 300
 DEFAULT_START_DATE = "2010-01-01T00:00:00Z"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class PartnerizeResumeConfig:
     # Report endpoints resume from the row offset within the current date window; the window
     # itself is recomputed deterministically from the job's incremental inputs.
     offset: int | None = None
     # List endpoints resume from the hypermedia next-page URL.
     next_url: str | None = None
+    # Fan-out endpoints resume from the shared fan-out helper's checkpoint.
+    fanout_state: dict[str, Any] | None = None
 
 
 def _format_start_date(value: Any) -> str:
@@ -156,6 +166,86 @@ def _make_unwrap(item_key: Optional[str]) -> Callable[[dict[str, Any]], dict[str
     return unwrap
 
 
+def _make_row_map(
+    config: PartnerizeEndpointConfig,
+) -> Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]:
+    """Unwrap each item and, for endpoints with an ``explode_key``, emit one row per nested element."""
+    unwrap = _make_unwrap(config.item_key)
+    if config.explode_key is None:
+        return unwrap
+    explode_key = config.explode_key
+
+    def explode(item: dict[str, Any]) -> list[dict[str, Any]]:
+        inner = unwrap(item)
+        children = inner.get(explode_key)
+        if not isinstance(children, list):
+            return []
+        parent = {name: inner.get(name) for name in config.explode_parent_fields}
+        # Parent fields win so a nested field of the same name can't break the primary key.
+        return [{**child, **parent} for child in children if isinstance(child, dict)]
+
+    return explode
+
+
+def _client_config(application_key: str, user_api_key: str, paginator: BasePaginator) -> ClientConfig:
+    return {
+        "base_url": PARTNERIZE_BASE_URL,
+        # Auth (Basic) is supplied via the framework auth config so its secret is redacted from
+        # raised errors; only the non-secret Accept header is set here.
+        "headers": {"Accept": "application/json"},
+        "auth": {"type": "http_basic", "username": application_key, "password": user_api_key},
+        "paginator": paginator,
+    }
+
+
+def _fanout_resource(
+    application_key: str,
+    user_api_key: str,
+    publisher_id: str,
+    config: PartnerizeEndpointConfig,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[PartnerizeResumeConfig],
+) -> Resource:
+    assert config.fanout is not None
+    parent = PARTNERIZE_ENDPOINTS[config.fanout.parent_name]
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    initial_fanout_state = resume.fanout_state if resume is not None else None
+
+    def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state:
+            resumable_source_manager.save_state(PartnerizeResumeConfig(fanout_state=state))
+
+    return cast(
+        Resource,
+        build_dependent_resource(
+            endpoint_configs={config.name: config, parent.name: parent},
+            child_endpoint=config.name,
+            fanout=config.fanout,
+            client_config=_client_config(application_key, user_api_key, _NextPagePaginator()),
+            path_format_values={"publisher_id": publisher_id},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            page_size_param=None,
+            parent_endpoint_extra={
+                "paginator": _NextPagePaginator(),
+                "data_selector": parent.data_key,
+                "data_selector_malformed_retryable": True,
+            },
+            parent_data_map=_make_row_map(parent),
+            child_endpoint_extra={
+                "paginator": _NextPagePaginator(),
+                "data_selector": config.data_key,
+                "data_selector_malformed_retryable": True,
+            },
+            resume_hook=save_fanout_checkpoint,
+            initial_paginator_state=initial_fanout_state,
+        ),
+    )
+
+
 def partnerize_source(
     application_key: str,
     user_api_key: str,
@@ -169,6 +259,17 @@ def partnerize_source(
     incremental_field: str | None = None,
 ) -> SourceResponse:
     config = PARTNERIZE_ENDPOINTS[endpoint]
+
+    if config.fanout is not None:
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: _fanout_resource(
+                application_key, user_api_key, publisher_id, config, team_id, job_id, resumable_source_manager
+            ),
+            primary_keys=config.primary_keys,
+            partition_count=1,
+            partition_size=1,
+        )
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     params: dict[str, Any] = {}
@@ -193,20 +294,13 @@ def partnerize_source(
             initial_paginator_state = {"next_url": resume.next_url}
 
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": PARTNERIZE_BASE_URL,
-            # Auth (Basic) is supplied via the framework auth config so its secret is redacted from
-            # raised errors; only the non-secret Accept header is set here.
-            "headers": {"Accept": "application/json"},
-            "auth": {"type": "http_basic", "username": application_key, "password": user_api_key},
-            "paginator": paginator,
-        },
+        "client": _client_config(application_key, user_api_key, paginator),
         "resource_defaults": {},
         "resources": [
             {
                 "name": endpoint,
                 # Strip Partnerize's single-key item wrapper (e.g. {"campaign": {...}}) per row.
-                "data_map": _make_unwrap(config.item_key),
+                "data_map": _make_row_map(config),
                 "endpoint": {
                     "path": config.path.format(publisher_id=publisher_id),
                     "params": params,

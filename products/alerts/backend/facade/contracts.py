@@ -2,7 +2,7 @@
 
 Framework-free values this product hands to its consumers. The alerting vocabulary every source
 shares lives in `products.alerts_platform.backend.facade.contracts`; what stays here is what only
-an insight alert means.
+an insight alert means, and the hooks other sources use to reach this product's destinations.
 """
 
 from __future__ import annotations

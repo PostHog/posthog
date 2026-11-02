@@ -204,7 +204,7 @@ Red nodes advance the window; blue nodes reuse it.
 
 #### Retriable failures
 
-A metric's terminal failure lands in `metric_errors` as `{step, message, error_type, retriable, timestamp}`.
+A metric's terminal failure lands in `metric_errors` as `{step, message, error_type, retriable, timestamp}`, plus `exposures_path` (`precomputed` or `direct_scan`) once the runner has built the query.
 `error_type` is the same taxonomy as the `experiment metric error` event (`classify_experiment_query_error`).
 `retriable` is the backend's own decision, not a frontend mapping of `error_type`: it is true when a transient error (`timeout`, `rate_limited`, `server_error`) used its final attempt, and false when the calc activity failed permanently (`validation_error`, `out_of_memory`, `byte_limit`, `insufficient_data`, a `ValueError`, or a discovery failure) or the request was rejected (`recalculation_window_too_long`).
 A retriable failure reads as a gap, so the page load heals it; a non-retriable one waits for the user, because a new run with the same inputs fails the same way.
@@ -283,9 +283,9 @@ The split is intentional: Grafana tells you about the worker process, PostHog te
   Temporal delivers a cancellation only in a heartbeat response, so a workflow cancel or a server-side timeout now reaches the running attempt and starts the cleanup above.
   A dead worker misses its heartbeats, so Temporal retries the metric after 60s instead of after the full 300s attempt.
   See [cancellation and result-write protection](../../../../docs/internal/experiment-metric-recalculation.md) for the locking contract and cleanup limits.
-- **Calc queries run on the offline ClickHouse nodes.** The calc activity builds its `ExperimentQueryRunner` with `workload=Workload.ONLINE`. That workload uses `CLICKHOUSE_HOST`, and the recalculation worker deployments set `CLICKHOUSE_HOST` to the offline host. So the queries reach the offline replicas, not the replicas that serve interactive product traffic. The activity task queue above caps how many of them run at once.
+- **Calc queries run on the offline ClickHouse nodes.** Recalculation runs only on the offline replicas by design; it has no online tier. The calc activity builds its `ExperimentQueryRunner` with `workload=Workload.OFFLINE`, so the query tag states where the queries run. The recalculation worker deployments set no `CLICKHOUSE_OFFLINE_CLUSTER_HOST`, so `OFFLINE` falls back to `CLICKHOUSE_HOST`, which those deployments set to the offline host. The activity task queue above caps how many of the queries run at once.
 
-  The workload stays set explicitly rather than left to the default. The base `QueryRunner` default is `Workload.DEFAULT`, which follows the process default (Celery pins every task to offline process-wide, and API-key traffic is forced offline). Passing `Workload.ONLINE` keeps the routing the same however the activity is invoked, and the worker's host setting decides where it goes.
+  The workload stays set explicitly rather than left to `Workload.DEFAULT`, which follows the process default and changes with how the activity is invoked.
 
   Without the flag below, the queries run as the `default` user. The calc tags them with the cache-warming feature, so `sync_execute` asks for the `cache_warmup` user. The recalculation workers do not wire that user, so `get_clickhouse_creds` falls back to the pod's `default` user, and the queries count against its per-node limit on concurrent queries, which other products share.
 

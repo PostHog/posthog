@@ -1,7 +1,8 @@
 """Parse the files URL of an object storage source into a bucket and the key glob after it.
 
 Each provider accepts only its own hosts. The endpoint the stored credentials go to is rebuilt from
-the parsed bucket, region and account, never taken from the URL's host as written.
+the parsed bucket, region and account, never taken from the URL's host as written. An S3 URL can
+leave out the region, and the source then looks the region up from S3.
 """
 
 import re
@@ -30,7 +31,7 @@ _HOST = re.compile(r"[a-z0-9._-]+")
 _REGION = r"[a-z]{2}(?:-[a-z0-9]+)+-\d+"
 _S3_VIRTUAL_HOSTED = re.compile(rf"(?P<bucket>[a-z0-9.-]+)\.s3\.(?P<region>{_REGION})\.amazonaws\.com")
 _S3_PATH_STYLE = re.compile(rf"s3\.(?P<region>{_REGION})\.amazonaws\.com")
-_S3_WITHOUT_REGION = re.compile(r"(?:[a-z0-9.-]+\.)?s3\.amazonaws\.com")
+_S3_WITHOUT_REGION = re.compile(r"(?:(?P<bucket>[a-z0-9.-]+)\.)?s3\.amazonaws\.com")
 _GCS_HOST = "storage.googleapis.com"
 _R2_HOST = re.compile(r"(?P<account>[0-9a-f]{32})\.r2\.cloudflarestorage\.com")
 _AZURE_HOST = re.compile(r"(?P<account>[a-z0-9]{3,24})\.blob\.core\.windows\.net")
@@ -112,7 +113,10 @@ def _path_style(path: str, example: str, region: str | None = None, account: str
 
 
 def parse_s3_url(url: str) -> StorageUrl:
-    parts = _split(url, ("https",), S3_EXAMPLE_URL)
+    """Parse an S3 object URL, or an `s3://` URI. A URL with no region gives a `StorageUrl` with no region."""
+    parts = _split(url, ("https", "s3"), S3_EXAMPLE_URL)
+    if parts.scheme == "s3":
+        return _path_style(f"/{parts.host}{parts.path}", S3_EXAMPLE_URL)
     host = parts.host
     if (virtual_hosted := _S3_VIRTUAL_HOSTED.fullmatch(host)) is not None:
         return StorageUrl(
@@ -122,8 +126,10 @@ def parse_s3_url(url: str) -> StorageUrl:
         )
     if (path_style := _S3_PATH_STYLE.fullmatch(host)) is not None:
         return _path_style(parts.path, S3_EXAMPLE_URL, region=path_style.group("region"))
-    if _S3_WITHOUT_REGION.fullmatch(host):
-        raise _invalid(f"the URL doesn't name the bucket's region. Use the regional URL, such as {S3_EXAMPLE_URL}")
+    if (without_region := _S3_WITHOUT_REGION.fullmatch(host)) is not None:
+        if (bucket := without_region.group("bucket")) is not None:
+            return StorageUrl(bucket=bucket, key=_key(parts.path.removeprefix("/")))
+        return _path_style(parts.path, S3_EXAMPLE_URL)
     raise _invalid(f"'{host}' isn't an Amazon S3 URL. Use a URL such as {S3_EXAMPLE_URL}")
 
 

@@ -11,7 +11,10 @@ import { TableCertificationTag } from 'products/data_warehouse/frontend/shared/c
 
 import { captureBIWorksheetAction } from './biEditorAnalytics'
 import { biEditorLogic } from './biEditorLogic'
+import { joinKeyCheckQuery } from './biJoinKeyCheck'
 import { biSourceContextLogic } from './biSourceContextLogic'
+import { BISourceHealth } from './BISourceHealth'
+import { biSourceMetadataLogic } from './biSourceMetadataLogic'
 
 export function BISourceContext({ table }: { table: DatabaseSchemaTable }): JSX.Element {
     const { config } = useValues(biEditorLogic)
@@ -19,6 +22,10 @@ export function BISourceContext({ table }: { table: DatabaseSchemaTable }): JSX.
         biSourceContextLogic({ table })
     )
     const { loadRelationships } = useActions(biSourceContextLogic({ table }))
+    const metadata = biSourceMetadataLogic({ table })
+    const { annotations, annotationsError, annotationsLoading, health, healthError, healthLoading } =
+        useValues(metadata)
+    const { loadAnnotations, loadHealth } = useActions(metadata)
     const catalog = `${urls.dataCatalog('relationships')}&table=${encodeURIComponent(table.name)}`
     return (
         <details className="min-w-0 text-xs" data-attr="bi-source-context">
@@ -32,8 +39,19 @@ export function BISourceContext({ table }: { table: DatabaseSchemaTable }): JSX.
                 aria-label="Catalog details"
                 tabIndex={0}
             >
-                {description && <p className="m-0 break-words text-secondary">{description}</p>}
+                {(description || annotations['']) && (
+                    <p className="m-0 break-words text-secondary">{description || annotations['']}</p>
+                )}
+                {annotationsError && (
+                    <div>
+                        Couldn't load field descriptions.{' '}
+                        <LemonButton size="xsmall" loading={annotationsLoading} onClick={() => loadAnnotations()}>
+                            Retry
+                        </LemonButton>
+                    </div>
+                )}
                 {table.certification?.notes && <p className="m-0 break-words">{table.certification.notes}</p>}
+                <BISourceHealth health={health} loading={healthLoading} error={healthError} retry={loadHealth} />
                 <LemonButton
                     size="xsmall"
                     sideIcon={<IconExternal />}
@@ -44,14 +62,34 @@ export function BISourceContext({ table }: { table: DatabaseSchemaTable }): JSX.
                 </LemonButton>
                 <div className="flex flex-col gap-2">
                     <span className="font-semibold">Relationships and review status</span>
-                    {joins.map((join) => (
-                        <div key={join.id} className="break-words">
-                            {join.source_table_name}.{join.source_table_key} → {join.joining_table_name}.
-                            {join.joining_table_key}
-                            <div className="text-secondary">Access with {join.field_name}</div>
-                            <LemonTag type="success">Configured</LemonTag>
-                        </div>
-                    ))}
+                    {joins.map((join) => {
+                        const keyCheck = joinKeyCheckQuery(join)
+                        return (
+                            <div key={join.id} className="break-words">
+                                {join.source_table_name}.{join.source_table_key} → {join.joining_table_name}.
+                                {join.joining_table_key}
+                                <div className="text-secondary">Access with {join.field_name}</div>
+                                <LemonTag type="success">Configured</LemonTag>
+                                <LemonButton
+                                    size="xsmall"
+                                    sideIcon={<IconExternal />}
+                                    to={keyCheck ? urls.sqlEditor({ query: keyCheck }) : undefined}
+                                    disabledReason={
+                                        keyCheck ? undefined : 'Check expression-based join keys in the SQL editor'
+                                    }
+                                    tooltip="Opens SQL to find repeated or null keys in the joined table. Repeated keys can multiply worksheet totals."
+                                >
+                                    Check key uniqueness
+                                </LemonButton>
+                            </div>
+                        )
+                    })}
+                    {joins.length > 0 && (
+                        <span className="text-secondary">
+                            Configured relationships do not guarantee unique keys. Key checks cover the full joined
+                            table, without worksheet filters, and do not check for missing matches.
+                        </span>
+                    )}
                     {relationships?.results.map((proposal) => (
                         <div key={proposal.id} className="break-words">
                             {proposal.source_table_name}.{proposal.source_table_key} → {proposal.joining_table_name}.

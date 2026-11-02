@@ -60,9 +60,9 @@ const EXCLUDED_HELPERS = new Set(['absolute', 'default', 'project', 'currentProj
 // Builders whose destination lives in the query string, which the probe drops. Most base-only
 // entries are still fine (`/surveys` without its `tab` is a real page), but these resolve to a page
 // that does not show what the builder names, so an entry would be a confident wrong link:
-// `tracingOperation` renders its missing-parameter error, and `dashboardTemplates` opens the
-// dashboard list without its templates modal.
-const EXCLUDED_BUILDERS = new Set(['tracingOperation', 'dashboardTemplates'])
+// `tracingOperation` and `warehouseDestinationConnect` render their missing-parameter error, and
+// `dashboardTemplates` opens the dashboard list without its templates modal.
+const EXCLUDED_BUILDERS = new Set(['tracingOperation', 'dashboardTemplates', 'warehouseDestinationConnect'])
 // Dropping these builders' fixed query strings opens a different destination.
 const BUILDERS_WITH_REQUIRED_QUERY = new Set(['aiObservabilityDatasets'])
 // Flag-gated surfaces for PostHog staff only: a link an agent hands a customer would land on a scene that refuses them.

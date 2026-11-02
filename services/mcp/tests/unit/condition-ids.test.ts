@@ -132,6 +132,21 @@ function contextReturning(responses: unknown[]): Context {
     } as unknown as Context
 }
 
+const EXPERIMENT_TOOLS_BY_ID = [
+    'experiment-archive',
+    'experiment-duplicate',
+    'experiment-end',
+    'experiment-freeze-exposure',
+    'experiment-get',
+    'experiment-migrate',
+    'experiment-pause',
+    'experiment-reset',
+    'experiment-resume',
+    'experiment-ship-variant',
+    'experiment-unarchive',
+    'experiment-unfreeze-exposure',
+]
+
 // feature-flag-get-all, feature-flag-enable, feature-flag-disable, feature-flag-archive, and
 // feature-flag-unarchive keep no `filters` in their responses, so they are not listed.
 const CONDITION_TOOLS: { tool: string; params: Record<string, unknown>; responses: unknown[] }[] = [
@@ -160,6 +175,17 @@ const CONDITION_TOOLS: { tool: string; params: Record<string, unknown>; response
         ],
     },
     { tool: 'update-feature-flag', params: { id: 9, name: 'Renamed' }, responses: [flag(9)] },
+    ...EXPERIMENT_TOOLS_BY_ID.map((tool) => ({ tool, params: { id: 5 }, responses: [experiment(5)] })),
+    {
+        tool: 'experiment-get-by-flag-key',
+        params: { feature_flag_key: 'flag-105' },
+        responses: [{ results: [{ id: 105, key: 'flag-105', experiment_set: [5] }] }, experiment(5)],
+    },
+    {
+        tool: 'experiment-list',
+        params: {},
+        responses: [{ count: 2, next: null, previous: null, results: [experiment(5), experiment(6)] }],
+    },
 ]
 
 describe('condition ids', () => {

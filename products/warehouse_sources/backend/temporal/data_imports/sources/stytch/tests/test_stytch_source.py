@@ -74,12 +74,17 @@ class TestStytchSource:
         )
 
         permissions = self.source.get_endpoint_permissions(
-            self.config, self.team_id, ["users", "sessions", "organizations", "members"]
+            self.config,
+            self.team_id,
+            ["users", "sessions", "organizations", "members", "sso_connections", "rbac_policy"],
         )
 
         assert permissions["users"] is None
         assert permissions["sessions"] is None
         assert permissions["organizations"] is not None
         assert permissions["members"] is not None
+        assert permissions["sso_connections"] is not None
+        # Both product lines serve the RBAC policy, so it is never flagged.
+        assert permissions["rbac_policy"] is None
         # One probe per surface, not per endpoint.
         assert mock_check.call_count == 2

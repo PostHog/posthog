@@ -37,6 +37,7 @@ from products.batch_exports.backend.presentation.views.utils import (
     HOGQL_MODIFIERS_HELP_TEXT,
     HogQLModifiersField,
     check_hogql_batch_exports_enabled,
+    fetch_facade_page,
     parse_path_uuid,
 )
 
@@ -411,17 +412,12 @@ class FileDownloadBatchExportOnDemandViewSet(TeamAndOrgViewSetMixin, LogEntryMix
         return run
 
     def list(self, request, *args, **kwargs) -> response.Response:
-        # The facade slices the page, so the paginator gets its state set directly instead of a queryset.
         paginator = cast(LimitOffsetPagination, self.paginator)
-        limit = paginator.get_limit(request)
-        offset = paginator.get_offset(request)
-        # PAGE_SIZE gives every request a limit.
-        assert limit is not None
-        runs, count = batch_exports_api.list_file_download_runs(self.team_id, offset=offset, limit=limit)
-        paginator.request = request
-        paginator.limit = limit
-        paginator.offset = offset
-        paginator.count = count
+        runs = fetch_facade_page(
+            paginator,
+            request,
+            lambda offset, limit: batch_exports_api.list_file_download_runs(self.team_id, offset=offset, limit=limit),
+        )
         return paginator.get_paginated_response(ListOutputSerializer(runs, many=True).data)
 
     @extend_schema(

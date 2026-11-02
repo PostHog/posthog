@@ -107,6 +107,7 @@ describe('SegmentDestinationExecutorService', () => {
                     "headers": {
                       "Content-Type": "application/json",
                     },
+                    "maxResponseBytes": 5242880,
                     "method": "POST",
                   },
                 ]
@@ -198,6 +199,7 @@ describe('SegmentDestinationExecutorService', () => {
                     "headers": {
                       "Content-Type": "application/json",
                     },
+                    "maxResponseBytes": 5242880,
                     "method": "POST",
                   },
                 ]
@@ -262,6 +264,7 @@ describe('SegmentDestinationExecutorService', () => {
                     "headers": {
                       "Content-Type": "application/json",
                     },
+                    "maxResponseBytes": 5242880,
                     "method": "POST",
                   },
                 ]
@@ -390,6 +393,7 @@ describe('SegmentDestinationExecutorService', () => {
                       "Content-Type": "application/json",
                       "x-gb-agent": "GB/Segment",
                     },
+                    "maxResponseBytes": 5242880,
                     "method": "POST",
                   },
                 ]
@@ -466,6 +470,7 @@ describe('SegmentDestinationExecutorService', () => {
                   {
                     "body": undefined,
                     "headers": {},
+                    "maxResponseBytes": 5242880,
                     "method": "GET",
                   },
                 ]
@@ -478,6 +483,7 @@ describe('SegmentDestinationExecutorService', () => {
                     "headers": {
                       "Content-Type": "application/json",
                     },
+                    "maxResponseBytes": 5242880,
                     "method": "POST",
                   },
                 ]

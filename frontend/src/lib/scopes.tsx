@@ -2,7 +2,9 @@ import { AGENT_USE_CASE_SCOPES } from 'lib/agentScopes.generated'
 
 import type { APIScopeAction, APIScopeObject } from '~/types'
 
-export const MAX_API_KEYS_PER_USER = 10 // Same as in posthog/api/personal_api_key.py
+// Fallback when the user has not loaded yet. The real limit comes from the `personal_api_keys`
+// entitlement and travels on the user as `personal_api_keys_limit`.
+export const DEFAULT_MAX_API_KEYS_PER_USER = 10
 
 export type ScopeAccessLevel = 'none' | 'read' | 'write'
 
@@ -329,6 +331,12 @@ export const API_SCOPES: APIScope[] = [
         },
     },
     { key: 'signal_scout', objectName: 'Signals agent', objectPlural: 'signals agents' },
+    {
+        key: 'signal_usage',
+        objectName: 'Self-driving usage',
+        objectPlural: 'self-driving usage',
+        disabledActions: ['write'],
+    },
     { key: 'review_hog', objectName: 'PostHog Review', objectPlural: 'PostHog Review reviews' },
     { key: 'stamphog', objectName: 'Stamphog', objectPlural: 'stamphog' },
     { key: 'streamlit_app', objectName: 'Streamlit app', objectPlural: 'Streamlit apps' },
@@ -380,6 +388,7 @@ export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = [
     'billing:read',
     'replay_scanner:write',
     'session_recording:read',
+    'hog_flow:read',
     'hog_flow:write',
 ] as const
 
@@ -614,6 +623,7 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'today',
             'loop',
             'signal_scout',
+            'signal_usage',
             'review_hog',
             'approvals',
             'autoresearch',

@@ -5,13 +5,15 @@ import { useCallback, useMemo } from 'react'
 import { DEFAULT_Y_AXIS_ID, TimeSeriesLineChart } from '@posthog/quill-charts'
 import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
 
+import { makeChartErrorHandler } from 'lib/charts/chartErrorHandler'
+import { chartStyleCurve } from 'lib/charts/chartStyleAdapter'
 import { useChartTheme, useChartConfig, useDateRangeZoom } from 'lib/charts/hooks'
 import { AnnotationsLayer } from 'lib/components/AnnotationsOverlay/AnnotationsLayer'
 import { dayjs } from 'lib/dayjs'
+import { formatAggregationAxisValue } from 'lib/insights/aggregationAxisFormat'
 import { ciRanges } from 'lib/statistics'
 import { percentage } from 'lib/utils/numbers'
 import { isMultiSeriesFormula } from 'lib/utils/strings'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -29,14 +31,13 @@ import type { SeriesDatum } from 'products/product_analytics/frontend/insights/s
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
-import { chartStyleCurve } from '../../shared/chartStyleAdapter'
 import { hasTrendsChartData } from '../../shared/hasTrendsChartData'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { getSeriesIdentification } from '../../shared/seriesIdentification'
 import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
-import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLabel'
 import { canHandleTrendsChartClick, handleTrendsChartClick } from '../shared/handleTrendsChartClick'
+import { withHighlightedSeries } from '../shared/highlightedSeries'
 import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
 import { buildTrendsSeriesMeta, resolveGroupTypeLabel, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { useInsightsLegendConfig } from '../shared/useInsightsLegendConfig'
@@ -104,6 +105,7 @@ export function TrendsLineChart({
         isStickiness,
         labelGroupType,
         hasPersonsModal,
+        actionNames,
         querySource,
         incompletenessOffsetFromEnd,
         showMovingAverage,
@@ -120,8 +122,8 @@ export function TrendsLineChart({
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     const buildMeta = useCallback(
-        (r: IndexedTrendResult): TrendsSeriesMeta => buildTrendsSeriesMeta(r, querySource),
-        [querySource]
+        (r: IndexedTrendResult): TrendsSeriesMeta => buildTrendsSeriesMeta(r, querySource, actionNames),
+        [querySource, actionNames]
     )
 
     const seriesIdentification = useMemo(
@@ -133,6 +135,7 @@ export function TrendsLineChart({
         (r: IndexedTrendResult): string =>
             getTrendsSeriesDisplayLabel(r, {
                 querySource,
+                actionNames,
                 breakdownFilter,
                 cohorts: allCohorts?.results,
                 formatPropertyValueForDisplay,
@@ -141,6 +144,7 @@ export function TrendsLineChart({
             }),
         [
             querySource,
+            actionNames,
             breakdownFilter,
             allCohorts?.results,
             formatPropertyValueForDisplay,
@@ -233,6 +237,17 @@ export function TrendsLineChart({
         [canHandleClick, canNavigateToInsight, clickDeps, navigateToInsight]
     )
 
+    // Set even when only navigation is possible, so the dashboard menu does not replay the right
+    // click as a left click, which would open the insight.
+    const onPointContextMenu = useCallback(
+        (clickData: PointClickData) => {
+            if (canHandleClick) {
+                handleTrendsChartClick(clickData.series.key, clickData.dataIndex, clickDeps)
+            }
+        },
+        [canHandleClick, clickDeps]
+    )
+
     const onDateRangeZoom = useDateRangeZoom(currentPeriodResult?.days, context?.onDateRangeZoom)
 
     const renderTooltip = useCallback(
@@ -285,6 +300,12 @@ export function TrendsLineChart({
         ]
     )
 
+    const isSeriesHighlighted = context?.isSeriesHighlighted
+    const getColor = useMemo(
+        () => withHighlightedSeries(getTrendsColor, indexedResults ?? [], isSeriesHighlighted),
+        [getTrendsColor, indexedResults, isSeriesHighlighted]
+    )
+
     const series = useMemo(
         () =>
             buildTrendsSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
@@ -292,7 +313,7 @@ export function TrendsLineChart({
                 showMultipleYAxes: showMultipleYAxes ?? undefined,
                 incompletenessOffsetFromEnd,
                 isStickiness,
-                getColor: getTrendsColor,
+                getColor,
                 // Hidden series are listed (dimmed) and excluded via config.legend.hiddenKeys instead
                 // of being dropped here, so the legend can restore them.
                 getHidden: undefined,
@@ -305,7 +326,7 @@ export function TrendsLineChart({
             showMultipleYAxes,
             incompletenessOffsetFromEnd,
             isStickiness,
-            getTrendsColor,
+            getColor,
             getLabel,
             buildMeta,
         ]
@@ -349,11 +370,10 @@ export function TrendsLineChart({
                 valueLabels: showValuesOnSeries && valueLabelFormatter ? { formatter: valueLabelFormatter } : false,
                 curve: chartStyleCurve(trendsFilter?.chartStyle),
                 showCrosshair: true,
-                tooltip: { ...INSIGHT_TOOLTIP_CONFIG, resolveClickToNearestSeries: context?.dashboardResultMenu },
+                tooltip: INSIGHT_TOOLTIP_CONFIG,
                 legend: legendConfig,
             }),
         [
-            context?.dashboardResultMenu,
             indexedResults,
             trendsFilter,
             baseCurrency,
@@ -400,6 +420,9 @@ export function TrendsLineChart({
             config={config}
             tooltip={renderTooltip}
             onPointClick={canHandlePointInteraction ? onPointClick : undefined}
+            onPointContextMenu={
+                context?.dashboardResultMenu && canHandlePointInteraction ? onPointContextMenu : undefined
+            }
             onDateRangeZoom={onDateRangeZoom}
             className="LineGraph"
             dataAttr="trend-line-graph"
@@ -416,6 +439,7 @@ export function TrendsLineChart({
                 />
             ) : null}
             {showAnnotations && <AnnotationsLayer insightNumericId={insight.id || 'new'} dates={annotationsDates} />}
+            {context?.chartOverlay}
         </TimeSeriesLineChart>
     )
 }

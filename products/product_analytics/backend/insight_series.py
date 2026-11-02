@@ -1,10 +1,12 @@
 import json
 from copy import deepcopy
 from datetime import date
+from time import monotonic, sleep
 from typing import Any
 
 from pydantic import BaseModel
 
+from posthog.clickhouse.client.execute_async import get_query_status
 from posthog.hogql_queries.apply_dashboard_filters import resolve_effective_dashboard_filters
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.utils.result_series import (
@@ -52,6 +54,7 @@ def _run(
     filters: dict[str, Any] | None,
     variables: dict[str, Any] | None,
     blocking: bool = False,
+    wait_until: float | None = None,
 ) -> dict[str, Any]:
     from posthog.api.services.query import process_query_dict  # noqa: PLC0415
 
@@ -60,10 +63,21 @@ def _run(
         source,
         dashboard_filters_json=filters,
         variables_override_json=variables,
-        execution_mode=BLOCKING_EXECUTION_MODE if blocking else EXECUTION_MODE,
+        execution_mode=BLOCKING_EXECUTION_MODE if blocking and wait_until is None else EXECUTION_MODE,
         user=user,
     )
-    return response.model_dump() if isinstance(response, BaseModel) else response
+    result = response.model_dump() if isinstance(response, BaseModel) else response
+    if blocking and wait_until is not None and result.get("results") is None:
+        status = result.get("query_status") or {}
+        while status and not status.get("complete") and not status.get("error"):
+            remaining = wait_until - monotonic()
+            if remaining <= 0:
+                return result
+            sleep(min(0.25, remaining))
+            status = get_query_status(team_id=team.pk, query_id=status["id"]).model_dump()
+        if status.get("complete") and not status.get("error"):
+            return status["results"] if isinstance(status.get("results"), dict) else {}
+    return result
 
 
 def _value_key(query: dict[str, Any], result: dict[str, Any], position: int) -> str:
@@ -128,13 +142,14 @@ def _sql_series(
     filters: dict[str, Any],
     variables: dict[str, Any] | None,
     blocking: bool = False,
+    wait_until: float | None = None,
 ) -> InsightSeries | None:
     settings = query.get("chartSettings") or {}
     x_column = (settings.get("xAxis") or {}).get("column")
     y_axes = [axis for axis in settings.get("yAxis") or [] if axis.get("column")]
     if query.get("display") not in CHARTED_SQL_DISPLAYS or not x_column or not y_axes:
         return None
-    response = _run(team, user, query["source"], filters, variables, blocking)
+    response = _run(team, user, query["source"], filters, variables, blocking, wait_until)
     if response.get("hasMore"):
         return None
     position = {column: index for index, column in enumerate(response.get("columns") or [])}
@@ -203,6 +218,7 @@ def insight_series(
     query: dict[str, Any],
     dashboard: InsightDashboardContext | None,
     blocking: bool = False,
+    wait_until: float | None = None,
 ) -> InsightSeries | None:
     dashboard_filters: dict[str, Any] = {}
     variables: dict[str, Any] | None = None
@@ -223,6 +239,7 @@ def insight_series(
             filters=filters,
             variables=variables,
             blocking=blocking,
+            wait_until=wait_until,
         )
     trends = source.get("trendsFilter") or {}
     if source.get("kind") != "TrendsQuery" or trends.get("display") in UNCHARTED_DISPLAYS:
@@ -240,7 +257,7 @@ def insight_series(
         dateRange={**kept, "date_from": LOOKBACK[interval], "excludeIncompletePeriods": True},
         trendsFilter={**{k: v for k, v in trends.items() if k != "smoothingIntervals"}, "metricShowChange": False},
     )
-    response = _run(team, user, bounded, filters, variables, blocking)
+    response = _run(team, user, bounded, filters, variables, blocking, wait_until)
     formula = bool(trends.get("formula") or trends.get("formulas") or trends.get("formulaNodes"))
     several = len(source.get("series") or []) > 1
     # `_run` executes the upgraded query, which stamps `kind` on series saved without one.

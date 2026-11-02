@@ -12,3 +12,6 @@ export type WarehouseSourceWebhooksOutput = typeof WAREHOUSE_SOURCE_WEBHOOKS_OUT
 
 export const CDP_EVENTS_DLQ_OUTPUT = 'cdp_events_dlq' as const
 export type CdpEventsDlqOutput = typeof CDP_EVENTS_DLQ_OUTPUT
+
+export const EMAIL_STATUS_OUTPUT = 'email_status' as const
+export type EmailStatusOutput = typeof EMAIL_STATUS_OUTPUT

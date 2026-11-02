@@ -158,11 +158,14 @@ def list_configurations(
 
 
 def get_configuration(
-    *, team_id: int, source_kinds: Sequence[str], configuration_id: UUID
+    *, team_id: int, source_kinds: Sequence[str], configuration_id: UUID, lock: bool = False
 ) -> PlatformAlertConfigurationView | None:
-    """One configuration, or None when it does not exist or the caller may not read its kind."""
+    """One configuration, or None when it does not exist or the caller may not read its kind.
+
+    With `lock`, call it inside a transaction: the row stays locked until it ends, so a delete waits.
+    """
     return platform_reads.get_configuration(
-        team_id=team_id, source_kinds=source_kinds, configuration_id=configuration_id
+        team_id=team_id, source_kinds=source_kinds, configuration_id=configuration_id, lock=lock
     )
 
 
@@ -354,6 +357,11 @@ def create_alert_destinations(
 
 def list_alert_destinations(*, team_id: int, configuration_id: UUID) -> tuple[StoredAlertDestination, ...]:
     return alert_destinations.list_alert_destinations(team_id=team_id, configuration_id=configuration_id)
+
+
+def has_incident_destination(*, team_id: int, configuration_id: UUID) -> bool:
+    """Whether an alert whose destinations the platform owns has an enabled incident manager."""
+    return alert_destinations.has_incident_destination(team_id=team_id, configuration_id=configuration_id)
 
 
 def delete_alert_destinations(*, team_id: int, configuration_id: UUID, destination_ids: Collection[UUID]) -> int:

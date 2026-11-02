@@ -43,6 +43,8 @@ export function CertificationSuggestionRow({ suggestion, windowDays }: Certifica
     return (
         <SuggestionRow
             suggestionId={suggestion.id}
+            assignee={suggestion.assignee}
+            canAct={suggestion.can_act}
             leaving={leaving}
             icon={
                 <Tooltip title={isTable ? 'Table' : 'View'}>

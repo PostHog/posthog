@@ -40,6 +40,7 @@ SETTINGS_FIELDS = (
     "project_rate_limit_bucket_size_minutes",
     "per_issue_rate_limit_value",
     "per_issue_rate_limit_bucket_size_minutes",
+    "linear_status_sync_enabled",
 )
 
 SPIKE_DETECTION_CONFIG_FIELDS = (
@@ -99,7 +100,7 @@ def get_issue_basics(team_id: int, issue_id: UUID | str) -> ErrorTrackingIssue |
     return (
         ErrorTrackingIssue.objects.with_first_seen()
         .filter(team_id=team_id, id=issue_id)
-        .only("id", "name", "description", "status")
+        .only("id", "name", "description", "status", "severity", "created_at")
         .first()
     )
 

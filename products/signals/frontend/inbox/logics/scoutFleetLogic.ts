@@ -17,14 +17,16 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { ApiError, isUnavailableEndpointError, shouldReportApiFailure } from 'lib/api-error'
-import { FIRST_REPORT_SCOUT_NAME } from 'lib/constants'
+import { FEATURE_FLAGS, FIRST_REPORT_SCOUT_NAME } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { chunk } from 'lib/utils/arrays'
 import { reconcileById } from 'lib/utils/objects'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
+
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 
 import {
     signalsScoutChatTasksCreate,
@@ -64,6 +66,7 @@ import { SignalScoutRunSummary } from '../types'
 import { aiConsentDisabledReason } from '../utils/aiConsent'
 import { computeScoutCostRollups, ScoutCostRollup } from '../utils/scoutCosts'
 import { compareScoutsByName, SCOUT_GROUP_ORDER, scoutGroup, ScoutGroupKey, ScoutRosterRow } from '../utils/scoutGroups'
+import { selfDrivingSpendLogic } from './selfDrivingSpendLogic'
 
 export type ScoutEnabledFilter = 'all' | 'enabled' | 'disabled'
 export type ScoutRosterSort = 'name' | 'status' | 'created' | 'updated' | 'last_run'
@@ -102,6 +105,19 @@ const SCOUT_RECENCY_TIMESTAMPS: Record<
     created: (config) => config.created_at,
     updated: (config) => config.updated_at,
     last_run: (config) => config.last_run_at,
+}
+
+/** When a refused scout chat may start again, from the `Retry-After` of the server's daily-cap 429. */
+function scoutChatRetryAtFromError(error: unknown): number | null {
+    if (!(error instanceof ApiError) || error.status !== 429 || error.code !== 'throttled') {
+        return null
+    }
+    const seconds = Number(error.headers?.get('Retry-After'))
+    return Number.isSafeInteger(seconds) && seconds > 0 ? Date.now() + seconds * 1000 : null
+}
+
+function scoutChatLimitReason(retryAt: number): string {
+    return `You've reached today's limit for scout chats. Try again after ${dayjs(retryAt).format('h:mm A')}.`
 }
 
 function compareByRecency(firstTimestamp: string | null, secondTimestamp: string | null): number {
@@ -431,6 +447,8 @@ export interface scoutFleetLogicValues {
     runsWindowLoadedOnce: boolean
     runsWindowLoading: boolean
     scoutBannerMessage: string | null
+    scoutChatDisabledReason: string | null
+    scoutChatRetryAt: number | null
     scoutConfigs: SignalScoutConfig[] | null
     scoutConfigsLoading: boolean
     scoutCostRollups: Map<string, ScoutCostRollup>
@@ -665,6 +683,9 @@ export interface scoutFleetLogicActions {
     setRunNotePopoverConfigId: (configId: string | null) => {
         configId: string | null
     }
+    setScoutChatRetryAt: (retryAt: number | null) => {
+        retryAt: number | null
+    }
     setScoutEnabledFilter: (filter: ScoutEnabledFilter) => {
         filter: ScoutEnabledFilter
     }
@@ -754,6 +775,10 @@ export interface scoutFleetLogicMeta {
         aiConsentDisabledReason: (
             dataProcessingAccepted: boolean,
             dataProcessingApprovalDisabledReason: string | null
+        ) => string | null
+        scoutChatDisabledReason: (
+            aiConsentDisabledReason: string | null,
+            scoutChatRetryAt: number | null
         ) => string | null
         rollups: (scoutRuns: SignalScoutRunSummary[]) => Map<string, ScoutRollup>
         scoutRunsCoverFleet: (scoutConfigs: SignalScoutConfigApi[] | null) => boolean
@@ -882,6 +907,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         }),
         startScoutChatTaskSuccess: true,
         startScoutChatTaskFailure: true,
+        setScoutChatRetryAt: (retryAt: number | null) => ({ retryAt }),
         setScoutFleetSyncOutcome: (outcome: ScoutFleetSyncOutcome) => ({ outcome }),
         mergeScoutRunCosts: (costs: Map<string, number>) => ({ costs }),
     }),
@@ -1307,8 +1333,17 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 startScoutChatTaskFailure: () => null,
             },
         ],
+        scoutChatRetryAt: [
+            null as number | null,
+            {
+                setScoutChatRetryAt: (_, { retryAt }) => retryAt,
+            },
+        ],
+        // The enabled, tag, owner, and sort choices persist like the report list's filters, so a new
+        // visit opens the roster as the user left it. Search does not persist, the same as the report list.
         selectedScoutTags: [
             [] as string[],
+            { persist: true },
             {
                 setScoutTagFilter: (_, { tags }) => tags,
                 hydrateRosterFilters: (_, { tags }) => tags,
@@ -1323,6 +1358,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         ],
         scoutEnabledFilter: [
             'all' as ScoutEnabledFilter,
+            { persist: true },
             {
                 setScoutEnabledFilter: (_, { filter }) => filter,
                 hydrateRosterFilters: (_, { filter }) => filter,
@@ -1330,6 +1366,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         ],
         selectedScoutOwner: [
             null as string | null,
+            { persist: true },
             {
                 setScoutOwnerFilter: (_, { owner }) => owner,
                 hydrateRosterFilters: (_, { owner }) => owner,
@@ -1337,6 +1374,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         ],
         scoutRosterSort: [
             'name' as ScoutRosterSort,
+            { persist: true },
             {
                 setScoutRosterSort: (_, { sort }) => sort,
             },
@@ -1501,6 +1539,12 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             (s) => [s.dataProcessingAccepted, s.dataProcessingApprovalDisabledReason],
             (dataProcessingAccepted: boolean, dataProcessingApprovalDisabledReason: string | null): string | null =>
                 aiConsentDisabledReason(dataProcessingAccepted, dataProcessingApprovalDisabledReason),
+        ],
+        // Every scout chat entry point shares one per-user daily cap, so one refusal disables them all.
+        scoutChatDisabledReason: [
+            (s) => [s.aiConsentDisabledReason, s.scoutChatRetryAt],
+            (aiConsentDisabledReason: string | null, scoutChatRetryAt: number | null): string | null =>
+                aiConsentDisabledReason ?? (scoutChatRetryAt !== null ? scoutChatLimitReason(scoutChatRetryAt) : null),
         ],
         rollups: [
             (s) => [s.scoutRuns],
@@ -1734,9 +1778,13 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
 
     listeners(({ actions, values, cache, sharedListeners }) => ({
         loadScoutRunsSuccess: () => {
+            const spendLogic = selfDrivingSpendLogic({ teamId: teamLogic.values.currentTeamId ?? 0 })
+            if (spendLogic.isMounted()) {
+                spendLogic.actions.loadOverview()
+            }
             // Costs follow the runs rather than a poll of their own, so a run and its cost are
             // never a cycle apart.
-            if (values.isStaff) {
+            if (values.isStaff && !featureFlagLogic.values.featureFlags[FEATURE_FLAGS.SELF_DRIVING_USAGE_DISPLAY]) {
                 actions.loadScoutRunCosts()
                 actions.loadScoutCosts()
             }
@@ -2037,8 +2085,8 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             // template, then navigate to it. Not a live chat.
             // The CTAs carry this as a `disabledReason`; this backstops the paths that don't go
             // through a button press, since the endpoint enforces no consent of its own.
-            if (values.aiConsentDisabledReason) {
-                lemonToast.error(values.aiConsentDisabledReason)
+            if (values.scoutChatDisabledReason) {
+                lemonToast.error(values.scoutChatDisabledReason)
                 actions.startScoutChatTaskFailure()
                 return
             }
@@ -2073,7 +2121,17 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 actions.startScoutChatTaskSuccess()
                 router.actions.push(urls.taskDetail(task.task_id))
             } catch (error: any) {
-                lemonToast.error(error?.detail || error?.message || `Failed to start ${taskLabel}`)
+                const retryAt = scoutChatRetryAtFromError(error)
+                if (retryAt !== null) {
+                    lemonToast.error(scoutChatLimitReason(retryAt))
+                    actions.setScoutChatRetryAt(retryAt)
+                    cache.disposables.add(() => {
+                        const timeout = setTimeout(() => actions.setScoutChatRetryAt(null), retryAt - Date.now())
+                        return () => clearTimeout(timeout)
+                    }, 'scoutChatRetry')
+                } else {
+                    lemonToast.error(error?.detail || error?.message || `Failed to start ${taskLabel}`)
+                }
                 actions.startScoutChatTaskFailure()
             } finally {
                 cache.chatTaskStarting = false
@@ -2143,7 +2201,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             _: unknown,
             searchParams: Record<string, any>,
             __: unknown,
-            { method }: { method: 'PUSH' | 'REPLACE' | 'POP' }
+            { method, initial }: { method: 'PUSH' | 'REPLACE' | 'POP'; initial?: boolean }
         ): void => {
             const hasRosterParams =
                 'scoutSearch' in searchParams ||
@@ -2154,7 +2212,9 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 // Back or Forward onto a bare roster URL asks for the default, unfiltered view: reset
                 // the filters and leave the URL bare so a second Back can still reach the entries
                 // beneath it. Reflecting the persisted filters back here would undo the navigation.
-                if (method === 'POP') {
+                // kea-router also reports the location at mount as a POP, flagged `initial`. That is a
+                // fresh visit, not a Back, so it keeps the persisted filters.
+                if (method === 'POP' && !initial) {
                     if (
                         values.scoutSearch !== '' ||
                         values.scoutEnabledFilter !== 'all' ||
@@ -2170,7 +2230,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 // replaces the bare URL to restore its own params while a Back is still being
                 // handled, and writing the roster filters there would leave the URL filtered after
                 // that Back resets the controls.
-                if (method !== 'PUSH') {
+                if (method !== 'PUSH' && !initial) {
                     return
                 }
                 const desired = rosterFilterSearchParams({}, rosterFilterUrlState(values))

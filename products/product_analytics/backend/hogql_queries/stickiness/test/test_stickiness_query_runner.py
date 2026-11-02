@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Optional, Union
 
@@ -1599,57 +1598,17 @@ class TestStickinessDashboardFilters(BaseTest):
         assert len(runner.series) == 1
 
 
-class TestStickinessSeriesCustomNames(BaseTest):
-    @parameterized.expand(
-        [
-            (
-                "applies_custom_name_to_stickiness_series",
-                [{"action": {"order": 0, "custom_name": None}, "data": [1, 2, 3]}],
-                [{"action": {"order": 0, "custom_name": "My Stickiness Name"}, "data": [1, 2, 3]}],
-                True,
-            ),
-            (
-                "not_modified_when_stickiness_names_match",
-                [{"action": {"order": 0, "custom_name": "My Stickiness Name"}, "data": [1, 2, 3]}],
-                [{"action": {"order": 0, "custom_name": "My Stickiness Name"}, "data": [1, 2, 3]}],
-                False,
-            ),
-        ]
-    )
-    def test_apply_stickiness_custom_names(
-        self,
-        _name: str,
-        cached_results: list,
-        expected_results: list,
-        expect_modified: bool,
-    ) -> None:
-        runner = StickinessQueryRunner(
-            query=StickinessQuery(series=[EventsNode(event="$pageview", custom_name="My Stickiness Name")]),
-            team=self.team,
-        )
-
-        cached_response = CachedStickinessQueryResponse(
-            results=cached_results,
-            is_cached=True,
-            last_refresh=datetime.now(UTC),
-            next_allowed_client_refresh=datetime.now(UTC),
-            cache_key="test_key",
-            timezone="UTC",
-        )
-
-        patched_response, was_modified = runner.apply_series_custom_names(cached_response)
-
-        assert patched_response.results == expected_results
-        assert was_modified is expect_modified
-
-    def test_a_cached_row_without_a_top_level_order_takes_it_from_action(self) -> None:
-        query = StickinessQuery(series=[EventsNode(event="$pageview"), EventsNode(event="sign up")])
+class TestStickinessCacheHit(BaseTest):
+    def test_a_response_cached_by_an_older_runner_reads_like_a_fresh_one(self) -> None:
+        action = Action.objects.create(team=self.team, name="Signed up")
+        query = StickinessQuery(series=[EventsNode(event="$pageview"), ActionsNode(id=action.id)])
         cached_rows = [
-            {"label": "$pageview", "data": [3], "action": {"order": 0, "name": "$pageview"}},
-            {"label": "sign up", "data": [1], "action": {"order": 1, "name": "sign up"}},
+            {"label": "$pageview", "data": [3], "order": 0},
+            {"label": "Signed up", "data": [1], "order": 1},
         ]
+        # An older runner cached a response without `action_names`.
         with patch.object(
-            StickinessQueryRunner, "_calculate", return_value=StickinessQueryResponse(results=cached_rows)
+            StickinessQueryRunner, "calculate", return_value=StickinessQueryResponse(results=cached_rows)
         ):
             StickinessQueryRunner(query=query, team=self.team).run(
                 execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS
@@ -1660,7 +1619,7 @@ class TestStickinessSeriesCustomNames(BaseTest):
         )
 
         assert isinstance(response, CachedStickinessQueryResponse)
-        assert [row["order"] for row in response.results] == [0, 1]
+        assert response.action_names == {str(action.id): "Signed up"}
 
 
 class TestStickinessSeriesFanOut(BaseTest):

@@ -36,12 +36,14 @@ class TestSourceConfig:
 
 
 class TestGetSchemas:
-    def test_only_api_requests_supports_incremental(self) -> None:
+    def test_only_time_windowed_endpoints_support_incremental(self) -> None:
         schemas = {s.name: s for s in KongKonnectSource().get_schemas(_config(), team_id=1)}
         assert schemas["api_requests"].supports_incremental is True
         assert [f["field"] for f in schemas["api_requests"].incremental_fields] == ["request_start"]
+        assert schemas["daily_service_metrics"].supports_incremental is True
+        assert [f["field"] for f in schemas["daily_service_metrics"].incremental_fields] == ["day"]
         # The lookup list endpoints have no server-side timestamp filter, so they must stay full refresh.
-        for name in set(schemas) - {"api_requests"}:
+        for name in set(schemas) - {"api_requests", "daily_service_metrics"}:
             assert schemas[name].supports_incremental is False
             assert schemas[name].supports_append is False
 

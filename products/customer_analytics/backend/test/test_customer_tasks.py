@@ -1,16 +1,20 @@
+from collections import Counter
 from datetime import UTC, datetime
 from uuid import UUID
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
+from django.db import IntegrityError, connection
+from django.test import SimpleTestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from rest_framework import serializers, status
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal
 
@@ -20,6 +24,7 @@ from products.customer_analytics.backend.logic import customer_tasks
 from products.customer_analytics.backend.models import Account, CustomerTask, CustomerTaskActivity
 from products.customer_analytics.backend.presentation.views.customer_tasks import (
     CustomerTaskActivityQuerySerializer,
+    CustomerTaskBulkUpdateSerializer,
     CustomerTaskCreateSerializer,
     CustomerTaskListQuerySerializer,
     CustomerTaskUpdateSerializer,
@@ -39,6 +44,22 @@ class CustomerTaskSerializerTest(SimpleTestCase):
         update_serializer = CustomerTaskUpdateSerializer(data={"properties": {"source": "sync"}}, partial=True)
         assert not update_serializer.is_valid()
         assert "properties" in update_serializer.errors
+
+    @parameterized.expand(
+        [
+            ("empty selection", [], {"status": "completed"}),
+            ("too many tasks", [str(UUID(int=i)) for i in range(101)], {"status": "completed"}),
+            ("duplicates", [str(UUID(int=1)), str(UUID(int=1))], {"status": "completed"}),
+            ("empty update", [str(UUID(int=1))], {}),
+            ("unknown field", [str(UUID(int=1))], {"properties": {}}),
+            ("mixed archive update", [str(UUID(int=1))], {"archived": True, "status": "completed"}),
+        ]
+    )
+    def test_bulk_update_rejects_invalid_batches(
+        self, _name: str, task_ids: list[str], updates: dict[str, object]
+    ) -> None:
+        serializer = CustomerTaskBulkUpdateSerializer(data={"task_ids": task_ids, "updates": updates})
+        assert not serializer.is_valid()
 
     @parameterized.expand(
         [
@@ -94,6 +115,331 @@ class CustomerTaskAPI(APIBaseTest):
         self.flag_patcher = patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True)
         self.flag_patcher.start()
         self.addCleanup(self.flag_patcher.stop)
+
+    @parameterized.expand(
+        [
+            ("complete", {"status": "completed"}),
+            ("reopen", {"status": "open"}),
+            ("account", {}),
+            ("assign", {}),
+            ("deadline", {"due_at": "2026-09-10T12:00:00Z"}),
+            ("clear deadline", {"due_at": None}),
+            ("remove account", {"account_id": None}),
+            ("unassign", {"assigned_to_id": None}),
+        ]
+    )
+    def test_bulk_update_changes_tasks_and_records_activity(self, name: str, updates: dict[str, object]) -> None:
+        account = Account.objects.for_team(self.team.id).create(team_id=self.team.id, name="Example account")
+        updates = dict(updates)
+        if name == "account":
+            replacement = Account.objects.for_team(self.team.id).create(
+                team_id=self.team.id, name="Replacement account"
+            )
+            updates["account_id"] = str(replacement.id)
+        assignee: User | None = None
+        if name == "assign":
+            assignee = User.objects.create_and_join(self.organization, "new-assignee@example.com", "testpassword")
+            updates["assigned_to_id"] = assignee.id
+        tasks = [
+            CustomerTask.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                name=f"Example task {i}",
+                account=account,
+                status="completed" if name == "reopen" else "open",
+                completed_at=datetime(2026, 9, 9, tzinfo=UTC) if name == "reopen" else None,
+                completed_by=self.user if name == "reopen" else None,
+                assigned_to=self.user,
+                due_at=datetime(2026, 9, 9, tzinfo=UTC),
+            )
+            for i in range(3)
+        ]
+        selected_tasks = tasks[:-1]
+        before = tasks[0].updated_at
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.post(
+                f"{self.url}bulk_update/",
+                {"task_ids": [str(t.id) for t in selected_tasks], "updates": updates},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"updated_count": len(selected_tasks)}
+        task_updates = [
+            q for q in queries.captured_queries if q["sql"].startswith(f'UPDATE "{CustomerTask._meta.db_table}"')
+        ]
+        assert len(task_updates) == 1
+        for task in selected_tasks:
+            task.refresh_from_db()
+            assert task.updated_at > before
+            for field, expected in updates.items():
+                actual = getattr(task, field)
+                if field == "due_at" and expected is not None:
+                    assert actual == datetime(2026, 9, 10, 12, tzinfo=UTC)
+                elif field == "account_id" and expected is not None:
+                    assert str(actual) == expected
+                else:
+                    assert actual == expected
+            if name == "reopen":
+                assert task.completed_at is None
+                assert task.completed_by_id is None
+            if assignee is not None:
+                assert AccessControl.objects.filter(
+                    team=self.team,
+                    resource="customer_task",
+                    resource_id=str(task.id),
+                    organization_member__user_id=assignee.id,
+                    access_level="editor",
+                ).exists()
+            if updates.get("status") == "completed":
+                assert task.completed_at is not None
+                assert task.completed_by_id == self.user.id
+            activity = CustomerTaskActivity.objects.for_team(self.team.id).get(task=task)
+            assert activity.activity_type == "updated"
+            assert activity.actor_id == self.user.id
+            assert activity.changes
+        tasks[-1].refresh_from_db()
+        assert tasks[-1].status == ("completed" if name == "reopen" else "open")
+        assert CustomerTaskActivity.objects.for_team(self.team.id).count() == len(selected_tasks)
+
+    @parameterized.expand([(True,), (False,)])
+    def test_bulk_archive_and_restore_skip_unchanged_tasks(self, archived: bool) -> None:
+        tasks = [
+            CustomerTask.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                name=f"Example task {i}",
+                archived_at=datetime(2026, 9, 9, tzinfo=UTC) if (i == 0) != archived else None,
+            )
+            for i in range(2)
+        ]
+        untouched_at = tasks[1].updated_at
+        response = self.client.post(
+            f"{self.url}bulk_update/",
+            {"task_ids": [str(t.id) for t in tasks], "updates": {"archived": archived}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"updated_count": 1}
+        for task in tasks:
+            task.refresh_from_db()
+            assert (task.archived_at is not None) == archived
+        assert tasks[1].updated_at == untouched_at
+        activity = CustomerTaskActivity.objects.for_team(self.team.id).get()
+        assert activity.task_id == tasks[0].id
+        assert activity.activity_type == ("archived" if archived else "restored")
+
+    @parameterized.expand(
+        [
+            ("shared account and assignee", "deadline", False, False),
+            ("different accounts", "deadline", True, False),
+            ("different assignees", "deadline", False, True),
+            ("different accounts and assignees", "deadline", True, True),
+            ("status", "status", True, True),
+            ("account", "account", True, True),
+            ("assign", "assign", True, True),
+            ("assign with existing access", "assign existing", True, True),
+            ("unassign", "unassign", True, True),
+            ("archive", "archive", True, True),
+            ("restore", "restore", True, True),
+            ("unchanged", "unchanged", True, True),
+        ]
+    )
+    @override_settings(ORGANIZATION_ACCESS_CACHE_ENABLED=False)
+    def test_bulk_update_query_count_does_not_grow_with_batch_size(
+        self, _name: str, action: str, different_accounts: bool, different_assignees: bool
+    ) -> None:
+        self.organization.available_product_features = [
+            {"name": feature, "key": feature}
+            for feature in (AvailableFeature.ACCESS_CONTROL, AvailableFeature.ROLE_BASED_ACCESS)
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save(update_fields=["level"])
+        accounts = Account.objects.for_team(self.team.id).bulk_create(
+            [Account(team_id=self.team.id, name=f"Account {i}") for i in range(101 if different_accounts else 1)]
+        )
+        assignees = User.objects.bulk_create(
+            [User(email=f"assignee-{i}@example.com") for i in range(102 if different_assignees else 1)]
+        )
+        memberships = OrganizationMembership.objects.bulk_create(
+            [OrganizationMembership(organization=self.organization, user=user) for user in assignees]
+        )
+        role = Role.objects.create(organization=self.organization, name="Task editors")
+        RoleMembership.objects.bulk_create(
+            [RoleMembership(role=role, user_id=member.user_id, organization_member=member) for member in memberships]
+            + [RoleMembership(role=role, user=self.user, organization_member=self.organization_membership)]
+        )
+        AccessControl.objects.bulk_create(
+            [
+                AccessControl(team=self.team, resource="customer_analytics", access_level="none"),
+                AccessControl(team=self.team, resource="customer_analytics", role=role, access_level="editor"),
+            ]
+        )
+        tasks = CustomerTask.objects.for_team(self.team.id).bulk_create(
+            [
+                CustomerTask(
+                    team_id=self.team.id,
+                    name=f"Task {i}",
+                    account=accounts[i if different_accounts else 0],
+                    assigned_to=assignees[i if different_assignees else 0],
+                    archived_at=datetime(2026, 9, 9, tzinfo=UTC) if action == "restore" else None,
+                )
+                for i in range(101)
+            ]
+        )
+        if action in ("assign", "assign existing", "unassign"):
+            AccessControl.objects.bulk_create(
+                [
+                    AccessControl(
+                        team=self.team,
+                        resource="customer_task",
+                        resource_id=str(task.id),
+                        organization_member=memberships[i if different_assignees else 0],
+                        access_level="editor",
+                    )
+                    for i, task in enumerate(tasks)
+                ]
+            )
+        if action == "assign existing":
+            AccessControl.objects.bulk_create(
+                [
+                    AccessControl(
+                        team=self.team,
+                        resource="customer_task",
+                        resource_id=str(task.id),
+                        organization_member=memberships[-1],
+                        access_level="viewer",
+                    )
+                    for task in tasks
+                ]
+            )
+        updates: dict[str, object]
+        if action == "account":
+            replacement = Account.objects.for_team(self.team.id).create(team_id=self.team.id, name="Replacement")
+            updates = {"account_id": str(replacement.id)}
+        elif action in ("assign", "assign existing"):
+            updates = {"assigned_to_id": assignees[-1].id}
+        elif action == "unassign":
+            updates = {"assigned_to_id": None}
+        elif action in ("archive", "restore"):
+            updates = {"archived": action == "archive"}
+        elif action == "deadline":
+            updates = {"due_at": "2026-09-10T12:00:00Z"}
+        else:
+            updates = {"status": "open" if action == "unchanged" else "completed"}
+
+        query_counts: list[Counter[str]] = []
+        for selected in (tasks[:1], tasks[1:]):
+            with CaptureQueriesContext(connection) as queries:
+                response = self.client.post(
+                    f"{self.url}bulk_update/",
+                    {"task_ids": [str(task.id) for task in selected], "updates": updates},
+                    format="json",
+                )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert response.json() == {"updated_count": 0 if action == "unchanged" else len(selected)}
+            query_counts.append(Counter(query["sql"].split()[0] for query in queries.captured_queries))
+        for operation in ("SELECT", "INSERT", "UPDATE", "DELETE"):
+            assert query_counts[1][operation] <= query_counts[0][operation] + 1, query_counts
+        assert CustomerTaskActivity.objects.for_team(self.team.id).count() == (0 if action == "unchanged" else 101)
+        if action in ("assign", "assign existing", "unassign"):
+            assert not AccessControl.objects.filter(
+                team=self.team,
+                resource="customer_task",
+                organization_member_id__in=[member.id for member in memberships[:-1]],
+            ).exists()
+            assert AccessControl.objects.filter(
+                team=self.team, resource="customer_task", organization_member=memberships[-1]
+            ).count() == (0 if action == "unassign" else 101)
+            assert (
+                ActivityLog.objects.filter(team_id=self.team.id, scope="AccessControl", activity="deleted").count()
+                == 101
+            )
+            assert ActivityLog.objects.filter(
+                team_id=self.team.id, scope="AccessControl", activity="created"
+            ).count() == (101 if action == "assign" else 0)
+            assert ActivityLog.objects.filter(
+                team_id=self.team.id, scope="AccessControl", activity="updated"
+            ).count() == (101 if action == "assign existing" else 0)
+
+    @parameterized.expand(
+        [
+            ("archived", 409),
+            ("invalid transition", 400),
+            ("cross team", 404),
+            ("no access", 404),
+            ("assignee account", 400),
+            ("assignee project", 400),
+        ]
+    )
+    def test_bulk_validation_does_not_write_any_tasks(self, failure: str, expected_status: int) -> None:
+        first = CustomerTask.objects.for_team(self.team.id).create(
+            team_id=self.team.id, id=UUID(int=1), name="First task"
+        )
+        second = CustomerTask.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            id=UUID(int=2),
+            name="Second task",
+            archived_at=datetime(2026, 9, 9, tzinfo=UTC) if failure == "archived" else None,
+            status="completed" if failure == "invalid transition" else "open",
+            completed_at=datetime(2026, 9, 9, tzinfo=UTC) if failure == "invalid transition" else None,
+        )
+        if failure == "cross team":
+            other_team = Team.objects.create(organization=self.organization)
+            second.team = other_team
+            second.save(update_fields=["team"])
+        if failure == "no access":
+            AccessControl.objects.create(
+                team=self.team,
+                resource="customer_task",
+                resource_id=str(second.id),
+                access_level="none",
+                organization_member=self.organization_membership,
+            )
+        if failure in ("assignee account", "assignee project"):
+            assignee = User.objects.create_and_join(self.organization, "assignee@example.com", "testpassword")
+            membership = OrganizationMembership.objects.get(user=assignee, organization=self.organization)
+            account = Account.objects.for_team(self.team.id).create(team_id=self.team.id, name="Account")
+            second.account = account
+            second.assigned_to = assignee
+            second.save(update_fields=["account", "assigned_to"])
+            AccessControl.objects.create(
+                team=self.team,
+                resource="account" if failure == "assignee account" else "project",
+                resource_id=str(account.id) if failure == "assignee account" else str(self.team.id),
+                organization_member=membership,
+                access_level="none",
+            )
+        response = self.client.post(
+            f"{self.url}bulk_update/",
+            {"task_ids": [str(first.id), str(second.id)], "updates": {"status": "in_progress"}},
+            format="json",
+        )
+        assert response.status_code == expected_status, response.json()
+        first.refresh_from_db()
+        assert first.status == "open"
+        assert CustomerTaskActivity.objects.for_team(self.team.id).count() == 0
+
+    def test_bulk_write_failure_rolls_back_tasks_activity_and_assignee_access(self) -> None:
+        assignee = User.objects.create_and_join(self.organization, "bulk-assignee@example.com", "testpassword")
+        task = CustomerTask.objects.for_team(self.team.id).create(team_id=self.team.id, name="Example task")
+        before = task.updated_at
+        with patch.object(CustomerTaskActivity.objects, "for_team") as activities:
+            activities.return_value.bulk_create.side_effect = IntegrityError("Write conflict")
+            response = self.client.post(
+                f"{self.url}bulk_update/",
+                {"task_ids": [str(task.id)], "updates": {"assigned_to_id": assignee.id}},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert (
+            response.json()["detail"] == "Could not update the tasks. No tasks changed. Refresh the page and try again."
+        )
+        task.refresh_from_db()
+        assert task.assigned_to_id is None
+        assert task.updated_at == before
+        assert CustomerTaskActivity.objects.for_team(self.team.id).count() == 0
+        assert not AccessControl.objects.filter(
+            team=self.team, resource="customer_task", resource_id=str(task.id)
+        ).exists()
 
     def test_accountless_create_omits_properties_and_records_activity(self) -> None:
         response = self.client.post(self.url, {"name": "Follow up", "description": None}, format="json")
@@ -196,6 +542,13 @@ class CustomerTaskAPI(APIBaseTest):
         assert self.client.get(f"{self.url}{task_id}/").status_code == status.HTTP_200_OK
         assert (
             self.client.patch(f"{self.url}{task_id}/", {"name": "Denied"}, format="json").status_code
+            == status.HTTP_403_FORBIDDEN
+        )
+
+        assert (
+            self.client.post(
+                f"{self.url}bulk_update/", {"task_ids": [task_id], "updates": {"status": "completed"}}, format="json"
+            ).status_code
             == status.HTTP_403_FORBIDDEN
         )
 
@@ -835,7 +1188,8 @@ class CustomerTaskAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
 
-    def test_update_validates_the_final_account_and_assignee_together(self) -> None:
+    @parameterized.expand([(False,), (True,)])
+    def test_update_validates_the_final_account_and_assignee_together(self, bulk: bool) -> None:
         assignee = User.objects.create_and_join(self.organization, "final-state@example.com", "testpassword")
         account = Account.objects.unscoped().create(team=self.team, name="Final-state account")
         membership = OrganizationMembership.objects.get(user=assignee, organization=self.organization)
@@ -848,10 +1202,15 @@ class CustomerTaskAPI(APIBaseTest):
         )
         created = self.client.post(self.url, {"name": "Final-state task"}, format="json")
 
-        response = self.client.patch(
-            f"{self.url}{created.json()['id']}/",
-            {"account_id": str(account.id), "assigned_to_id": assignee.id},
-            format="json",
+        updates = {"account_id": str(account.id), "assigned_to_id": assignee.id}
+        response = (
+            self.client.post(
+                f"{self.url}bulk_update/",
+                {"task_ids": [created.json()["id"]], "updates": updates},
+                format="json",
+            )
+            if bulk
+            else self.client.patch(f"{self.url}{created.json()['id']}/", updates, format="json")
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST

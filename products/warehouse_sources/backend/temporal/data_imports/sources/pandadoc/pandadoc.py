@@ -1,45 +1,56 @@
 import dataclasses
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from requests import Response
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    OffsetPaginator,
     PageNumberPaginator,
     SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.pandadoc.settings import (
+    PAGE_SIZE,
     PANDADOC_ENDPOINTS,
     PandaDocEndpointConfig,
 )
 
 # PandaDoc versions its API per endpoint via a URL segment (/public/v1, /public/v2), not
 # globally: /public/v2 is a small, growing set of new endpoints (API logs, document audit
-# trail), NOT a mirror of v1. Every resource this source reads (documents, templates, forms,
-# contacts, members, folders) is served only under /public/v1 and has no v2 route, so both
-# pins resolve to the same wire here and the base URL stays on v1 regardless of the pin.
+# trail, product catalog search), NOT a mirror of v1. Each resource this source reads is
+# served under exactly one of the two, so every endpoint path carries its own version segment
+# and both pins resolve to the same wire.
 API_VERSION_V1 = "v1"
 API_VERSION_V2 = "v2"
 
-PANDADOC_BASE_URL = "https://api.pandadoc.com/public/v1"
-# PandaDoc list pages cap at 100 items.
-PAGE_SIZE = 100
+PANDADOC_BASE_URL = "https://api.pandadoc.com/public"
 
 
-@dataclasses.dataclass
+@frozen
 class PandaDocResumeConfig:
     # PandaDoc paginates with a 1-based page number; the static query params
     # (count, incremental filters, sort) are deterministically rebuilt from the
     # endpoint config and job inputs on resume.
-    page: int
+    page: Optional[int] = None
+    # Per-document child endpoints checkpoint the `build_dependent_resource` state instead
+    # (which documents finished, where the current one stopped).
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 class PandaDocPagePaginator(PageNumberPaginator):
@@ -57,6 +68,41 @@ class PandaDocPagePaginator(PageNumberPaginator):
         super().update_state(response, data)
         if data is not None and len(data) < PAGE_SIZE:
             self._has_next_page = False
+
+
+class PandaDocHasMorePaginator(PageNumberPaginator):
+    """1-based page paginator for v2 list endpoints that flag the last page in the body."""
+
+    def __init__(self, has_more_path: str) -> None:
+        super().__init__(base_page=1, page_param="page")
+        self.has_more_path = has_more_path
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        body = response.json()
+        if isinstance(body, dict) and body.get(self.has_more_path) is False:
+            self._has_next_page = False
+
+
+def _paginator_for(config: PandaDocEndpointConfig) -> BasePaginator:
+    if config.pagination == "none":
+        return SinglePagePaginator()
+    if config.pagination == "offset":
+        return OffsetPaginator(
+            limit=config.page_size, limit_param=config.page_size_param, offset_param="offset", total_path="count"
+        )
+    if config.has_more_path:
+        return PandaDocHasMorePaginator(config.has_more_path)
+    return PandaDocPagePaginator()
+
+
+def _client_config(api_key: str) -> ClientConfig:
+    return {
+        "base_url": PANDADOC_BASE_URL,
+        # Auth is supplied via the framework so the key is redacted from logs and errors;
+        # PandaDoc uses an "API-Key <key>" Authorization scheme rather than a bare Bearer.
+        "auth": {"type": "api_key", "api_key": f"API-Key {api_key}", "name": "Authorization"},
+    }
 
 
 def _format_date_filter(value: Any) -> str:
@@ -83,8 +129,8 @@ def _build_query_params(
     """
     params: dict[str, Any] = {}
 
-    if config.paginated:
-        params["count"] = PAGE_SIZE
+    if config.pagination == "page":
+        params[config.page_size_param] = config.page_size
 
     if not config.incremental_params:
         return params
@@ -105,6 +151,55 @@ def _build_query_params(
     return params
 
 
+def _document_child_resource(
+    api_key: str,
+    config: PandaDocEndpointConfig,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[PandaDocResumeConfig],
+) -> Resource:
+    assert config.fanout is not None
+    parent = PANDADOC_ENDPOINTS[config.fanout.parent_name]
+    # The parent listing is a full walk sorted on the stable creation date, like a full refresh of
+    # the documents table, so documents modified mid-sync don't move across page boundaries.
+    fanout = dataclasses.replace(
+        config.fanout,
+        parent_params=_build_query_params(
+            parent, should_use_incremental_field=False, db_incremental_field_last_value=None, incremental_field=None
+        ),
+    )
+
+    initial_fanout_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_fanout_state = resume.fanout_state
+
+    def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state:
+            resumable_source_manager.save_state(PandaDocResumeConfig(fanout_state=state))
+
+    return cast(
+        Resource,
+        build_dependent_resource(
+            endpoint_configs={config.name: config, parent.name: parent},
+            child_endpoint=config.name,
+            fanout=fanout,
+            client_config=_client_config(api_key),
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            # Parent and child name their page-size params differently, so each sets its own.
+            page_size_param=None,
+            parent_endpoint_extra={"paginator": _paginator_for(parent), "data_selector": parent.data_key},
+            child_endpoint_extra={"paginator": _paginator_for(config), "data_selector": config.data_key},
+            resume_hook=save_fanout_checkpoint,
+            initial_paginator_state=initial_fanout_state,
+        ),
+    )
+
+
 def pandadoc_source(
     api_key: str,
     endpoint: str,
@@ -116,29 +211,40 @@ def pandadoc_source(
     incremental_field: str | None = None,
 ) -> SourceResponse:
     config = PANDADOC_ENDPOINTS[endpoint]
+    partition_kwargs: dict[str, Any] = {
+        "partition_count": 1,
+        "partition_size": 1,
+        "partition_mode": "datetime" if config.partition_key else None,
+        "partition_format": "month" if config.partition_key else None,
+        "partition_keys": [config.partition_key] if config.partition_key else None,
+    }
+
+    if config.fanout is not None:
+        child = _document_child_resource(api_key, config, team_id, job_id, resumable_source_manager)
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: child,
+            primary_keys=config.primary_keys,
+            column_hints=child.column_hints,
+            **partition_kwargs,
+        )
 
     params = _build_query_params(
         config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
     )
-    paginator = PandaDocPagePaginator() if config.paginated else SinglePagePaginator()
 
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": PANDADOC_BASE_URL,
-            # Auth is supplied via the framework so the key is redacted from logs and errors;
-            # PandaDoc uses an "API-Key <key>" Authorization scheme rather than a bare Bearer.
-            "auth": {"type": "api_key", "api_key": f"API-Key {api_key}", "name": "Authorization"},
-        },
+        "client": _client_config(api_key),
         "resources": [
             {
                 "name": endpoint,
                 "endpoint": {
                     "path": config.path,
                     "params": params,
-                    # Every list endpoint wraps its rows in "results"; a missing key is treated as
-                    # an empty page (matching the hand-rolled source), so this is not required.
+                    # List endpoints wrap their rows in "results" (or "items" on v2); a missing key is
+                    # treated as an empty page (matching the hand-rolled source), so this is not required.
                     "data_selector": config.data_key,
-                    "paginator": paginator,
+                    "paginator": _paginator_for(config),
                 },
             }
         ],
@@ -147,7 +253,7 @@ def pandadoc_source(
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
-        if resume is not None:
+        if resume is not None and resume.page is not None:
             initial_paginator_state = {"page": resume.page}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
@@ -168,14 +274,10 @@ def pandadoc_source(
     return SourceResponse(
         name=endpoint,
         items=lambda: resource,
-        primary_keys=[config.primary_key],
-        partition_count=1,
-        partition_size=1,
-        partition_mode="datetime" if config.partition_key else None,
-        partition_format="month" if config.partition_key else None,
-        partition_keys=[config.partition_key] if config.partition_key else None,
+        primary_keys=config.primary_keys,
         sort_mode="asc",
         column_hints=resource.column_hints,
+        **partition_kwargs,
     )
 
 
@@ -183,7 +285,7 @@ def validate_credentials(api_key: str) -> bool:
     """Confirm the API key is valid with a cheap one-document listing probe."""
     ok, _status = validate_via_probe(
         lambda: make_tracked_session(redact_values=(api_key,)),
-        f"{PANDADOC_BASE_URL}/documents?count=1&page=1",
+        f"{PANDADOC_BASE_URL}/v1/documents?count=1&page=1",
         headers={"Authorization": f"API-Key {api_key}"},
     )
     return ok
