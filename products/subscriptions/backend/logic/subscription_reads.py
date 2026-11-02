@@ -277,15 +277,16 @@ def is_ai_prompt_subscription(*, team_id: int, subscription_id: str | int) -> bo
 def _deliveries(
     *, team_id: int, subscription_id: str | None, status: str | None, viewer: UserAccessControl
 ) -> QuerySet[SubscriptionDelivery]:
-    queryset = SubscriptionDelivery.objects.all()
+    queryset = SubscriptionDelivery.objects.filter(team_id=team_id)
     if subscription_id:
         queryset = queryset.filter(subscription_id=subscription_id)
     if status:
         queryset = queryset.filter(status=status)
     # The visibility joins can repeat a row. An id subquery removes the repeats without DISTINCT over
     # content_snapshot, which holds full query results and makes the page and count queries slow.
-    visible_ids = SubscriptionDelivery.objects.filter(viewable_delivery_filter(viewer, team_id)).values("id")
-    return queryset.filter(team_id=team_id, id__in=visible_ids)
+    # The subquery reuses the scoped queryset, so the visibility checks run only on this team's matching rows.
+    visible_ids = queryset.filter(viewable_delivery_filter(viewer, team_id)).values("id")
+    return queryset.filter(id__in=visible_ids)
 
 
 def list_subscription_deliveries(
