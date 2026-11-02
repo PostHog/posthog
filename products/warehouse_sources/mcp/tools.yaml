@@ -87,35 +87,6 @@ tools:
             the connect page, take the newest credential_id for the source type and call 'data-warehouse-source-setup'
             with {'credential_id': '<uuid>'} in the payload. Stored credentials are single-use — they are deleted as
             soon as setup consumes them — and expire after 24 hours if never used.
-    external-data-destinations-list:
-        operation: external_data_destinations_list
-        enabled: true
-        scopes:
-            - external_data_source:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: List warehouse destinations
-        description: >
-            List the places this project's warehouse sources can write synced rows to. The PostHog warehouse is one of
-            them, and it is where a source writes when nothing else is configured.
-        feature_flag: warehouse-multi-destination
-    external-data-destinations-retrieve:
-        operation: external_data_destinations_retrieve
-        enabled: true
-        scopes:
-            - external_data_source:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        enrich_url: '{id}'
-        title: Get a warehouse destination
-        description: >
-            Read one warehouse destination, including the target database or schema it writes to. Credentials live on
-            the linked integration and are never returned here.
-        feature_flag: warehouse-multi-destination
     external-data-schemas-cancel:
         operation: external_data_schemas_cancel_create
         enabled: true
@@ -406,8 +377,32 @@ tools:
             idempotent: true
         title: Get a source's destinations
         description: >
-            Read the destinations every table on this source syncs to. An empty list means the source writes to the
-            PostHog warehouse only, which is the default for any source nobody configured destinations for.
+            Read the destinations every table on this source syncs to, apart from tables with their own override. A
+            source nobody configured destinations for writes to the PostHog warehouse by default and reports it here, so
+            a list with only the PostHog warehouse can be a default or an explicit choice. An empty list means the
+            project has no PostHog warehouse destination yet. Links to paused destinations are not listed.
+        feature_flag: warehouse-multi-destination
+    external-data-sources-destinations-update:
+        operation: external_data_sources_destinations_partial_update
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Set a source's destinations
+        description: >
+            Replace the destinations every table on this source syncs to. Tables with their own destination override
+            keep it. Pass the full list: a destination left out is detached from the source. A source can also hold a
+            link to a paused destination that external-data-sources-destinations-retrieve does not list, and this call
+            deletes that link for good. So do not call it while any destination in external-data-destinations-list has
+            status paused. Otherwise, before external-data-destinations-add-sources, call this with the list that
+            retrieve returned when it holds only the PostHog warehouse: that turns the default into an explicit link, so
+            the source keeps updating its PostHog tables.
+        param_overrides:
+            destination_ids:
+                description: The full list of destination ids for this source, at least one. A destination left out is detached.
         feature_flag: warehouse-multi-destination
     external-data-sources-destroy:
         operation: external_data_sources_destroy

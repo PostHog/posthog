@@ -71,8 +71,12 @@ export function OfflineItemInspector({
                                     {item.id}
                                 </span>
                                 {item.trial && <span>{`Trial ${item.trial}`}</span>}
+                                {item.model_version && <span>{`Model: ${item.model_version}`}</span>}
                                 {item.application_trace_id && (
-                                    <Link to={urls.aiObservabilityTrace(item.application_trace_id)}>
+                                    <Link
+                                        to={urls.aiObservabilityTrace(item.application_trace_id)}
+                                        data-attr="offline-item-application-trace"
+                                    >
                                         Application trace
                                     </Link>
                                 )}
@@ -137,6 +141,7 @@ export function OfflineItemInspector({
                                                             to={urls.aiObservabilityTrace(
                                                                 selectedResult.evaluator_trace_id
                                                             )}
+                                                            data-attr="offline-result-evaluator-trace"
                                                         >
                                                             Evaluator trace
                                                         </Link>
@@ -218,6 +223,7 @@ export function OfflineItemInspector({
                                             className="max-w-full"
                                             active={result.id === selectedResult?.id}
                                             onClick={() => onSelectResult(result)}
+                                            data-attr="offline-item-select-result"
                                         >
                                             <ScorerLabel scorer={result.scorer} />
                                         </LemonButton>
@@ -246,6 +252,7 @@ export function OfflineItemInspector({
                                     size="small"
                                     disabled={!resultCursors.length || resultsLoading}
                                     onClick={previousResults}
+                                    data-attr="offline-item-results-previous"
                                 >
                                     Previous
                                 </LemonButton>
@@ -253,6 +260,7 @@ export function OfflineItemInspector({
                                     size="small"
                                     disabled={!!resultsError || !results?.next_cursor || resultsLoading}
                                     onClick={() => results?.next_cursor && nextResults(results.next_cursor)}
+                                    data-attr="offline-item-results-next"
                                 >
                                     Next
                                 </LemonButton>
@@ -262,7 +270,7 @@ export function OfflineItemInspector({
                 </div>
             </LemonModalContent>
             <LemonModalFooter>
-                <LemonButton type="secondary" onClick={onClose}>
+                <LemonButton type="secondary" onClick={onClose} data-attr="offline-item-close">
                     Close
                 </LemonButton>
             </LemonModalFooter>

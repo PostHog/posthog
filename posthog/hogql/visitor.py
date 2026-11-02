@@ -4,6 +4,7 @@ from typing import Any, Generic, Optional, TypeVar
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectSetNode
 from posthog.hogql.base import AST, Expr
+from posthog.hogql.compilation import compilation_budget
 from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.utils import is_simple_value
 
@@ -27,6 +28,9 @@ def clear_locations(expr: T_AST) -> T_AST:
 
 class Visitor(Generic[T]):
     def visit(self, node: AST | None) -> T:
+        budget = compilation_budget.get()
+        if budget is not None:
+            budget.check_time()
         if node is None:
             return node  # type: ignore
 
@@ -273,6 +277,9 @@ class TraversingVisitor(Visitor[None]):
 
     def visit_field_alias_type(self, node: ast.FieldAliasType):
         self.visit(node.type)
+
+    def visit_array_join_alias_type(self, node: ast.ArrayJoinAliasType):
+        self.visit_field_alias_type(node)
 
     def visit_field_type(self, node: ast.FieldType):
         pass

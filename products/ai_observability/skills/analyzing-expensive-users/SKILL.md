@@ -22,7 +22,7 @@ individual traces, also use `exploring-llm-traces`.
 | Tool                            | Purpose                                                            |
 | ------------------------------- | ------------------------------------------------------------------ |
 | `posthog:execute-sql`           | Rank users and compare their metrics against the project baseline  |
-| `posthog:query-llm-traces-list` | Find high-cost traces for a specific user                          |
+| `posthog:query-llm-traces-list` | Find high-cost traces for a specific user (by person UUID)         |
 | `posthog:query-llm-trace`       | Read representative traces to explain what actually happened       |
 | `posthog:read-data-schema`      | Discover custom event or person properties before grouping by them |
 | `posthog:generate-app-url`      | Build region- and project-qualified links back to the UI           |
@@ -63,6 +63,7 @@ SELECT
     distinct_id,
     argMax(email, timestamp) AS email,
     argMax(name, timestamp) AS name,
+    argMax(person_id, timestamp) AS person_uuid,
     countDistinctIf(ai_trace_id, notEmpty(ai_trace_id)) AS traces,
     count() AS generations,
     countIf(notEmpty(ai_error) OR ai_is_error = 'true') AS errors,
@@ -76,6 +77,7 @@ FROM (
     SELECT
         distinct_id,
         timestamp,
+        person_id,
         toString(properties.$ai_trace_id) AS ai_trace_id,
         toFloat(properties.$ai_total_cost_usd) AS ai_total_cost_usd,
         toString(properties.$ai_error) AS ai_error,
@@ -107,6 +109,10 @@ Project only the explicit label columns you need, such as `email` and `name`.
 Never select the raw `person.properties` object or a tuple containing it: it
 serializes the full property blob into the result and leaks personal data far
 beyond a label. If a user has no email or name, fall back to `distinct_id`.
+
+Keep `person_uuid` for each user you plan to explain. Step 5 needs it.
+Name it differently from the inner `person_id` column. A bare `person_id` alias
+nests `argMax()` inside itself and fails the query.
 
 ### 2. Establish the baseline
 
@@ -231,7 +237,8 @@ Useful comparisons:
 ### 5. Find the user's expensive traces
 
 Use SQL for the ranked trace list, then read representative traces with
-`posthog:query-llm-trace`.
+`posthog:query-llm-trace`. Both steps take a `distinct_id` or a trace ID, so
+they do not need a person UUID.
 
 ```sql
 posthog:execute-sql
@@ -264,6 +271,45 @@ posthog:query-llm-trace
   "dateRange": { "date_from": "-30d" }
 }
 ```
+
+To list the user's traces with `posthog:query-llm-traces-list`, pass the
+`person_uuid` from step 1 as `personId`. Do not pass the `distinct_id`.
+`personId` accepts only a full person UUID, so a `distinct_id` fails the query.
+Preserve the test-account filter used in the SQL ranking, including any filter supplied by the user.
+Set `filterTestAccounts` to `true` when the ranking excludes test accounts, and `false` when it includes them.
+The example below uses `false` to match the unfiltered SQL ranking shown above.
+The list also includes traces from the person's
+other distinct IDs, so its totals can differ from the SQL ranking.
+
+```json
+posthog:query-llm-traces-list
+{
+  "personId": "<person_uuid>",
+  "dateRange": { "date_from": "-30d" },
+  "filterTestAccounts": false
+}
+```
+
+If you did not keep `person_uuid`, look it up for the selected `distinct_id`:
+
+```sql
+posthog:execute-sql
+SELECT
+    person_id AS person_uuid,
+    count() AS generations,
+    max(timestamp) AS last_seen
+FROM events
+WHERE event = '$ai_generation'
+    AND timestamp >= now() - INTERVAL 30 DAY
+    AND distinct_id = '<distinct_id>'
+GROUP BY person_uuid
+ORDER BY generations DESC
+```
+
+If this returns more than one row, the `distinct_id` maps to more than one
+person. Use the row with the most generations and say so in the caveats. If it
+returns no row, do not continue with `query-llm-traces-list`. Use the SQL trace
+ranking above and open each trace with `posthog:query-llm-trace` instead.
 
 Look for the first concrete pattern that explains the aggregate:
 

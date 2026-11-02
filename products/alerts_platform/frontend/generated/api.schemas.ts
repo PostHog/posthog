@@ -10,6 +10,9 @@
 /**
  * * `logs` - Logs
  * * `insight` - Insight
+ * * `warehouse_source` - Warehouse source
+ * * `warehouse_destination` - Warehouse destination
+ * * `metrics` - Metrics
  */
 export type PlatformAlertConfigurationSourceKindEnumApi =
     (typeof PlatformAlertConfigurationSourceKindEnumApi)[keyof typeof PlatformAlertConfigurationSourceKindEnumApi]
@@ -17,6 +20,9 @@ export type PlatformAlertConfigurationSourceKindEnumApi =
 export const PlatformAlertConfigurationSourceKindEnumApi = {
     Logs: 'logs',
     Insight: 'insight',
+    WarehouseSource: 'warehouse_source',
+    WarehouseDestination: 'warehouse_destination',
+    Metrics: 'metrics',
 } as const
 
 /**
@@ -169,6 +175,16 @@ export interface PlatformAlertApi {
  */
 export type PlatformAlertConfigurationApiSourceConfig = { [key: string]: unknown }
 
+/**
+ * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+ */
+export type PlatformAlertConfigurationApiLabels = { [key: string]: string }
+
+/**
+ * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+ */
+export type PlatformAlertConfigurationApiAnnotations = { [key: string]: string }
+
 export interface PlatformAlertConfigurationApi {
     /** Unique identifier of the alert configuration. */
     readonly id: string
@@ -179,7 +195,10 @@ export interface PlatformAlertConfigurationApi {
     /** Product whose data the alert evaluates.
      *
      * * `logs` - Logs
-     * * `insight` - Insight */
+     * * `insight` - Insight
+     * * `warehouse_source` - Warehouse source
+     * * `warehouse_destination` - Warehouse destination
+     * * `metrics` - Metrics */
     readonly source_kind: PlatformAlertConfigurationSourceKindEnumApi
     /** Source-specific settings. The shape depends on source_kind. The bound the alert is evaluated against is under the condition key. */
     readonly source_config: PlatformAlertConfigurationApiSourceConfig
@@ -244,6 +263,10 @@ export interface PlatformAlertConfigurationApi {
     readonly updated_at: string
     /** Runtime state for each result group of this configuration. */
     readonly alerts: readonly PlatformAlertApi[]
+    /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+    readonly labels: PlatformAlertConfigurationApiLabels
+    /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+    readonly annotations: PlatformAlertConfigurationApiAnnotations
 }
 
 export interface PaginatedPlatformAlertConfigurationListApi {
@@ -693,6 +716,16 @@ export interface LogsPlatformAlertSourceConfigApi {
 }
 
 /**
+ * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+ */
+export type LogsPlatformAlertConfigurationCreateApiLabels = { [key: string]: string }
+
+/**
+ * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+ */
+export type LogsPlatformAlertConfigurationCreateApiAnnotations = { [key: string]: string }
+
+/**
  * The settings of a new alert. Every one but source_config has a default, which is stored.
  */
 export interface LogsPlatformAlertConfigurationCreateApi {
@@ -729,9 +762,282 @@ export interface LogsPlatformAlertConfigurationCreateApi {
      * @maximum 2147483647
      */
     cooldown_minutes?: number
+    /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+    labels?: LogsPlatformAlertConfigurationCreateApiLabels
+    /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+    annotations?: LogsPlatformAlertConfigurationCreateApiAnnotations
 }
 
-export type PlatformAlertConfigurationCreateApi = LogsPlatformAlertConfigurationCreateApi
+/**
+ * Product whose data the alert evaluates. It cannot change after the create.
+ */
+export type MetricsPlatformAlertConfigurationCreateApiSourceKind =
+    (typeof MetricsPlatformAlertConfigurationCreateApiSourceKind)[keyof typeof MetricsPlatformAlertConfigurationCreateApiSourceKind]
+
+export const MetricsPlatformAlertConfigurationCreateApiSourceKind = {
+    Metrics: 'metrics',
+} as const
+
+export type MetricsPlatformAlertConditionKindEnumApi =
+    (typeof MetricsPlatformAlertConditionKindEnumApi)[keyof typeof MetricsPlatformAlertConditionKindEnumApi]
+
+export const MetricsPlatformAlertConditionKindEnumApi = {
+    Threshold: 'threshold',
+    Present: 'present',
+} as const
+
+/**
+ * How a series' value compares with `threshold`. Required for a threshold.
+ */
+export type MetricsPlatformAlertConditionApiOperator =
+    | (typeof MetricsPlatformAlertConditionApiOperator)[keyof typeof MetricsPlatformAlertConditionApiOperator]
+    | null
+
+export const MetricsPlatformAlertConditionApiOperator = {
+    Gt: 'gt',
+    Gte: 'gte',
+    Lt: 'lt',
+    Lte: 'lte',
+    Eq: 'eq',
+    Ne: 'ne',
+} as const
+
+export interface MetricsPlatformAlertConditionApi {
+    /** threshold compares each series' latest value with `threshold`. present fires for every series the query returns, for a query that already filters to the series in breach. */
+    kind?: MetricsPlatformAlertConditionKindEnumApi
+    /** How a series' value compares with `threshold`. Required for a threshold. */
+    operator?: MetricsPlatformAlertConditionApiOperator
+    /** The value a series is compared with. Required for a threshold. */
+    threshold?: number | null
+}
+
+export interface MetricsPlatformAlertConfigApi {
+    /**
+     * A PromQL expression over this project's metrics. Each series it returns is one group. For a threshold condition, leave the comparison out of the expression.
+     * @minLength 1
+     * @maxLength 10000
+     */
+    query: string
+    /** When a series is in breach. */
+    condition: MetricsPlatformAlertConditionApi
+}
+
+/**
+ * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+ */
+export type MetricsPlatformAlertConfigurationCreateApiLabels = { [key: string]: string }
+
+/**
+ * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+ */
+export type MetricsPlatformAlertConfigurationCreateApiAnnotations = { [key: string]: string }
+
+/**
+ * The settings of a new alert. Every one but source_config has a default, which is stored.
+ */
+export interface MetricsPlatformAlertConfigurationCreateApi {
+    /** Product whose data the alert evaluates. It cannot change after the create. */
+    source_kind: MetricsPlatformAlertConfigurationCreateApiSourceKind
+    /**
+     * Human-readable name of the alert. Defaults to 'Untitled alert'.
+     * @maxLength 255
+     */
+    name?: string
+    /** Whether the alert is evaluated on schedule. Defaults to true. */
+    enabled?: boolean
+    /** Settings for a metrics alert. The bound the alert is evaluated against is under condition. */
+    source_config: MetricsPlatformAlertConfigApi
+    /** How the alert splits its results into instances. Defaults to mode single. */
+    grouping?: GroupingApi
+    /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
+    schedule_restriction?: AlertScheduleRestrictionApi | null
+    /**
+     * Number of recent checks considered when deciding to fire. Defaults to 1.
+     * @minimum 1
+     * @maximum 10
+     */
+    evaluation_periods?: number
+    /**
+     * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
+     * @minimum 1
+     * @maximum 10
+     */
+    datapoints_to_alarm?: number
+    /**
+     * Minimum minutes between notifications for the same alert. Defaults to 0.
+     * @minimum 0
+     * @maximum 2147483647
+     */
+    cooldown_minutes?: number
+    /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+    labels?: MetricsPlatformAlertConfigurationCreateApiLabels
+    /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+    annotations?: MetricsPlatformAlertConfigurationCreateApiAnnotations
+}
+
+/**
+ * Product whose data the alert evaluates. It cannot change after the create.
+ */
+export type WarehouseDestinationPlatformAlertConfigurationCreateApiSourceKind =
+    (typeof WarehouseDestinationPlatformAlertConfigurationCreateApiSourceKind)[keyof typeof WarehouseDestinationPlatformAlertConfigurationCreateApiSourceKind]
+
+export const WarehouseDestinationPlatformAlertConfigurationCreateApiSourceKind = {
+    WarehouseDestination: 'warehouse_destination',
+} as const
+
+export interface WarehouseDestinationAlertConfigApi {
+    /**
+     * Warehouse destinations the alert watches. Empty watches every destination in the project, including destinations added later. The grouping must be by_result_labels with keys [destination_id].
+     * @maxItems 100
+     */
+    destination_ids?: string[]
+    /** Whether project members who get data pipeline error emails also get an email when this alert fires or resolves. */
+    email_project_members?: boolean
+}
+
+/**
+ * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+ */
+export type WarehouseDestinationPlatformAlertConfigurationCreateApiLabels = { [key: string]: string }
+
+/**
+ * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+ */
+export type WarehouseDestinationPlatformAlertConfigurationCreateApiAnnotations = { [key: string]: string }
+
+/**
+ * The settings of a new alert. Every one but source_config has a default, which is stored.
+ */
+export interface WarehouseDestinationPlatformAlertConfigurationCreateApi {
+    /** Product whose data the alert evaluates. It cannot change after the create. */
+    source_kind: WarehouseDestinationPlatformAlertConfigurationCreateApiSourceKind
+    /**
+     * Human-readable name of the alert. Defaults to 'Untitled alert'.
+     * @maxLength 255
+     */
+    name?: string
+    /** Whether the alert is evaluated on schedule. Defaults to true. */
+    enabled?: boolean
+    /** Settings for a warehouse_destination alert. The bound the alert is evaluated against is under condition. */
+    source_config: WarehouseDestinationAlertConfigApi
+    /** How the alert splits its results into instances. Defaults to mode single. */
+    grouping?: GroupingApi
+    /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
+    schedule_restriction?: AlertScheduleRestrictionApi | null
+    /**
+     * Number of recent checks considered when deciding to fire. Defaults to 1.
+     * @minimum 1
+     * @maximum 10
+     */
+    evaluation_periods?: number
+    /**
+     * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
+     * @minimum 1
+     * @maximum 10
+     */
+    datapoints_to_alarm?: number
+    /**
+     * Minimum minutes between notifications for the same alert. Defaults to 0.
+     * @minimum 0
+     * @maximum 2147483647
+     */
+    cooldown_minutes?: number
+    /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+    labels?: WarehouseDestinationPlatformAlertConfigurationCreateApiLabels
+    /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+    annotations?: WarehouseDestinationPlatformAlertConfigurationCreateApiAnnotations
+}
+
+/**
+ * Product whose data the alert evaluates. It cannot change after the create.
+ */
+export type WarehouseSourcePlatformAlertConfigurationCreateApiSourceKind =
+    (typeof WarehouseSourcePlatformAlertConfigurationCreateApiSourceKind)[keyof typeof WarehouseSourcePlatformAlertConfigurationCreateApiSourceKind]
+
+export const WarehouseSourcePlatformAlertConfigurationCreateApiSourceKind = {
+    WarehouseSource: 'warehouse_source',
+} as const
+
+export type WarehouseAlertGroupByEnumApi =
+    (typeof WarehouseAlertGroupByEnumApi)[keyof typeof WarehouseAlertGroupByEnumApi]
+
+export const WarehouseAlertGroupByEnumApi = {
+    Schema: 'schema',
+    Source: 'source',
+} as const
+
+export interface WarehouseSourceAlertConfigApi {
+    /**
+     * Warehouse sources the alert watches. Empty watches every source in the project, including sources added later.
+     * @maxItems 100
+     */
+    source_ids?: string[]
+    /** schema keeps one alert instance, and sends one message, per failing table. source keeps one per source, whatever number of its tables fail. The grouping must be by_result_labels with keys [schema_id] or [source_id] to match. */
+    group_by?: WarehouseAlertGroupByEnumApi
+    /** Whether a table that stops syncing at the project's billing limit also fires the alert. */
+    include_billing_limits?: boolean
+    /** Whether project members who get data pipeline error emails also get an email when this alert fires or resolves. */
+    email_project_members?: boolean
+}
+
+/**
+ * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+ */
+export type WarehouseSourcePlatformAlertConfigurationCreateApiLabels = { [key: string]: string }
+
+/**
+ * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+ */
+export type WarehouseSourcePlatformAlertConfigurationCreateApiAnnotations = { [key: string]: string }
+
+/**
+ * The settings of a new alert. Every one but source_config has a default, which is stored.
+ */
+export interface WarehouseSourcePlatformAlertConfigurationCreateApi {
+    /** Product whose data the alert evaluates. It cannot change after the create. */
+    source_kind: WarehouseSourcePlatformAlertConfigurationCreateApiSourceKind
+    /**
+     * Human-readable name of the alert. Defaults to 'Untitled alert'.
+     * @maxLength 255
+     */
+    name?: string
+    /** Whether the alert is evaluated on schedule. Defaults to true. */
+    enabled?: boolean
+    /** Settings for a warehouse_source alert. The bound the alert is evaluated against is under condition. */
+    source_config: WarehouseSourceAlertConfigApi
+    /** How the alert splits its results into instances. Defaults to mode single. */
+    grouping?: GroupingApi
+    /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
+    schedule_restriction?: AlertScheduleRestrictionApi | null
+    /**
+     * Number of recent checks considered when deciding to fire. Defaults to 1.
+     * @minimum 1
+     * @maximum 10
+     */
+    evaluation_periods?: number
+    /**
+     * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
+     * @minimum 1
+     * @maximum 10
+     */
+    datapoints_to_alarm?: number
+    /**
+     * Minimum minutes between notifications for the same alert. Defaults to 0.
+     * @minimum 0
+     * @maximum 2147483647
+     */
+    cooldown_minutes?: number
+    /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+    labels?: WarehouseSourcePlatformAlertConfigurationCreateApiLabels
+    /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+    annotations?: WarehouseSourcePlatformAlertConfigurationCreateApiAnnotations
+}
+
+export type PlatformAlertConfigurationCreateApi =
+    | LogsPlatformAlertConfigurationCreateApi
+    | MetricsPlatformAlertConfigurationCreateApi
+    | WarehouseDestinationPlatformAlertConfigurationCreateApi
+    | WarehouseSourcePlatformAlertConfigurationCreateApi
 
 /**
  * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
@@ -775,16 +1081,18 @@ export interface AlertConditionApi {
     type: AlertConditionTypeApi
 }
 
+/**
+ * The anomaly detector the alert uses in place of its threshold, or null for a threshold alert. It can't change through this API.
+ */
+export type InsightPlatformAlertConditionApiDetector = { [key: string]: unknown } | null
+
 export interface InsightPlatformAlertConditionApi {
     /** The bounds the insight's value is checked against, absolute or as a percentage change. */
     threshold: InsightThresholdApi | null
     /** How the value is compared: as it is, or as an increase or decrease from the previous interval. */
     comparison: AlertConditionApi
-    /**
-     * Always null. The platform owns threshold alerts only, so no detector applies.
-     * @nullable
-     */
-    detector?: null
+    /** The anomaly detector the alert uses in place of its threshold, or null for a threshold alert. It can't change through this API. */
+    detector?: InsightPlatformAlertConditionApiDetector
 }
 
 export interface InsightPlatformAlertSourceConfigApi {
@@ -793,6 +1101,16 @@ export interface InsightPlatformAlertSourceConfigApi {
     /** The bound the insight's value is checked against. */
     condition: InsightPlatformAlertConditionApi
 }
+
+/**
+ * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+ */
+export type InsightPlatformAlertConfigurationEditApiLabels = { [key: string]: string }
+
+/**
+ * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+ */
+export type InsightPlatformAlertConfigurationEditApiAnnotations = { [key: string]: string }
 
 /**
  * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
@@ -831,6 +1149,10 @@ export interface InsightPlatformAlertConfigurationEditApi {
      * @maximum 2147483647
      */
     cooldown_minutes: number
+    /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+    labels?: InsightPlatformAlertConfigurationEditApiLabels
+    /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+    annotations?: InsightPlatformAlertConfigurationEditApiAnnotations
 }
 
 /**
@@ -842,6 +1164,16 @@ export type LogsPlatformAlertConfigurationEditApiSourceKind =
 export const LogsPlatformAlertConfigurationEditApiSourceKind = {
     Logs: 'logs',
 } as const
+
+/**
+ * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+ */
+export type LogsPlatformAlertConfigurationEditApiLabels = { [key: string]: string }
+
+/**
+ * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+ */
+export type LogsPlatformAlertConfigurationEditApiAnnotations = { [key: string]: string }
 
 /**
  * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
@@ -880,11 +1212,207 @@ export interface LogsPlatformAlertConfigurationEditApi {
      * @maximum 2147483647
      */
     cooldown_minutes: number
+    /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+    labels?: LogsPlatformAlertConfigurationEditApiLabels
+    /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+    annotations?: LogsPlatformAlertConfigurationEditApiAnnotations
+}
+
+/**
+ * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+ */
+export type MetricsPlatformAlertConfigurationEditApiSourceKind =
+    (typeof MetricsPlatformAlertConfigurationEditApiSourceKind)[keyof typeof MetricsPlatformAlertConfigurationEditApiSourceKind]
+
+export const MetricsPlatformAlertConfigurationEditApiSourceKind = {
+    Metrics: 'metrics',
+} as const
+
+/**
+ * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+ */
+export type MetricsPlatformAlertConfigurationEditApiLabels = { [key: string]: string }
+
+/**
+ * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+ */
+export type MetricsPlatformAlertConfigurationEditApiAnnotations = { [key: string]: string }
+
+/**
+ * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+ */
+export interface MetricsPlatformAlertConfigurationEditApi {
+    /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+    source_kind: MetricsPlatformAlertConfigurationEditApiSourceKind
+    /**
+     * Human-readable name of the alert.
+     * @maxLength 255
+     */
+    name: string
+    /** Whether the alert is evaluated on schedule. */
+    enabled: boolean
+    /** Settings for a metrics alert. The bound the alert is evaluated against is under condition. */
+    source_config: MetricsPlatformAlertConfigApi
+    /** How the alert splits its results into instances. */
+    grouping: GroupingApi
+    /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+    schedule_restriction: AlertScheduleRestrictionApi | null
+    /**
+     * Number of recent checks considered when deciding to fire.
+     * @minimum 1
+     * @maximum 10
+     */
+    evaluation_periods: number
+    /**
+     * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+     * @minimum 1
+     * @maximum 10
+     */
+    datapoints_to_alarm: number
+    /**
+     * Minimum minutes between notifications for the same alert.
+     * @minimum 0
+     * @maximum 2147483647
+     */
+    cooldown_minutes: number
+    /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+    labels?: MetricsPlatformAlertConfigurationEditApiLabels
+    /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+    annotations?: MetricsPlatformAlertConfigurationEditApiAnnotations
+}
+
+/**
+ * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+ */
+export type WarehouseDestinationPlatformAlertConfigurationEditApiSourceKind =
+    (typeof WarehouseDestinationPlatformAlertConfigurationEditApiSourceKind)[keyof typeof WarehouseDestinationPlatformAlertConfigurationEditApiSourceKind]
+
+export const WarehouseDestinationPlatformAlertConfigurationEditApiSourceKind = {
+    WarehouseDestination: 'warehouse_destination',
+} as const
+
+/**
+ * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+ */
+export type WarehouseDestinationPlatformAlertConfigurationEditApiLabels = { [key: string]: string }
+
+/**
+ * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+ */
+export type WarehouseDestinationPlatformAlertConfigurationEditApiAnnotations = { [key: string]: string }
+
+/**
+ * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+ */
+export interface WarehouseDestinationPlatformAlertConfigurationEditApi {
+    /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+    source_kind: WarehouseDestinationPlatformAlertConfigurationEditApiSourceKind
+    /**
+     * Human-readable name of the alert.
+     * @maxLength 255
+     */
+    name: string
+    /** Whether the alert is evaluated on schedule. */
+    enabled: boolean
+    /** Settings for a warehouse_destination alert. The bound the alert is evaluated against is under condition. */
+    source_config: WarehouseDestinationAlertConfigApi
+    /** How the alert splits its results into instances. */
+    grouping: GroupingApi
+    /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+    schedule_restriction: AlertScheduleRestrictionApi | null
+    /**
+     * Number of recent checks considered when deciding to fire.
+     * @minimum 1
+     * @maximum 10
+     */
+    evaluation_periods: number
+    /**
+     * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+     * @minimum 1
+     * @maximum 10
+     */
+    datapoints_to_alarm: number
+    /**
+     * Minimum minutes between notifications for the same alert.
+     * @minimum 0
+     * @maximum 2147483647
+     */
+    cooldown_minutes: number
+    /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+    labels?: WarehouseDestinationPlatformAlertConfigurationEditApiLabels
+    /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+    annotations?: WarehouseDestinationPlatformAlertConfigurationEditApiAnnotations
+}
+
+/**
+ * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+ */
+export type WarehouseSourcePlatformAlertConfigurationEditApiSourceKind =
+    (typeof WarehouseSourcePlatformAlertConfigurationEditApiSourceKind)[keyof typeof WarehouseSourcePlatformAlertConfigurationEditApiSourceKind]
+
+export const WarehouseSourcePlatformAlertConfigurationEditApiSourceKind = {
+    WarehouseSource: 'warehouse_source',
+} as const
+
+/**
+ * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+ */
+export type WarehouseSourcePlatformAlertConfigurationEditApiLabels = { [key: string]: string }
+
+/**
+ * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+ */
+export type WarehouseSourcePlatformAlertConfigurationEditApiAnnotations = { [key: string]: string }
+
+/**
+ * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+ */
+export interface WarehouseSourcePlatformAlertConfigurationEditApi {
+    /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+    source_kind: WarehouseSourcePlatformAlertConfigurationEditApiSourceKind
+    /**
+     * Human-readable name of the alert.
+     * @maxLength 255
+     */
+    name: string
+    /** Whether the alert is evaluated on schedule. */
+    enabled: boolean
+    /** Settings for a warehouse_source alert. The bound the alert is evaluated against is under condition. */
+    source_config: WarehouseSourceAlertConfigApi
+    /** How the alert splits its results into instances. */
+    grouping: GroupingApi
+    /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+    schedule_restriction: AlertScheduleRestrictionApi | null
+    /**
+     * Number of recent checks considered when deciding to fire.
+     * @minimum 1
+     * @maximum 10
+     */
+    evaluation_periods: number
+    /**
+     * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+     * @minimum 1
+     * @maximum 10
+     */
+    datapoints_to_alarm: number
+    /**
+     * Minimum minutes between notifications for the same alert.
+     * @minimum 0
+     * @maximum 2147483647
+     */
+    cooldown_minutes: number
+    /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+    labels?: WarehouseSourcePlatformAlertConfigurationEditApiLabels
+    /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+    annotations?: WarehouseSourcePlatformAlertConfigurationEditApiAnnotations
 }
 
 export type PlatformAlertConfigurationEditApi =
     | InsightPlatformAlertConfigurationEditApi
     | LogsPlatformAlertConfigurationEditApi
+    | MetricsPlatformAlertConfigurationEditApi
+    | WarehouseDestinationPlatformAlertConfigurationEditApi
+    | WarehouseSourcePlatformAlertConfigurationEditApi
 
 /**
  * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
@@ -895,6 +1423,16 @@ export type PatchedInsightPlatformAlertConfigurationEditApiSourceKind =
 export const PatchedInsightPlatformAlertConfigurationEditApiSourceKind = {
     Insight: 'insight',
 } as const
+
+/**
+ * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+ */
+export type PatchedInsightPlatformAlertConfigurationEditApiLabels = { [key: string]: string }
+
+/**
+ * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+ */
+export type PatchedInsightPlatformAlertConfigurationEditApiAnnotations = { [key: string]: string }
 
 /**
  * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
@@ -933,6 +1471,10 @@ export interface PatchedInsightPlatformAlertConfigurationEditApi {
      * @maximum 2147483647
      */
     cooldown_minutes?: number
+    /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+    labels?: PatchedInsightPlatformAlertConfigurationEditApiLabels
+    /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+    annotations?: PatchedInsightPlatformAlertConfigurationEditApiAnnotations
 }
 
 /**
@@ -944,6 +1486,16 @@ export type PatchedLogsPlatformAlertConfigurationEditApiSourceKind =
 export const PatchedLogsPlatformAlertConfigurationEditApiSourceKind = {
     Logs: 'logs',
 } as const
+
+/**
+ * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+ */
+export type PatchedLogsPlatformAlertConfigurationEditApiLabels = { [key: string]: string }
+
+/**
+ * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+ */
+export type PatchedLogsPlatformAlertConfigurationEditApiAnnotations = { [key: string]: string }
 
 /**
  * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
@@ -982,11 +1534,207 @@ export interface PatchedLogsPlatformAlertConfigurationEditApi {
      * @maximum 2147483647
      */
     cooldown_minutes?: number
+    /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+    labels?: PatchedLogsPlatformAlertConfigurationEditApiLabels
+    /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+    annotations?: PatchedLogsPlatformAlertConfigurationEditApiAnnotations
+}
+
+/**
+ * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+ */
+export type PatchedMetricsPlatformAlertConfigurationEditApiSourceKind =
+    (typeof PatchedMetricsPlatformAlertConfigurationEditApiSourceKind)[keyof typeof PatchedMetricsPlatformAlertConfigurationEditApiSourceKind]
+
+export const PatchedMetricsPlatformAlertConfigurationEditApiSourceKind = {
+    Metrics: 'metrics',
+} as const
+
+/**
+ * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+ */
+export type PatchedMetricsPlatformAlertConfigurationEditApiLabels = { [key: string]: string }
+
+/**
+ * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+ */
+export type PatchedMetricsPlatformAlertConfigurationEditApiAnnotations = { [key: string]: string }
+
+/**
+ * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+ */
+export interface PatchedMetricsPlatformAlertConfigurationEditApi {
+    /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+    source_kind: PatchedMetricsPlatformAlertConfigurationEditApiSourceKind
+    /**
+     * Human-readable name of the alert.
+     * @maxLength 255
+     */
+    name?: string
+    /** Whether the alert is evaluated on schedule. */
+    enabled?: boolean
+    /** Settings for a metrics alert. The bound the alert is evaluated against is under condition. */
+    source_config?: MetricsPlatformAlertConfigApi
+    /** How the alert splits its results into instances. */
+    grouping?: GroupingApi
+    /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+    schedule_restriction?: AlertScheduleRestrictionApi | null
+    /**
+     * Number of recent checks considered when deciding to fire.
+     * @minimum 1
+     * @maximum 10
+     */
+    evaluation_periods?: number
+    /**
+     * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+     * @minimum 1
+     * @maximum 10
+     */
+    datapoints_to_alarm?: number
+    /**
+     * Minimum minutes between notifications for the same alert.
+     * @minimum 0
+     * @maximum 2147483647
+     */
+    cooldown_minutes?: number
+    /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+    labels?: PatchedMetricsPlatformAlertConfigurationEditApiLabels
+    /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+    annotations?: PatchedMetricsPlatformAlertConfigurationEditApiAnnotations
+}
+
+/**
+ * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+ */
+export type PatchedWarehouseDestinationPlatformAlertConfigurationEditApiSourceKind =
+    (typeof PatchedWarehouseDestinationPlatformAlertConfigurationEditApiSourceKind)[keyof typeof PatchedWarehouseDestinationPlatformAlertConfigurationEditApiSourceKind]
+
+export const PatchedWarehouseDestinationPlatformAlertConfigurationEditApiSourceKind = {
+    WarehouseDestination: 'warehouse_destination',
+} as const
+
+/**
+ * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+ */
+export type PatchedWarehouseDestinationPlatformAlertConfigurationEditApiLabels = { [key: string]: string }
+
+/**
+ * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+ */
+export type PatchedWarehouseDestinationPlatformAlertConfigurationEditApiAnnotations = { [key: string]: string }
+
+/**
+ * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+ */
+export interface PatchedWarehouseDestinationPlatformAlertConfigurationEditApi {
+    /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+    source_kind: PatchedWarehouseDestinationPlatformAlertConfigurationEditApiSourceKind
+    /**
+     * Human-readable name of the alert.
+     * @maxLength 255
+     */
+    name?: string
+    /** Whether the alert is evaluated on schedule. */
+    enabled?: boolean
+    /** Settings for a warehouse_destination alert. The bound the alert is evaluated against is under condition. */
+    source_config?: WarehouseDestinationAlertConfigApi
+    /** How the alert splits its results into instances. */
+    grouping?: GroupingApi
+    /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+    schedule_restriction?: AlertScheduleRestrictionApi | null
+    /**
+     * Number of recent checks considered when deciding to fire.
+     * @minimum 1
+     * @maximum 10
+     */
+    evaluation_periods?: number
+    /**
+     * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+     * @minimum 1
+     * @maximum 10
+     */
+    datapoints_to_alarm?: number
+    /**
+     * Minimum minutes between notifications for the same alert.
+     * @minimum 0
+     * @maximum 2147483647
+     */
+    cooldown_minutes?: number
+    /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+    labels?: PatchedWarehouseDestinationPlatformAlertConfigurationEditApiLabels
+    /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+    annotations?: PatchedWarehouseDestinationPlatformAlertConfigurationEditApiAnnotations
+}
+
+/**
+ * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+ */
+export type PatchedWarehouseSourcePlatformAlertConfigurationEditApiSourceKind =
+    (typeof PatchedWarehouseSourcePlatformAlertConfigurationEditApiSourceKind)[keyof typeof PatchedWarehouseSourcePlatformAlertConfigurationEditApiSourceKind]
+
+export const PatchedWarehouseSourcePlatformAlertConfigurationEditApiSourceKind = {
+    WarehouseSource: 'warehouse_source',
+} as const
+
+/**
+ * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+ */
+export type PatchedWarehouseSourcePlatformAlertConfigurationEditApiLabels = { [key: string]: string }
+
+/**
+ * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+ */
+export type PatchedWarehouseSourcePlatformAlertConfigurationEditApiAnnotations = { [key: string]: string }
+
+/**
+ * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+ */
+export interface PatchedWarehouseSourcePlatformAlertConfigurationEditApi {
+    /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+    source_kind: PatchedWarehouseSourcePlatformAlertConfigurationEditApiSourceKind
+    /**
+     * Human-readable name of the alert.
+     * @maxLength 255
+     */
+    name?: string
+    /** Whether the alert is evaluated on schedule. */
+    enabled?: boolean
+    /** Settings for a warehouse_source alert. The bound the alert is evaluated against is under condition. */
+    source_config?: WarehouseSourceAlertConfigApi
+    /** How the alert splits its results into instances. */
+    grouping?: GroupingApi
+    /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+    schedule_restriction?: AlertScheduleRestrictionApi | null
+    /**
+     * Number of recent checks considered when deciding to fire.
+     * @minimum 1
+     * @maximum 10
+     */
+    evaluation_periods?: number
+    /**
+     * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+     * @minimum 1
+     * @maximum 10
+     */
+    datapoints_to_alarm?: number
+    /**
+     * Minimum minutes between notifications for the same alert.
+     * @minimum 0
+     * @maximum 2147483647
+     */
+    cooldown_minutes?: number
+    /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+    labels?: PatchedWarehouseSourcePlatformAlertConfigurationEditApiLabels
+    /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+    annotations?: PatchedWarehouseSourcePlatformAlertConfigurationEditApiAnnotations
 }
 
 export type PatchedPlatformAlertConfigurationEditApi =
     | PatchedInsightPlatformAlertConfigurationEditApi
     | PatchedLogsPlatformAlertConfigurationEditApi
+    | PatchedMetricsPlatformAlertConfigurationEditApi
+    | PatchedWarehouseDestinationPlatformAlertConfigurationEditApi
+    | PatchedWarehouseSourcePlatformAlertConfigurationEditApi
 
 export interface PlatformAlertGroupSnoozeApi {
     /**

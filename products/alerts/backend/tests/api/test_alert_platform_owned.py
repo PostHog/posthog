@@ -14,8 +14,14 @@ from posthog.constants import AvailableFeature
 from posthog.models.scoping import team_scope
 from posthog.schema_enums import AlertCalculationInterval
 
+from products.alerts.backend.evaluation.detector import _earlier_flags
 from products.alerts.backend.facade.api import snooze_alert_from_slack
 from products.alerts.backend.facade.contracts import PlatformCannotOwn
+from products.alerts.backend.judge import (
+    LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
+    LLM_DETECTOR_UNAVAILABLE_MESSAGE,
+    EarlierFlag,
+)
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.alerts.backend.platform_cutover import cut_over_team
 from products.alerts.backend.test.insight_alerts import create_insight_alert
@@ -51,7 +57,15 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
     def _at(self, minutes_ago: int) -> datetime:
         return self.now - timedelta(minutes=minutes_ago)
 
-    def _record(self, minutes_ago: int, state: str, *, value: float | None = None, error: str | None = None) -> None:
+    def _record(
+        self,
+        minutes_ago: int,
+        state: str,
+        *,
+        value: float | None = None,
+        error: str | None = None,
+        detail: dict[str, Any] | None = None,
+    ) -> None:
         platform_testing.record_check(
             self.copy_id,
             team_id=self.team.id,
@@ -60,7 +74,18 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
             state=state,
             value=value,
             error_message=error,
+            source_detail=detail,
         )
+
+    def _own_check(self, minutes_ago: int, date: str, rationale: str) -> None:
+        check = AlertCheck.objects.create(
+            alert_configuration=self.alert,
+            state="Firing",
+            triggered_points=[9],
+            triggered_dates=[date],
+            triggered_metadata={"detector_type": "llm", "rationale": rationale},
+        )
+        AlertCheck.objects.filter(id=check.id).update(created_at=self._at(minutes_ago))
 
     def _row(self, action: str, query: str = "") -> dict[str, Any]:
         if action == "list":
@@ -107,6 +132,82 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
         # A check made at the window's end, to the microsecond, is inside it.
         up_to_a_check = self._row("retrieve", f"?checks_date_to={_iso(self._at(60))}")
         assert [check["created_at"] for check in up_to_a_check["checks"]] == [_iso(self._at(60)), _iso(self._at(90))]
+
+    def test_a_moved_detector_alert_shows_its_detector_output_from_the_platform(self) -> None:
+        detail = {
+            "anomaly_scores": [0.99],
+            "triggered_points": [9],
+            "triggered_dates": ["2026-10-20"],
+            "interval": "day",
+            "triggered_metadata": {"detector_type": "llm", "rationale": "Signups fell.", "kind": "drop"},
+        }
+        self._record(30, "firing", value=150.0, detail=detail)
+        # History outlives the code that wrote it, so a value of another shape is left out.
+        self._record(20, "firing", value=150.0, detail={**detail, "triggered_dates": "2026-10-21"})
+
+        # The history explains a check the model could not answer, as it does for the alert's own checks.
+        self._record(
+            10,
+            "errored",
+            error=LLM_DETECTOR_UNAVAILABLE_MESSAGE,
+            detail={"error_code": LLM_DETECTOR_UNAVAILABLE_ERROR_CODE},
+        )
+
+        unanswered, newest, oldest = self._row("retrieve", "?checks_limit=3")["checks"]
+
+        assert {key: oldest[key] for key in detail} == detail
+        assert newest["triggered_dates"] is None
+        assert unanswered["error"] == {
+            "code": LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
+            "message": LLM_DETECTOR_UNAVAILABLE_MESSAGE,
+        }
+
+    def test_a_moved_detector_alert_marks_the_points_both_stacks_fired_on(self) -> None:
+        self._own_check(60 * 24, "2026-10-18", "Before the move.")
+        # The shadow's check after the move sent nothing, so the platform's verdict replaces it.
+        self._own_check(-30, "2026-10-19", "The shadow.")
+        # Before the move, the platform's copy only ran in parallel, so its verdicts are not the alert's.
+        self._record(60, "firing", detail={"triggered_points": [9], "triggered_dates": ["2026-10-17"]})
+        self._record(-30, "firing", detail={"triggered_points": [9], "triggered_dates": ["2026-10-20"]})
+        self._record(-20, "not_firing", detail={"anomaly_scores": [0.1]})
+
+        row = self._row("list")
+
+        assert [check["triggered_dates"] for check in row["checks"]] == [["2026-10-20"], ["2026-10-18"]]
+
+    @parameterized.expand(
+        [
+            ("every_check", 500, ["2026-10-18", "2026-10-20"]),
+            # A newer statistical check must not use up the limit and push out the AI verdict.
+            ("only_the_newest", 1, ["2026-10-20"]),
+        ]
+    )
+    def test_a_moved_ai_alert_reads_its_earlier_flags_from_both_stacks(
+        self, _name: str, limit: int, dates: list[str]
+    ) -> None:
+        self._own_check(60 * 24, "2026-10-18", "Before the move.")
+        self._own_check(-30, "2026-10-19", "The shadow.")
+        llm = {"detector_type": "llm"}
+        # Before the move, the platform's copy only ran in parallel, so its verdicts are not the alert's.
+        self._record(60, "firing", detail={"triggered_dates": ["2026-10-17"], "triggered_metadata": llm})
+        self._record(
+            -30,
+            "firing",
+            detail={"triggered_dates": ["2026-10-20"], "triggered_metadata": {**llm, "rationale": "After."}},
+        )
+        self._record(
+            -25, "firing", detail={"triggered_dates": ["2026-10-21"], "triggered_metadata": {"detector_type": "zscore"}}
+        )
+        self._record(
+            -20, "errored", error="boom", detail={"triggered_dates": ["2026-10-22"], "triggered_metadata": llm}
+        )
+        self.alert.refresh_from_db()
+
+        with patch("products.alerts.backend.evaluation.detector.MAX_EARLIER_CHECKS", limit):
+            flags = _earlier_flags(self.alert)
+
+        reasons = {"2026-10-18": "Before the move.", "2026-10-20": "After."}
+        assert flags == tuple(EarlierFlag(date=date, rationale=reasons[date]) for date in dates)
 
     def test_a_platform_history_failure_falls_back_to_the_alerts_own_checks(self) -> None:
         self._record(30, "firing", value=150.0)
@@ -167,24 +268,40 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             {"upper": 200},
         )
 
-    def test_a_platform_edit_the_insight_stack_cannot_check_is_refused_on_both_rows(self) -> None:
-        def percentage_bound(stored: PlatformAlertConfigurationEdit) -> PlatformAlertConfigurationEdit:
-            threshold = {"type": "percentage", "bounds": {"upper": 0.5}}
-            condition = {**stored.source_config["condition"], "threshold": threshold}
+    @parameterized.expand(
+        [
+            ("percentage_bound", {"threshold": {"type": "percentage", "bounds": {"upper": 0.5}}}),
+            # The insight API checks a detector against its insight and its access rules, so only it may set one.
+            ("detector", {"detector": {"type": "zscore"}}),
+        ]
+    )
+    def test_a_platform_edit_the_insight_stack_cannot_check_is_refused_on_both_rows(
+        self, _name: str, condition_change: dict[str, Any]
+    ) -> None:
+        stored_config = self._copy().source_config
+
+        def edit(stored: PlatformAlertConfigurationEdit) -> PlatformAlertConfigurationEdit:
+            condition = {**stored.source_config["condition"], **condition_change}
             return replace(stored, source_config={**stored.source_config, "condition": condition})
 
         with pytest.raises(InvalidPlatformAlertEdit):
-            self._edit_on_the_platform(percentage_bound)
+            self._edit_on_the_platform(edit)
 
         self.alert.refresh_from_db()
         assert self.alert.threshold is not None
-        assert (
-            self.alert.threshold.configuration["type"],
-            self._copy().source_config["condition"]["threshold"]["type"],
-        ) == (
-            "absolute",
-            "absolute",
-        )
+        assert (self.alert.threshold.configuration["type"], self.alert.detector_config) == ("absolute", None)
+        assert self._copy().source_config == stored_config
+
+    def test_a_platform_edit_cannot_turn_an_ai_alert_back_on(self) -> None:
+        self._edit_on_the_platform(lambda stored: replace(stored, enabled=False))
+        AlertConfiguration.objects.filter(id=self.alert.id).update(detector_config={"type": "llm"})
+
+        with pytest.raises(InvalidPlatformAlertEdit) as refused:
+            self._edit_on_the_platform(lambda stored: replace(stored, enabled=True))
+
+        assert refused.value.field_name == "enabled"
+        self.alert.refresh_from_db()
+        assert (self.alert.enabled, self._copy().enabled) == (False, False)
 
     def test_a_snooze_from_slack_mutes_the_platform_copy(self) -> None:
         outcome = snooze_alert_from_slack(self.alert.id, user=self.user, duration="1d")

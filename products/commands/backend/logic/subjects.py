@@ -10,7 +10,7 @@ follows ``Subject``, a case in each function below, and the kind to the commands
 
 from typing import Any, Protocol, assert_never
 
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationManager
 from posthog.utils import absolute_uri
 
 from products.error_tracking.backend.facade import api as error_tracking
@@ -104,13 +104,8 @@ def candidate_team_ids(ref: SubjectRef) -> tuple[int, ...]:
     """
     match ref:
         case PullRequestRef():
-            return tuple(
-                dict.fromkeys(
-                    Integration.objects.filter(kind="github", integration_id=ref.installation_id)
-                    .order_by("id")
-                    .values_list("team_id", flat=True)
-                )
-            )
+            rows = IntegrationManager.github.oauth.list_by_external_id(ref.installation_id)
+            return tuple(dict.fromkeys(row.team_id for row in sorted(rows, key=lambda row: row.id)))
         case ErrorTrackingIssueRef():
             return (ref.team_id,)
         case _:

@@ -17,7 +17,7 @@ import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
 } from '../../types'
-import { TRANSACTIONAL_EMAIL_EVENT, hasSensitiveEmailStep } from '../hogflows/hogflow-sensitivity'
+import { TRANSACTIONAL_EMAIL_EVENT, hasSensitiveMessageStep } from '../hogflows/hogflow-sensitivity'
 
 const counterHogInvocationResultRowsProduced = new Counter({
     name: 'cdp_hog_invocation_result_rows_produced',
@@ -133,7 +133,7 @@ const truncate = (value: string, max: number): string => {
 // status_idx skipping index stays small. Only the message lands in
 // `error_message`, never the stack trace — app-level executors pass the whole
 // `Error` here, and its stack would otherwise leak into the Invocations tab.
-const classifyError = (error: unknown): { kind: string; message: string } => {
+export const classifyError = (error: unknown): { kind: string; message: string } => {
     if (!error) {
         return { kind: '', message: '' }
     }
@@ -205,9 +205,10 @@ const extractTriggerFields = (
 // for rerun correctness — we'll always pick up the latest secrets, not a
 // snapshot from when the original invocation ran.
 const INPUT_KEYS: ReadonlySet<string> = new Set(['inputs'])
-// A sensitive email's message data carries reset links and login codes, so its snapshot keeps no
-// variables either, and a rerun can't rebuild the send.
-const SENSITIVE_KEYS: ReadonlySet<string> = new Set(['inputs', 'variables'])
+// A sensitive message carries reset links, login codes or private text, so its snapshot keeps no
+// variables either, and a rerun can't rebuild the send. A step paused mid-send (e.g. for a provider
+// retry) holds the rendered message on its VM stack, and the person and group properties it read, so those go too.
+const SENSITIVE_KEYS: ReadonlySet<string> = new Set(['inputs', 'variables', 'vmState', 'person', 'groups'])
 export const SENSITIVE_VARIABLES_OMITTED = 'sensitive_variables_omitted'
 
 const stripKeys = <T>(value: T, keys: ReadonlySet<string>): T => {
@@ -239,14 +240,14 @@ const stripKeys = <T>(value: T, keys: ReadonlySet<string>): T => {
 // dropped anyway for security (resolved secrets — see `stripKeys`).
 // Recovery paths pass a workflow stub with only an id. A run that started before its template became
 // sensitive carries no stamp, so a transactional email run without the actions is treated as sensitive.
-const sendsSensitiveEmail = (invocation: CyclotronJobInvocationHogFlow): boolean => {
+const sendsSensitiveMessage = (invocation: CyclotronJobInvocationHogFlow): boolean => {
     if (invocation.state?.sensitive === true) {
         return true
     }
     if (!Array.isArray(invocation.hogFlow?.actions)) {
         return invocation.state?.event?.event === TRANSACTIONAL_EMAIL_EVENT
     }
-    return hasSensitiveEmailStep(invocation.hogFlow)
+    return hasSensitiveMessageStep(invocation.hogFlow)
 }
 
 const serializeInvocationGlobals = (invocation: CyclotronJobInvocation): string => {
@@ -257,7 +258,7 @@ const serializeInvocationGlobals = (invocation: CyclotronJobInvocation): string 
     if (isHogFlowInvocation(invocation)) {
         // Hog flow state can carry a per-action `currentAction.hogFunctionState.globals.inputs`
         // — `stripKeys` walks the tree and removes those too.
-        if (sendsSensitiveEmail(invocation)) {
+        if (sendsSensitiveMessage(invocation)) {
             return JSON.stringify({
                 ...stripKeys(invocation.state ?? {}, SENSITIVE_KEYS),
                 [SENSITIVE_VARIABLES_OMITTED]: true,
@@ -490,7 +491,11 @@ export class HogInvocationResultsService {
     }
 
     private async produceRow(row: HogInvocationResultRow): Promise<void> {
-        const value = Buffer.from(
+        await this.produceEncodedRow(row, await this.encodeRow(row))
+    }
+
+    private async encodeRow(row: HogInvocationResultRow): Promise<Buffer> {
+        return Buffer.from(
             safeClickhouseString(
                 JSON.stringify({
                     ...row,
@@ -498,6 +503,9 @@ export class HogInvocationResultsService {
                 })
             )
         )
+    }
+
+    private async produceEncodedRow(row: HogInvocationResultRow, value: Buffer): Promise<void> {
         await this.outputs.produce(HOG_INVOCATION_RESULTS_OUTPUT, {
             // Partition by invocation_id so all rows for a single invocation
             // land on the same Kafka partition (and the same ClickHouse shard).
@@ -618,27 +626,49 @@ export class HogInvocationResultsService {
     }
 
     async flush(): Promise<void> {
+        const { produced } = await this.handOffQueuedRows()
+        await produced
+    }
+
+    // Resolves once every queued row is encoded and passed to the Kafka producer, which flushes the rows it
+    // holds on shutdown. `produced` resolves when the broker has acked them, so a caller that must not wait
+    // on the broker awaits only the hand-off. Neither promise rejects.
+    async handOffQueuedRows(): Promise<{ produced: Promise<void> }> {
         if (this.queuedRows.length === 0) {
-            return
+            return { produced: Promise.resolve() }
         }
 
         const rows = this.queuedRows
         this.queuedRows = []
         hogInvocationResultsPendingMessages.set(0)
 
-        await Promise.all(
+        const encoded = await Promise.all(
             rows.map((row) =>
-                this.produceRow(row).catch((error) => {
-                    counterHogInvocationResultProduceFailed.inc()
-                    // Best-effort — never disrupt invocation processing for a
-                    // monitoring write.
-                    logger.error('⚠️', `failed to produce hog invocation result: ${error}`, {
-                        error: String(error),
-                        invocation_id: row.invocation_id,
-                    })
-                    captureException(error)
+                this.encodeRow(row).catch((error) => {
+                    this.onRowProduceFailed(row, error)
+                    return null
                 })
             )
         )
+        const produced = Promise.all(
+            rows.flatMap((row, i) => {
+                const value = encoded[i]
+                return value
+                    ? [this.produceEncodedRow(row, value).catch((error) => this.onRowProduceFailed(row, error))]
+                    : []
+            })
+        ).then(() => undefined)
+        return { produced }
+    }
+
+    private onRowProduceFailed(row: HogInvocationResultRow, error: unknown): void {
+        counterHogInvocationResultProduceFailed.inc()
+        // Best-effort — never disrupt invocation processing for a
+        // monitoring write.
+        logger.error('⚠️', `failed to produce hog invocation result: ${error}`, {
+            error: String(error),
+            invocation_id: row.invocation_id,
+        })
+        captureException(error)
     }
 }

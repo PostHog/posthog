@@ -24,7 +24,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.signals.backend.artefact_schemas import ActionabilityChoice
 from products.signals.backend.briefing_reports import SUMMARY_LEAD_LIMIT, summary_lead
 from products.signals.backend.constants import SIGNALS_FIRST_REPORT_EMAIL_TEMPLATE_ID
-from products.signals.backend.models import SignalFirstReportNotification, SignalReport
+from products.signals.backend.models import SignalFirstReportNotification, SignalReport, SignalTeamConfig
 from products.signals.backend.report_access import may_read_reports
 from products.signals.backend.report_content_gates import team_first_report_email_enabled
 from products.signals.backend.report_priority import latest_report_priorities
@@ -60,9 +60,13 @@ def _eligible_recipient(user: User | None, team: Team) -> bool:
 def _visible_reports(team_id: int) -> QuerySet[SignalReport]:
     return (
         SignalReport.objects.filter(
+            Q(status=SignalReport.Status.READY, latest_actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value)
+            | Q(
+                status=SignalReport.Status.PENDING_INPUT,
+                latest_actionability=ActionabilityChoice.REQUIRES_HUMAN_INPUT.value,
+                scout_idempotency_key=f"first-report:{team_id}",
+            ),
             team_id=team_id,
-            status=SignalReport.Status.READY,
-            latest_actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value,
             latest_already_addressed=False,
         )
         .exclude(title="")
@@ -75,18 +79,28 @@ def _claim(team_id: int) -> SignalFirstReportNotification | None:
         notification = (
             SignalFirstReportNotification.objects.for_team(team_id)
             .select_for_update(of=("self",))
-            .select_related("team__organization", "activated_by")
+            .select_related("team__organization", "team__parent_team__organization", "activated_by")
             .filter(queued_at__isnull=True, cancelled_at__isnull=True, send_started_at__isnull=True)
             .filter(Q(next_attempt_at__isnull=True) | Q(next_attempt_at__lte=timezone.now()))
             .first()
         )
         if notification is None:
             return None
-        if not _eligible_recipient(notification.activated_by, notification.team):
+        report_team = notification.team
+        parent = notification.team.parent_team
+        if parent is not None:
+            onboarding = (
+                SignalTeamConfig.objects.filter(team_id=parent.id).values_list("onboarding", flat=True).first() or {}
+            )
+            if onboarding.get("first_report_activation_team_id") == team_id:
+                report_team = parent
+        if not _eligible_recipient(notification.activated_by, notification.team) or (
+            report_team.id != team_id and not _eligible_recipient(notification.activated_by, report_team)
+        ):
             notification.cancelled_at = timezone.now()
             notification.save(update_fields=["cancelled_at"])
             return None
-        reports = _visible_reports(team_id).filter(first_visible_at__gte=notification.activated_at)
+        reports = _visible_reports(report_team.id).filter(first_visible_at__gte=notification.activated_at)
         if notification.message_data:
             report = reports.filter(id=notification.report_id).first() if notification.report_id else None
         else:
@@ -95,7 +109,7 @@ def _claim(team_id: int) -> SignalFirstReportNotification | None:
             if notification.message_data and (
                 notification.report_id is None
                 or not SignalReport.objects.filter(
-                    team_id=team_id,
+                    team_id=report_team.id,
                     id=notification.report_id,
                     status__in=[
                         SignalReport.Status.CANDIDATE,
@@ -110,15 +124,15 @@ def _claim(team_id: int) -> SignalFirstReportNotification | None:
         if notification.report_id is None:
             notification.report = report
             notification.message_data = {
-                "project_id": team_id,
+                "project_id": report_team.id,
                 "report_id": str(report.id),
                 "report_title": report.title,
                 # The email shows plain text, so a chart link keeps only its label.
                 "report_summary": Truncator(
                     summary_lead(strip_chart_references(report.summary or ""), SUMMARY_LEAD_LIMIT)
                 ).chars(320),
-                "report_priority": latest_report_priorities(team_id, [str(report.id)]).get(str(report.id), ""),
-                "report_url": build_report_url(team_id, report.id, ReportLinkSource.FIRST_REPORT_EMAIL),
+                "report_priority": latest_report_priorities(report_team.id, [str(report.id)]).get(str(report.id), ""),
+                "report_url": build_report_url(report_team.id, report.id, ReportLinkSource.FIRST_REPORT_EMAIL),
                 "activation_id": str(notification.id),
             }
         # The transactional API has no idempotency key. A crash or uncertain response must leave

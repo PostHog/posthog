@@ -13,6 +13,7 @@ from opentelemetry.trace import Span
 from temporalio import activity, workflow
 from temporalio.common import MetricMeter
 
+from products.tasks.backend.constants import RESUME_SNAPSHOT_KIND
 from products.tasks.backend.logic.services.model_catalogue import runtime_adapter_for
 
 Attributes = dict[str, str | int | float | bool]
@@ -235,18 +236,21 @@ def increment_resume_mode(mode: str, *, origin_product: str | None) -> None:
         pass
 
 
-def increment_snapshot_usage(
-    used_snapshot: bool,
-    *,
-    snapshot_source: str = "unknown",
-    snapshot_kind: str = "unknown",
-) -> None:
+def _snapshot_kind_label(snapshot_source: str) -> str:
+    if snapshot_source == "resume":
+        return RESUME_SNAPSHOT_KIND
+    if snapshot_source == "repository":
+        return "filesystem"
+    return "none"
+
+
+def increment_snapshot_usage(used_snapshot: bool, *, snapshot_source: str = "unknown") -> None:
     try:
         meter = _metric_meter(
             {
                 "used_snapshot": _bool_label(used_snapshot),
                 "snapshot_source": snapshot_source,
-                "snapshot_kind": snapshot_kind,
+                "snapshot_kind": _snapshot_kind_label(snapshot_source),
             }
         )
         meter.create_counter(
@@ -257,12 +261,12 @@ def increment_snapshot_usage(
         pass
 
 
-def increment_snapshot_restore(snapshot_source: str, snapshot_kind: str, outcome: str) -> None:
+def increment_snapshot_restore(snapshot_source: str, outcome: str) -> None:
     try:
         meter = _metric_meter(
             {
                 "snapshot_source": snapshot_source,
-                "snapshot_kind": snapshot_kind,
+                "snapshot_kind": _snapshot_kind_label(snapshot_source),
                 "outcome": outcome,
             }
         )
@@ -274,9 +278,9 @@ def increment_snapshot_restore(snapshot_source: str, snapshot_kind: str, outcome
         pass
 
 
-def increment_snapshot_create(snapshot_kind: str, outcome: str) -> None:
+def increment_snapshot_create(outcome: str) -> None:
     try:
-        meter = _metric_meter({"snapshot_kind": snapshot_kind, "outcome": outcome})
+        meter = _metric_meter({"snapshot_kind": RESUME_SNAPSHOT_KIND, "outcome": outcome})
         meter.create_counter(
             "tasks_process_snapshot_create",
             "Resume snapshot creation outcomes for process-task runs",
@@ -285,10 +289,10 @@ def increment_snapshot_create(snapshot_kind: str, outcome: str) -> None:
         pass
 
 
-def record_snapshot_create_latency_ms(snapshot_kind: str, outcome: str, latency_ms: int) -> None:
+def record_snapshot_create_latency_ms(outcome: str, latency_ms: int) -> None:
     try:
         delta = dt.timedelta(milliseconds=latency_ms)
-        _metric_meter({"snapshot_kind": snapshot_kind, "outcome": outcome}).create_histogram_timedelta(
+        _metric_meter({"snapshot_kind": RESUME_SNAPSHOT_KIND, "outcome": outcome}).create_histogram_timedelta(
             "tasks_process_snapshot_create_latency",
             "Resume snapshot creation latency for process-task runs",
             unit="ms",
@@ -582,7 +586,7 @@ def record_agent_server_session_init_ms(
             attributes["runtime"] = runtime
         _metric_meter(attributes).create_histogram_timedelta(
             "tasks_process_sandbox_step_latency",
-            "Latency for get_sandbox_for_repository sub-steps",
+            "Latency for sandbox provisioning sub-steps",
             unit="ms",
         ).record(dt.timedelta(milliseconds=session_init_ms))
     except Exception:
@@ -613,7 +617,7 @@ def record_agent_server_step_ms(
             attributes["runtime"] = runtime
         _metric_meter(attributes).create_histogram_timedelta(
             "tasks_process_sandbox_step_latency",
-            "Latency for get_sandbox_for_repository sub-steps",
+            "Latency for sandbox provisioning sub-steps",
             unit="ms",
         ).record(dt.timedelta(milliseconds=duration_ms))
     except Exception:
@@ -819,7 +823,7 @@ class StepTimer(ContextDecorator):
         try:
             _metric_meter(attributes).create_histogram_timedelta(
                 "tasks_process_sandbox_step_latency",
-                "Latency for get_sandbox_for_repository sub-steps",
+                "Latency for sandbox provisioning sub-steps",
                 unit="ms",
             ).record(delta)
         except Exception:

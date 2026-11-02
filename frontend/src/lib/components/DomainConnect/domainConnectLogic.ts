@@ -85,6 +85,22 @@ export type domainConnectLogicType = MakeLogicType<
     domainConnectLogicMeta
 >
 
+function openBlankProviderTab(): Window | null {
+    const providerTab = window.open('', '_blank')
+    if (providerTab) {
+        providerTab.opener = null
+    }
+    return providerTab
+}
+
+function sendProviderTabTo(providerTab: Window | null, url: string): void {
+    if (providerTab) {
+        providerTab.location.href = url
+    } else {
+        window.location.assign(url)
+    }
+}
+
 export const domainConnectLogic = kea<domainConnectLogicType>([
     path((key) => ['lib', 'components', 'DomainConnect', 'domainConnectLogic', key]),
     props({} as DomainConnectLogicProps),
@@ -131,6 +147,7 @@ export const domainConnectLogic = kea<domainConnectLogicType>([
     }),
     listeners(({ props }) => ({
         openDomainConnect: async ({ providerEndpoint }) => {
+            const providerTab = openBlankProviderTab()
             const currentUrl = window.location.href.split('?')[0]
             const redirectUri = `${currentUrl}?domain_connect=${props.context}`
 
@@ -142,8 +159,9 @@ export const domainConnectLogic = kea<domainConnectLogicType>([
                     redirect_uri: redirectUri,
                     provider_endpoint: providerEndpoint,
                 })
-                window.open(url, '_blank', 'noopener,noreferrer')
+                sendProviderTabTo(providerTab, url)
             } catch (e) {
+                providerTab?.close()
                 if (e instanceof ApiError) {
                     lemonToast.error(`Failed to generate Domain Connect URL: ${e.detail || 'Please try again.'}`)
                 } else {

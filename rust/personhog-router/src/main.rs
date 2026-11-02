@@ -253,14 +253,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             endpoints: config.etcd_endpoint_list(),
             prefix: config.etcd_prefix.clone(),
         };
-        let etcd_store = EtcdStore::connect(etcd_config)
+        let etcd_store = EtcdStore::connect_with_member_failover(etcd_config)
             .await
             .expect("Failed to connect to etcd");
         let store = Arc::new(PersonhogStore::new(etcd_store));
 
-        let loaded = load_changelog_config(&store, CHANGELOG_BOOT_POLL_INTERVAL)
-            .await
-            .expect("Failed to load the changelog config from etcd");
+        let boot_shutdown = changelog_handle
+            .as_ref()
+            .expect("changelog handle must be registered in leader mode")
+            .shutdown_token();
+        let Some(loaded) =
+            load_changelog_config(&store, CHANGELOG_BOOT_POLL_INTERVAL, &boot_shutdown)
+                .await
+                .expect("Failed to load the changelog config from etcd")
+        else {
+            return Ok(());
+        };
         let num_partitions = loaded.partitions;
         tracing::info!(
             num_partitions,

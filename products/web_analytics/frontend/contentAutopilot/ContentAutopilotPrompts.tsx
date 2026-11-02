@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import {
     LemonBanner,
+    LemonButton,
     LemonCard,
     LemonSelect,
     LemonSkeleton,
@@ -38,10 +39,12 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
         promptsPage,
         promptsTopic,
         promptTopics,
+        promptTopicsError,
+        promptTopicsLoading,
         promptEngines,
         showArchived,
     } = useValues(contentAutopilotPromptsLogic)
-    const { loadAeoPrompts, setPromptsPage, setPromptsTopic, setShowArchived } =
+    const { loadAeoPrompts, loadAeoPromptTopics, setPromptsPage, setPromptsTopic, setShowArchived } =
         useActions(contentAutopilotPromptsLogic)
     const { openPromptDetail } = useActions(contentAutopilotPromptDetailLogic)
 
@@ -85,6 +88,20 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                     ]}
                     data-attr="content-autopilot-prompts-topic-filter"
                 />
+                {promptTopicsError ? (
+                    <span className="flex items-center gap-1 text-danger text-sm">
+                        Couldn't load topics.
+                        <LemonButton
+                            size="xsmall"
+                            type="secondary"
+                            onClick={loadAeoPromptTopics}
+                            loading={promptTopicsLoading}
+                            data-attr="content-autopilot-prompts-topics-retry"
+                        >
+                            Try again
+                        </LemonButton>
+                    </span>
+                ) : null}
                 <LemonSwitch
                     checked={showArchived}
                     onChange={setShowArchived}

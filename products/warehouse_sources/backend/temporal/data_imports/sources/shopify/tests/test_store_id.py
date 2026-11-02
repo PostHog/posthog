@@ -5,6 +5,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify import (
+    SHOPIFY_INVALID_STORE_ID_ERROR,
     _get_shopify_access_token,
     normalize_store_id,
 )
@@ -40,14 +41,16 @@ def test_normalize_store_id_accepts_common_paste_forms(raw, expected):
         "",
         "   ",
         "https://evil.com",
+        "shop.example.com",
         "my_store",
         "store with spaces",
         "-leading-hyphen",
     ],
 )
 def test_normalize_store_id_rejects_invalid(raw):
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError) as exc_info:
         normalize_store_id(raw)
+    assert str(exc_info.value) == SHOPIFY_INVALID_STORE_ID_ERROR
 
 
 def test_access_token_url_has_no_doubled_suffix_for_messy_input():

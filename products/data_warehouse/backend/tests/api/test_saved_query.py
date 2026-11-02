@@ -18,6 +18,7 @@ from parameterized import parameterized
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.hogql.errors import ExposedHogQLError
 
@@ -54,6 +55,35 @@ from products.warehouse_sources.backend.facade.types import DataWarehouseManaged
 
 
 class TestSavedQuery(APIBaseTest):
+    def test_query_rejects_excessive_view_expansion_before_execution(self) -> None:
+        previous = ""
+        for name in ("leaf", "middle", "top"):
+            query = f"select a.x from {previous} a join {previous} b on a.x = b.x" if previous else "select 1 as x"
+            view = DataWarehouseSavedQuery(team=self.team, name=name, query={"kind": "HogQLQuery", "query": query})
+            view.set_columns({"x": {"hogql": "integer", "clickhouse": "Int64", "valid": True}})
+            view.save()
+            previous = name
+
+        with (
+            patch("posthog.hogql.compilation.MAX_VIEW_EXPANSIONS", 6),
+            patch("posthog.hogql.query.sync_execute") as execute,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/query/",
+                {"query": {"kind": "HogQLQuery", "query": "select * from top"}, "refresh": "force_blocking"},
+            )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("saved view expansions", response.json()["detail"])
+        execute.assert_not_called()
+
+    def test_soft_create_still_skips_column_inference(self) -> None:
+        with patch.object(DataWarehouseSavedQuery, "get_columns", side_effect=AssertionError("inference ran")):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+                {"name": "constant_view", "query": {"kind": "HogQLQuery", "query": "select 1"}, "soft_update": True},
+            )
+        self.assertEqual(response.status_code, 201, response.content)
+
     def test_create_with_folder(self):
         folder = DataWarehouseSavedQueryFolder.objects.create(team=self.team, name="Marketing", created_by=self.user)
 
@@ -1856,8 +1886,15 @@ class TestSavedQuery(APIBaseTest):
             # Verify get_columns was called
             mock_get_columns.assert_called_once()
 
-    @parameterized.expand([("direct", False), ("through_another_view", True)])
-    def test_update_rejects_query_cycle(self, _name: str, use_intermediate_view: bool) -> None:
+    @parameterized.expand(
+        [
+            ("direct", False, False),
+            ("through_another_view", True, False),
+            ("soft_direct", False, True),
+            ("soft_through_another_view", True, True),
+        ]
+    )
+    def test_update_rejects_query_cycle(self, _name: str, use_intermediate_view: bool, soft_update: bool) -> None:
         original_query = "select event as event from events LIMIT 100"
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",
@@ -1886,6 +1923,7 @@ class TestSavedQuery(APIBaseTest):
             {
                 "query": {"kind": "HogQLQuery", "query": f"select * from {referenced_view}"},
                 "edited_history_id": saved_query["latest_history_id"],
+                "soft_update": soft_update,
             },
         )
 
@@ -2565,6 +2603,33 @@ class TestSavedQuery(APIBaseTest):
             node.refresh_from_db()
             self.assertEqual(suspension_state(node), {})
 
+    def test_resume_with_an_engine_clears_only_that_engine(self):
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="suspended_on_both",
+            query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+            created_by=self.user,
+        )
+        node = Node.objects.create(
+            team=self.team,
+            dag=DAG.objects.create(team=self.team, name="dag"),
+            saved_query=saved_query,
+            type=NodeType.MAT_VIEW,
+        )
+        for engine in ("clickhouse", "managed_warehouse"):
+            mark_node_suspended(node, engine=engine, reason="boom", job_id=str(uuid.uuid4()))
+        node.save()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/resume/",
+            {"engine": "trino"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"resumed": True})
+        node.refresh_from_db()
+        self.assertEqual(list(suspension_state(node)), ["clickhouse"])
+
     def test_resume_schedules_clears_suspension_for_every_listed_query(self):
         saved_queries = [
             DataWarehouseSavedQuery.objects.create(
@@ -2898,6 +2963,111 @@ class TestSavedQueryRun(APIBaseTest):
             set(mock_client.start_workflow.call_args.args[1]["node_ids"]),
             {str(node.id), str(related_node.id)},
         )
+        self.assertFalse(mock_client.start_workflow.call_args.args[1]["managed_warehouse_only"])
+
+    @parameterized.expand([("only_this_view", None), ("with_upstream", "upstream")])
+    @patch("products.data_modeling.backend.logic.node_materialization.is_managed_warehouse_shadow_enabled")
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_run_on_trino_starts_a_managed_warehouse_dag_run(self, _name, direction, mock_sync_connect, mock_eligible):
+        saved_query, dag, node = self._make_saved_query_with_node("trino_view")
+        related_saved_query = DataWarehouseSavedQuery.objects.create(
+            name="trino_upstream", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+        )
+        related_node = Node.objects.create(team=self.team, dag=dag, saved_query=related_saved_query, type=NodeType.VIEW)
+        Edge.objects.create(team=self.team, dag=dag, source=related_node, target=node)
+        mark_node_suspended(node, engine=DataModelingJobEngine.MANAGED_WAREHOUSE, reason="boom", job_id="job-1")
+        node.save()
+        mock_eligible.return_value = True
+        mock_client = AsyncMock()
+        mock_client.count_workflows.return_value = mock.Mock(count=0)
+        mock_sync_connect.return_value = mock_client
+        body: dict[str, Any] = {"engine": "trino"}
+        if direction:
+            body["direction"] = direction
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/run/", body
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        expected = {str(node.id), str(related_node.id)} if direction else {str(node.id)}
+        self.assertEqual(set(response.json()["node_ids"]), expected)
+        mock_client.start_workflow.assert_called_once()
+        call = mock_client.start_workflow.call_args
+        self.assertEqual(call.args[0], "data-modeling-execute-dag")
+        inputs = call.args[1]
+        self.assertEqual(set(inputs["node_ids"]), expected)
+        self.assertTrue(inputs["managed_warehouse_only"])
+        self.assertTrue(inputs["shadow"])
+        self.assertEqual(inputs["manually_triggered_by_id"], self.user.pk)
+        self.assertEqual(call.kwargs["id"], f"execute-dag-trino-{dag.id}-manual")
+        self.assertGreater(call.kwargs["start_delay"], timedelta(0))
+        self.assertIn(f"execute-dag-trino-{dag.id}", mock_client.count_workflows.call_args.kwargs["query"])
+        node.refresh_from_db()
+        self.assertNotIn(DataModelingJobEngine.MANAGED_WAREHOUSE, suspension_state(node))
+
+    @patch("products.data_modeling.backend.logic.node_materialization.is_managed_warehouse_shadow_enabled")
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_run_on_trino_without_a_managed_warehouse_is_forbidden(self, mock_sync_connect, mock_eligible):
+        saved_query, _dag, _node = self._make_saved_query_with_node("no_warehouse_view")
+        mock_eligible.return_value = False
+        mock_client = AsyncMock()
+        mock_sync_connect.return_value = mock_client
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/run/", {"engine": "trino"}
+        )
+
+        self.assertEqual(response.status_code, 403, response.content)
+        mock_client.start_workflow.assert_not_called()
+
+    @patch("products.data_modeling.backend.logic.node_materialization.is_managed_warehouse_shadow_enabled")
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_run_on_trino_checks_access_to_the_single_view(self, mock_sync_connect, mock_eligible):
+        saved_query, _dag, _node = self._make_saved_query_with_node("restricted_view")
+        mock_eligible.return_value = True
+        mock_client = AsyncMock()
+        mock_client.count_workflows.return_value = mock.Mock(count=0)
+        mock_sync_connect.return_value = mock_client
+
+        with patch(
+            "products.data_modeling.backend.logic.node_materialization.UserAccessControl.check_access_level_for_object",
+            return_value=False,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/run/",
+                {"engine": "trino"},
+            )
+
+        self.assertEqual(response.status_code, 403, response.content)
+        mock_client.start_workflow.assert_not_called()
+
+    @parameterized.expand([("another_run_listed", 1, False), ("start_races_a_manual_run", 0, True)])
+    @patch("products.data_modeling.backend.logic.node_materialization.is_managed_warehouse_shadow_enabled")
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_run_on_trino_while_a_trino_run_is_in_progress_conflicts(
+        self, _name, running_count, start_conflicts, mock_sync_connect, mock_eligible
+    ):
+        saved_query, _dag, node = self._make_saved_query_with_node("busy_view")
+        mark_node_suspended(node, engine=DataModelingJobEngine.MANAGED_WAREHOUSE, reason="boom", job_id="job-1")
+        node.save()
+        mock_eligible.return_value = True
+        mock_client = AsyncMock()
+        mock_client.count_workflows.return_value = mock.Mock(count=running_count)
+        if start_conflicts:
+            mock_client.start_workflow.side_effect = WorkflowAlreadyStartedError("id", "data-modeling-execute-dag")
+        mock_sync_connect.return_value = mock_client
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/run/",
+            {"engine": "trino", "full_refresh": True},
+        )
+
+        self.assertEqual(response.status_code, 409, response.content)
+        self.assertEqual(mock_client.start_workflow.call_count, 1 if start_conflicts else 0)
+        # A refused run must leave the model as it found it, even when the refusal came after the changes.
+        node.refresh_from_db()
+        self.assertIn(DataModelingJobEngine.MANAGED_WAREHOUSE, suspension_state(node))
 
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
     def test_run_with_dependencies_requires_edit_access_to_every_view(self, mock_sync_connect):

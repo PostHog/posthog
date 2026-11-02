@@ -77,6 +77,7 @@ The Works table covers Crossref's full DOI registry (160 million+ records), so s
                     ),
                     SourceFieldInputConfig(
                         name="member_id",
+                        sync_setting=True,
                         label="Crossref member ID (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -86,6 +87,7 @@ The Works table covers Crossref's full DOI registry (160 million+ records), so s
                     ),
                     SourceFieldInputConfig(
                         name="funder_id",
+                        sync_setting=True,
                         label="Funder ID (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -95,6 +97,7 @@ The Works table covers Crossref's full DOI registry (160 million+ records), so s
                     ),
                     SourceFieldInputConfig(
                         name="issn",
+                        sync_setting=True,
                         label="Journal ISSN (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

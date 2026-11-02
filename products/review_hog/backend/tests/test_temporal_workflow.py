@@ -52,7 +52,6 @@ from products.review_hog.backend.temporal.activities import (
     LoadValidationInput,
     PublishInput,
     PublishResult,
-    RemoveTriggerLabelInput,
     ResolveActingUserResult,
     ReviewChunkInput,
     ReviewMeta,
@@ -161,6 +160,10 @@ async def _run_full_review_pr_workflow(
     fail_main_session: bool = False,
     coordinator: bool = False,
     coordinator_lens_failures: int = 0,
+    run_index: int = 1,
+    zero_change_skip: bool = False,
+    delta_band: bool = False,
+    gate_delta_review: bool = False,
     automatic_reviewed_head_sha: str | None = None,
     skip_agent_review: bool = False,
     gate_skips: bool = False,
@@ -184,7 +187,6 @@ async def _run_full_review_pr_workflow(
     publish_calls: list[int] = []
     publish_capped_lens_parts: list[int | None] = []
     finalize_will_publish: list[bool] = []
-    remove_label_calls: list[int] = []
     # Each code_review receipt appended to the signals report, as (outcome, review_url).
     receipt_calls: list[tuple[str, str | None]] = []
     # The outcome edit of the PR status comment, as (urgency_threshold, resolved_from, review_url) —
@@ -211,6 +213,8 @@ async def _run_full_review_pr_workflow(
     design_calls: dict[str, set[str]] = {}
     single_agent_calls: list[str] = []
     lens_calls: list[tuple[str, int]] = []
+    main_delta_calls: list[str | None] = []
+    lens_delta_calls: list[str | None] = []
     coordinator_calls: list[int] = []
     started_coordinator: list[bool] = []
     lens_timeouts: list[timedelta | None] = []
@@ -230,7 +234,7 @@ async def _run_full_review_pr_workflow(
             head_sha="sha1",
             branch="feat",
             repository="o/r",
-            run_index=1,
+            run_index=run_index,
             snapshotted=not already_published,
             already_published=already_published,
             new_comment_count=0,
@@ -244,19 +248,27 @@ async def _run_full_review_pr_workflow(
             lens_chunk_count=lens_chunk_count,
             lens_chunks_capped=lens_chunks_capped,
             coordinator=coordinator,
+            zero_change_skip=zero_change_skip,
+            delta_band=delta_band,
             automatic_reviewed_head_sha=automatic_reviewed_head_sha,
             skip_agent_review=skip_agent_review,
         )
 
     gate_calls: list[str] = []
+    gate_arms: list[tuple[bool, bool]] = []
 
     @activity.defn(name="gate_push_activity")
     async def gate_push(input: GatePushInput) -> PushGateDecision:
         gate_calls.append(input.previous_head_sha)
+        gate_arms.append((input.zero_change_skip, input.delta_band))
         if fail_gate:
             raise ApplicationError("compare exploded", non_retryable=True)
         return PushGateDecision(
-            skip=gate_skips, would_skip=gate_skips, reason="merge_only" if gate_skips else "system_one_above_threshold"
+            skip=gate_skips,
+            would_skip=gate_skips,
+            reason="merge_only" if gate_skips else "system_one_above_threshold",
+            delta_eligible=gate_delta_review,
+            delta_review=gate_delta_review,
         )
 
     @activity.defn(name="resolve_acting_user_activity")
@@ -336,12 +348,14 @@ async def _run_full_review_pr_workflow(
     @activity.defn(name="single_agent_review_activity")
     async def single_agent_review(input: SandboxStageInput) -> None:
         single_agent_calls.append(input.review_design)
+        main_delta_calls.append(input.delta_since_head_sha)
         if fail_main_session:
             raise ApplicationError("main session died", non_retryable=True)
 
     @activity.defn(name="lens_review_activity")
     async def lens_review(input: LensReviewInput) -> None:
         lens_calls.append((input.lens, input.chunk_id))
+        lens_delta_calls.append(input.delta_since_head_sha)
         lens_timeouts.append(activity.info().schedule_to_close_timeout)
         if (input.lens, input.chunk_id) in fail_lens_units:
             raise ApplicationError("lens session died", non_retryable=True)
@@ -390,10 +404,6 @@ async def _run_full_review_pr_workflow(
         publish_capped_lens_parts.append(input.capped_lens_parts)
         threshold_calls.append(("publish", input.urgency_threshold))
         return PublishResult(posted=publish_posts, review_url=_REVIEW_URL if publish_posts else None)
-
-    @activity.defn(name="remove_trigger_label_activity")
-    async def remove_label(input: RemoveTriggerLabelInput) -> None:
-        remove_label_calls.append(input.pr_number)
 
     @activity.defn(name="append_code_review_artefact_activity")
     async def append_receipt(input: AppendCodeReviewArtefactInput) -> None:
@@ -450,6 +460,7 @@ async def _run_full_review_pr_workflow(
     track_failed_calls: list[tuple[int, str | None]] = []
     track_completed_calls: list[tuple[int, str | None]] = []
     track_flash_calls: list[tuple[FlashTurnStats | None, FlashSessionStats | None]] = []
+    track_p1_calls: list[tuple[bool, bool, bool]] = []
     track_started_calls: list[tuple[int, str | None]] = []
 
     @activity.defn(name="track_review_failed_activity")
@@ -463,6 +474,7 @@ async def _run_full_review_pr_workflow(
         _saw_mode("track", input.review_mode)
         track_completed_calls.append((input.run_index, input.turn_trigger_source))
         track_flash_calls.append((input.flash_turn, input.flash_sessions))
+        track_p1_calls.append((input.zero_change_skip_arm, input.delta_band_arm, input.delta_review))
         _saw_design("track", input.review_design)
         marker_calls["track"] = input.marker
         return None
@@ -510,7 +522,6 @@ async def _run_full_review_pr_workflow(
                 validate_chunk,
                 build_body,
                 publish_act,
-                remove_label,
                 append_receipt,
                 post_status,
                 finalize_status,
@@ -570,7 +581,6 @@ async def _run_full_review_pr_workflow(
         "publish": publish_calls,
         "publish_capped_lens_parts": publish_capped_lens_parts,
         "finalize_will_publish": finalize_will_publish,
-        "remove_label": remove_label_calls,
         "receipts": receipt_calls,
         "load_user_ids": load_user_ids,
         "thresholds": threshold_calls,
@@ -578,6 +588,10 @@ async def _run_full_review_pr_workflow(
         "track_failed": track_failed_calls,
         "track_completed": track_completed_calls,
         "track_flash": track_flash_calls,
+        "track_p1": track_p1_calls,
+        "gate_arms": gate_arms,
+        "main_delta": main_delta_calls,
+        "lens_delta": lens_delta_calls,
         "track_started": track_started_calls,
         "resolve_dispatches": list(StubResolvePRWorkflow.dispatches),
         "modes": mode_calls,
@@ -721,19 +735,12 @@ def test_nudge_stamphog_raises_a_dispatch_error_so_temporal_retries_it():
 
 
 @pytest.mark.asyncio
-async def test_review_pr_workflow_removes_label_trigger_after_completion():
-    recorded = await _run_full_review_pr_workflow(publish=True, trigger_source="label")
-    assert recorded["remove_label"] == [7]
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize("review_mode", ["full", "flash"])
-async def test_review_pr_workflow_removes_label_trigger_after_failure(review_mode: str):
+async def test_review_pr_workflow_reports_a_failed_turn(review_mode: str):
     recorded = await _run_full_review_pr_workflow(
-        publish=True, trigger_source="label", fail_dedup=True, review_mode=review_mode
+        publish=True, trigger_source="stamphog", fail_dedup=True, review_mode=review_mode
     )
     assert recorded["failed"] is True
-    assert recorded["remove_label"] == [7]
     # A Standard turn has no status comment, but its failure still returns the report to rest and
     # tells the PR. A dead turn must not leave its 👀 behind either.
     assert recorded["fail_status"] == [(review_mode, True, review_mode == "full")]
@@ -764,20 +771,13 @@ async def test_review_pr_workflow_reports_a_failure_only_on_the_last_attempt(
 async def test_review_pr_workflow_does_not_retry_a_wave_over_the_failure_floor():
     recorded = await _run_full_review_pr_workflow(
         publish=True,
-        trigger_source="label",
+        trigger_source="stamphog",
         fail_review_units=frozenset((p, c) for p in (1, 2, 3) for c in (1, 2)),
         workflow_max_attempts=2,
     )
     assert recorded["failed"] is True
     assert recorded["split"] == [1]
     assert len(recorded["review"]) == 6
-    assert recorded["remove_label"] == [7]
-
-
-@pytest.mark.asyncio
-async def test_review_pr_workflow_does_not_remove_label_for_other_triggers():
-    recorded = await _run_full_review_pr_workflow(publish=True, trigger_source="manual")
-    assert recorded["remove_label"] == []
 
 
 @parameterized.expand(
@@ -903,6 +903,39 @@ async def test_review_pr_workflow_coordinator_replaces_the_separate_sessions_of_
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
+    "gate_delta_review,fail_gate,expect_delta",
+    [(True, False, True), (False, False, False), (True, True, False)],
+)
+async def test_review_pr_workflow_runs_a_delta_turn_only_when_the_gate_plans_one(
+    gate_delta_review: bool, fail_gate: bool, expect_delta: bool
+) -> None:
+    # Every session of a delta turn must see the same baseline, with one session per lens over the whole change.
+    # A gate that failed must leave the whole PR to review.
+    recorded = await _run_full_review_pr_workflow(
+        publish=True,
+        review_mode="flash",
+        review_design="single_agent",
+        lens_chunk_count=3,
+        trigger_source="automatic",
+        run_index=3,
+        review_authored_prs=True,
+        automatic_reviewed_head_sha="sha0",
+        zero_change_skip=True,
+        delta_band=True,
+        gate_delta_review=gate_delta_review,
+        fail_gate=fail_gate,
+    )
+
+    baseline = "sha0" if expect_delta else None
+    assert recorded["gate_arms"] == [(True, True)]
+    assert recorded["main_delta"] == [baseline]
+    assert set(recorded["lens_delta"]) == {baseline}
+    assert len(recorded["lens"]) == (2 if expect_delta else 6)
+    assert recorded["track_p1"] == [(True, True, expect_delta)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
     "fail_lens_units,fail_main_session,expect_failed",
     [
         (frozenset({("contracts-security", 1), ("performance-reliability", 1)}), False, False),
@@ -967,7 +1000,7 @@ async def test_automatic_reviews_recheck_consent_and_skip_completed_or_closed_pr
     "trigger_source,reviewed_head,gate_skips,fail_gate,review_design,expected_gate,expected_review",
     [
         ("automatic", None, True, False, "pipeline", [], True),
-        ("label", "sha0", True, False, "pipeline", [], True),
+        ("stamphog", "sha0", True, False, "pipeline", [], True),
         ("manual", "sha0", True, False, "pipeline", [], True),
         ("automatic", "sha0", True, False, "pipeline", ["sha0"], False),
         ("automatic", "sha0", False, False, "pipeline", ["sha0"], True),
@@ -1032,8 +1065,8 @@ async def test_review_pr_workflow_skips_when_author_maps_to_no_user():
 @parameterized.expand(
     [
         # (name, trigger_source, review_inbox_prs, input_acting_user_id, expect_ran)
-        # A label always runs, and the inbox toggle has no say over it.
-        ("label_ignores_inbox_toggle", "label", False, None, True),
+        # A Stamphog handoff always runs, and the inbox toggle has no say over it.
+        ("stamphog_ignores_inbox_toggle", "stamphog", False, None, True),
         # The inbox trigger honors only review_inbox_prs (default off = the budget gate); the
         # receiver always sets the acting override, so the override must NOT bypass this gate.
         ("inbox_default_off_skips", "inbox", False, 3, False),

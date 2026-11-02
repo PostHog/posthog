@@ -1665,7 +1665,7 @@ def ticket_unfurl(ticket: "Ticket", team: Team) -> dict:
     }
 
 
-def _is_internal_channel(client: WebClient, channel: str) -> bool:
+def _is_internal_channel(client: WebClient, channel: str, *, raise_on_error: bool = False) -> bool:
     """Whether `channel` is an ordinary channel of this workspace alone.
 
     Fails closed, twice over: a channel we cannot read is one we cannot prove is internal, and
@@ -1684,6 +1684,8 @@ def _is_internal_channel(client: WebClient, channel: str) -> bool:
         response = client.conversations_info(channel=channel)
     except Exception:
         logger.warning("slack_support_unfurl_channel_lookup_failed", slack_channel_id=channel)
+        if raise_on_error:
+            raise
         return False
     info = response.get("channel") or {}
     if any(info.get(flag) for flag in _NON_INTERNAL_CHANNEL_FLAGS):

@@ -538,6 +538,11 @@ pub struct Config {
     #[envconfig(default = "")]
     pub object_storage_endpoint: String,
 
+    // Upper bound on one HyperCache S3 read. Keep it below REQUEST_TIMEOUT_MS, so that a slow read
+    // leaves time for the Postgres fallback. Startup replaces 0, or a value above the max, with 3000.
+    #[envconfig(from = "HYPERCACHE_S3_TIMEOUT_MS", default = "3000")]
+    pub hypercache_s3_timeout_ms: u64,
+
     // Redis timeout settings (in milliseconds)
     #[envconfig(default = "100")]
     pub redis_response_timeout_ms: u64,
@@ -1130,6 +1135,10 @@ impl Config {
     /// from the persons DB budget.
     const MAX_PERSONS_DB_DEADLINE_RESERVE_MS: u64 = 2_000;
 
+    const DEFAULT_HYPERCACHE_S3_TIMEOUT_MS: u64 = 3_000;
+    /// The top bucket of the S3 read histogram.
+    const MAX_HYPERCACHE_S3_TIMEOUT_MS: u64 = 10_000;
+
     /// Validate and fix timeout configuration, logging warnings and applying defaults for invalid values
     ///
     /// This method checks timeout values and relationships, applying safe defaults when invalid
@@ -1190,6 +1199,24 @@ impl Config {
                 persons_db_deadline_reserve_ms = self.persons_db_deadline_reserve_ms,
                 request_timeout_ms = self.request_timeout_ms,
                 "{problem}"
+            );
+        }
+
+        if !(1..=Self::MAX_HYPERCACHE_S3_TIMEOUT_MS).contains(&self.hypercache_s3_timeout_ms) {
+            tracing::warn!(
+                configured = self.hypercache_s3_timeout_ms,
+                using = Self::DEFAULT_HYPERCACHE_S3_TIMEOUT_MS,
+                "HYPERCACHE_S3_TIMEOUT_MS is outside 1..={}ms, using the default",
+                Self::MAX_HYPERCACHE_S3_TIMEOUT_MS
+            );
+            self.hypercache_s3_timeout_ms = Self::DEFAULT_HYPERCACHE_S3_TIMEOUT_MS;
+        }
+
+        if self.hypercache_s3_timeout_ms >= self.request_timeout_ms {
+            tracing::warn!(
+                hypercache_s3_timeout_ms = self.hypercache_s3_timeout_ms,
+                request_timeout_ms = self.request_timeout_ms,
+                "HYPERCACHE_S3_TIMEOUT_MS is at least REQUEST_TIMEOUT_MS, so a slow S3 read times out the request before any fallback runs"
             );
         }
     }
@@ -1320,6 +1347,7 @@ impl Config {
             object_storage_bucket: "posthog".to_string(),
             object_storage_region: "us-east-1".to_string(),
             object_storage_endpoint: "".to_string(),
+            hypercache_s3_timeout_ms: 3000,
             // `Enforced` so tests exercise the bot short-circuit envelope.
             // Tests wanting prod posture override to `LogOnly` explicitly.
             bot_filter_mode: BotFilterMode::Enforced,
@@ -1849,6 +1877,21 @@ mod tests {
         config.persons_db_deadline_reserve_ms = configured_ms;
         config.validate_and_fix_timeouts();
         assert_eq!(config.persons_db_deadline_reserve_ms, expected_ms);
+    }
+
+    #[rstest::rstest]
+    #[case::zero(0, 3_000)]
+    #[case::in_range(1_500, 1_500)]
+    #[case::at_maximum(10_000, 10_000)]
+    #[case::above_maximum(10_001, 3_000)]
+    fn test_validate_and_fix_timeouts_resets_hypercache_s3_timeout(
+        #[case] configured_ms: u64,
+        #[case] expected_ms: u64,
+    ) {
+        let mut config = Config::default_test_config();
+        config.hypercache_s3_timeout_ms = configured_ms;
+        config.validate_and_fix_timeouts();
+        assert_eq!(config.hypercache_s3_timeout_ms, expected_ms);
     }
 
     #[rstest::rstest]

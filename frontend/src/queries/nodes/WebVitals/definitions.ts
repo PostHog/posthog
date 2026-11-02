@@ -4,10 +4,6 @@ import { IconExclamation } from 'lib/lemon-ui/icons'
 import { WebVitalsPercentile } from 'scenes/web-analytics/common'
 
 import { InsightQueryNode, WebVitalsItem, WebVitalsMetric, WebVitalsMetricBand } from '~/queries/schema/schema-general'
-import type { TrendResult } from '~/types'
-
-/** A web vitals result row. The trends runner gives every row an `order`, which `WebVitalsItem` does not declare. */
-export type WebVitalsRow = WebVitalsItem & Pick<TrendResult, 'order'>
 
 const PERCENTILE_NAME: Record<WebVitalsPercentile, string> = {
     p75: '75%',
@@ -67,7 +63,7 @@ export const EXPERIENCE_PER_BAND: Record<WebVitalsMetricBand, string> = {
 }
 
 export const getMetric = (
-    results: WebVitalsRow[] | undefined,
+    results: WebVitalsItem[] | undefined,
     querySource: InsightQueryNode | undefined,
     metric: WebVitalsMetric,
     percentile: WebVitalsPercentile
@@ -76,7 +72,7 @@ export const getMetric = (
     // `getResultSeries` from `scenes/`. A web vitals query has no formulas, so `order` is always a series index.
     const series = querySource && 'series' in querySource ? querySource.series : []
     const data = results?.find((result) => {
-        const node = result.order != null ? series[result.order] : undefined
+        const node = series[result.order]
         return node?.custom_name === metric && node.math === percentile
     })?.data
 

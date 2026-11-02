@@ -1,9 +1,10 @@
-import { MakeLogicType, actions, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 
+import { organizationLogic } from 'scenes/organizationLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb } from '~/types'
+import { Breadcrumb, OrganizationType } from '~/types'
 
 import type {
     EmailDomainStatusApi,
@@ -11,6 +12,7 @@ import type {
     IntegrationConfigApi,
 } from 'products/integrations/frontend/generated/api.schemas'
 
+import { workflowDataSuggestionsLogic } from '../../setupGuide/suggestions/workflowDataSuggestionsLogic'
 import { emailDomainAutoConfigureLogic } from './emailDomainAutoConfigureLogic'
 import { EmailDomainLogicProps } from './emailDomainLogicProps'
 import { emailDomainManualSetupLogic } from './emailDomainManualSetupLogic'
@@ -141,8 +143,11 @@ export interface emailDomainLogicValues {
     status: EmailDomainStatusApi | null // emailDomainStatusLogic
     statusLoading: boolean // emailDomainStatusLogic
     statusUnavailable: boolean // emailDomainStatusLogic
+    currentOrganization: OrganizationType | null // organizationLogic
     breadcrumbs: Breadcrumb[]
+    offersDataSuggestions: boolean
     phase: EmailDomainPhase
+    preloadsDataSuggestions: boolean
     verificationSteps: VerificationStep[]
 }
 
@@ -152,6 +157,16 @@ export interface emailDomainLogicActions {
     recheck: () => {
         value: true
     } // emailDomainStatusLogic
+    loadCurrentOrganizationSuccess: (
+        currentOrganization: OrganizationType | null,
+        payload?: any
+    ) => {
+        currentOrganization: OrganizationType | null
+        payload?: any
+    } // organizationLogic
+    preloadDataSuggestions: () => {
+        value: true
+    }
     retry: () => {
         value: true
     }
@@ -180,6 +195,8 @@ export interface emailDomainLogicMeta {
             allRecordsFound: boolean,
             pollingStopped: boolean
         ) => VerificationStep[]
+        offersDataSuggestions: (currentOrganization: OrganizationType | null) => boolean
+        preloadsDataSuggestions: (offersDataSuggestions: boolean, integrationId: number | null) => boolean
         breadcrumbs: (domain: string | null, integrationId: number | null) => Breadcrumb[]
     }
 }
@@ -215,11 +232,21 @@ export const emailDomainLogic = kea<emailDomainLogicType>([
             ['recordsAdded'],
             emailDomainAutoConfigureLogic(props),
             ['returnedFromAutoConfigure'],
+            organizationLogic,
+            ['currentOrganization'],
         ],
-        actions: [emailDomainSenderLogic(props), ['loadSender'], emailDomainStatusLogic(props), ['recheck']],
+        actions: [
+            emailDomainSenderLogic(props),
+            ['loadSender'],
+            emailDomainStatusLogic(props),
+            ['recheck'],
+            organizationLogic,
+            ['loadCurrentOrganizationSuccess'],
+        ],
     })),
     actions({
         retry: true,
+        preloadDataSuggestions: true,
     }),
     selectors({
         phase: [
@@ -267,6 +294,18 @@ export const emailDomainLogic = kea<emailDomainLogicType>([
             ): VerificationStep[] =>
                 verificationStepsOf({ status, phase, domain, records, foundCount, allRecordsFound, pollingStopped }),
         ],
+        // The suggestions are written by an LLM, so they follow the organization's AI data processing approval.
+        offersDataSuggestions: [
+            (s) => [s.currentOrganization],
+            (currentOrganization: OrganizationType | null): boolean =>
+                currentOrganization?.is_ai_data_processing_approved === true,
+        ],
+        // Suggestions take up to a minute to write, so they start once the domain is picked and are ready by the last step.
+        preloadsDataSuggestions: [
+            (s) => [s.offersDataSuggestions, s.integrationId],
+            (offersDataSuggestions: boolean, integrationId: number | null): boolean =>
+                offersDataSuggestions && integrationId !== null,
+        ],
         breadcrumbs: [
             (s) => [s.domain, s.integrationId],
             (domain: string | null, integrationId: number | null): Breadcrumb[] => [
@@ -280,7 +319,20 @@ export const emailDomainLogic = kea<emailDomainLogicType>([
             ],
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
+        loadCurrentOrganizationSuccess: () => actions.preloadDataSuggestions(),
+        preloadDataSuggestions: () => {
+            if (!values.preloadsDataSuggestions || cache.dataSuggestionsPreloaded) {
+                return
+            }
+            cache.dataSuggestionsPreloaded = true
+            // The person often leaves the tab to edit DNS, and a remount on return would start the run again.
+            cache.disposables.add(
+                () => workflowDataSuggestionsLogic({ surface: 'email_domain_wizard' }).mount(),
+                'dataSuggestions',
+                { pauseOnPageHidden: false }
+            )
+        },
         retry: () => {
             if (values.senderFailed) {
                 actions.loadSender()
@@ -290,4 +342,7 @@ export const emailDomainLogic = kea<emailDomainLogicType>([
             }
         },
     })),
+    afterMount(({ actions }) => {
+        actions.preloadDataSuggestions()
+    }),
 ])

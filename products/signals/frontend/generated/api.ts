@@ -26,7 +26,6 @@ import type {
     ForgetRequestApi,
     ForgetResponseApi,
     InboxOnboardingDraftApi,
-    InboxOnboardingExposureApi,
     InboxOnboardingStateApi,
     InboxSummaryApi,
     LighthouseAuditRequestApi,
@@ -37,12 +36,14 @@ import type {
     PaginatedSignalReportListListApi,
     PaginatedSignalSourceConfigListApi,
     PatchedPullRequestReviewCommentUpdateApi,
+    PatchedReviewerExclusionUpdateApi,
     PatchedSignalReportArtefactLogUpdateApi,
     PatchedSignalReportContentUpdateApi,
     PatchedSignalScoutConfigUpdateApi,
     PatchedSignalSourceConfigApi,
     PauseResponseApi,
     PauseUntilRequestApi,
+    PersonalRankingApi,
     ProjectProfileApi,
     PullRequestChecksResponseApi,
     PullRequestCiStatusesResponseApi,
@@ -60,6 +61,9 @@ import type {
     ReportReadStateRequestApi,
     ReportReadStateResponseApi,
     ReportSignalsResponseApi,
+    ReviewerExclusionApi,
+    ReviewerExclusionCreateApi,
+    ReviewerExclusionCreateResultApi,
     ScoutChatTaskApi,
     ScoutChatTaskCreateApi,
     ScoutCheckSummaryApi,
@@ -96,6 +100,8 @@ import type {
     SignalReportArtefactLogCreateApi,
     SignalReportArtefactWriteApi,
     SignalReportArtefactWriteResponseApi,
+    SignalReportBulkClaimRequestApi,
+    SignalReportBulkClaimResponseApi,
     SignalReportBulkStateRequestApi,
     SignalReportBulkStateResponseApi,
     SignalReportCheckApi,
@@ -105,6 +111,7 @@ import type {
     SignalReportFeedbackRequestApi,
     SignalReportFeedbackResponseApi,
     SignalReportFeedbackStateApi,
+    SignalReportLeaveReviewersApi,
     SignalReportMergeRequestApi,
     SignalReportMergeResponseApi,
     SignalReportMetricRefreshRequestApi,
@@ -114,6 +121,7 @@ import type {
     SignalReportRefundResponseApi,
     SignalReportRefundSummaryResponseApi,
     SignalReportReingestionStatusApi,
+    SignalReportSectionCountsApi,
     SignalReportSourceMetadataRequestApi,
     SignalReportSourceMetadataResponseApi,
     SignalReportStateRequestApi,
@@ -151,8 +159,10 @@ import type {
     SignalsReportPrReviewCommentsCreateParams,
     SignalsReportsAvailableReviewersRetrieve200,
     SignalsReportsAvailableReviewersRetrieveParams,
+    SignalsReportsForMeRetrieveParams,
     SignalsReportsListParams,
     SignalsReportsPrCiStatusesParams,
+    SignalsReportsSectionCountsRetrieveParams,
     SignalsScoutConfigListParams,
     SignalsScoutConfigSyncParams,
     SignalsScoutConfigTrialComparisonHistoryParams,
@@ -173,6 +183,8 @@ import type {
     SignalsScoutRunsRecentPerScoutParams,
     SignalsScoutScratchpadSearchParams,
     SignalsSourceConfigsListParams,
+    SubmitMonitoringResultRequestApi,
+    SubmitMonitoringResultResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -414,26 +426,9 @@ export const getSignalsOnboardingExposeCreateUrl = (projectId: string) => {
 
 export const signalsOnboardingExposeCreate = async (
     projectId: string,
-    inboxOnboardingExposureApi: InboxOnboardingExposureApi,
     options?: RequestInit
 ): Promise<InboxOnboardingStateApi> => {
     return apiMutator<InboxOnboardingStateApi>(getSignalsOnboardingExposeCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(inboxOnboardingExposureApi),
-    })
-}
-
-export const getSignalsOnboardingReconcileCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/signals/onboarding/reconcile/`
-}
-
-export const signalsOnboardingReconcileCreate = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<InboxOnboardingStateApi> => {
-    return apiMutator<InboxOnboardingStateApi>(getSignalsOnboardingReconcileCreateUrl(projectId), {
         ...options,
         method: 'POST',
     })
@@ -613,7 +608,7 @@ export const getSignalsReportsActionsRunCreateUrl = (projectId: string, id: stri
 }
 
 /**
- * Create a task linked to the report and start its first run in the background, with the instructions the inbox uses for the same action. The run shows in the report's runs and counts toward the report's task limit. Nobody can answer questions in a background run, so the agent writes a note to the report's work log when it needs a decision.
+ * Create a task linked to the report and start its first run in the background, with the instructions the inbox uses for the same action. `ask` sends your own message with the framing of the inbox's Ask AI. The run shows in the report's runs and counts toward the report's task limit. Nobody can answer questions in a background run, so the agent writes a note to the report's work log when it needs a decision.
  * @summary Start a report action as a background agent run
  */
 export const signalsReportsActionsRunCreate = async (
@@ -1071,12 +1066,34 @@ export const signalsReportsReviewersUpdate = async (
     })
 }
 
+export const getSignalsReportsReviewersMeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/reviewers/me/`
+}
+
+/**
+ * Take the calling user off this report's suggested reviewers, and record why. The other reviewers stay, and the report stays open. Succeeds whether or not the caller was on the list.
+ * @summary Step off a report's suggested reviewers, with a reason
+ */
+export const signalsReportsReviewersMeCreate = async (
+    projectId: string,
+    id: string,
+    signalReportLeaveReviewersApi?: SignalReportLeaveReviewersApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getSignalsReportsReviewersMeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportLeaveReviewersApi),
+    })
+}
+
 export const getSignalsReportsReviewersMeDestroyUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/signals/reports/${id}/reviewers/me/`
 }
 
 /**
- * Take the calling user off this report's suggested reviewers, leaving the other reviewers as they are. The report itself is untouched: it stays open for whoever is left, and for the project. Succeeds whether or not the caller was on the list.
+ * Take the calling user off this report's suggested reviewers, leaving the other reviewers as they are. The report itself is untouched: it stays open for whoever is left, and for the project. Succeeds whether or not the caller was on the list. POST to the same path to say why.
  * @summary Step off a report's suggested reviewers
  */
 export const signalsReportsReviewersMeDestroy = async (
@@ -1280,7 +1297,7 @@ export const getSignalsReportArtefactsDestroyUrl = (projectId: string, reportId:
 }
 
 /**
- * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `autostart_skip`, `check_cancelled`, `check_expired`, `check_observation`, `check_result`, `check_scheduled`, `code_review`, `impact_measurement_plan`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pr_owner_assignment`, `pull_request`, `ranking_score`, `report_link`, `reviewer_corrections`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
+ * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `autostart_skip`, `check_authoring`, `check_cancelled`, `check_expired`, `check_observation`, `check_result`, `check_scheduled`, `code_review`, `impact_measurement_plan`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pr_owner_assignment`, `pull_request`, `ranking_score`, `report_link`, `reviewer_corrections`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
  * @summary Delete an artefact
  */
 export const signalsReportArtefactsDestroy = async (
@@ -1506,6 +1523,58 @@ export const signalsReportsBulkStateCreate = async (
     })
 }
 
+export const getSignalsReportsBulkClaimUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/reports/bulk_claim/`
+}
+
+/**
+ * Claim many reports for the current user, internal task, or external agent in one call. Each id is claimed independently, and the call is 200 even when some claims are refused: inspect `results` and the counts. Use the single-report claim endpoint to release a claim or to add pull requests.
+ * @summary Claim many signal reports
+ */
+export const signalsReportsBulkClaim = async (
+    projectId: string,
+    signalReportBulkClaimRequestApi: SignalReportBulkClaimRequestApi,
+    options?: RequestInit
+): Promise<SignalReportBulkClaimResponseApi> => {
+    return apiMutator<SignalReportBulkClaimResponseApi>(getSignalsReportsBulkClaimUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportBulkClaimRequestApi),
+    })
+}
+
+export const getSignalsReportsForMeRetrieveUrl = (projectId: string, params?: SignalsReportsForMeRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/for_me/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/for_me/`
+}
+
+/**
+ * Your open inbox reports, ranked for you by one language model call over your activity summary, the reports that need you and the ranking model's predictions. Each entry has a reason and a compact report. The request never waits on the model. A current stored list returns at once. Otherwise the request starts a background build and returns the last stored list with `stale: true`, or your reports in inbox order with `fallback_reason: building`, and `building: true`. Pass `wait_seconds` to wait a short time for the new list. Only the user the list is about can read it.
+ * @summary Get your personal ranked inbox
+ */
+export const signalsReportsForMeRetrieve = async (
+    projectId: string,
+    params?: SignalsReportsForMeRetrieveParams,
+    options?: RequestInit
+): Promise<PersonalRankingApi> => {
+    return apiMutator<PersonalRankingApi>(getSignalsReportsForMeRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getSignalsReportsPrCiStatusesUrl = (projectId: string, params: SignalsReportsPrCiStatusesParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -1611,6 +1680,39 @@ export const signalsReportsRefundSummaryRetrieve = async (
     })
 }
 
+export const getSignalsReportsSectionCountsRetrieveUrl = (
+    projectId: string,
+    params?: SignalsReportsSectionCountsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/section_counts/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/section_counts/`
+}
+
+/**
+ * Count the ready reports with and without an implementation pull request, in one query. Accepts the list's filters, so each count matches a `count_only` list request with `status=ready` and the matching `has_implementation_pr`. Rejects `status`, `has_implementation_pr`, `include_all_statuses` and `view`, because the counts set those.
+ */
+export const signalsReportsSectionCountsRetrieve = async (
+    projectId: string,
+    params?: SignalsReportsSectionCountsRetrieveParams,
+    options?: RequestInit
+): Promise<SignalReportSectionCountsApi> => {
+    return apiMutator<SignalReportSectionCountsApi>(getSignalsReportsSectionCountsRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getSignalsReportsSourceMetadataCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signals/reports/source_metadata/`
 }
@@ -1629,6 +1731,102 @@ export const signalsReportsSourceMetadataCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalReportSourceMetadataRequestApi),
+    })
+}
+
+export const getSignalsReviewerExclusionsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/reviewer_exclusions/`
+}
+
+/**
+ * List the standing instructions that keep you off automatic reviewer selection, active and revoked.
+ * @summary List your reviewer exclusions
+ */
+export const signalsReviewerExclusionsList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ReviewerExclusionApi[]> => {
+    return apiMutator<ReviewerExclusionApi[]>(getSignalsReviewerExclusionsListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsReviewerExclusionsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/reviewer_exclusions/`
+}
+
+/**
+ * @summary Stay off automatic reviewer selection in an area
+ */
+export const signalsReviewerExclusionsCreate = async (
+    projectId: string,
+    reviewerExclusionCreateApi: ReviewerExclusionCreateApi,
+    options?: RequestInit
+): Promise<ReviewerExclusionCreateResultApi> => {
+    return apiMutator<ReviewerExclusionCreateResultApi>(getSignalsReviewerExclusionsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(reviewerExclusionCreateApi),
+    })
+}
+
+export const getSignalsReviewerExclusionsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reviewer_exclusions/${id}/`
+}
+
+/**
+ * @summary Get one of your reviewer exclusions
+ */
+export const signalsReviewerExclusionsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ReviewerExclusionApi> => {
+    return apiMutator<ReviewerExclusionApi>(getSignalsReviewerExclusionsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsReviewerExclusionsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reviewer_exclusions/${id}/`
+}
+
+/**
+ * @summary Change one of your reviewer exclusions
+ */
+export const signalsReviewerExclusionsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedReviewerExclusionUpdateApi?: PatchedReviewerExclusionUpdateApi,
+    options?: RequestInit
+): Promise<ReviewerExclusionApi> => {
+    return apiMutator<ReviewerExclusionApi>(getSignalsReviewerExclusionsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedReviewerExclusionUpdateApi),
+    })
+}
+
+export const getSignalsReviewerExclusionsRevokeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reviewer_exclusions/${id}/revoke/`
+}
+
+/**
+ * Make you eligible for automatic reviewer selection in this area again. Revoking does not add you to any report, and it does not change old reports.
+ * @summary Revoke one of your reviewer exclusions
+ */
+export const signalsReviewerExclusionsRevokeCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ReviewerExclusionApi> => {
+    return apiMutator<ReviewerExclusionApi>(getSignalsReviewerExclusionsRevokeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 
@@ -2582,6 +2780,28 @@ export const signalsScoutLighthouseAudit = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(lighthouseAuditRequestApi),
+    })
+}
+
+export const getSignalsScoutSubmitMonitoringResultUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${runId}/monitoring_result/`
+}
+
+/**
+ * Submit the assigned Monitoring check's evidence and verdict while the scout is running. Only the owning Monitoring scout can call this endpoint. The server derives the check, attempt, definition, and fixed window from the run. Validation errors record nothing: correct the fields and retry in the same run. An identical accepted submission is idempotent. This records an evaluation and leaves the report in Monitoring.
+ * @summary Submit the result of an authored Monitoring check
+ */
+export const signalsScoutSubmitMonitoringResult = async (
+    projectId: string,
+    runId: string,
+    submitMonitoringResultRequestApi: SubmitMonitoringResultRequestApi,
+    options?: RequestInit
+): Promise<SubmitMonitoringResultResponseApi> => {
+    return apiMutator<SubmitMonitoringResultResponseApi>(getSignalsScoutSubmitMonitoringResultUrl(projectId, runId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(submitMonitoringResultRequestApi),
     })
 }
 

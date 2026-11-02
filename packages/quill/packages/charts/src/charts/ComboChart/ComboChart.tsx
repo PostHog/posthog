@@ -22,8 +22,8 @@ import {
     type BarRect,
     type DrawContext,
 } from '../../core/canvas-renderer'
-import { applyChartDefaults } from '../../core/chart-config'
 import { Chart } from '../../core/Chart'
+import { applyChartDefaults } from '../../core/chart-config'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { barColorAt } from '../../core/color-utils'
 import { type ComboChartPrivate, createComboScales, partitionByType, resolveSeriesType } from '../../core/combo-scales'
@@ -40,6 +40,7 @@ import {
     toYAxisScales,
     yTickCountForHeight,
 } from '../../core/scales'
+import { useResolvedChartTheme } from '../../core/theme'
 import type {
     ChartDimensions,
     ChartDrawArgs,
@@ -62,7 +63,8 @@ export interface ComboChartProps<Meta = unknown> {
     series: Series<Meta>[]
     labels: string[]
     config?: ComboChartConfig
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
     className?: string
@@ -84,13 +86,14 @@ function ComboChartInner<Meta = unknown>({
     series,
     labels,
     config: rawConfig,
-    theme,
+    theme: themeProp,
     tooltip,
     onPointClick,
     className,
     dataAttr,
     children,
 }: Omit<ComboChartProps<Meta>, 'onError'>): React.ReactElement {
+    const theme = useResolvedChartTheme(themeProp)
     const config = useMemo(() => applyChartDefaults(rawConfig), [rawConfig])
     const {
         yScaleType = 'linear',
@@ -127,9 +130,7 @@ function ComboChartInner<Meta = unknown>({
         if (barLayout === 'percent') {
             return computePercentStackData(barSeries, labels)
         }
-        return divergingStack
-            ? computeDivergingStackData(barSeries, labels)
-            : computeStackData(barSeries, labels)
+        return divergingStack ? computeDivergingStackData(barSeries, labels) : computeStackData(barSeries, labels)
     }, [barLayout, divergingStack, series, labels, seriesTypeOf])
 
     // Per-axis topmost bar — only bar layers below the cap forgo corner rounding. Non-bar series are

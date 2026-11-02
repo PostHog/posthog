@@ -74,6 +74,7 @@ Get an API token from [OpenCorporates](https://opencorporates.com/api_accounts/n
                     ),
                     SourceFieldInputConfig(
                         name="query",
+                        sync_setting=True,
                         label="Search term",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -83,6 +84,7 @@ Get an API token from [OpenCorporates](https://opencorporates.com/api_accounts/n
                     ),
                     SourceFieldInputConfig(
                         name="jurisdiction_code",
+                        sync_setting=True,
                         label="Jurisdiction code (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

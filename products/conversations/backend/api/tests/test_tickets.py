@@ -974,7 +974,7 @@ class TestTicketAPI(APIBaseTest):
 
         # Person reads go through personhog, so both page sizes should use the same database queries.
         for limit in (2, 3):
-            with self.subTest(limit=limit), self.assertNumQueries(10):
+            with self.subTest(limit=limit), self.assertNumQueries(9):
                 response = self.client.get(f"{list_url}?limit={limit}")
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
                 self.assertEqual(response.json()["count"], 3)
@@ -3479,6 +3479,25 @@ class TestAiFeedbackAPI(APIBaseTest):
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @patch("products.conversations.backend.api.tickets.posthoganalytics.capture")
+    def test_ai_feedback_rejects_automated_update(self, mock_capture, mock_on_commit):
+        update = Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="Pull request update",
+            item_context={"author_type": "AI", "is_private": True, "automated_update_key": "pr-123"},
+        )
+
+        response = self.client.post(
+            self.url,
+            {"message_id": str(update.id), "rating": "good"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_capture.assert_not_called()
 
 
 class TestTicketAccessControl(APIBaseTest):

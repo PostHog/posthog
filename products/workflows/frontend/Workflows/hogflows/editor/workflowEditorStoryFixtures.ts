@@ -292,6 +292,7 @@ export function createWorkflowEditorStoryDecorator(
             ],
             // nosemgrep: no-environments-api-urls-frontend -- api.messaging has not migrated to generated project routes.
             '/api/environments/:team_id/messaging_categories': { count: 0, results: [] },
+            '/api/projects/:team_id/workflow_imports/for_workflow/': [204],
         },
         patch: {
             // nosemgrep: no-environments-api-urls-frontend -- api.hogFlows has not migrated to generated project routes.

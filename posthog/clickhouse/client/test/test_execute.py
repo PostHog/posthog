@@ -1,9 +1,12 @@
+from datetime import date
 from ipaddress import IPv4Address, IPv6Address
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
+
+from clickhouse_driver.columns.datecolumn import DateColumn
 
 from posthog.hogql.query_stats import query_stats_scope
 
@@ -83,7 +86,6 @@ def test_celery_cache_warming_workload_routing(client_from_pool, access_method, 
     [
         (Workload.DEFAULT, Workload.ENDPOINTS),
         (Workload.LOGS, Workload.LOGS),
-        (Workload.NEW_EVENTS_CLUSTER, Workload.NEW_EVENTS_CLUSTER),
     ],
 )
 def test_endpoints_tag_workload_routing(client_from_pool, workload, expected_workload):
@@ -256,3 +258,22 @@ def test_query_with_columns_removes_columns_by_type(types, row, expected):
         rows = query_with_columns("SELECT *", column_types_to_remove=("IPv4", "IPv6"))
 
     assert rows == [expected]
+
+
+@pytest.mark.parametrize(
+    "raw_day_number_hex,expected",
+    [
+        ("aeba0500", date(2998, 1, 1)),
+        ("8c29f5ff", date(25, 5, 17)),
+    ],
+)
+def test_sync_execute_decodes_date32_outside_driver_default_range(raw_day_number_hex, expected):
+    # RowBinary keeps the raw day number, the same way ClickHouse 26.9+ passes through out-of-range
+    # Parquet and CAST values. The driver's default lookup table stops at 1900-2299.
+    lookup_size = len(DateColumn.date_lut)
+
+    rows = sync_execute(f"SELECT d FROM format(RowBinary, 'd Date32', unhex('{raw_day_number_hex}'))", flush=False)
+
+    assert rows == [(expected,)]
+    # The lookup is shared by every query in the process, so out-of-range days must not be cached in it.
+    assert len(DateColumn.date_lut) == lookup_size

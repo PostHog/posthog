@@ -29,11 +29,20 @@ export function isRegexPattern(pattern: string): boolean {
     return REGEX_METACHARACTER.test(pattern)
 }
 
-/** The original `exec search` predicate, kept verbatim. Throws if the pattern
- *  is not a valid regex, so callers surface their own error message. */
+/** The `exec search` predicate for regex patterns, ordered by the field that matched so a name
+ *  hit comes before a description mention, the way `searchToolsRanked` already orders words.
+ *  Ties keep catalog order. Throws if the pattern is not a valid regex, so callers surface their
+ *  own error message. */
 export function searchToolsRegex<T extends SearchableTool>(tools: readonly T[], pattern: string): T[] {
     const regex = new RegExp(pattern, 'i')
-    return tools.filter((t) => regex.test(t.name) || regex.test(t.title) || regex.test(t.description))
+    const matched: { tool: T; rank: number }[] = []
+    for (const tool of tools) {
+        const rank = ORDERED_FIELDS.findIndex((field) => regex.test(tool[field]))
+        if (rank !== -1) {
+            matched.push({ tool, rank })
+        }
+    }
+    return matched.sort((a, b) => a.rank - b.rank).map((m) => m.tool)
 }
 
 /** Multi-word queries like "create dashboard insight" match nothing as a single

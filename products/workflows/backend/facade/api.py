@@ -13,6 +13,7 @@ from products.workflows.backend.facade.contracts import (
     EmailDomainCheck,
     EmailDomainDnsRecord,
     EmailDomainVerification,
+    FlowUtmUpdate,
     RecentWorkflow,
     TeamUtmDefaults,
     TierDecision,
@@ -302,13 +303,15 @@ def team_has_active_workflows_using_cohorts(*, team_id: int) -> bool:
     return team_has_active_hog_flows_mentioning_cohorts(team_id)
 
 
-def recompute_email_sending_tier(team_id: int) -> TierDecision | None:
+def recompute_email_sending_tier(
+    team_id: int, *, user_id: int | None = None, was_impersonated: bool = False
+) -> TierDecision | None:
     # Deferred to keep the ClickHouse metrics client off the facade import path.
     from products.workflows.backend.services.email_sending_tier import (  # noqa: PLC0415
         recompute_email_sending_tier_for_team,
     )
 
-    return recompute_email_sending_tier_for_team(team_id)
+    return recompute_email_sending_tier_for_team(team_id, user_id=user_id, was_impersonated=was_impersonated)
 
 
 # The provider helpers look the provider class up on the providers package at call time, which
@@ -383,6 +386,10 @@ def load_team_utm_defaults(team_id: int) -> TeamUtmDefaults:
     return email_utm_defaults.load_team_utm_defaults(team_id)
 
 
+def flow_ids_with_active_schedule(team_id: int) -> set[UUID]:
+    return email_utm_defaults.flow_ids_with_active_schedule(team_id)
+
+
 def seed_new_email_steps_with_utm_defaults(
     actions: list[dict[str, Any]], existing_action_ids: Iterable[str], defaults: TeamUtmDefaults
 ) -> None:
@@ -398,3 +405,13 @@ def release_edited_email_utm_keys(
     saving_draft: bool,
 ) -> None:
     email_utm_defaults.release_edited_keys(actions, stored_actions, stored_draft, defaults, saving_draft=saving_draft)
+
+
+def is_utm_apply_eligible(flow: HogFlow, has_active_schedule: bool) -> bool:
+    return email_utm_defaults.is_apply_eligible(flow, has_active_schedule)
+
+
+def plan_flow_utm_update(
+    actions: list[Any], draft: dict[str, Any] | None, defaults: TeamUtmDefaults, enable_where_off: bool
+) -> FlowUtmUpdate | None:
+    return email_utm_defaults.plan_flow_update(actions, draft, defaults, enable_where_off)

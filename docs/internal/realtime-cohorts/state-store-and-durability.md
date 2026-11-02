@@ -163,6 +163,8 @@ The restore judges each candidate from its `metadata.json` and `offsets.json` be
 A candidate that passes is materialized in `<STORE_PATH>.restore`, a sibling of the store on the same mount.
 A local checkpoint is hard-linked there, SSTs only, with every other file copied.
 A remote one is downloaded there, within `CHECKPOINT_IMPORT_TIMEOUT_SECS`.
+A file that fails to download is downloaded again from its start, up to three tries, while the other files continue.
+A file that fails every try fails the candidate.
 A download that times out fails, and the search stops there, because older candidates are about as large.
 The stage must open read-only with this build's column families and schema, and RocksDB's open checks that every SST its MANIFEST names is present at the recorded size.
 The replay window is then checked again, because a download can outlast part of it.
@@ -195,7 +197,7 @@ The boot then creates the store, and every slice begins behind the coverage fenc
 ### The replay window
 
 A restored slice is only correct if the broker can still replay every input past the checkpoint's position for it.
-The restore checks each partition against the enabled inputs' watermarks:
+The restore checks each partition the pod owns against the enabled inputs' watermarks, because boot recovery deletes the others:
 
 - a partition the manifest does not list is reset,
 - a partition where any enabled input's position lies outside the broker's `[low, high]` range is reset,
@@ -256,6 +258,9 @@ Checkpoints require durable restore, a bucket, and an absolute checkpoint direct
   Once a chain is older than `CHECKPOINT_FULL_UPLOAD_INTERVAL_SECS`, the next upload is full, which bounds the age of the oldest object a restore needs.
 - **Paced uploads.**
   One upload reads at most `CHECKPOINT_UPLOAD_MAX_BYTES_PER_SEC` from the store's disk across all its files, so a full upload does not starve the live path.
+- **Failed files.**
+  A file that fails to upload is sent again from its start, up to three tries, while the other files continue.
+  A file that fails every try fails the upload.
 - **A final checkpoint that stays local.**
   A graceful stop cancels an upload in flight, and takes one more checkpoint once every consumer has made its final commit.
   It does not upload, so a stop usually takes seconds, and the next start's first upload covers what changed since the last upload.

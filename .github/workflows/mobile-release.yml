@@ -1,0 +1,125 @@
+name: Mobile Release
+
+on:
+    push:
+        branches: [master]
+        paths:
+            - 'products/mobile/releases/requests/*.json'
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.sha }}
+    cancel-in-progress: false
+
+permissions:
+    contents: read
+    pull-requests: read
+
+jobs:
+    plan:
+        if: github.repository == 'PostHog/posthog'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        outputs:
+            present: ${{ steps.plan.outputs.present }}
+            kind: ${{ steps.plan.outputs.kind }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.sha }}
+                  persist-credentials: false
+                  sparse-checkout: products/mobile
+                  sparse-checkout-cone-mode: false
+            - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              with:
+                  node-version-file: products/mobile/.node-version
+            - name: Fetch the exact push base
+              env:
+                  RELEASE_BASE: ${{ github.event.before }}
+              run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$RELEASE_BASE"
+            - name: Validate the newly merged request
+              id: plan
+              env:
+                  RELEASE_BASE: ${{ github.event.before }}
+                  RELEASE_HEAD: ${{ github.sha }}
+              run: node products/mobile/scripts/releases/release.mjs plan --base "$RELEASE_BASE" --head "$RELEASE_HEAD"
+
+    checks:
+        needs: plan
+        if: needs.plan.outputs.present == 'true'
+        uses: ./.github/workflows/mobile-ci.yml
+        secrets:
+            GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+
+    publish:
+        needs: [plan, checks]
+        if: needs.plan.outputs.present == 'true'
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 180
+        environment: mobile-production
+        # GitHub retains one pending job. A replaced predecessor is detected by
+        # previousRelease and fails closed; rerun that original commit first.
+        concurrency:
+            group: mobile-production-publish
+            cancel-in-progress: false
+        permissions:
+            contents: write
+            deployments: write
+        defaults:
+            run:
+                working-directory: products/mobile
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.sha }}
+                  persist-credentials: false
+                  fetch-depth: 1000
+                  filter: blob:none
+                  sparse-checkout: products/mobile
+                  sparse-checkout-cone-mode: false
+            - name: Fetch the exact push base
+              env:
+                  RELEASE_BASE: ${{ github.event.before }}
+              run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$RELEASE_BASE"
+            - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+              with:
+                  package_json_file: products/mobile/package.json
+              env:
+                  NPM_CONFIG_FETCH_TIMEOUT: 45000
+                  NPM_CONFIG_FETCH_RETRIES: 2
+                  NPM_CONFIG_AUDIT: 'false'
+                  NPM_CONFIG_FUND: 'false'
+            - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              with:
+                  node-version-file: products/mobile/.node-version
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+            - uses: expo/expo-github-action@eab7a230208c952974db8c3245cfd78402c7b385 # 9.0.0
+              with:
+                  eas-version: 24.8.0
+                  token: ${{ secrets.MOBILE_PRODUCTION_EXPO_TOKEN }}
+            - name: Stage and publish the exact tested source
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  MOBILE_RELEASE_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+                  APP_VARIANT: production
+                  EXPO_PUBLIC_SIGNUP_LINK: '0'
+                  MOBILE_OTA_SIGNING_KEY: ${{ needs.plan.outputs.kind == 'ota' && secrets.MOBILE_OTA_SIGNING_KEY || '' }}
+              run: |
+                  # Keep the OTA key outside the uploaded project, and unavailable to
+                  # dependency installation. Native builds never receive this key.
+                  if [[ -n "$MOBILE_OTA_SIGNING_KEY" ]]; then
+                    umask 077
+                    MOBILE_OTA_SIGNING_KEY_PATH=$(mktemp "$RUNNER_TEMP/mobile-ota-private-key.XXXXXX")
+                    export MOBILE_OTA_SIGNING_KEY_PATH
+                    printf '%s' "$MOBILE_OTA_SIGNING_KEY" > "$MOBILE_OTA_SIGNING_KEY_PATH"
+                    trap 'rm -f "$MOBILE_OTA_SIGNING_KEY_PATH"' EXIT
+                  fi
+                  unset MOBILE_OTA_SIGNING_KEY
+                  node scripts/releases/release.mjs publish
+            - name: Preserve the release receipt
+              if: always()
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: mobile-release-receipt-${{ github.sha }}-${{ github.run_attempt }}
+                  path: ${{ runner.temp }}/mobile-release-receipt.json
+                  if-no-files-found: ignore
