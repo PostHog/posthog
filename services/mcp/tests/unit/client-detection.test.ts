@@ -400,6 +400,8 @@ describe('MCPClientProfile', () => {
             // Claude Code's pooled initialize body also says `Anthropic/ClaudeAI`.
             { clientName: 'Anthropic/ClaudeAI' },
             { clientName: 'Anthropic/ClaudeAI', vendorClient: 'ClaudeCode' },
+            // Claude desktop's Code tab declares MCP Apps support but cannot load app data.
+            { userAgent: 'claude-code/2.1.309 (claude-desktop, agent-sdk/0.3.309)', uiSupported: true },
         ])('returns false for %j', (input) => {
             expect(new MCPClientProfile(input).isRenderUiHost()).toBe(false)
         })

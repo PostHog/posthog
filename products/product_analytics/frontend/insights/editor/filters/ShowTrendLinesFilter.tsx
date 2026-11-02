@@ -5,7 +5,7 @@ import { LemonCheckbox } from '@posthog/lemon-ui'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-import { isFunnelsQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
+import { isFunnelsQuery, isRetentionQuery, isTrendsQuery } from '~/queries/schema/node-guards'
 import { ChartDisplayType } from '~/types'
 
 import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
