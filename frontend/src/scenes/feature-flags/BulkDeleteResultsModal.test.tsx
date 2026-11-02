@@ -50,10 +50,9 @@ describe('BulkDeleteResultsModal', () => {
     it('lists only the flags still deleted after a restore that partly failed, and offers to retry them', () => {
         logic.actions.showResultsModal({ deleted: [deletedFlag(1), deletedFlag(2)], errors: [] })
         logic.actions.bulkRestoreFlagSucceeded(1)
-        logic.actions.bulkRestoreFlagsFinished({
-            restoredIds: [1],
-            failed: [{ id: 2, key: 'flag-2', errorMessage: 'Restoring is not available for this flag yet.' }],
-        })
+        logic.actions.bulkRestoreFlagsFinished([
+            { id: 2, key: 'flag-2', errorMessage: 'Restoring is not available for this flag yet.' },
+        ])
         renderModal()
 
         expect(screen.getByText('Restored 1 flag')).toBeInTheDocument()

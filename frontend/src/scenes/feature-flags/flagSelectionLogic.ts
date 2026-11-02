@@ -51,11 +51,6 @@ export interface BulkRestoreFailure {
     errorMessage: string
 }
 
-export interface BulkRestoreResult {
-    restoredIds: number[]
-    failed: BulkRestoreFailure[]
-}
-
 /**
  * Bulk archive issues one request per flag, so it's capped the same way bulk copy is rather than
  * letting a "select all matching" run fan out to thousands of sequential requests.
@@ -318,11 +313,11 @@ export interface flagSelectionLogicValues {
     bulkDeleteResponse: BulkDeleteResult | null
     bulkDeleteResponseLoading: boolean
     bulkDeleteResult: BulkDeleteResult | null
+    bulkRestoreFailures: BulkRestoreFailure[]
     bulkRestoreProgress: {
         done: number
         total: number
     } | null
-    bulkRestoreResult: BulkRestoreResult | null
     bulkRestoreRunning: boolean
     bulkRestoredIds: number[]
     resultsModalVisible: boolean
@@ -399,8 +394,8 @@ export interface flagSelectionLogicActions {
     bulkRestoreFlags: (flags: DeletedFlagInfo[]) => {
         flags: DeletedFlagInfo[]
     }
-    bulkRestoreFlagsFinished: (result: BulkRestoreResult | null) => {
-        result: BulkRestoreResult | null
+    bulkRestoreFlagsFinished: (failed: BulkRestoreFailure[]) => {
+        failed: BulkRestoreFailure[]
     }
     closeBulkCopyModal: () => {
         value: true
@@ -517,7 +512,7 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
         setBulkRestoreProgress: (done: number, total: number) => ({ done, total }),
         bulkRestoreFlags: (flags: DeletedFlagInfo[]) => ({ flags }),
         bulkRestoreFlagSucceeded: (id: number) => ({ id }),
-        bulkRestoreFlagsFinished: (result: BulkRestoreResult | null) => ({ result }),
+        bulkRestoreFlagsFinished: (failed: BulkRestoreFailure[]) => ({ failed }),
     }),
 
     reducers({
@@ -621,12 +616,12 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
                 setBulkRestoreProgress: (_, { done, total }) => ({ done, total }),
             },
         ],
-        bulkRestoreResult: [
-            null as BulkRestoreResult | null,
+        bulkRestoreFailures: [
+            [] as BulkRestoreFailure[],
             {
-                showResultsModal: () => null,
-                bulkRestoreFlags: () => null,
-                bulkRestoreFlagsFinished: (_, { result }) => result,
+                showResultsModal: () => [],
+                bulkRestoreFlags: () => [],
+                bulkRestoreFlagsFinished: (_, { failed }) => failed,
             },
         ],
         // Filled as each restore lands, not when the batch ends, because a restored flag is live again
@@ -759,11 +754,11 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
         bulkRestoreFlags: async ({ flags }) => {
             const projectId = values.currentProjectId
             if (!projectId || flags.length === 0) {
-                actions.bulkRestoreFlagsFinished(null)
+                actions.bulkRestoreFlagsFinished([])
                 return
             }
 
-            const restoredIds: number[] = []
+            let restoredCount = 0
             const failed: BulkRestoreFailure[] = []
 
             actions.setBulkRestoreProgress(0, flags.length)
@@ -774,7 +769,7 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
                 try {
                     // nosemgrep: prefer-codegen-api -- The generated partial update request type has no `deleted` field.
                     await api.update(`api/projects/${projectId}/feature_flags/${flag.id}`, { deleted: false })
-                    restoredIds.push(flag.id)
+                    restoredCount += 1
                     actions.bulkRestoreFlagSucceeded(flag.id)
                 } catch (error) {
                     failed.push({ id: flag.id, key: flag.key, errorMessage: restoreErrorMessage(error) })
@@ -782,15 +777,15 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
                 actions.setBulkRestoreProgress(index + 1, flags.length)
             }
 
-            actions.bulkRestoreFlagsFinished({ restoredIds, failed })
+            actions.bulkRestoreFlagsFinished(failed)
             actions.loadFeatureFlags()
-            actions.reportFeatureFlagsBulkRestored(restoredIds.length, failed.length)
+            actions.reportFeatureFlagsBulkRestored(restoredCount, failed.length)
             // Keep the results open when something failed, so the person can see which flags are still deleted.
             if (failed.length === 0) {
                 actions.hideResultsModal()
             }
 
-            const { level, message } = summarizeBulkRestore(restoredIds.length, failed.length)
+            const { level, message } = summarizeBulkRestore(restoredCount, failed.length)
             lemonToast[level](message)
         },
         bulkCopyFlags: async () => {

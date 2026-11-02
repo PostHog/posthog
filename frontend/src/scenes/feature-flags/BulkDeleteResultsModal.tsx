@@ -119,7 +119,7 @@ export function BulkDeleteResultsModal(): JSX.Element | null {
         resultsModalVisible,
         stillDeletedFlags,
         bulkRestoredIds,
-        bulkRestoreResult,
+        bulkRestoreFailures,
         bulkRestoreRunning,
         bulkRestoreProgress,
     } = useValues(flagSelectionLogic)
@@ -131,7 +131,6 @@ export function BulkDeleteResultsModal(): JSX.Element | null {
     }
 
     const { errors } = bulkDeleteResult
-    const restoreFailures = bulkRestoreResult?.failed ?? []
     const cleanupPrompt = generateCleanupPrompt(stillDeletedFlags)
 
     const handleCopyPrompt = async (): Promise<void> => {
@@ -174,7 +173,7 @@ export function BulkDeleteResultsModal(): JSX.Element | null {
             }
         >
             <div className="space-y-4">
-                {(bulkRestoredIds.length > 0 || restoreFailures.length > 0) && (
+                {(bulkRestoredIds.length > 0 || bulkRestoreFailures.length > 0) && (
                     <div className="space-y-2">
                         {bulkRestoredIds.length > 0 && (
                             <div className="flex items-center gap-2 text-success font-medium">
@@ -182,14 +181,14 @@ export function BulkDeleteResultsModal(): JSX.Element | null {
                                 <span>Restored {pluralize(bulkRestoredIds.length, 'flag')}</span>
                             </div>
                         )}
-                        {restoreFailures.length > 0 && (
+                        {bulkRestoreFailures.length > 0 && (
                             <>
                                 <div className="flex items-center gap-2 text-danger font-medium">
                                     <IconX className="text-lg" />
-                                    <span>Failed to restore {pluralize(restoreFailures.length, 'flag')}</span>
+                                    <span>Failed to restore {pluralize(bulkRestoreFailures.length, 'flag')}</span>
                                 </div>
                                 <ul className="list-none pl-6 space-y-1">
-                                    {restoreFailures.map((failure) => (
+                                    {bulkRestoreFailures.map((failure) => (
                                         <li key={failure.id} className="text-sm">
                                             <span className="text-muted">{failure.key}:</span>
                                             <span className="text-muted-alt"> {failure.errorMessage}</span>
