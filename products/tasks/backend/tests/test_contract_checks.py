@@ -6,8 +6,10 @@ import structlog.testing
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
+from products.tasks.backend.contract_checks import drive_allowed
 from products.tasks.backend.facade.profiles import (
     ContractCheck,
+    DrivePolicy,
     GithubAccess,
     TaskProfile,
     TaskRunOptions,
@@ -159,3 +161,57 @@ class TestValidateRunOptions(SimpleTestCase):
         validate_run_options(profile, options, caller=PUBLIC)
 
         self.assertEqual(_violation_counts(ENFORCE_PROFILE), before)
+
+
+DRIVE_CASES = [
+    ("audience_owner", DrivePolicy.AUDIENCE, 1, 1, False),
+    ("audience_other_user", DrivePolicy.AUDIENCE, 1, 2, False),
+    ("audience_task_without_owner", DrivePolicy.AUDIENCE, None, 2, False),
+    ("owner_drives_own_task", DrivePolicy.OWNER, 1, 1, False),
+    ("owner_policy_other_user", DrivePolicy.OWNER, 1, 2, True),
+    ("owner_policy_task_without_owner", DrivePolicy.OWNER, None, 2, True),
+    ("owner_policy_without_user", DrivePolicy.OWNER, 1, None, True),
+    ("none_policy_owner", DrivePolicy.NONE, 1, 1, True),
+    ("none_policy_other_user", DrivePolicy.NONE, 1, 2, True),
+]
+
+
+def _drive_profile(drive: DrivePolicy, enforced: frozenset[ContractCheck] = frozenset()) -> TaskProfile:
+    return replace(LOG_PROFILE, key="test.drive_checks", drive=drive, enforced_checks=enforced)
+
+
+class TestDriveAllowed(SimpleTestCase):
+    @parameterized.expand(DRIVE_CASES)
+    def test_log_mode_allows_every_caller_and_counts_those_it_would_refuse(
+        self, _name: str, drive: DrivePolicy, created_by_id: int | None, user_id: int | None, violates: bool
+    ) -> None:
+        profile = _drive_profile(drive)
+        before = _violation_counts(profile)
+
+        allowed = drive_allowed(profile, created_by_id=created_by_id, user_id=user_id)
+
+        self.assertTrue(allowed)
+        self.assertEqual(_violation_counts(profile)[ContractCheck.DRIVE] - before[ContractCheck.DRIVE], int(violates))
+
+    @parameterized.expand(DRIVE_CASES)
+    def test_enforce_mode_refuses_the_callers_the_policy_does_not_allow(
+        self, _name: str, drive: DrivePolicy, created_by_id: int | None, user_id: int | None, violates: bool
+    ) -> None:
+        profile = _drive_profile(drive, frozenset({ContractCheck.DRIVE}))
+
+        self.assertEqual(drive_allowed(profile, created_by_id=created_by_id, user_id=user_id), not violates)
+
+    @parameterized.expand([(name, *case) for name, *case in DRIVE_CASES if case[-1]])
+    def test_enforcing_another_check_leaves_drive_in_log_mode(
+        self, _name: str, drive: DrivePolicy, created_by_id: int | None, user_id: int | None, _violates: bool
+    ) -> None:
+        profile = _drive_profile(drive, frozenset({ContractCheck.RUNTIMES}))
+
+        self.assertTrue(drive_allowed(profile, created_by_id=created_by_id, user_id=user_id))
+
+    def test_a_task_without_a_profile_is_always_drivable(self) -> None:
+        before = _violation_counts(_drive_profile(DrivePolicy.NONE))
+
+        self.assertTrue(drive_allowed(None, created_by_id=1, user_id=2))
+
+        self.assertEqual(_violation_counts(_drive_profile(DrivePolicy.NONE)), before)

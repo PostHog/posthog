@@ -355,6 +355,10 @@ def get_task_profile(key: str) -> TaskProfile:
         raise TaskProfileError(f"Unknown task profile {key!r}") from None
 
 
+def find_task_profile(key: str | None) -> TaskProfile | None:
+    return _profiles.get(key) if key else None
+
+
 def task_profiles() -> tuple[TaskProfile, ...]:
     return tuple(_profiles.values())
 

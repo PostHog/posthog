@@ -103,6 +103,7 @@ from products.tasks.backend.constants import (
     is_html_artifact as is_html_artifact,
     is_same_run_resume_state,
 )
+from products.tasks.backend.contract_checks import drive_allowed
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.facade.gateway import mint_private_gateway_token, revoke_private_gateway_token
 from products.tasks.backend.facade.profiles import (
@@ -111,6 +112,7 @@ from products.tasks.backend.facade.profiles import (
     TaskProfile,
     TaskRunOptions,
     TaskSource,
+    find_task_profile,
     resolve_task_origin,
 )
 from products.tasks.backend.feature_flags import (
@@ -3391,12 +3393,16 @@ def task_accessible_for_run_view(
             is_trial=Case(When(Task.scout_experiment_q(), then=Value(True)), default=Value(False)),
             accessible=Exists(Task.objects.filter(id=OuterRef("pk"), team_id=team_id).filter(visibility)),
         )
-        .values("is_trial", "accessible")
+        .values("is_trial", "accessible", "profile", "created_by_id")
         .first()
     )
     if task is not None and task["is_trial"]:
         tag_queries(is_scout_experiment=True)
-    return task is not None and bool(task["accessible"])
+    if task is None or not task["accessible"]:
+        return False
+    if for_control and not (bypass_visibility or sandbox_request or sandbox_task_id is not None):
+        return drive_allowed(find_task_profile(task["profile"]), created_by_id=task["created_by_id"], user_id=user_id)
+    return True
 
 
 def list_task_run_ids(task_id: str | UUID, team_id: int) -> list[UUID]:
@@ -7229,7 +7235,14 @@ def task_visible(task_id: str | UUID, team_id: int, user_id: int | None, *, for_
     the original ordering; the ``run`` action passes ``for_control`` since starting a run drives
     the task.
     """
-    return _visible_task_qs(team_id, user_id, for_control=for_control).filter(id=task_id).exists()
+    visible = _visible_task_qs(team_id, user_id, for_control=for_control).filter(id=task_id)
+    if not for_control:
+        return visible.exists()
+    row = visible.values_list("profile", "created_by_id").first()
+    if row is None:
+        return False
+    profile_key, created_by_id = row
+    return drive_allowed(find_task_profile(profile_key), created_by_id=created_by_id, user_id=user_id)
 
 
 def scout_trial_task_ids(team_id: int, *, visible_task_id: UUID | None = None) -> Iterable[UUID]:

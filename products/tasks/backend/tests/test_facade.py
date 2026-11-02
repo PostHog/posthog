@@ -31,6 +31,8 @@ from products.tasks.backend.facade import (
 )
 from products.tasks.backend.facade.access import PostHogAIAccessDecision
 from products.tasks.backend.facade.profiles import (
+    ContractCheck,
+    DrivePolicy,
     Read,
     Repository,
     SourceKind,
@@ -593,6 +595,106 @@ class TestFacadeReadsAndMappers(TestCase):
         with self.assertNumQueries(1):
             assert facade.task_accessible_for_run_view(task.id, self.team.id, self.user.id, for_control=for_control)
         assert not facade.task_accessible_for_run_view(task.id, self.team.id, outsider.id, for_control=for_control)
+
+    @parameterized.expand(
+        [
+            ("run_view_in_log_mode", "run_view", DrivePolicy.NONE, frozenset(), True, False, True),
+            ("run_view_enforced", "run_view", DrivePolicy.NONE, frozenset({ContractCheck.DRIVE}), True, False, False),
+            (
+                "run_view_enforced_for_reading",
+                "run_view",
+                DrivePolicy.NONE,
+                frozenset({ContractCheck.DRIVE}),
+                False,
+                False,
+                True,
+            ),
+            (
+                "run_view_enforced_for_the_owner",
+                "run_view",
+                DrivePolicy.OWNER,
+                frozenset({ContractCheck.DRIVE}),
+                True,
+                False,
+                True,
+            ),
+            (
+                "run_view_enforced_for_a_sandbox",
+                "run_view",
+                DrivePolicy.NONE,
+                frozenset({ContractCheck.DRIVE}),
+                True,
+                True,
+                True,
+            ),
+            (
+                "run_view_with_another_check_enforced",
+                "run_view",
+                DrivePolicy.NONE,
+                frozenset({ContractCheck.RUNTIMES}),
+                True,
+                False,
+                True,
+            ),
+            ("task_visible_in_log_mode", "task_visible", DrivePolicy.NONE, frozenset(), True, False, True),
+            (
+                "task_visible_enforced",
+                "task_visible",
+                DrivePolicy.NONE,
+                frozenset({ContractCheck.DRIVE}),
+                True,
+                False,
+                False,
+            ),
+            (
+                "task_visible_enforced_for_reading",
+                "task_visible",
+                DrivePolicy.NONE,
+                frozenset({ContractCheck.DRIVE}),
+                False,
+                False,
+                True,
+            ),
+            (
+                "task_visible_enforced_for_the_owner",
+                "task_visible",
+                DrivePolicy.OWNER,
+                frozenset({ContractCheck.DRIVE}),
+                True,
+                False,
+                True,
+            ),
+        ]
+    )
+    def test_control_gates_apply_the_profile_drive_policy(
+        self,
+        _name: str,
+        gate: str,
+        drive: DrivePolicy,
+        enforced: frozenset[ContractCheck],
+        for_control: bool,
+        bypass_visibility: bool,
+        allowed: bool,
+    ) -> None:
+        profile = replace(
+            get_task_profile("business_knowledge"), key="test.drive", drive=drive, enforced_checks=enforced
+        )
+        task = self._make_task(profile=profile.key)
+
+        with patch.dict("products.tasks.backend.facade.profiles._profiles", {profile.key: profile}):
+            if gate == "run_view":
+                with self.assertNumQueries(1):
+                    result = facade.task_accessible_for_run_view(
+                        task.id,
+                        self.team.id,
+                        self.user.id,
+                        for_control=for_control,
+                        bypass_visibility=bypass_visibility,
+                    )
+            else:
+                result = facade.task_visible(task.id, self.team.id, self.user.id, for_control=for_control)
+
+        self.assertIs(result, allowed)
 
     def test_task_control_runtime_and_origin_uses_control_predicate(self):
         task = self._make_task(origin_product=Task.OriginProduct.POSTHOG_AI, runtime=Task.Runtime.PI)
