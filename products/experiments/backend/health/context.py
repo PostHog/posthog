@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from datetime import date, datetime, timedelta
 from enum import StrEnum
 from functools import reduce
@@ -29,11 +29,12 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.event_definitions.backend.models import EventDefinition, PropertyDefinition, effective_project_id_expr
+from products.event_definitions.backend.models import PropertyDefinition, effective_project_id_expr
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthFlagChangeKind,
     ExperimentHealthMetricCompileErrorKind,
 )
+from products.experiments.backend.facade.enums import ExposuresPath
 from products.experiments.backend.health.delays import ENDED_FLAG_QUIET_PERIOD, LAST_CALLED_AT_LAG_DURATION
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureSegmentDimension
 from products.experiments.backend.hogql_queries.experiment_query_builder import get_exposure_config_params_for_builder
@@ -46,7 +47,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
 from products.experiments.backend.logic.result_stats import MetricResultStats
 from products.experiments.backend.metric_resolution import MetricRole, saved_metric_link_role, saved_metric_links
 from products.experiments.backend.metric_utils import get_default_metric_title
-from products.experiments.backend.metric_validation import defined_event_names, extract_entity_nodes
+from products.experiments.backend.metric_validation import defined_event_names, event_last_seen, extract_entity_nodes
 from products.experiments.backend.models.experiment import Experiment, ExperimentToSavedMetric
 from products.experiments.backend.running_time_target import RunningTimeTarget
 from products.feature_flags.backend.facade.edits import (
@@ -232,6 +233,18 @@ class PrimaryMetric:
 
 
 @frozen
+class MetricWindow:
+    """How long a primary metric holds a user back while "Require completed conversion or retention window" is on."""
+
+    name: str
+    # 0 when the metric has no window, so the setting holds nobody back.
+    window_seconds: int
+    # The launch plus the window. The window starts at a user's first exposure, or at the start event for retention,
+    # so a user who arrives later counts later.
+    first_users_count_at: datetime
+
+
+@frozen
 class ExposureSegment:
     """The persons or groups whose first exposure carries one value of a dimension, such as the SDK library."""
 
@@ -260,10 +273,27 @@ class ExposureTotals:
     hours_since_launch: float | None
     # Whether the totals count groups rather than persons, by the rule the exposure query uses.
     counts_groups: bool
-    # The next two need a scan of the exposure events. Only the exposure query loads them, and only when the check
-    # that reads them reports a finding. None when not loaded or when the query failed.
+    # Whether the totals leave out test accounts: the exposure criteria filter them out, and the project has test
+    # account filters.
+    filters_test_accounts: bool
+    # Whether a project test account filter keeps what it matches. The kept share check scans the exposure events only
+    # for such a project.
+    has_positive_test_account_filter: bool
+    # The next two need a scan of the exposure events. Only the exposure query loads them, and only when a check that
+    # reads them can report a finding with them. None when not loaded or when the query failed.
     segments: tuple[ExposureSegment, ...] | None = None
     exposed_without_test_account_filter: int | None = None
+    # Whether the totals come from precomputed exposures. These lag the events that the count without the test account
+    # filter scans, so a burst of new users would read as users that the filter removes. Only the exposure query sets it.
+    reads_precomputed_exposures: bool = False
+
+    @property
+    def total(self) -> int:
+        return sum(self.total_exposures.values())
+
+    @property
+    def unit(self) -> str:
+        return "group" if self.counts_groups else "user"
 
 
 @frozen
@@ -326,6 +356,40 @@ class MetricCalculationFailure:
     retriable: bool
     # The effective definition now, in which the wording looks for the names that the message gives.
     definition: Mapping[str, Any]
+    # Where the query read the exposures. None for a failure stored before calculations stored it, and for a query that
+    # failed before it was built.
+    exposures_path: ExposuresPath | None
+
+
+RatioSide = Literal["numerator", "denominator"]
+
+
+@frozen
+class ZeroMetric:
+    """A metric, or one side of a ratio metric, whose latest calculation reads zero in every variant, which the results
+    page shows as "Not enough data yet" at any sample size."""
+
+    metric_id: str
+    name: str
+    role: MetricRole
+    # The persons or groups of the result, across the variants.
+    exposures: int
+    # The side of a ratio that reads zero, each side its own `ZeroMetric`. None for the other metric types.
+    ratio_side: RatioSide | None
+    # The effective definition now, which holds the outlier handling and the retention window.
+    definition: Mapping[str, Any]
+    # The persons or groups that reached a step of a funnel before the last one. Zero for the other metric types.
+    reached_earlier_step: int
+    # The events that the zero reads by name, without the other side of a ratio.
+    events: tuple[str, ...]
+    # The data warehouse tables that the zero reads, without the other side of a ratio.
+    warehouse_tables: tuple[str, ...]
+    # Whether the zero reads an event node with a blank name, which matches no event. "All events" stores no name.
+    has_blank_event: bool
+    # Whether the zero reads a node with property filters.
+    has_filters: bool
+    # Of `events`, those that the project last received before launch, by the time of the last one.
+    stopped_events: Mapping[str, datetime]
 
 
 @frozen
@@ -338,6 +402,15 @@ class LatestCalculation:
     finished_at: datetime | None
     # The metrics of the experiment now whose latest calculation failed, in calculation order.
     failures: tuple[MetricCalculationFailure, ...]
+    # The metrics of the experiment now whose result of this calculation the page shows.
+    completed_count: int
+    # Where the queries of those results read the exposures, when there is a failure to compare them with.
+    completed_exposures_paths: frozenset[ExposuresPath]
+    # Of those results, the ones that read zero in every variant.
+    zero_metrics: tuple[ZeroMetric, ...] = ()
+    # The hours from launch to the end of the data of this calculation. None when no calculation has finished. The
+    # page can show a calculation from days ago until its refresh finishes.
+    hours_of_data: float | None = None
 
 
 @frozen
@@ -349,6 +422,23 @@ class FlagKeyFilter:
 
 
 ExposurePropertyType = Literal["event", "person"]
+ExposureFilterPropertyType = ExposurePropertyType | Literal["group"]
+
+
+class ExposureFilterSource(StrEnum):
+    EXPOSURE_CRITERIA = "exposure_criteria"
+    EXPOSURE_ACTION = "exposure_action"
+    TEST_ACCOUNTS = "test_accounts"
+
+
+@frozen
+class ExposureFilterWithoutColumn:
+    """A property that the exposure query filters on and reads from the JSON of all the properties of each event, person
+    or group."""
+
+    type: ExposureFilterPropertyType
+    key: str
+    source: ExposureFilterSource
 
 
 @frozen
@@ -499,6 +589,11 @@ class HealthContext:
     # None when not loaded, unknown, or the experiment calculates no primary metric. Only the health endpoints load it,
     # and only for a launched experiment.
     primary_metric: PrimaryMetric | None
+    only_count_matured_users: bool
+    # In the order of the results page. None when not loaded or when a metric doesn't parse. Only the health endpoints
+    # load it, and only for a launched experiment that hasn't ended, isn't archived and has `only_count_matured_users`
+    # on.
+    primary_metric_windows: tuple[MetricWindow, ...] | None
     # The variants that the analysis leaves out of the results.
     excluded_variant_keys: frozenset[str]
     # None when not loaded or unknown. Only the health endpoints load it, as the reader.
@@ -506,6 +601,9 @@ class HealthContext:
     # None when not loaded or unknown. Only the health endpoints load it, and only for a launched experiment that
     # isn't archived.
     latest_calculation: LatestCalculation | None
+    # None when not loaded or unknown. Only the health endpoints load it, and only when no metric of the latest
+    # calculation completed and a failed query read the events.
+    exposure_filters_without_column: tuple[ExposureFilterWithoutColumn, ...] | None
 
 
 def parse_flag_state(
@@ -858,25 +956,28 @@ def _received(
     }
 
 
+def ingestion_proof_events(experiment_events: Iterable[str]) -> set[str]:
+    """The events whose `last_seen_at` can show that ingestion records the project: the flag calls and the events of
+    the experiment."""
+    return {DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT, *experiment_events}
+
+
+def ingestion_records_project(last_seen: Mapping[str, datetime]) -> bool:
+    """Whether ingestion writes the project's definitions now, from `last_seen` of `ingestion_proof_events`. A missing
+    or stale definition proves nothing without it. Ingestion can be set to skip a team, and then writes no definition at
+    all. It refreshes `last_seen_at` of an event that it sees about once an hour. So a flag call or an event of the
+    experiment seen within the margin shows that it records the project."""
+    recent = timezone.now() - _DEFINITION_RECREATION_MARGIN
+    return any(seen >= recent for seen in last_seen.values())
+
+
 def _ingestion_records_project(
     experiment: Experiment, metric_events: tuple[MetricEvents, ...], exposure_events: ExposureEvents | None
 ) -> bool:
-    """Whether ingestion writes the project's definitions now, which a missing definition needs to prove anything.
-    Ingestion can be set to skip a team, and then writes no definition at all. It refreshes `last_seen_at` of an event
-    that it sees about once an hour. So a flag call or an event of the experiment seen within the margin shows that it
-    records the project."""
-    names = {DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT, *(event for m in metric_events for event in m.events)}
+    names = ingestion_proof_events(event for m in metric_events for event in m.events)
     if exposure_events is not None and exposure_events.custom_event is not None:
         names.add(exposure_events.custom_event)
-    return (
-        EventDefinition.objects.alias(effective_project_id=effective_project_id_expr())
-        .filter(
-            effective_project_id=experiment.team.project_id,
-            name__in=names,
-            last_seen_at__gte=timezone.now() - _DEFINITION_RECREATION_MARGIN,
-        )
-        .exists()
-    )
+    return ingestion_records_project(event_last_seen(experiment.team.project_id, names))
 
 
 def _deletions_since(experiment: Experiment) -> datetime:
@@ -962,7 +1063,10 @@ def load_health_context(
         condition_set_traffic=None,
         pause_history=None,
         primary_metric=None,
+        only_count_matured_users=experiment.only_count_matured_users,
+        primary_metric_windows=None,
         excluded_variant_keys=frozenset(experiment.excluded_variants or []),
         metric_compiles=None,
         latest_calculation=None,
+        exposure_filters_without_column=None,
     )

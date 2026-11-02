@@ -21,6 +21,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { isApprovalRequiredError } from 'lib/api-error'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -28,8 +29,10 @@ import { dayjs } from 'lib/dayjs'
 import { FeatureFlagsSet, featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { isObject } from 'lib/utils/guards'
+import { HogQLQueryString } from 'lib/utils/hogql'
 import { hasFormErrors, objectClean } from 'lib/utils/objects'
 import { allOperatorsMapping } from 'lib/utils/operators'
+import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -59,7 +62,6 @@ import {
     ProductKey,
 } from '~/queries/schema/schema-general'
 import { SurveyAnalysisQuestionGroup, SurveyAnalysisResponseItem } from '~/queries/schema/schema-surveys'
-import { HogQLQueryString } from '~/queries/utils'
 import {
     ActivityScope,
     AnyPropertyFilter,
@@ -2013,6 +2015,15 @@ export const surveyLogic = kea<surveyLogicType>([
                 tryShowMCPHint('surveys.create', {
                     derivedPrompt: survey.name ? `Create a ${surveyType}survey called ${survey.name}` : undefined,
                 })
+            },
+            updateSurveyFailure: ({ errorObject }) => {
+                // The global error handler skips approval 409s, so without this a targeting change that
+                // waits for approval looks like a save that did nothing.
+                if (isApprovalRequiredError(errorObject)) {
+                    showApprovalRequiredToast(errorObject.data.change_request_id, undefined, errorObject.data.code)
+                    // The backend saved none of the edits, so drop the form state that shows them as saved.
+                    actions.loadSurvey()
+                }
             },
             updateSurveySuccess: ({ survey }) => {
                 lemonToast.success(<>Survey {survey.name} updated</>)

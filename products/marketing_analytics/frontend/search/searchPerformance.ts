@@ -1,11 +1,11 @@
 import { dayjs } from 'lib/dayjs'
+import { HogQLQueryString, escapePropertyAsHogQLIdentifier, hogql } from 'lib/utils/hogql'
 
 import {
     MarketingAnalyticsSearchQuery,
     MarketingAnalyticsSearchSource,
     MarketingAnalyticsSearchRow,
 } from '~/queries/schema/schema-general'
-import { HogQLQueryString, escapePropertyAsHogQLIdentifier, hogql } from '~/queries/utils'
 import { ExternalDataSchemaStatus, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
 export type SearchPlatform = MarketingAnalyticsSearchSource['sourceType']
@@ -308,8 +308,12 @@ export function searchPerformanceSourceNotice(
 
 export const SEARCH_SOURCE_TYPES = ['GoogleAds', 'BingAds', 'GoogleSearchConsole']
 
-export function selectedSearchSources(sources: ExternalDataSource[], selectedIds: string[]): ExternalDataSource[] {
-    const searchSources = sources.filter((source) => SEARCH_SOURCE_TYPES.includes(source.source_type))
+export function selectedSearchSources(
+    sources: ExternalDataSource[],
+    selectedIds: string[],
+    types: string[] = SEARCH_SOURCE_TYPES
+): ExternalDataSource[] {
+    const searchSources = sources.filter((source) => types.includes(source.source_type))
     const selected = searchSources.filter((source) => selectedIds.includes(source.id))
     return selectedIds.length > 0 ? selected : searchSources
 }

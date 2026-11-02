@@ -29,7 +29,7 @@ from products.review_hog.backend.reviewer.models.issues_review import (
 from products.review_hog.backend.reviewer.models.perspective_selection import PerspectiveSelection
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE
-from products.signals.backend.artefact_schemas import (
+from products.signals.backend.facade.report_artefacts import (
     ArtefactContentValidationError,
     CodeReference,
     Commit,

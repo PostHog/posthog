@@ -53,7 +53,7 @@ export interface ScoutChatModalProps {
 export function ScoutChatModal({ initialPrompt = '', onClose, onSwitchToForm }: ScoutChatModalProps): JSX.Element {
     const [prompt, setPrompt] = useState(initialPrompt)
     const [templateId, setTemplateId] = useState<string | null>(null)
-    const { runningChatType, aiConsentDisabledReason } = useValues(scoutFleetLogic)
+    const { runningChatType, scoutChatDisabledReason } = useValues(scoutFleetLogic)
     const { startScoutChatTask } = useActions(scoutFleetLogic)
     const creationDisabledReason = useScoutCreateDisabledReason()
 
@@ -61,7 +61,7 @@ export function ScoutChatModal({ initialPrompt = '', onClose, onSwitchToForm }: 
     const trimmedPrompt = prompt.trim()
     const startDisabledReason =
         creationDisabledReason ??
-        aiConsentDisabledReason ??
+        scoutChatDisabledReason ??
         (runningChatType !== null && !isStarting ? 'Starting another task…' : null) ??
         (trimmedPrompt ? null : 'Describe what the scout should watch')
 

@@ -113,6 +113,11 @@ class EventValueQueryParams:
     value: str | None
 
 
+class EventListPagingQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(required=False, min_value=0, help_text="The maximum number of results to return")
+    offset = serializers.IntegerField(required=False, default=0, min_value=0, help_text="Number of rows to skip.")
+
+
 class ElementSerializer(serializers.ModelSerializer):
     event = serializers.CharField()
 
@@ -274,23 +279,16 @@ class EventViewSet(
     )
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         tag_queries(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.QUERY)
+        is_csv_request = self.request.accepted_renderer.format == "csv"
+        # An empty `limit=` or `offset=` means the default, so only non-empty values are validated.
+        paging = EventListPagingQuerySerializer(
+            data={key: request.GET[key] for key in ("limit", "offset") if request.GET.get(key)}
+        )
+        paging.is_valid(raise_exception=True)
+        default_limit = QUERY_DEFAULT_EXPORT_LIMIT if is_csv_request else DEFAULT_RETURNED_ROWS
+        limit = min(paging.validated_data.get("limit", default_limit), EVENT_LIST_MAX_LIMIT)
+        offset: int = paging.validated_data["offset"]
         try:
-            is_csv_request = self.request.accepted_renderer.format == "csv"
-
-            if self.request.GET.get("limit", None):
-                limit = int(self.request.GET.get("limit"))  # type: ignore
-            elif is_csv_request:
-                limit = QUERY_DEFAULT_EXPORT_LIMIT
-            else:
-                limit = DEFAULT_RETURNED_ROWS
-
-            limit = min(limit, EVENT_LIST_MAX_LIMIT)
-
-            try:
-                offset = int(request.GET["offset"]) if request.GET.get("offset") else 0
-            except ValueError:
-                offset = 0
-
             team = self.team
 
             deprecate_offset = (

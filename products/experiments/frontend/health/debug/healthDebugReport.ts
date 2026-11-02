@@ -247,6 +247,16 @@ function metricCalculationNote({ evidence }: ExperimentHealthFindingApi): string
     return `Failed: ${failures.join(', ')}. Calculated at ${evidence.calculated_at}.`
 }
 
+function metricAllZeroNote({ evidence }: ExperimentHealthFindingApi): string {
+    const metrics = Object.entries(evidence)
+        .filter(([key]) => /^metric_\d+$/.test(key))
+        .map(([key, value]) => {
+            const side = evidence[`${key}_side`]
+            return `${value}${side ? ` ${side}` : ''} (${evidence[`${key}_cause`] ?? 'no cause shown'})`
+        })
+    return `Zero in every variant: ${metrics.join(', ')}.`
+}
+
 function exposureCriteriaNote({ subcode, evidence }: ExperimentHealthFindingApi): string {
     if (subcode === 'filter_on_another_flag') {
         return `The query requires ${evidence.flag_key}, a filter requires ${evidence.filter_flag_keys}.`
@@ -353,6 +363,11 @@ function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
     return [
         exposureCheck('zero_exposures', ['experiment', 'flag', 'exposures'], null),
         exposureCheck(
+            'test_account_filter_removes_exposures',
+            ['experiment', 'exposures', 'project'],
+            'The finding needs 100 or more users or groups exposed without the test account filter, and 10% or less of them kept. It runs from 24 hours after launch while fewer than 1,000 are counted.'
+        ),
+        exposureCheck(
             'srm',
             ['exposures', 'flag'],
             'The finding needs p < 0.001. After a split change it tests the users first exposed after the day of the change. It reads the flag history only for a reader who can view the flag.'
@@ -380,9 +395,11 @@ export function buildHealthDebugChecks(input: HealthDebugInput): HealthDebugChec
         serverOnlyCheck(input, 'metric_event_not_ingested', metricEventNote, ['metrics', 'project']),
         serverOnlyCheck(input, 'metric_cannot_compile', metricCompileNote, ['metrics', 'experiment']),
         serverOnlyCheck(input, 'metric_calculation_failed', metricCalculationNote, ['metrics']),
+        serverOnlyCheck(input, 'metric_all_zero', metricAllZeroNote, ['metrics', 'project']),
         serverOnlyCheck(input, 'exposure_criteria_cannot_match', exposureCriteriaNote, ['experiment', 'project']),
         exposureFiltersCheck(input),
         serverOnlyCheck(input, 'early_significance', null, ['experiment', 'metrics']),
+        serverOnlyCheck(input, 'metrics_not_matured', null, ['experiment', 'metrics']),
         ...exposureChecks(input),
     ]
 }
