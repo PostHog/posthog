@@ -3452,6 +3452,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
 
             const shouldDisplayConfirmation = featureFlagConfirmationEnabled || dependentFlags.length > 0
+            // Releasing an existing flag to everyone is always confirmed, whatever the team setting says.
+            const releasesToEveryone = flagWentLive(originalFlag, updatedFlag as FeatureFlagType)
 
             const confirmationShown = checkFeatureFlagConfirmation(
                 originalFlag,
@@ -3463,7 +3465,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 dependentFlags,
                 isBeingDisabled,
                 requireStatusConfirmation,
-                onDisableAndArchive
+                onDisableAndArchive,
+                releasesToEveryone
             )
 
             // If no confirmation was shown, proceed immediately
