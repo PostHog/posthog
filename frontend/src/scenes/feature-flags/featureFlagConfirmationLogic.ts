@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 
 import { objectsEqual } from 'lib/utils/objects'
 
@@ -114,7 +115,8 @@ export function checkFeatureFlagConfirmation(
     dependentFlags?: DependentFlag[],
     isBeingDisabled?: boolean,
     requireStatusConfirmation = false,
-    onDisableAndArchive?: () => void
+    onDisableAndArchive?: () => void,
+    releasesToEveryone = false
 ): boolean {
     // Check if confirmation is needed
     const needsConfirmation = !!updatedFlag.id && shouldDisplayConfirmation
@@ -123,6 +125,10 @@ export function checkFeatureFlagConfirmation(
         const changes = detectFeatureFlagChanges(originalFlag, updatedFlag)
 
         if (changes.length > 0) {
+            if (releasesToEveryone) {
+                // pinned: analytics event names
+                posthog.capture('feature flag release to everyone confirmation shown')
+            }
             // Show confirmation modal
             openConfirmationModal({
                 featureFlag: updatedFlag,
@@ -132,7 +138,11 @@ export function checkFeatureFlagConfirmation(
                 dependentFlags: dependentFlags,
                 isBeingDisabled: isBeingDisabled,
                 featureFlagConfirmationEnabled: featureFlagConfirmationEnabled,
+                releasesToEveryone: releasesToEveryone,
                 onConfirm: onConfirm,
+                onCancel: releasesToEveryone
+                    ? () => posthog.capture('feature flag release to everyone confirmation canceled')
+                    : undefined,
             })
             return true // Confirmation modal shown, don't proceed with save
         }

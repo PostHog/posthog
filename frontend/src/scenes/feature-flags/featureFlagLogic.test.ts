@@ -3890,6 +3890,46 @@ describe('featureFlagLogic', () => {
         })
     })
 
+    describe('release to everyone confirmation', () => {
+        const withRollout = (rollout_percentage: number): FeatureFlagType =>
+            ({
+                ...MOCK_FEATURE_FLAG,
+                filters: {
+                    ...MOCK_FEATURE_FLAG.filters,
+                    groups: [{ properties: [], rollout_percentage, variant: null }],
+                },
+            }) as FeatureFlagType
+
+        it('confirms a save that releases the flag to all users, even with team confirmation off', async () => {
+            const dialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            logic.actions.setOriginalFeatureFlag(withRollout(50))
+            logic.actions.setFeatureFlag(withRollout(100))
+
+            await expectLogic(logic, () => logic.actions.submitFeatureFlagWithValidation(logic.values.featureFlag))
+                .toNotHaveDispatchedActions(['saveFeatureFlag'])
+                .toFinishAllListeners()
+
+            expect(dialogOpenSpy).toHaveBeenCalledTimes(1)
+            expect(dialogOpenSpy.mock.calls[0][0].primaryButton?.children).toBe('Release to all users')
+            expect(capturesOf('feature flag release to everyone confirmation shown')).toHaveLength(1)
+            dialogOpenSpy.mockRestore()
+        })
+
+        it('saves a partial rollout change without asking', async () => {
+            const dialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            jest.spyOn(api, 'update').mockResolvedValueOnce(withRollout(60))
+            logic.actions.setOriginalFeatureFlag(withRollout(50))
+            logic.actions.setFeatureFlag(withRollout(60))
+
+            await expectLogic(logic, () => logic.actions.submitFeatureFlagWithValidation(logic.values.featureFlag))
+                .toDispatchActions(['saveFeatureFlag'])
+                .toFinishAllListeners()
+
+            expect(dialogOpenSpy).not.toHaveBeenCalled()
+            dialogOpenSpy.mockRestore()
+        })
+    })
+
     describe('rollback reason question', () => {
         const rollbackReasonRequired = (): ApiError =>
             new ApiError(undefined, 409, undefined, {

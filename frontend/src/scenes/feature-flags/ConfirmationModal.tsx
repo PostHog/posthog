@@ -19,6 +19,7 @@ interface ConfirmationModalProps {
     dependentFlags?: DependentFlag[] // Feature flags that depend on this flag (only shown when disabling)
     isBeingDisabled?: boolean // Whether the flag is being disabled (controls dependent flags warning)
     featureFlagConfirmationEnabled?: boolean // Whether the team has feature flag confirmation enabled in settings
+    releasesToEveryone?: boolean // Whether saving turns the flag on for everyone (only for multi-changes type)
     onConfirm: () => void
     onCancel?: () => void
 }
@@ -36,6 +37,7 @@ export function openConfirmationModal({
     dependentFlags,
     isBeingDisabled = false,
     featureFlagConfirmationEnabled = false,
+    releasesToEveryone = false,
     onConfirm,
     onCancel,
 }: ConfirmationModalProps): void {
@@ -100,6 +102,18 @@ export function openConfirmationModal({
                             <li key={index}>{change}</li>
                         ))}
                     </ul>
+                    {releasesToEveryone && (
+                        <div className="mt-4 p-3 border border-warning bg-warning-highlight rounded">
+                            <p className="my-0 flex items-center gap-2">
+                                <IconWarning className="text-warning" />
+                                <strong>This releases the flag to all users</strong>
+                            </p>
+                            <p className="mb-0">
+                                After you save, every user who evaluates <strong>{featureFlag.key}</strong> gets it
+                                immediately.
+                            </p>
+                        </div>
+                    )}
                     {isBeingDisabled && dependentFlags && dependentFlags.length > 0 && (
                         <div className="mt-4 p-3 border border-warning bg-warning-highlight rounded">
                             <p className="my-0 flex items-center gap-2">
@@ -148,7 +162,9 @@ export function openConfirmationModal({
                     ? `${capitalizeFirstLetter(activeNewValue ? 'enable' : 'disable')} flag`
                     : type === 'rollout'
                       ? 'Update conditions'
-                      : 'Save changes',
+                      : releasesToEveryone
+                        ? 'Release to all users'
+                        : 'Save changes',
             status: type === 'flag-status' && !activeNewValue ? 'danger' : 'default',
             onClick: hasBlockingDependentFlags ? undefined : onConfirm,
             disabled: hasBlockingDependentFlags,
