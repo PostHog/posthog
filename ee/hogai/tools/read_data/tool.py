@@ -1,7 +1,7 @@
 import re
 from collections.abc import Callable
 from datetime import UTC
-from typing import ClassVar, Literal, Self, Union
+from typing import Any, ClassVar, Literal, Self, Union, cast
 from uuid import UUID, uuid4
 
 from django.core.cache import cache as django_cache
@@ -349,7 +349,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             "ReadDataToolArgs",
             __base__=BaseModel,
             query=(
-                ReadDataKind,
+                cast(Any, ReadDataKind),
                 Field(discriminator="kind"),
             ),
         )
