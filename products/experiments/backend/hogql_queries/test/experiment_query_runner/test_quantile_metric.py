@@ -77,7 +77,6 @@ class TestExperimentQuantileMetric(ExperimentQueryRunnerBaseTest):
 
         journeys_for(
             {
-                # Control pools 10 events with values 1..10 over three users, plus one user without events.
                 "control_a": self._user("control", [3, 1, 2]),
                 "control_b": self._user("control", [7, 4, 6, 5]),
                 "control_c": self._user("control", [10, 8, 9]),
@@ -207,7 +206,6 @@ class TestExperimentQuantileMetric(ExperimentQueryRunnerBaseTest):
         )
         query_runner = self._run(metric, method=method)
 
-        # 60 users per variant with two events each. Control pools the values 1..120, and test pools 101..220.
         journeys: dict[str, list[dict[str, Any]]] = {}
         for i in range(60):
             journeys[f"control_{i}"] = self._user("control", [i + 1, i + 61])
