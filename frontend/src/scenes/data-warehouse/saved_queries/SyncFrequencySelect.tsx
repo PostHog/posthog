@@ -1,7 +1,9 @@
 import { useState } from 'react'
 
-import { IconRabbit, IconTortoise } from '@posthog/icons'
+import { IconInfo, IconRabbit, IconTortoise } from '@posthog/icons'
 import { LemonButton, LemonLabel, LemonSegmentedButton, LemonSegmentedButtonOption, Spinner } from '@posthog/lemon-ui'
+
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { DataModelingSyncInterval } from '~/types'
 
@@ -95,7 +97,8 @@ export function SyncFrequencySelect({
     const inherited = inheritedCadence(bounds, value)
     const selectedSpeedUp = !pending && value && value !== 'never' ? speedUpWarning(bounds, value) : null
     const options = buildOptions(bounds)
-    const explanation = buildExplanation(bounds)
+    // The inherited note already names the downstream view, so the ceiling sentence would repeat it.
+    const explanation = buildExplanation(bounds, { omitCeiling: !!inherited })
     const modeReason = modeDisabledReason(bounds)
     const reason =
         disabledReason ??
@@ -147,7 +150,9 @@ export function SyncFrequencySelect({
                     className="flex flex-wrap items-center gap-x-4 gap-y-2 border rounded bg-surface-primary px-3 py-2 max-w-prose"
                     role="alert"
                 >
-                    <span className="text-xs flex-1 min-w-60">{pendingWarning}</span>
+                    <span className="text-xs flex-1 min-w-60">
+                        <WithUpstreamRule text={pendingWarning} />
+                    </span>
                     <div className="flex gap-2 ml-auto">
                         <LemonButton
                             size="xsmall"
@@ -171,8 +176,16 @@ export function SyncFrequencySelect({
                     </div>
                 </div>
             )}
-            {inherited && <span className="text-xs text-secondary max-w-prose">{inherited.note}</span>}
-            {selectedSpeedUp && <span className="text-xs text-secondary max-w-prose">{selectedSpeedUp}</span>}
+            {inherited && (
+                <span className="text-xs text-secondary max-w-prose">
+                    <WithUpstreamRule text={inherited.note} />
+                </span>
+            )}
+            {selectedSpeedUp && (
+                <span className="text-xs text-secondary max-w-prose">
+                    <WithUpstreamRule text={selectedSpeedUp} />
+                </span>
+            )}
             {explanation && <span className="text-xs text-secondary max-w-prose">{explanation}</span>}
         </div>
     )
@@ -194,14 +207,27 @@ export function speedUpWarning(
     }
 
     const named = option.speeds_up.map((view) => view.name).filter(Boolean)
-    const subject = named.length
-        ? `${named.join(', ')}${option.speeds_up_withheld ? ' and other upstream views' : ''}`
-        : 'Some upstream views'
     const plural = named.length > 1 || option.speeds_up_withheld || !named.length
+    const subject = !named.length
+        ? 'Some upstream views'
+        : `${plural ? 'Upstream views' : 'Upstream view'} ${named.join(', ')}${option.speeds_up_withheld ? ' and others' : ''}`
     return (
-        `${subject} ${plural ? 'are' : 'is'} set to refresh less often, so ${plural ? 'they' : 'it'} ` +
-        `${plural ? 'refresh' : 'refreshes'} every ${CADENCE_LABELS[cadence]} while this view does, ` +
-        `because a view can't be fresher than what it reads. ${plural ? 'Their' : 'Its'} own setting doesn't change.`
+        `${subject} also ${plural ? 'refresh' : 'refreshes'} every ${CADENCE_LABELS[cadence]} to keep up with this view. ` +
+        `${plural ? 'Their own settings apply' : 'Its own setting applies'} again if this view refreshes less often.`
+    )
+}
+
+const UPSTREAM_RULE =
+    "A view can't be fresher than the data it reads, so upstream views refresh at least as often as the downstream views built on them."
+
+function WithUpstreamRule({ text }: { text: string }): JSX.Element {
+    return (
+        <>
+            {text}{' '}
+            <Tooltip title={UPSTREAM_RULE}>
+                <IconInfo className="inline align-text-bottom text-sm" aria-label={UPSTREAM_RULE} />
+            </Tooltip>
+        </>
     )
 }
 
@@ -230,8 +256,8 @@ export function inheritedCadence(
     return {
         cadence,
         note:
-            `Refreshes every ${CADENCE_LABELS[cadence]} because ${consumer ?? 'a view built on this one'} needs it. ` +
-            `Your setting of every ${CADENCE_LABELS[value]} applies again if ${consumer ?? 'that view'} refreshes less often.`,
+            `Refreshes every ${CADENCE_LABELS[cadence]} to keep up with ${consumer ? `downstream view ${consumer}` : 'a downstream view'}. ` +
+            `Your ${CADENCE_LABELS[value]} setting applies again if ${consumer ?? 'that view'} refreshes less often.`,
     }
 }
 
@@ -266,10 +292,10 @@ function segment(cadence: DataModelingSyncInterval): LemonSegmentedButtonOption<
 function blockedReason(option: SyncFrequencyBoundsApi['options'][number], bounds: SyncFrequencyBoundsApi): string {
     const name = option.blocker?.name
     if (option.blocked_by === 'source' && bounds.floor) {
-        return name ? `More often than ${name} syncs` : 'More often than the sources this view reads'
+        return name ? `More often than upstream source ${name} syncs` : 'More often than the upstream sources sync'
     }
     if (option.blocked_by === 'consumer' && bounds.ceiling) {
-        return name ? `Too slow for ${name}` : 'Too slow for something built on this view'
+        return name ? `Too slow for downstream view ${name}` : 'Too slow for a downstream view'
     }
     return 'Not available for this view'
 }
@@ -286,8 +312,10 @@ export function unsatisfiableReason(bounds?: SyncFrequencyBoundsApi | null): str
         return null
     }
 
-    const source = bounds.floor?.blocker?.name ?? 'an upstream source'
-    const consumer = bounds.ceiling?.blocker?.name ?? 'a view or endpoint built on this one'
+    const sourceName = bounds.floor?.blocker?.name
+    const consumerName = bounds.ceiling?.blocker?.name
+    const source = sourceName ? `upstream source ${sourceName}` : 'an upstream source'
+    const consumer = consumerName ? `downstream view ${consumerName}` : 'a downstream view or endpoint'
     if (bounds.floor && bounds.ceiling) {
         return (
             `No cadence works here: ${source} only syncs every ${bounds.floor.label}, ` +
@@ -336,28 +364,33 @@ export function defaultCadenceWithin(
     return pool.reduce((coarsest, cadence) => (rank(cadence) > rank(coarsest) ? cadence : coarsest))
 }
 
-export function buildExplanation(bounds?: SyncFrequencyBoundsApi | null): string | null {
+export function buildExplanation(
+    bounds?: SyncFrequencyBoundsApi | null,
+    { omitCeiling = false }: { omitCeiling?: boolean } = {}
+): string | null {
     if (!bounds || bounds.frequency_mode !== 'tiered') {
         return null
     }
 
     const parts: string[] = []
+    const floor = bounds.floor
+    const ceiling = omitCeiling ? null : bounds.ceiling
     // A withheld blocker still has to hold its slot in the sentence, and the two slots read
     // differently: one opens a sentence, one sits mid-clause.
-    const floorName = bounds.floor?.blocker?.name ?? 'An upstream source'
-    const ceilingLead = bounds.ceiling?.blocker?.name ?? 'A downstream view'
-    const ceilingMid = bounds.ceiling?.blocker?.name ?? 'a downstream view'
+    const floorName = floor?.blocker?.name ? `Upstream source ${floor.blocker.name}` : 'An upstream source'
+    const ceilingLead = ceiling?.blocker?.name ? `Downstream view ${ceiling.blocker.name}` : 'A downstream view'
+    const ceilingMid = ceiling?.blocker?.name ? `downstream view ${ceiling.blocker.name}` : 'a downstream view'
 
-    if (bounds.floor && bounds.ceiling) {
+    if (floor && ceiling) {
         parts.push(
-            `Pick between ${bounds.floor.label} and ${bounds.ceiling.label}. ` +
-                `${floorName} syncs every ${bounds.floor.label}, ` +
-                `and ${ceilingMid} refreshes every ${bounds.ceiling.label}.`
+            `Pick between ${floor.label} and ${ceiling.label}. ` +
+                `${floorName} syncs every ${floor.label}, ` +
+                `and ${ceilingMid} refreshes every ${ceiling.label}.`
         )
-    } else if (bounds.floor) {
-        parts.push(`${floorName} syncs every ${bounds.floor.label}, so this can't refresh more often.`)
-    } else if (bounds.ceiling) {
-        parts.push(`${ceilingLead} refreshes every ${bounds.ceiling.label}, so this can't refresh less often.`)
+    } else if (floor) {
+        parts.push(`${floorName} syncs every ${floor.label}, so this can't refresh more often.`)
+    } else if (ceiling) {
+        parts.push(`${ceilingLead} refreshes every ${ceiling.label}, so this can't refresh less often.`)
     }
 
     const named = bounds.best_effort_sources.map((source) => source.name).filter(Boolean)

@@ -41,8 +41,8 @@ describe('SyncFrequencySelect', () => {
 
         const bySource = options.find((option) => option.value === '15min')
         const byConsumer = options.find((option) => option.value === '24hour')
-        expect(bySource?.disabledReason).toBe('More often than stripe_invoices syncs')
-        expect(byConsumer?.disabledReason).toBe('Too slow for daily_revenue')
+        expect(bySource?.disabledReason).toBe('More often than upstream source stripe_invoices syncs')
+        expect(byConsumer?.disabledReason).toBe('Too slow for downstream view daily_revenue')
         expect(options.find((option) => option.value === '6hour')?.disabledReason).toBeUndefined()
     })
 
@@ -96,16 +96,16 @@ describe('SyncFrequencySelect', () => {
         it('names both ends and what to change when the bounds cross', () => {
             // Every cadence blocked means Materialize would 400 whatever the picker had selected.
             expect(unsatisfiableReason(nothingAllowed())).toBe(
-                'No cadence works here: stripe_invoices only syncs every 6 hours, ' +
-                    'but daily_revenue refreshes every 12 hours. ' +
-                    'Slow down daily_revenue or speed up stripe_invoices.'
+                'No cadence works here: upstream source stripe_invoices only syncs every 6 hours, ' +
+                    'but downstream view daily_revenue refreshes every 12 hours. ' +
+                    'Slow down downstream view daily_revenue or speed up upstream source stripe_invoices.'
             )
         })
 
         it('asks for the source to speed up when only a floor blocks every cadence', () => {
             expect(unsatisfiableReason(nothingAllowed({ ceiling: null }))).toBe(
-                'No cadence works here: stripe_invoices only syncs every 6 hours, ' +
-                    'less often than anything this can refresh at. Speed up stripe_invoices first.'
+                'No cadence works here: upstream source stripe_invoices only syncs every 6 hours, ' +
+                    'less often than anything this can refresh at. Speed up upstream source stripe_invoices first.'
             )
         })
 
@@ -135,10 +135,10 @@ describe('SyncFrequencySelect', () => {
             )
 
             expect(options.find((option) => option.value === '15min')?.disabledReason).toBe(
-                'More often than the sources this view reads'
+                'More often than the upstream sources sync'
             )
             expect(options.find((option) => option.value === '24hour')?.disabledReason).toBe(
-                'Too slow for something built on this view'
+                'Too slow for a downstream view'
             )
         })
 
@@ -221,19 +221,19 @@ describe('SyncFrequencySelect', () => {
                 'one upstream view is slower',
                 ['org_universe'],
                 false,
-                "org_universe is set to refresh less often, so it refreshes every 6 hours while this view does, because a view can't be fresher than what it reads. Its own setting doesn't change.",
+                'Upstream view org_universe also refreshes every 6 hours to keep up with this view. Its own setting applies again if this view refreshes less often.',
             ],
             [
                 'a slower upstream view is withheld',
                 ['org_universe'],
                 true,
-                "org_universe and other upstream views are set to refresh less often, so they refresh every 6 hours while this view does, because a view can't be fresher than what it reads. Their own setting doesn't change.",
+                'Upstream views org_universe and others also refresh every 6 hours to keep up with this view. Their own settings apply again if this view refreshes less often.',
             ],
             [
                 'every slower upstream view is withheld',
                 [],
                 true,
-                "Some upstream views are set to refresh less often, so they refresh every 6 hours while this view does, because a view can't be fresher than what it reads. Their own setting doesn't change.",
+                'Some upstream views also refresh every 6 hours to keep up with this view. Their own settings apply again if this view refreshes less often.',
             ],
         ])('when %s', (_case, names, withheld, expected) => {
             expect(speedUpWarning(withSpeedsUp(names, withheld), '6hour')).toBe(expected)
@@ -281,7 +281,7 @@ describe('SyncFrequencySelect', () => {
                 '24hour',
                 {
                     cadence: '6hour',
-                    note: 'Refreshes every 6 hours because maps needs it. Your setting of every 1 day applies again if maps refreshes less often.',
+                    note: 'Refreshes every 6 hours to keep up with downstream view maps. Your 1 day setting applies again if maps refreshes less often.',
                 },
             ],
             [
@@ -290,7 +290,7 @@ describe('SyncFrequencySelect', () => {
                 '24hour',
                 {
                     cadence: '6hour',
-                    note: 'Refreshes every 6 hours because a view built on this one needs it. Your setting of every 1 day applies again if that view refreshes less often.',
+                    note: 'Refreshes every 6 hours to keep up with a downstream view. Your 1 day setting applies again if that view refreshes less often.',
                 },
             ],
         ])('when %s', (_case, input, value, expected) => {
