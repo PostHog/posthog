@@ -369,6 +369,7 @@ class TestOAuthAPI(APIBaseTest):
             ("step_up_outside_mcp", True, "", ["comment:write"], {"comment:write"}),
         ]
     )
+    @time_machine.travel("2026-03-01 12:00:00", tick=False)
     def test_mcp_reauthorize_keeps_prior_scopes_only_for_a_step_up_app(
         self, _name, supports_step_up, resource_param, expected_consent, expected
     ):
