@@ -184,6 +184,47 @@ This runs:
 1. `build:ui-apps` - Builds React components to single HTML
 2. `tsup` - Builds npm package (CJS + ESM)
 
+## Client support
+
+The server follows the MCP spec, and that spec is the contract for every client.
+Per-client code lives in `src/lib/client-detection.ts` (`MCPClientProfile`).
+Client shares come from MCP analytics: the harness breakdown on PostHog's own MCP traffic, with PostHog's own surfaces (PostHog Code, PostHog AI, the CLI, the Wizard, Slack) left out of the "third-party" denominator.
+
+### Support tiers
+
+| Tier                  | Entry rule                                              | What it gets                                                                                                                                                            | Clients                                                                                                 |
+| --------------------- | ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| 1: actively supported | At least 5% of monthly third-party MCP users            | A smoke test before each MCP release (connect, one `exec` call, one UI app where the client renders apps), an owner for client-specific bugs, and its own harness label | Claude Code, Codex, Cursor (local and cloud agents), Claude.ai and Claude Desktop, Cowork, ChatGPT      |
+| 2: best effort        | At least 0.1% of monthly third-party MCP users or calls | Reported bugs get fixed and the client gets its own harness label, but no dedicated tests and no new client-specific branches                                           | opencode, Amp, Antigravity, Devin, Grok, Gemini CLI, VS Code and Copilot, Notion, Linear, Lovable, Kiro |
+| 3: unsupported        | Everything else                                         | The spec-compliant default behavior                                                                                                                                     | All other clients                                                                                       |
+
+A client moves up a tier when it meets the entry rule for two consecutive months, or when a partnership or launch needs it.
+It moves down after two consecutive months under half of its tier's threshold.
+When a client reaches tier 2, add it to the harness resolver in `products/mcp_analytics/backend/mcp_harness.py`, so the dashboard names it instead of counting it as "Other".
+
+### Client-specific behavior
+
+A new per-client branch needs a measured breakage first, and a capability or header to detect the client by.
+Prefer, in order: a capability the client declares in `initialize` (for example the MCP Apps extension), a header the client sends (`x-anthropic-client`, `x-posthog-mcp-consumer`), then the User-Agent.
+Matching `clientInfo.name` is the last resort.
+Every branch needs a test and a comment that names the breakage it works around.
+Remove a branch once the client no longer needs it.
+
+### Execution modes and per-client decisions
+
+| Behavior                                                     | Where                                                    | Decision                                                                                                                                                                                                                                                                               |
+| ------------------------------------------------------------ | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cli` (single `exec`) vs `tools` (one MCP tool per tool)     | `resolveMode` in `src/hono/request-state-resolver.ts`    | Keep both. `cli` is the default. Cursor is the only client that gets `tools` without asking for it, because its UI is built around the full roster. Do not add more automatic `tools` clients. Revisit if Cursor measures as well or better in `cli`.                                  |
+| Read-only mode (`?readonly=`, `x-posthog-read-only`)         | Tool filtering                                           | Keep. It is a customer-facing safety switch.                                                                                                                                                                                                                                           |
+| SSE endpoint redirect                                        | `/sse`                                                   | Keep, but plan a sunset. New installs use Streamable HTTP.                                                                                                                                                                                                                             |
+| Drop `structuredContent` when a formatted table is available | `prefersFormattedText()`                                 | Every client drops it, except clients that render it: Cursor, and render-ui hosts (detected by the MCP Apps capability first, then by known host). Anthropic clients always drop it. UI apps still load their data from the `_meta` copy. A new text-only client needs no code change. |
+| `render-ui` tool                                             | `isRenderUiHost()`                                       | Detect by the declared MCP Apps capability. The name and vendor fallbacks only cover hosts that do not declare it yet.                                                                                                                                                                 |
+| UI apps inline on the `exec` response                        | `isInlineExecUiHost()`, PostHog Code consumer            | Keep.                                                                                                                                                                                                                                                                                  |
+| Environment context on the `exec` description                | `isClaudeChatHost()`                                     | Keep while Claude web and desktop do not show `instructions` to the model.                                                                                                                                                                                                             |
+| No `instructions` payload for Codex                          | `supportsInstructions` capability override               | Keep, and re-test on each Codex release, because it depends on client behavior.                                                                                                                                                                                                        |
+| Legacy handshake only (Antigravity)                          | `isLegacyDialectOnly()`                                  | Keep until the client completes the stateless dialect, then remove the entry.                                                                                                                                                                                                          |
+| No `learn` for `consumer=plugin` and PostHog Code            | `getExecLearnCapabilities` in `src/hono/instructions.ts` | Keep. Those surfaces bundle their own skills. `learn` exists only in `cli` mode, so it does not affect the Cursor plugin, which runs in `tools` mode.                                                                                                                                  |
+
 ## UI Apps Architecture
 
 The visualization system is designed to be extractable to a standalone `@posthog/query-visualizer` package:
