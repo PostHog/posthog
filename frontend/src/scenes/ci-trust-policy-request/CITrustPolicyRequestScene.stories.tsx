@@ -9,6 +9,7 @@ const meta: Meta = {
     component: CITrustPolicyRequestScene,
     parameters: {
         mockDate: '2026-10-02T10:00:00Z',
+        layout: 'fullscreen',
         testOptions: { snapshotBrowsers: [] },
     },
 }
@@ -26,7 +27,10 @@ const policyRequest = {
     repository_id: '123456',
     ref: 'refs/heads/main',
     environment: '',
-    scopes: ['annotation:write', 'error_tracking:write'],
+    scopes: ['annotation:write', 'error_tracking:write', 'organization_member:write'],
+    risky_scopes: {
+        'organization_member:write': 'Invites and removes organization members and changes their roles.',
+    },
     status: 'pending',
     approval_url: 'http://localhost:8010/project/1/ci-trust-policy-requests/request-1',
     requested_by: { id: 2, uuid: 'requester', first_name: 'Riley', last_name: 'Member', email: 'riley@example.com' },

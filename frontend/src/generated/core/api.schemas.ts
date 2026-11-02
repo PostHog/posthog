@@ -4819,6 +4819,11 @@ export interface PatchedCITrustPolicyApi {
     readonly updated_at?: string
 }
 
+/**
+ * What each grantable risky scope lets a token do, keyed by scope. Show it so people add the scope with care.
+ */
+export type CIProvidersResponseApiRiskyScopes = { [key: string]: string }
+
 export interface CIProviderClaimsApi {
     /** Claim that carries the repository's full name. */
     repository: string
@@ -4865,6 +4870,8 @@ export interface CIProvidersResponseApi {
     unsupported: UnsupportedCIProviderApi[]
     /** Every scope a policy's ceiling may hold. */
     grantable_scopes: string[]
+    /** What each grantable risky scope lets a token do, keyed by scope. Show it so people add the scope with care. */
+    risky_scopes: CIProvidersResponseApiRiskyScopes
 }
 
 export type CITrustPolicyRequestStatusEnumApi =
@@ -4876,6 +4883,11 @@ export const CITrustPolicyRequestStatusEnumApi = {
     Rejected: 'rejected',
     Expired: 'expired',
 } as const
+
+/**
+ * What each risky scope in the request lets a token do, keyed by scope. Show it before approving.
+ */
+export type CITrustPolicyRequestApiRiskyScopes = { [key: string]: string }
 
 export interface CITrustPolicyRequestApi {
     readonly id: string
@@ -4924,6 +4936,8 @@ export interface CITrustPolicyRequestApi {
      * @items.maxLength 100
      */
     scopes: string[]
+    /** What each risky scope in the request lets a token do, keyed by scope. Show it before approving. */
+    readonly risky_scopes: CITrustPolicyRequestApiRiskyScopes
     /** Where the request stands. A request expires after 7 days. */
     readonly status: CITrustPolicyRequestStatusEnumApi
     /** The link to send to an admin to approve the request. */

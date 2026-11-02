@@ -102,6 +102,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.CITrustPolicyRequest]: {
         projectBased: true,
+        layout: 'plain',
         name: 'CI trust policy request',
         description: 'Review a request for a CI trust policy',
     },

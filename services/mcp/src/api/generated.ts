@@ -21258,6 +21258,11 @@ export namespace Schemas {
       claims: CIProviderClaims;
     }
 
+    /**
+     * What each grantable risky scope lets a token do, keyed by scope. Show it so people add the scope with care.
+     */
+    export type CIProvidersResponseRiskyScopes = {[key: string]: string};
+
     export interface UnsupportedCIProvider {
       /** Stable identifier of the provider. */
       key: string;
@@ -21274,6 +21279,8 @@ export namespace Schemas {
       unsupported: UnsupportedCIProvider[];
       /** Every scope a policy's ceiling may hold. */
       grantable_scopes: string[];
+      /** What each grantable risky scope lets a token do, keyed by scope. Show it so people add the scope with care. */
+      risky_scopes: CIProvidersResponseRiskyScopes;
     }
 
     /**
@@ -21504,6 +21511,11 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    /**
+     * What each risky scope in the request lets a token do, keyed by scope. Show it before approving.
+     */
+    export type CITrustPolicyRequestRiskyScopes = {[key: string]: string};
+
     export type CITrustPolicyRequestStatusEnum = typeof CITrustPolicyRequestStatusEnum[keyof typeof CITrustPolicyRequestStatusEnum];
 
 
@@ -21561,6 +21573,8 @@ export namespace Schemas {
          * @items.maxLength 100
          */
       scopes: string[];
+      /** What each risky scope in the request lets a token do, keyed by scope. Show it before approving. */
+      readonly risky_scopes: CITrustPolicyRequestRiskyScopes;
       /** Where the request stands. A request expires after 7 days. */
       readonly status: CITrustPolicyRequestStatusEnum;
       /** The link to send to an admin to approve the request. */

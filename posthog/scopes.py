@@ -34,8 +34,6 @@ APIScopeObject = Literal[
     "billing",
     "business_knowledge",
     "canvas",
-    # Reads a project's CI trust policies. Policies are only written from a browser session, so
-    # no token can use the write half.
     "ci_trust_policy",
     # Asks an organization admin for a CI trust policy. A request grants nothing by itself.
     "ci_trust_policy_request",
@@ -309,6 +307,26 @@ ALL_SCOPES: frozenset[str] = frozenset(
 # Filtered out of partner-facing self-serve registration (CIMD, DCR per
 # RFC 7591), so a partner cannot programmatically grant themselves
 # `llm_gateway:read`.
+# What a risky scope lets a token do, shown wherever a person grants scopes to a token so they add it with care.
+RISKY_SCOPE_WARNINGS: dict[str, str] = {
+    "access_control:write": "Changes who can access resources in this project.",
+    "approvals:write": "Approves or rejects change requests that gate other changes.",
+    "autoresearch:write": "Starts agent runs that get their own longer-lived token.",
+    "billing:read": "Reads the whole organization's billing details, not just this project's.",
+    "billing:write": "Changes the organization's subscription and payment details.",
+    "hog_flow:write": "Runs workflow code that can use the stored credentials of the project's integrations.",
+    "hog_function:write": "Runs code, including on your website, that can use the stored credentials of the project's integrations.",
+    "integration:write": "Connects and changes third-party integrations and their stored credentials.",
+    "llm_provider_key:write": "Stores and changes LLM provider API keys.",
+    "organization:write": "Changes organization settings, including roles and OAuth apps.",
+    "organization_integration:write": "Connects and changes organization-wide integrations and their stored credentials.",
+    "organization_member:write": "Invites and removes organization members and changes their roles.",
+    "sharing_configuration:read": "Reads the access tokens of public sharing links, which keep working after this token expires.",
+    "sharing_configuration:write": "Creates public sharing links that anyone with the link can open.",
+    "user:read": "Reads the account details of the user the token acts as.",
+    "user:write": "Changes the account of the user the token acts as.",
+}
+
 PRIVILEGED_SCOPES: frozenset[str] = frozenset({"llm_gateway:read", "llm_gateway:write"})
 
 # String form of `OAUTH_HIDDEN_SCOPE_OBJECTS`. PAT-grantable but never

@@ -5,6 +5,7 @@ import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon
 
 import { ScopeAccessRow } from 'lib/components/ScopeAccessRow/ScopeAccessRow'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { riskyScopeWarning } from 'lib/scopes'
 
 import { ciTrustPoliciesLogic } from './ciTrustPoliciesLogic'
 
@@ -102,7 +103,7 @@ export function CITrustPolicyModal(): JSX.Element {
                     <LemonField
                         name="scopes"
                         label="Scopes"
-                        help="Every token from this policy gets these scopes. Scopes that manage credentials or access aren't available."
+                        help="Every token from this policy gets these scopes. Scopes that would let a token outlive itself aren't available."
                     >
                         <div className="w-full">
                             <LemonInput
@@ -124,6 +125,11 @@ export function CITrustPolicyModal(): JSX.Element {
                                                 key,
                                                 label,
                                                 value: scopeLevels[key] ?? 'none',
+                                                warning: riskyScopeWarning(
+                                                    key,
+                                                    scopeLevels[key] ?? 'none',
+                                                    providers?.risky_scopes ?? {}
+                                                ),
                                                 disabledReasons: {
                                                     read: disabledActions.includes('read')
                                                         ? 'Not available for CI tokens'
