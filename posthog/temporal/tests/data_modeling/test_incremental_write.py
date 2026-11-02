@@ -7,6 +7,7 @@ column missing from the output).
 
 import json
 import tempfile
+import contextlib
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -69,9 +70,6 @@ def _batch(ids: Sequence[int | None], names: Sequence[str | None]) -> pa.RecordB
 @_spill_modes
 def test_single_column_violations_are_detected(batches: list[tuple], match: str, max_bytes: int) -> None:
     tracker = UniqueKeyTracker(("id",), max_bytes=max_bytes)
-    # The disk index rejects a repeated key without counting its occurrences.
-    if max_bytes != MAX_UNIQUE_KEY_CHECK_BYTES and match.startswith("appears"):
-        match = "does not identify a single row"
 
     with pytest.raises(IncrementalWriteError, match=match):
         for ids, names in batches:
@@ -104,12 +102,13 @@ def test_composite_key_is_checked_as_a_tuple(max_bytes: int) -> None:
         tracker.check(_batch([1], ["a"]))
 
 
-@pytest.mark.parametrize("value,duplicate", [(-0.0, 0.0), (float("nan"), float("nan"))])
-def test_spilled_float_keys_preserve_arrow_equality(value: float, duplicate: float) -> None:
-    tracker = UniqueKeyTracker(("key",), max_bytes=1)
+@pytest.mark.parametrize("value,other,same", [(-0.0, 0.0, False), (float("nan"), float("nan"), True)])
+@_spill_modes
+def test_float_keys_compare_alike_in_memory_and_on_disk(value: float, other: float, same: bool, max_bytes: int) -> None:
+    tracker = UniqueKeyTracker(("key",), max_bytes=max_bytes)
     tracker.check(pa.record_batch([[value]], names=["key"]))
-    with pytest.raises(IncrementalWriteError, match="does not identify a single row"):
-        tracker.check(pa.record_batch([[duplicate]], names=["key"]))
+    with pytest.raises(IncrementalWriteError, match="appears 2 times") if same else contextlib.nullcontext():
+        tracker.check(pa.record_batch([[other]], names=["key"]))
     tracker.close()
 
 
