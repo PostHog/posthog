@@ -89,6 +89,13 @@ describe('viewAllFor', () => {
             '/feature-flags?search=checkout%20beta',
         ],
         [
+            'a list that searches a single-quoted name without its quotes',
+            [chip('feature_flag', 'Feature flag')],
+            "name:'checkout' beta",
+            'View all feature flags',
+            '/feature-flags?search=checkout%20beta',
+        ],
+        [
             'a list that searches without an excluded name',
             [chip('feature_flag', 'Feature flag'), chip('checkout', 'checkout', { key: 'name', negated: true })],
             '',

@@ -417,8 +417,17 @@ export function resolveQuery(text: string, chips: QueryChip[], options: FilterOp
 
 // List pages match one phrase, which cannot exclude, so excluded words and names stay out.
 export function listSearchText({ filters, includedWords }: ResolvedQuery): string {
-    const names = filters.filter((filter) => filter.key === 'name' && !filter.negated).map((filter) => filter.value)
-    return [...names, ...includedWords].join(' ')
+    const names = filters
+        .filter((filter) => filter.key === 'name' && !filter.negated)
+        .map((filter) => searchValue(filter.value))
+    return [...names, ...includedWords].filter(Boolean).join(' ')
+}
+
+// The file system search splits a filter token like a word, and then strips one pair of quotes from its value.
+function searchValue(value: string): string {
+    const word = searchWords(quoteIfNeeded(value)).join(' ')
+    const isQuotedBy = (quote: string): boolean => word.startsWith(quote) && word.endsWith(quote)
+    return isQuotedBy('"') || isQuotedBy("'") ? word.slice(1, -1) : word
 }
 
 /** The raw query as a person would type it, chips included. Used when copying the input. */
