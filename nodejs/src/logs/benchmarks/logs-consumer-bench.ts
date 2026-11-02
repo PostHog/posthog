@@ -174,7 +174,10 @@ async function main(): Promise<void> {
     if (command === 'generate') {
         const dir = resolve(args[0])
         mkdirSync(dir, { recursive: true })
-        for (const workload of await buildBenchWorkloads({ ...DEFAULT_BENCH_OPTIONS, nowMs: Date.now() })) {
+        // Metric rules skip records older than 20 minutes, and a full run takes longer than that.
+        // Records stamped ahead of the clock pass the age gate in every round of every implementation.
+        const nowMs = Date.now() + 12 * 3600 * 1000
+        for (const workload of await buildBenchWorkloads({ ...DEFAULT_BENCH_OPTIONS, nowMs })) {
             writeFileSync(join(dir, `${workload.name}.json`), JSON.stringify(workload))
         }
     } else if (command === 'run') {
