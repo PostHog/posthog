@@ -1,6 +1,5 @@
 import { createExampleInvocation } from '~/cdp/_tests/fixtures'
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
-import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { RecipientsManagerService } from '~/cdp/services/managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '~/cdp/services/managers/team-workflows-config.service'
 import {
@@ -12,23 +11,12 @@ import { EmailTrackingCodeSigner } from '~/cdp/services/messaging/helpers/tracki
 import { MessageAssetsService } from '~/cdp/services/messaging/message-assets.service'
 import { CyclotronJobInvocationHogFunction, HogFunctionType, IntegrationType } from '~/cdp/types'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { Hub } from '~/types'
 
-import { TestRedisV2 } from './redis-v2'
-
 export type EmailInvocation = CyclotronJobInvocationHogFunction & {
     queueParameters: CyclotronInvocationQueueParametersEmailType
-}
-
-export type WorkflowEmailMessage = Omit<CyclotronInvocationQueueParametersEmailType, 'type'>
-export type WorkflowEmailAction = Pick<HogFlowAction, 'type' | 'config'> & { type: 'function_email' }
-
-export function createWorkflowEmailAction(templateId: string, message: WorkflowEmailMessage): WorkflowEmailAction {
-    return {
-        type: 'function_email',
-        config: { template_id: templateId, inputs: { email: { value: message } } },
-    }
 }
 
 export function createEmailVmState(): NonNullable<CyclotronJobInvocationHogFunction['state']['vmState']> {
@@ -71,7 +59,9 @@ export function createEmailSender(config: Partial<EmailSenderConfig> = {}): Pick
 export class EmailInvocationFixture {
     constructor(private readonly teamId: number) {}
 
-    integrationId = (offset: number): number => this.teamId + offset
+    integrationId(offset: number): number {
+        return this.teamId + offset
+    }
 
     sender(): Partial<IntegrationType> {
         return {
@@ -80,9 +70,7 @@ export class EmailInvocationFixture {
         }
     }
 
-    params = (
-        overrides: Partial<CyclotronInvocationQueueParametersEmailType> = {}
-    ): CyclotronInvocationQueueParametersEmailType => {
+    params(overrides: Partial<CyclotronInvocationQueueParametersEmailType> = {}): CyclotronInvocationQueueParametersEmailType {
         const from = overrides.from ?? { integrationId: 1 }
         return {
             type: 'email',
@@ -94,7 +82,7 @@ export class EmailInvocationFixture {
             from: {
                 ...from,
                 integrationId: this.integrationId(from.integrationId),
-                integrationIds: from.integrationIds?.map(this.integrationId),
+                integrationIds: from.integrationIds?.map((id) => this.integrationId(id)),
             },
         }
     }
@@ -112,12 +100,11 @@ type EmailServiceOverrides = Partial<Omit<EmailServiceDeps, 'sesConfig'>> & {
 }
 
 export class EmailServiceFixture {
-    readonly sesConfig: EmailServiceConfig
+    private readonly sesConfig: EmailServiceConfig
     readonly workflowsConfig: TeamWorkflowsConfigService
     readonly suppression: EmailSuppressionService
     readonly recipients: RecipientsManagerService
     private readonly services: EmailService[] = []
-    private readonly redisPools: TestRedisV2[] = []
 
     constructor(private readonly hub: Hub) {
         this.sesConfig = {
@@ -153,31 +140,27 @@ export class EmailServiceFixture {
         return service
     }
 
-    createRateLimiterRedis(): TestRedisV2 {
-        const redis = new TestRedisV2({
-            connection: this.hub.CDP_REDIS_HOST
-                ? {
-                      url: this.hub.CDP_REDIS_HOST,
-                      options: { port: this.hub.CDP_REDIS_PORT, password: this.hub.CDP_REDIS_PASSWORD },
-                  }
-                : { url: this.hub.REDIS_URL },
-            poolMinSize: this.hub.REDIS_POOL_MIN_SIZE,
-            poolMaxSize: this.hub.REDIS_POOL_MAX_SIZE,
-        })
-        this.redisPools.push(redis)
-        return redis
+    /** Builds a service whose SES `send` is spied and accepts every email by default. */
+    createWithSendSpy(overrides: EmailServiceOverrides = {}): { service: EmailService; send: jest.SpyInstance } {
+        const service = this.create(overrides)
+        if (!service.sesV2Client) {
+            throw new Error('EmailServiceFixture.createWithSendSpy needs an SES region')
+        }
+        const send: jest.SpyInstance = jest.spyOn(service.sesV2Client, 'send')
+        send.mockResolvedValue({ MessageId: 'test-message-id' })
+        return { service, send }
     }
 
-    async close(): Promise<void> {
+    close(): void {
         for (const service of this.services) {
             service.sesV2Client?.destroy()
         }
-        await Promise.all(this.redisPools.map((redis) => redis.close()))
     }
 }
 
-export function createEmailValidationRedis(hub: Hub): TestRedisV2 {
-    return new TestRedisV2({
+/** The Valkey that backs the email rate limiters, as `emailValidationValkey` does in production. */
+export function createEmailLimiterRedis(hub: Hub): RedisV2 {
+    return createRedisV2PoolFromConfig({
         connection: {
             url: hub.CDP_VALKEY_HOST,
             options: { port: hub.CDP_VALKEY_PORT, password: hub.CDP_VALKEY_PASSWORD },

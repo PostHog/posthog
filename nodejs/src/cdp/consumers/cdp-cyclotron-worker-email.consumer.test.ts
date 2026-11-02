@@ -11,23 +11,22 @@ import {
     insertHogFlow,
 } from '~/cdp/_tests/fixtures-hogflows'
 import { HogFlow } from '~/cdp/schema/hogflow'
+import { invocationToV2JobInit, v2JobToInvocation } from '~/cdp/services/job-queue/job-queue-postgres-v2'
 import { teamEmailCapBuckets } from '~/cdp/services/messaging/email.service'
 import { RateLimiterService } from '~/cdp/services/rate-limiter/rate-limiter.service'
-import * as redisV2 from '~/common/redis/redis-v2'
+import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '~/cdp/types'
+import { RedisV2 } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { assertRouterTargetsTestDatabase } from '~/tests/helpers/database-guard'
-import { createEmailSender, createEmailValidationRedis, insertEmailWorkflowsConfig } from '~/tests/helpers/email'
-import { EmailQueueInvocation, EmailQueueRoundTrip, EmailRetryClock } from '~/tests/helpers/email-queue'
-import { TestRedisV2 } from '~/tests/helpers/redis-v2'
+import { createEmailLimiterRedis, createEmailSender, insertEmailWorkflowsConfig } from '~/tests/helpers/email'
 import { LocalSes, LocalSesAwsEnvironment } from '~/tests/helpers/ses'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { Hub } from '../../types'
-import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '../types'
 import { CdpCyclotronWorkerEmail } from './cdp-cyclotron-worker-email.consumer'
 
 jest.setTimeout(30000)
@@ -42,7 +41,6 @@ jest.mock('node:dns/promises', () => ({
 
 describe('CdpCyclotronWorkerEmail', () => {
     let hub: Hub
-    let pools: TestRedisV2[]
 
     beforeAll(async () => {
         hub = await createHub()
@@ -50,20 +48,6 @@ describe('CdpCyclotronWorkerEmail', () => {
 
     afterAll(async () => {
         await closeHub(hub)
-    })
-
-    beforeEach(() => {
-        pools = []
-        jest.spyOn(redisV2, 'createRedisV2PoolFromConfig').mockImplementation((config) => {
-            const pool = new TestRedisV2(config)
-            pools.push(pool)
-            return pool
-        })
-    })
-
-    afterEach(async () => {
-        await Promise.all(pools.map((pool) => pool.close()))
-        jest.restoreAllMocks()
     })
 
     describe('construction', () => {
@@ -90,19 +74,72 @@ describe('CdpCyclotronWorkerEmail', () => {
     describe('rescheduled emails through the v2 job codec preserve origin queue and priority (M17)', () => {
         let worker: CdpCyclotronWorkerEmail
         let ses: LocalSes
-        let redis: TestRedisV2
+        let redis: RedisV2
         let limiter: RateLimiterService
         let flow: HogFlow
-        let invocation: EmailQueueInvocation
-        let environment: LocalSesAwsEnvironment
-        let queue: EmailQueueRoundTrip
-        let retryClock: EmailRetryClock
+        let invocation: CyclotronJobInvocation
+        let environment: LocalSesAwsEnvironment | undefined
+
+        const roundTrip = (item: CyclotronJobInvocation): CyclotronJobInvocation => {
+            const job = invocationToV2JobInit(item)
+            return v2JobToInvocation({
+                ...job,
+                id: item.id,
+                queueName: job.queueName ?? 'hogflow',
+                priority: job.priority ?? 0,
+                functionId: job.functionId ?? null,
+                state: job.state ?? null,
+                scheduled: DateTime.fromJSDate(job.scheduled!),
+                created: DateTime.now(),
+                parentRunId: job.parentRunId ?? null,
+                distinctId: job.distinctId ?? null,
+                personId: job.personId ?? null,
+                actionId: job.actionId ?? null,
+                transitionCount: 0,
+                cancelRequestedAt: null,
+                ack: jest.fn(),
+                fail: jest.fn(),
+                reschedule: jest.fn(),
+                cancel: jest.fn(),
+                heartbeat: jest.fn(),
+                bulkCreateAndCheckIn: jest.fn(),
+            })
+        }
+
+        const processInvocation = async (item: CyclotronJobInvocation): Promise<CyclotronJobInvocationResult> => {
+            const results = await worker.processInvocations([item])
+            expect(results).toHaveLength(1)
+            expect(results[0].error).toBeUndefined()
+            results[0].invocation = roundTrip(results[0].invocation)
+            return results[0]
+        }
 
         const workflowBucket = (): { key: string; capacity: number; refillPerSecond: number } => ({
             key: `@posthog/workflow-email-rate/${flow.team_id}/${flow.id}`,
             capacity: 1,
             refillPerSecond: 1 / 3600,
         })
+
+        const wakeAtScheduledTime = async (item: CyclotronJobInvocation): Promise<void> => {
+            const wake = item.queueScheduledAt!.toMillis() + 1
+            const elapsed = wake - Date.now()
+            const keys = [
+                workflowBucket().key,
+                ...teamEmailCapBuckets(flow.team_id, 10, 20).map((bucket) => bucket.key),
+            ]
+            // Valkey's TIME ignores Date.now, so age its bucket timestamps by the same wait.
+            await redis.useClient({ name: 'advance-email-buckets' }, async (client) => {
+                for (const key of keys) {
+                    for (const field of ['ts', 'resv']) {
+                        const timestamp = await client.hget(key, field)
+                        if (timestamp !== null) {
+                            await client.hset(key, field, Number(timestamp) - elapsed)
+                        }
+                    }
+                }
+            })
+            jest.spyOn(Date, 'now').mockReturnValue(wake)
+        }
 
         const pauseWorkflow = async (): Promise<void> => {
             await hub.postgres.query(
@@ -129,7 +166,7 @@ describe('CdpCyclotronWorkerEmail', () => {
             environment.configure()
             ses = new LocalSes()
             await ses.start()
-            redis = createEmailValidationRedis(hub)
+            redis = createEmailLimiterRedis(hub)
             limiter = new RateLimiterService(redis, { name: 'email-round-trip-test' })
             const { team } = await createTestTeamFixture(hub.postgres)
             const emailTemplateId = `template-email-round-trip-${team.id}`
@@ -210,23 +247,14 @@ describe('CdpCyclotronWorkerEmail', () => {
                 deps,
                 createMockJobQueue()
             )
-            queue = new EmailQueueRoundTrip(worker)
-            retryClock = new EmailRetryClock(redis, [
-                workflowBucket().key,
-                ...teamEmailCapBuckets(flow.team_id, 10, 20).map((bucket) => bucket.key),
-            ])
-            invocation = EmailQueueRoundTrip.encodeAndDecode({
-                ...createExampleHogFlowInvocation(flow),
-                queuePriority: 2,
-            })
+            invocation = roundTrip({ ...createExampleHogFlowInvocation(flow), queuePriority: 2 })
         })
 
         afterEach(async () => {
             worker?.emailService.sesV2Client?.destroy()
             await worker?.stop()
-            await redis?.close()
             await ses?.stop()
-            environment.restore()
+            environment?.restore()
             jest.restoreAllMocks()
             mockFetch.mockClear()
         })
@@ -262,10 +290,7 @@ describe('CdpCyclotronWorkerEmail', () => {
                     [JSON.stringify(flow.actions), JSON.stringify(flow.edges), flow.id],
                     'test-consecutive-workflow-emails'
                 )
-                invocation = EmailQueueRoundTrip.encodeAndDecode({
-                    ...createExampleHogFlowInvocation(flow),
-                    queuePriority: 2,
-                })
+                invocation = roundTrip({ ...createExampleHogFlowInvocation(flow), queuePriority: 2 })
             }
             if (cause === 'workflow pacing') {
                 await hub.postgres.query(
@@ -282,7 +307,7 @@ describe('CdpCyclotronWorkerEmail', () => {
                 const bucket = teamEmailCapBuckets(flow.team_id, 10, 20)[cause === 'team hourly cap' ? 0 : 1]
                 expect(await limiter.claimUpTo({ ...bucket, requested: bucket.capacity })).toBe(bucket.capacity)
             }
-            const routed = await queue.process(invocation)
+            const routed = await processInvocation(invocation)
             expect(routed.finished).toBe(false)
             expect(routed.invocation).toMatchObject({
                 queue: 'email',
@@ -298,7 +323,7 @@ describe('CdpCyclotronWorkerEmail', () => {
             let retry = routed.invocation
             for (let attempt = 0; attempt < attempts; attempt++) {
                 const before = DateTime.now().toMillis()
-                const delayed = await queue.process(retry)
+                const delayed = await processInvocation(retry)
                 expect(delayed.finished).toBe(false)
                 expect(delayed.invocation).toMatchObject({
                     queue: 'email',
@@ -318,8 +343,12 @@ describe('CdpCyclotronWorkerEmail', () => {
                     expect(delayed.messageAssets).toEqual([])
                     expect(delayed.capturedPostHogEvents).toEqual([])
                 }
-                expect(delayed.invocation.state?.currentAction?.hogFunctionState?.vmState?.stack).toEqual(
-                    routed.invocation.state?.currentAction?.hogFunctionState?.vmState?.stack
+                expect(
+                    (delayed.invocation as CyclotronJobInvocationHogFlow).state.currentAction?.hogFunctionState?.vmState
+                        ?.stack
+                ).toEqual(
+                    (routed.invocation as CyclotronJobInvocationHogFlow).state.currentAction?.hogFunctionState?.vmState
+                        ?.stack
                 )
                 if (consecutive) {
                     expect(await ses.getEmails()).toEqual([
@@ -336,9 +365,9 @@ describe('CdpCyclotronWorkerEmail', () => {
                 if (paused) {
                     await pauseWorkflow()
                 }
-                await retryClock.wake(retry)
+                await wakeAtScheduledTime(retry)
             }
-            const resumed = await queue.process(retry)
+            const resumed = await processInvocation(retry)
             results.push(resumed)
             expect(resumed.invocation).toMatchObject({
                 queue: 'hogflow',
@@ -346,10 +375,10 @@ describe('CdpCyclotronWorkerEmail', () => {
                 queueParameters: { type: 'fetch' },
             })
             expect(resumed.invocation.queueMetadata).toBeUndefined()
-            const completed = await queue.process(resumed.invocation)
+            const completed = await processInvocation(resumed.invocation)
             results.push(completed)
             expect(completed.finished).toBe(true)
-            expect(completed.invocation.state?.currentAction?.id).toBe('exit')
+            expect((completed.invocation as CyclotronJobInvocationHogFlow).state.currentAction?.id).toBe('exit')
             const metrics = results.flatMap((result) => result.metrics)
             const sentCount = paused ? 0 : consecutive ? 2 : 1
             expect(metrics.filter((metric) => metric.metric_name === 'email_sent')).toEqual(

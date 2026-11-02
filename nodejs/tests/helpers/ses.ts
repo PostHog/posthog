@@ -23,10 +23,10 @@ export type LocalSesError = 'TooManyRequestsException' | 'LimitExceededException
 export class SesEmailRequest {
     readonly input: SendEmailCommandInput
 
-    constructor(sendSpy: jest.SpyInstance, index = 0) {
-        const command: unknown = sendSpy.mock.calls[index]?.[0]
+    constructor(sendSpy: jest.SpyInstance) {
+        const command: unknown = sendSpy.mock.calls[0]?.[0]
         if (!(command instanceof SendEmailCommand)) {
-            throw new Error(`SES request ${index} is not a SendEmailCommand`)
+            throw new Error('The first SES request is not a SendEmailCommand')
         }
         this.input = command.input
     }
@@ -135,7 +135,9 @@ export class LocalSes {
             })
         } catch (error) {
             const cause = isNativeError(error) && isNativeError(error.cause) ? error.cause.message : String(error)
-            throw new Error(`Local SES fake unreachable at ${this.fakeEndpoint}: ${cause}`)
+            throw new Error(
+                `Local SES fake unreachable at ${this.fakeEndpoint}: ${cause}. Start it with: docker compose -f docker-compose.dev.yml up ses -d --wait`
+            )
         }
     }
 

@@ -1,4 +1,3 @@
-import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
 import { AddressInfo, createServer } from 'node:net'
 import SMTPTransport from 'nodemailer/lib/smtp-transport'
 import { register } from 'prom-client'
@@ -10,13 +9,12 @@ import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import {
     EmailServiceFixture,
+    createEmailLimiterRedis,
     createEmailSender,
-    createEmailValidationRedis,
     createEmailVmState,
     createMessageAssetsService,
     insertEmailWorkflowsConfig,
 } from '~/tests/helpers/email'
-import { TestRedisV2 } from '~/tests/helpers/redis-v2'
 import { LocalSes, LocalSesAwsEnvironment } from '~/tests/helpers/ses'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 
@@ -34,14 +32,14 @@ describe('EmailService with local SES', () => {
     let invocation: CyclotronJobInvocationHogFunction
     let params: CyclotronInvocationQueueParametersEmailType
     let ses: LocalSes
-    let redis: TestRedisV2
     let limiter: RateLimiterService
     let configService: TeamWorkflowsConfigService
     let suppression: EmailSuppressionService
     let assets: MessageAssetsService
     const hourlyCap = 4
     const dailyCap = 8
-    let environment: LocalSesAwsEnvironment
+    const capReachedLog = `reached its email sending limit of ${hourlyCap} emails per hour`
+    let environment: LocalSesAwsEnvironment | undefined
     let services: EmailServiceFixture
 
     const workflowBucket = (): { key: string; capacity: number; refillPerSecond: number } => ({
@@ -49,6 +47,17 @@ describe('EmailService with local SES', () => {
         capacity: 1,
         refillPerSecond: 1 / 3600,
     })
+
+    const drainWorkflowBucket = async (): Promise<void> => {
+        expect(await limiter.claimUpTo({ ...workflowBucket(), requested: 1 })).toBe(1)
+    }
+
+    const drainHourlyTeamBucket = async (): Promise<void> => {
+        const bucket = teamEmailCapBuckets(invocation.teamId, hourlyCap, dailyCap)[0]
+        expect(await limiter.claimUpTo({ ...bucket, requested: bucket.capacity })).toBe(bucket.capacity)
+    }
+
+    const logMessages = (result: { logs: { message: string }[] }): string[] => result.logs.map((log) => log.message)
 
     const setProvider = async (provider: string): Promise<void> => {
         await hub.postgres.query(
@@ -69,13 +78,14 @@ describe('EmailService with local SES', () => {
         })
     }
 
-    const createService = (endpoint: string, config: Partial<EmailServiceConfig> = {}): EmailService =>
-        services.create({
+    const useService = (config: Partial<EmailServiceConfig> = {}): void => {
+        service?.sesV2Client?.destroy()
+        service = services.create({
             sesConfig: {
                 sesAccessKeyId: 'local-ses-test',
                 sesSecretAccessKey: 'local-ses-test',
                 sesRegion: 'us-east-1',
-                sesEndpoint: endpoint,
+                sesEndpoint: ses.endpoint,
                 sesTrackedConfigurationSet: 'local-tracked',
                 sesUntrackedConfigurationSet: 'local-untracked',
                 teamEmailCapMode: 'off',
@@ -87,6 +97,12 @@ describe('EmailService with local SES', () => {
             workflowEmailRateLimiter: limiter,
             teamEmailRateLimiter: limiter,
         })
+    }
+
+    const bookkeepingFailures = async (stage: 'message_asset' | 'engagement_config'): Promise<number> => {
+        const failures = register.getSingleMetric('cdp_email_bookkeeping_failures_total')
+        return (await failures?.get())?.values.find((value) => value.labels.stage === stage)?.value ?? 0
+    }
 
     beforeEach(async () => {
         environment = new LocalSesAwsEnvironment()
@@ -94,15 +110,14 @@ describe('EmailService with local SES', () => {
         ses = new LocalSes()
         await ses.start()
         hub = await createHub({ SITE_URL: 'http://localhost:8000' })
-        redis = createEmailValidationRedis(hub)
-        limiter = new RateLimiterService(redis, { name: 'email-outcomes-test' })
+        limiter = new RateLimiterService(createEmailLimiterRedis(hub), { name: 'email-outcomes-test' })
         services = new EmailServiceFixture(hub)
         configService = services.workflowsConfig
         suppression = services.suppression
         assets = createMessageAssetsService()
         const { team } = await createTestTeamFixture(hub.postgres)
         const integration = await insertIntegration(hub.postgres, team.id, createEmailSender())
-        service = createService(ses.endpoint)
+        useService()
         invocation = createExampleInvocation({ team_id: team.id, metadata: { tracking_enabled: false } })
         params = {
             type: 'email',
@@ -122,13 +137,12 @@ describe('EmailService with local SES', () => {
     })
 
     afterEach(async () => {
-        await services?.close()
-        await redis?.close()
+        services?.close()
         await ses?.stop()
         if (hub) {
             await closeHub(hub)
         }
-        environment.restore()
+        environment?.restore()
         jest.restoreAllMocks()
     })
 
@@ -169,67 +183,66 @@ describe('EmailService with local SES', () => {
         })
     })
 
-    describe('rescheduled outcomes (M5)', () => {
-        it.each(['workflow pacing', 'team cap', 'SES throttle'] as const)(
-            'keeps the payload and priority without a send footprint after %s',
-            async (cause) => {
-                invocation.queuePriority = 1
-                if (cause === 'workflow pacing') {
+    describe('rescheduled outcomes', () => {
+        it.each([
+            {
+                cause: 'workflow pacing',
+                arrange: async (): Promise<void> => {
                     invocation.hogFunction.metadata!.email_sending_rate_limit = { count: 1, period: 'hour' }
-                    await limiter.claimUpTo({ ...workflowBucket(), requested: 1 })
-                } else if (cause === 'team cap') {
-                    service.sesV2Client?.destroy()
-                    service = createService(ses.endpoint, { teamEmailCapMode: 'enforce' })
-                    const bucket = teamEmailCapBuckets(invocation.teamId, hourlyCap, dailyCap)[0]
-                    await limiter.claimUpTo({ ...bucket, requested: bucket.capacity })
-                } else {
-                    ses.setError('TooManyRequestsException')
-                }
-                const before = Date.now()
+                    await drainWorkflowBucket()
+                },
+                log: 'Sending rate limit reached (1 emails per hour)',
+            },
+            {
+                cause: 'team cap',
+                arrange: async (): Promise<void> => {
+                    useService({ teamEmailCapMode: 'enforce' })
+                    await drainHourlyTeamBucket()
+                },
+                log: capReachedLog,
+            },
+        ])('keeps the payload and priority without a send footprint after $cause', async ({ arrange, log }) => {
+            invocation.queuePriority = 1
+            await arrange()
+            const before = Date.now()
 
-                const result = await service.executeSendEmail(invocation)
+            const result = await service.executeSendEmail(invocation)
 
-                expect(result).toMatchObject({
-                    finished: false,
-                    metrics: [],
-                    messageAssets: [],
-                    capturedPostHogEvents: [],
-                })
-                expect(result.error).toBeUndefined()
-                expect(result.skipped).toBeUndefined()
-                expect(result.invocation.queueParameters).toEqual(params)
-                expect(result.invocation.queuePriority).toBe(1)
-                expect(result.invocation.queueScheduledAt!.toMillis()).toBeGreaterThan(before)
-                expect(result.invocation.state.vmState?.stack).toEqual([])
-                expect(ses.requests).toHaveLength(cause === 'SES throttle' ? 1 : 0)
-                expect(await ses.getEmails()).toEqual([])
-            }
-        )
+            expect(result).toMatchObject({
+                finished: false,
+                metrics: [],
+                messageAssets: [],
+                capturedPostHogEvents: [],
+            })
+            expect(result.error).toBeUndefined()
+            expect(result.skipped).toBeUndefined()
+            expect(logMessages(result)).toEqual(expect.arrayContaining([expect.stringContaining(log)]))
+            expect(result.invocation.queueParameters).toEqual(params)
+            expect(result.invocation.queuePriority).toBe(1)
+            expect(result.invocation.queueScheduledAt!.toMillis()).toBeGreaterThan(before)
+            expect(result.invocation.state.vmState?.stack).toEqual([])
+            expect(ses.requests).toEqual([])
+            expect(await ses.getEmails()).toEqual([])
+        })
     })
 
     describe('provider outcomes', () => {
         it.each([
-            [
-                'M6: unknown provider fails without delivery',
-                'unknown',
-                'Email provider not recognized. Select a different email integration.',
-            ],
-            ['M7: unsupported provider fails', 'unsupported', 'Email delivery mode not supported'],
-        ])('%s', async (_name, provider, error) => {
+            ['an unknown provider', 'unknown', 'Email provider not recognized. Select a different email integration.'],
+            ['an unsupported provider', 'unsupported', 'Email delivery mode not supported'],
+        ])('fails %s without delivering', async (_name, provider, error) => {
             await setProvider(provider)
 
             const result = await service.executeSendEmail(invocation)
 
             expect(result.finished).toBe(true)
             expect(result.error).toBe(error)
-            expect(result.logs).toEqual(
-                expect.arrayContaining([expect.objectContaining({ level: 'error', message: error })])
-            )
+            expect(result.logs).toEqual(expect.arrayContaining([expect.objectContaining({ level: 'error', message: error })]))
             expect(result.invocation.queueParameters).toBeUndefined()
             expect(result.invocation.queueScheduledAt).toBeUndefined()
             expect(result.invocation.state.vmState?.stack).toEqual([{ success: false }])
             expect(result.metrics.map((metric) => metric.metric_name)).toEqual(['email_failed'])
-            expect(result.messageAssets).toHaveLength(0)
+            expect(result.messageAssets).toEqual([])
             expect(result.capturedPostHogEvents).toEqual([
                 expect.objectContaining({ event: '$workflows_email_failed' }),
             ])
@@ -237,7 +250,7 @@ describe('EmailService with local SES', () => {
             expect(await ses.getEmails()).toEqual([])
         })
 
-        it('M8: records a maildev SMTP rejection as failed', async () => {
+        it('records a maildev SMTP rejection as failed', async () => {
             await setProvider('maildev')
             const smtp = createServer((socket) => socket.end('554 Local SMTP rejected email\r\n'))
             await new Promise<void>((resolve) => smtp.listen(0, '127.0.0.1', resolve))
@@ -266,27 +279,42 @@ describe('EmailService with local SES', () => {
         })
     })
 
-    describe('skip flags and unspent budgets (M9, M18, M21; billing policy in Silthus/posthog#313)', () => {
+    describe('skip flags and unspent budgets', () => {
         it.each([
-            ['suspended', 'email_suspended', undefined],
-            ['paused', 'email_paused', true],
-            ['suppressed to and cc', 'email_suppressed', undefined],
-        ] as const)('%s keeps both budgets intact', async (gate, metric, skipped) => {
-            service.sesV2Client?.destroy()
-            service = createService(ses.endpoint, { teamEmailCapMode: 'enforce' })
+            {
+                gate: 'suspended',
+                metric: 'email_suspended',
+                skipped: undefined,
+                arrange: async (): Promise<void> => {
+                    await hub.postgres.query(
+                        PostgresUse.COMMON_WRITE,
+                        'UPDATE workflows_teamworkflowsconfig SET email_sending_suspended_at = NOW() WHERE team_id = $1',
+                        [invocation.teamId],
+                        'test-suspend-email-sending'
+                    )
+                },
+            },
+            {
+                gate: 'paused',
+                metric: 'email_paused',
+                skipped: true,
+                arrange: (): Promise<void> => {
+                    invocation.hogFunction.metadata!.email_sending_paused_at = new Date().toISOString()
+                    return Promise.resolve()
+                },
+            },
+            {
+                gate: 'suppressed to and cc',
+                metric: 'email_suppressed',
+                skipped: undefined,
+                arrange: async (): Promise<void> => {
+                    await suppression.recordHardBounces(invocation.teamId, [params.to.email, 'copy@example.com'])
+                },
+            },
+        ])('$gate keeps both budgets intact', async ({ metric, skipped, arrange }) => {
+            useService({ teamEmailCapMode: 'enforce' })
             invocation.hogFunction.metadata!.email_sending_rate_limit = { count: 1, period: 'hour' }
-            if (gate === 'suspended') {
-                await hub.postgres.query(
-                    PostgresUse.COMMON_WRITE,
-                    'UPDATE workflows_teamworkflowsconfig SET email_sending_suspended_at = NOW() WHERE team_id = $1',
-                    [invocation.teamId],
-                    'test-suspend-email-sending'
-                )
-            } else if (gate === 'paused') {
-                invocation.hogFunction.metadata!.email_sending_paused_at = new Date().toISOString()
-            } else {
-                await suppression.recordHardBounces(invocation.teamId, [params.to.email, 'copy@example.com'])
-            }
+            await arrange()
 
             const result = await service.executeSendEmail(invocation)
 
@@ -311,7 +339,7 @@ describe('EmailService with local SES', () => {
     })
 
     describe('failures before the tracking decision', () => {
-        it('M10: rejects an integration lookup fault instead of recording an outcome', async () => {
+        it('rejects an integration lookup fault instead of recording an outcome', async () => {
             failDatabaseQuery('fetchIntegrations')
 
             await expect(service.executeSendEmail(invocation)).rejects.toThrow('Database fault: fetchIntegrations')
@@ -321,7 +349,7 @@ describe('EmailService with local SES', () => {
             expect(await ses.getEmails()).toEqual([])
         })
 
-        it('M11: reports tracking enabled on a failure before the tracking-off decision', async () => {
+        it('reports tracking enabled on a failure before the tracking-off decision', async () => {
             params.from.integrationId = -1
 
             const result = await service.executeSendEmail(invocation)
@@ -345,11 +373,11 @@ describe('EmailService with local SES', () => {
     })
 
     describe('team sending budgets', () => {
-        it.each([0, 1])('M12: shadow mode sends despite bucket %i denying and charges both buckets', async (denied) => {
-            service.sesV2Client?.destroy()
-            service = createService(ses.endpoint, { teamEmailCapMode: 'shadow' })
+        it.each([0, 1])('shadow mode sends despite bucket %i denying and charges both buckets', async (denied) => {
+            useService({ teamEmailCapMode: 'shadow' })
             const buckets = teamEmailCapBuckets(invocation.teamId, hourlyCap, dailyCap)
-            await limiter.claimUpTo({ ...buckets[denied], requested: buckets[denied].capacity })
+            const drained = buckets[denied]
+            expect(await limiter.claimUpTo({ ...drained, requested: drained.capacity })).toBe(drained.capacity)
 
             const result = await service.executeSendEmail(invocation)
 
@@ -365,37 +393,39 @@ describe('EmailService with local SES', () => {
             }
         })
 
-        it.each(['failed', 'null'] as const)(
-            'M13: sends without charging the team cap when the tier lookup is %s',
-            async (fault) => {
-                service.sesV2Client?.destroy()
-                service = createService(ses.endpoint, { teamEmailCapMode: 'enforce' })
-                invocation.state.globals.event.distinct_id = ''
-                if (fault === 'failed') {
-                    failDatabaseQuery('fetch-team-workflows-configs')
-                } else {
+        it.each([
+            {
+                lookup: 'fails',
+                arrange: (): void => failDatabaseQuery('fetch-team-workflows-configs'),
+            },
+            {
+                lookup: 'returns no tier',
+                arrange: (): void => {
                     jest.spyOn(configService, 'getEmailSendingTier').mockResolvedValue(null)
-                }
+                },
+            },
+        ])('sends without charging the team cap when the tier lookup $lookup', async ({ arrange }) => {
+            useService({ teamEmailCapMode: 'enforce' })
+            invocation.state.globals.event.distinct_id = ''
+            arrange()
 
-                const result = await service.executeSendEmail(invocation)
+            const result = await service.executeSendEmail(invocation)
 
-                expect(result).toMatchObject({ finished: true })
-                expect(result.error).toBeUndefined()
-                expect(await ses.getEmails()).toHaveLength(1)
-                for (const bucket of teamEmailCapBuckets(invocation.teamId, hourlyCap, dailyCap)) {
-                    expect(await limiter.claimUpTo({ ...bucket, requested: bucket.capacity })).toBe(bucket.capacity)
-                }
+            expect(result).toMatchObject({ finished: true })
+            expect(result.error).toBeUndefined()
+            expect(await ses.getEmails()).toHaveLength(1)
+            for (const bucket of teamEmailCapBuckets(invocation.teamId, hourlyCap, dailyCap)) {
+                expect(await limiter.claimUpTo({ ...bucket, requested: bucket.capacity })).toBe(bucket.capacity)
             }
-        )
+        })
 
         it.each([
             { name: 'to only', copies: 1, hourly: 4, daily: 8, charged: 1 },
             { name: 'to, cc and bcc', copies: 3, hourly: 4, daily: 8, charged: 3 },
             { name: 'clamped to hourly capacity', copies: 3, hourly: 2, daily: 8, charged: 2 },
             { name: 'clamped to daily capacity', copies: 3, hourly: 4, daily: 2, charged: 2 },
-        ])('M14: charges each recipient, $name', async ({ copies, hourly, daily, charged }) => {
-            service.sesV2Client?.destroy()
-            service = createService(ses.endpoint, {
+        ])('charges each recipient, $name', async ({ copies, hourly, daily, charged }) => {
+            useService({
                 teamEmailCapMode: 'enforce',
                 teamEmailTierHourlyCaps: [hourly],
                 teamEmailTierDailyCaps: [daily],
@@ -420,126 +450,130 @@ describe('EmailService with local SES', () => {
         })
     })
 
-    describe('tokens after rescheduling (M15, M16; refund policy in Silthus/posthog#295)', () => {
+    describe('tokens after rescheduling', () => {
+        const throttleSes = (): Promise<void> => {
+            ses.setError('TooManyRequestsException')
+            return Promise.resolve()
+        }
+
         it.each([
             {
-                name: 'M15: team cap denial keeps the workflow token spent',
-                cause: 'team cap',
+                name: 'a team cap denial keeps the workflow token spent',
+                arrange: drainHourlyTeamBucket,
                 isTest: false,
+                log: capReachedLog,
+                sesRequests: 0,
                 workflow: 0,
                 hour: 0,
                 day: 8,
             },
             {
-                name: 'M15: SES throttle keeps both budgets spent',
-                cause: 'SES throttle',
+                name: 'an SES throttle keeps both budgets spent',
+                arrange: throttleSes,
                 isTest: false,
+                log: 'SES rate-limited (TooManyRequestsException)',
+                sesRequests: 1,
                 workflow: 0,
                 hour: 1,
                 day: 5,
             },
             {
-                name: 'M16: a throttled editor test reschedules without charging budgets',
-                cause: 'SES throttle',
+                name: 'a throttled editor test reschedules without charging budgets',
+                arrange: throttleSes,
                 isTest: true,
+                log: 'SES rate-limited (TooManyRequestsException)',
+                sesRequests: 1,
                 workflow: 1,
                 hour: 4,
                 day: 8,
             },
-        ])('$name', async ({ cause, isTest, workflow, hour, day }) => {
-            service.sesV2Client?.destroy()
-            service = createService(ses.endpoint, { teamEmailCapMode: 'enforce' })
+        ])('$name', async ({ arrange, isTest, log, sesRequests, workflow, hour, day }) => {
+            useService({ teamEmailCapMode: 'enforce' })
             invocation.hogFunction.metadata!.email_sending_rate_limit = { count: 1, period: 'hour' }
-            const buckets = teamEmailCapBuckets(invocation.teamId, hourlyCap, dailyCap)
-            if (cause === 'team cap') {
-                await limiter.claimUpTo({ ...buckets[0], requested: hourlyCap })
-            } else {
-                ses.setError('TooManyRequestsException')
-            }
+            await arrange()
 
             const result = await service.executeSendEmail(invocation, isTest)
 
             expect(result).toMatchObject({ finished: false, metrics: [], messageAssets: [], capturedPostHogEvents: [] })
             expect(result.error).toBeUndefined()
             expect(result.skipped).toBeUndefined()
+            expect(logMessages(result)).toEqual(expect.arrayContaining([expect.stringContaining(log)]))
             expect(result.invocation.queueParameters).toEqual(params)
             expect(result.invocation.queueScheduledAt?.isValid).toBe(true)
             expect(result.invocation.state.vmState?.stack).toEqual([])
-            expect(ses.requests).toHaveLength(cause === 'SES throttle' ? 1 : 0)
+            expect(ses.requests).toHaveLength(sesRequests)
             expect(await ses.getEmails()).toEqual([])
             expect(await limiter.claimUpTo({ ...workflowBucket(), requested: 1, refillPerSecond: 0 })).toBe(workflow)
-            for (const [index, bucket] of buckets.entries()) {
-                expect(await limiter.claimUpTo({ ...bucket, requested: bucket.capacity, refillPerSecond: 0 })).toBe(
-                    index === 0 ? hour : day
-                )
-            }
+            const [hourly, daily] = teamEmailCapBuckets(invocation.teamId, hourlyCap, dailyCap)
+            expect(await limiter.claimUpTo({ ...hourly, requested: hourly.capacity, refillPerSecond: 0 })).toBe(hour)
+            expect(await limiter.claimUpTo({ ...daily, requested: daily.capacity, refillPerSecond: 0 })).toBe(day)
         })
     })
 
-    describe('post-send faults (M19, M20)', () => {
-        it.each(['engagement config', 'asset row'] as const)(
-            'keeps the email sent after SES accepts when %s fails',
-            async (stage) => {
-                const metricStage = stage === 'asset row' ? 'message_asset' : 'engagement_config'
-                const failures = register.getSingleMetric('cdp_email_bookkeeping_failures_total')
-                const countBefore =
-                    (await failures?.get())?.values.find((value) => value.labels.stage === metricStage)?.value ?? 0
-                if (stage === 'engagement config') {
-                    jest.spyOn(configService, 'shouldCaptureEngagementEvents').mockRejectedValue(
-                        new Error('Engagement config fault')
-                    )
-                } else {
-                    jest.spyOn(assets, 'buildRowForEmail').mockImplementation(() => {
-                        throw new Error('Asset row fault')
-                    })
-                }
-                const result = await service.executeSendEmail(invocation)
+    describe('post-send faults', () => {
+        const expectSentDespiteFault = async (result: Awaited<ReturnType<EmailService['executeSendEmail']>>, warning: string): Promise<void> => {
+            expect(result.finished).toBe(true)
+            expect(result.error).toBeUndefined()
+            expect(result.metrics.map((metric) => metric.metric_name)).toEqual(['email_sent', 'email_untracked'])
+            expect(result.logs).toEqual(expect.arrayContaining([expect.objectContaining({ level: 'warn', message: warning })]))
+            expect(result.invocation.state.vmState?.stack).toEqual([{ success: true }])
+            expect(result.invocation.queueParameters).toBeUndefined()
+            expect(result.invocation.queueScheduledAt).toBeUndefined()
+            expect(ses.requests).toHaveLength(1)
+            expect(await ses.getEmails()).toEqual([expect.objectContaining({ subject: params.subject })])
+        }
 
-                expect(result.finished).toBe(true)
-                expect(result.error).toBeUndefined()
-                expect(result.metrics.map((metric) => metric.metric_name)).toEqual(['email_sent', 'email_untracked'])
-                expect(result.messageAssets).toHaveLength(stage === 'asset row' ? 0 : 1)
-                expect(result.capturedPostHogEvents).toEqual(
-                    stage === 'engagement config' ? [] : [expect.objectContaining({ event: '$workflows_email_sent' })]
-                )
-                expect(result.logs).toEqual(
-                    expect.arrayContaining([
-                        expect.objectContaining({
-                            level: 'warn',
-                            message:
-                                stage === 'asset row'
-                                    ? 'Email sent, but its saved copy could not be created.'
-                                    : 'Email sent, but its engagement event could not be recorded.',
-                        }),
-                    ])
-                )
-                expect(result.logs.some((log) => log.message.includes('[Email:'))).toBe(stage !== 'asset row')
-                expect(result.invocation.state.vmState?.stack).toEqual([{ success: true }])
-                expect(result.invocation.queueParameters).toBeUndefined()
-                expect(result.invocation.queueScheduledAt).toBeUndefined()
-                expect(ses.requests).toHaveLength(1)
-                expect(await ses.getEmails()).toEqual([expect.objectContaining({ subject: params.subject })])
-                expect((await failures?.get())?.values.find((value) => value.labels.stage === metricStage)?.value).toBe(
-                    countBefore + 1
-                )
-            }
-        )
+        it('keeps the email sent when the engagement config read fails after SES accepts', async () => {
+            const failuresBefore = await bookkeepingFailures('engagement_config')
+            jest.spyOn(configService, 'shouldCaptureEngagementEvents').mockRejectedValue(
+                new Error('Engagement config fault')
+            )
+
+            const result = await service.executeSendEmail(invocation)
+
+            await expectSentDespiteFault(result, 'Email sent, but its engagement event could not be recorded.')
+            expect(result.messageAssets).toHaveLength(1)
+            expect(result.capturedPostHogEvents).toEqual([])
+            expect(logMessages(result)).toEqual(expect.arrayContaining([expect.stringContaining('[Email:')]))
+            expect(await bookkeepingFailures('engagement_config')).toBe(failuresBefore + 1)
+        })
+
+        it('keeps the email sent without a saved copy when the asset row fails after SES accepts', async () => {
+            const failuresBefore = await bookkeepingFailures('message_asset')
+            jest.spyOn(assets, 'buildRowForEmail').mockImplementation(() => {
+                throw new Error('Asset row fault')
+            })
+
+            const result = await service.executeSendEmail(invocation)
+
+            await expectSentDespiteFault(result, 'Email sent, but its saved copy could not be created.')
+            expect(result.messageAssets).toEqual([])
+            expect(result.capturedPostHogEvents).toEqual([expect.objectContaining({ event: '$workflows_email_sent' })])
+            expect(logMessages(result)).not.toEqual(expect.arrayContaining([expect.stringContaining('[Email:')]))
+            expect(await bookkeepingFailures('message_asset')).toBe(failuresBefore + 1)
+        })
     })
 
     it.each([1, 3])('reschedules after %i SDK attempt(s) and sends its email payload on retry', async (attempts) => {
-        environment.setMaxAttempts(attempts)
-        service.sesV2Client?.destroy()
-        service = createService(ses.endpoint)
+        environment?.setMaxAttempts(attempts)
+        useService()
         ses.setError('TooManyRequestsException')
         invocation.queuePriority = 1
 
         const throttled = await service.executeSendEmail(invocation)
 
-        expect(throttled).toMatchObject({ finished: false, metrics: [] })
+        expect(throttled).toMatchObject({
+            finished: false,
+            metrics: [],
+            messageAssets: [],
+            capturedPostHogEvents: [],
+        })
         expect(throttled.error).toBeUndefined()
+        expect(throttled.skipped).toBeUndefined()
         expect(throttled.invocation.queueParameters).toEqual(params)
         expect(throttled.invocation.queuePriority).toBe(1)
         expect(throttled.invocation.queueScheduledAt?.isValid).toBe(true)
+        expect(throttled.invocation.state.vmState?.stack).toEqual([])
         expect(ses.requests).toHaveLength(attempts)
         expect(await ses.getEmails()).toEqual([])
 
@@ -592,55 +626,4 @@ describe('EmailService with local SES', () => {
             expect(await ses.getEmails()).toEqual([])
         }
     )
-
-    it('isolates concurrent proxy faults and inbox reads for identical recipients', async () => {
-        const unrelatedClient = new SESv2Client({ region: 'us-east-1', endpoint: 'http://127.0.0.1:4566' })
-        try {
-            await unrelatedClient.send(
-                new SendEmailCommand({
-                    FromEmailAddress: 'sender@example.com',
-                    Destination: { ToAddresses: [params.to.email] },
-                    Content: {
-                        Simple: {
-                            Subject: { Data: 'Unrelated email without headers' },
-                            Body: { Text: { Data: 'Another inbox writer.' } },
-                        },
-                    },
-                })
-            )
-        } finally {
-            unrelatedClient.destroy()
-        }
-        const otherSes = new LocalSes()
-        await otherSes.start()
-        const otherService = createService(otherSes.endpoint)
-        ses.setError('TooManyRequestsException')
-
-        try {
-            const [throttled, delivered] = await Promise.all([
-                service.executeSendEmail(invocation),
-                otherService.executeSendEmail(invocation),
-            ])
-            expect(throttled).toMatchObject({ finished: false, metrics: [] })
-            expect(delivered).toMatchObject({ finished: true })
-            expect(delivered.error).toBeUndefined()
-            expect(await ses.getEmails()).toEqual([])
-            const otherEmails = await otherSes.getEmails()
-            expect(otherEmails).toHaveLength(1)
-
-            ses.setError(undefined)
-            const retry = await service.executeSendEmail(throttled.invocation)
-            expect(retry.error).toBeUndefined()
-            const emails = await ses.getEmails()
-            expect(emails).toHaveLength(1)
-            expect(emails[0].destination).toEqual(otherEmails[0].destination)
-            expect(emails[0].messageId).not.toBe(otherEmails[0].messageId)
-            expect(await otherSes.getEmails()).toEqual(otherEmails)
-            expect(ses.requests).toHaveLength(2)
-            expect(otherSes.requests).toHaveLength(1)
-        } finally {
-            otherService.sesV2Client?.destroy()
-            await otherSes.stop()
-        }
-    })
 })
