@@ -148,11 +148,9 @@ export function BottomBar({
             <View
                 style={[
                     styles.nav,
+                    !rail && styles.bottomNav,
                     shadows.floatingBar,
                     rail && {
-                        flexGrow: 0,
-                        flexShrink: 0,
-                        flexBasis: 'auto',
                         height: (3 + pins.length) * 52 + 12,
                         width: 64,
                         flexDirection: 'column',
@@ -234,9 +232,6 @@ const useStyles = createStyles(({ colors }) => ({
     },
     // 54pt content box plus 4pt padding and a 1pt border on each side.
     nav: {
-        flex: 1,
-        height: 64,
-        flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-around',
         backgroundColor: colors.surface,
@@ -245,6 +240,11 @@ const useStyles = createStyles(({ colors }) => ({
         borderRadius: radii.pill,
         paddingVertical: 4,
         paddingHorizontal: 6,
+    },
+    bottomNav: {
+        flex: 1,
+        height: 64,
+        flexDirection: 'row',
     },
     // Slots shrink below the handoff's 72pt on phones narrower than the 402pt prototype frame, never below 44pt.
     slot: {
