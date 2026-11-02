@@ -3,7 +3,8 @@
 A stored list is reused while it is younger than `freshness_minutes` and its input hash matches the current
 inputs. Otherwise, and for every `refresh` or `focus` request, the read queues one background build per person
 and serves the latest stored list as stale, or the candidates in inbox order when there is none. The focus is
-part of the hash, so an unfocused request never reuses a focused list. A lock lets one build per person run at a
+part of the hash, so an unfocused request never reuses a focused list. A build that stores a list for the current
+inputs while the read runs answers the read, also a `refresh` read, so the read queues no second build. A lock lets one build per person run at a
 time, and each queued build spends two per-person token buckets. A build that may call the model also spends
 the shared daily limit of the region (`build_budget.py`). `wait_seconds` waits a bounded time for the queued build
 to store its list.
@@ -159,15 +160,30 @@ def _spend_build(team_id: int, user_id: int, config: PersonalRankingConfig, *, c
 
 
 def _start_build(
-    team: Team, user: User, config: PersonalRankingConfig, focus: str | None, limit: int, *, calls_model: bool
-) -> BuildStart:
-    """Queue one background build, unless one is already running for the person or the buckets refuse it."""
+    team: Team,
+    user: User,
+    config: PersonalRankingConfig,
+    focus: str | None,
+    limit: int,
+    *,
+    calls_model: bool,
+    seen: PersonalInboxRanking | None,
+    current_hash: str,
+) -> BuildStart | PersonalInboxRanking:
+    """Queue one background build, unless one is already running for the person or the buckets refuse it.
+
+    Returns a row instead when an unfocused request finds a row for the current inputs stored after `seen`.
+    """
     lock_key = build_lock_key(team.id, user.id)
     locked = False
     try:
         locked = cache.add(lock_key, "1", timeout=BUILD_LOCK_TTL_SECONDS)
         if not locked:
             return "running"
+        # A build can store its row and free the lock after the read looked for a row.
+        if focus is None and (stored := _row_stored_since(team, user, seen, current_hash)) is not None:
+            cache.delete(lock_key)
+            return stored
         if _spend_build(team.id, user.id, config, calls_model=calls_model) is not None:
             cache.delete(lock_key)
             return "rate_limited"
@@ -184,6 +200,15 @@ def _start_build(
 
 def _latest_row(team: Team, user: User) -> PersonalInboxRanking | None:
     return PersonalInboxRanking.objects.for_team(team.id).filter(user_id=user.id).order_by("-created_at", "-id").first()
+
+
+def _row_stored_since(
+    team: Team, user: User, seen: PersonalInboxRanking | None, current_hash: str
+) -> PersonalInboxRanking | None:
+    row = _latest_row(team, user)
+    if row is None or (seen is not None and row.id == seen.id) or row.input_hash != current_hash:
+        return None
+    return row
 
 
 def _wait_for_new_row(
@@ -328,20 +353,28 @@ def serve_personal_ranking(
     wait_seconds = min(max(wait_seconds, 0), MAX_WAIT_SECONDS)
     now = timezone.now()
 
-    latest = _latest_row(team, user)
+    started_with = _latest_row(team, user)
     candidates = gather_candidates(team, user, config, now=now, with_sources=False)
     summary_version = _ready_summary_version(team, user)
     current_hash = input_hash(candidates, activity_summary_version=summary_version, focus=focus)
+    # Read again, because a build can store a row while the candidates are gathered.
+    latest = _latest_row(team, user)
     current = (
         latest is not None
         and latest.created_at >= now - datetime.timedelta(minutes=config.freshness_minutes)
         and latest.input_hash == current_hash
     )
-    if latest is not None and current and not refresh and focus is None:
+    # A row stored after this read started also answers a refresh.
+    stored_since_start = latest is not None and (started_with is None or latest.id != started_with.id)
+    if latest is not None and current and focus is None and (not refresh or stored_since_start):
         return _serve_row(latest, candidates, limit=limit, cached=True, stale=False, building=False)
 
     calls_model = bool(candidates) and may_call_model(team, summary_ready=summary_version is not None)
-    start = _start_build(team, user, config, focus, limit, calls_model=calls_model)
+    start = _start_build(
+        team, user, config, focus, limit, calls_model=calls_model, seen=latest, current_hash=current_hash
+    )
+    if isinstance(start, PersonalInboxRanking):
+        return _serve_row(start, candidates, limit=limit, cached=True, stale=False, building=False)
     building = start in ("started", "running")
     if building and wait_seconds:
         built = _wait_for_new_row(team, user, latest, wait_seconds)
