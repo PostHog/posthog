@@ -15,7 +15,7 @@ export class TracesIngestionConsumer extends LogsIngestionConsumer {
     protected override name = 'TracesIngestionConsumer'
     // Traces bill against the same bucket as logs: one product, one free tier, one price. The
     // inherited logs_mb_ingested quota resource is that bucket, so it is deliberately not overridden.
-    protected override appSource = 'traces'
+    protected override appSource: 'logs' | 'traces' = 'traces'
     // Traces records are spans, so this consumer tallies the `spans` metric rules.
     protected override metricRuleSource: MetricRuleSource = 'spans'
     // Span retention rules live in their own table, which this source selects.

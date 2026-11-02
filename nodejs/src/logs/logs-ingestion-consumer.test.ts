@@ -21,6 +21,7 @@ import { DependencyUnavailableError } from '~/common/utils/db/error'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
+import { isOkResult } from '~/ingestion/framework/results'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, createTestTeamFixture, getTeam } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
@@ -50,17 +51,29 @@ import {
     parseMinTimestampHeader,
     parseSizeHeader,
 } from './logs-ingestion-consumer'
+import type { UsageStatsByTeam } from './logs-ingestion-consumer'
 import { compileMetricRules } from './metrics-rules/compile-metric-rules'
 import type { MetricRulesCache } from './metrics-rules/metric-rules-cache'
 import type { LogsMetricsEmitter } from './metrics-rules/metrics-emitter'
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
 import type { PatternMessageKeysCache } from './pattern-message-keys-cache'
+import {
+    LogsBatchUsage,
+    createQuotaLimitStep,
+    createRateLimitStep,
+    createRecordAllowedUsageStep,
+    reportDroppedUsage,
+} from './pipeline/admission-steps'
+import { emitUsageMetrics } from './pipeline/finalize-logs-batch'
+import type { LogsPipelineContext } from './pipeline/logs-pipeline-context'
+import { isPatternMaskingEnabledForTeam, isRetentionEvalEnabledForTeam } from './pipeline/resolve-log-buffer'
 import { MAX_RETENTION_DAYS } from './retention/evaluate-retention'
 import { DEFAULT_TRACES_RETENTION_DAYS } from './retention/tracing-config-cache'
 import { compileRuleSet } from './sampling/compile-rules'
 import type { SamplingRulesCache } from './sampling/sampling-rules-cache'
 import { TracesIngestionConsumer } from './traces-ingestion-consumer'
 import { LogsTransformerService } from './transformations/logs-transformer.service'
+import type { LogsIngestionMessage } from './types'
 
 // What capture-logs forwards for a producer that signed just before the request arrived. Both times come
 // from `Date.now()`, which these tests pin, because a bare `new Date()` still reads the real clock.
@@ -69,6 +82,50 @@ function internalLogsHeaders(signature: string): Record<string, Buffer> {
         [INTERNAL_LOGS_HEADER]: Buffer.from(signature),
         created_at: Buffer.from(new Date(Date.now()).toISOString()),
     }
+}
+
+/** The context the consumer's pipeline steps share, for testing a single step. */
+function pipelineContext(consumer: LogsIngestionConsumer): LogsPipelineContext {
+    return consumer['getPipelines']().context
+}
+
+/** Runs one admission gate over parsed messages and splits them by outcome. */
+async function runGate(
+    step: ReturnType<typeof createQuotaLimitStep>,
+    parsed: LogsIngestionMessage[]
+): Promise<{ allowed: LogsIngestionMessage[]; dropped: LogsIngestionMessage[] }> {
+    const usage = new LogsBatchUsage()
+    const values = parsed.map((message) => ({ ...message, usage }))
+    const results = await step(values)
+    const allowed: LogsIngestionMessage[] = []
+    const dropped: LogsIngestionMessage[] = []
+    results.forEach((result, i) => {
+        const { usage: _usage, ...message } = values[i]
+        ;(isOkResult(result) ? allowed : dropped).push(message)
+    })
+    return { allowed, dropped }
+}
+
+async function filterQuotaLimitedMessages(consumer: LogsIngestionConsumer, parsed: LogsIngestionMessage[]) {
+    const { allowed, dropped } = await runGate(createQuotaLimitStep(pipelineContext(consumer)), parsed)
+    return { quotaAllowedMessages: allowed, quotaDroppedMessages: dropped }
+}
+
+async function filterRateLimitedMessages(consumer: LogsIngestionConsumer, parsed: LogsIngestionMessage[]) {
+    const { allowed, dropped } = await runGate(createRateLimitStep(pipelineContext(consumer)), parsed)
+    return { rateLimiterAllowedMessages: allowed, rateLimiterDroppedMessages: dropped }
+}
+
+/** The usage rows the admission pipeline builds for messages it allowed and dropped. */
+async function buildUsageStats(
+    allowed: LogsIngestionMessage[],
+    dropped: LogsIngestionMessage[]
+): Promise<UsageStatsByTeam> {
+    const usage = new LogsBatchUsage()
+    await createRecordAllowedUsageStep()(allowed.map((message) => ({ ...message, usage })))
+    dropped.forEach((message) => usage.recordDropped(message))
+    reportDroppedUsage(usage)
+    return usage.byTeam
 }
 
 const DEFAULT_TEST_TIMEOUT = 5000
@@ -1231,7 +1288,7 @@ describe('LogsIngestionConsumer', () => {
             })
 
             const parsed = await consumer['_parseKafkaBatch'](messages)
-            const { quotaAllowedMessages, quotaDroppedMessages } = await consumer['filterQuotaLimitedMessages'](parsed)
+            const { quotaAllowedMessages, quotaDroppedMessages } = await filterQuotaLimitedMessages(consumer, parsed)
 
             expect(quotaAllowedMessages).toHaveLength(1)
             expect(quotaDroppedMessages).toHaveLength(0)
@@ -1248,7 +1305,7 @@ describe('LogsIngestionConsumer', () => {
             })
 
             const parsed = await consumer['_parseKafkaBatch'](messages)
-            const { quotaAllowedMessages, quotaDroppedMessages } = await consumer['filterQuotaLimitedMessages'](parsed)
+            const { quotaAllowedMessages, quotaDroppedMessages } = await filterQuotaLimitedMessages(consumer, parsed)
 
             expect(quotaAllowedMessages).toHaveLength(0)
             expect(quotaDroppedMessages).toHaveLength(1)
@@ -1276,7 +1333,7 @@ describe('LogsIngestionConsumer', () => {
             ]
 
             const parsed = await consumer['_parseKafkaBatch'](messages)
-            await consumer['filterQuotaLimitedMessages'](parsed)
+            await filterQuotaLimitedMessages(consumer, parsed)
 
             // Should only call once per unique token, not once per message
             expect(hub.quotaLimiting.isTeamTokenQuotaLimited).toHaveBeenCalledTimes(2)
@@ -1301,7 +1358,7 @@ describe('LogsIngestionConsumer', () => {
             ]
 
             const parsed = await consumer['_parseKafkaBatch'](messages)
-            const { quotaAllowedMessages, quotaDroppedMessages } = await consumer['filterQuotaLimitedMessages'](parsed)
+            const { quotaAllowedMessages, quotaDroppedMessages } = await filterQuotaLimitedMessages(consumer, parsed)
 
             expect(quotaAllowedMessages).toHaveLength(1)
             expect(quotaAllowedMessages[0].token).toBe(team2.api_token)
@@ -1317,7 +1374,7 @@ describe('LogsIngestionConsumer', () => {
             })
 
             const parsed = await consumer['_parseKafkaBatch'](messages)
-            await consumer['filterQuotaLimitedMessages'](parsed)
+            await filterQuotaLimitedMessages(consumer, parsed)
 
             expect(logMessageDroppedCounterSpy).toHaveBeenCalledWith(
                 { reason: 'quota_limited', team_id: team.id.toString() },
@@ -1337,8 +1394,10 @@ describe('LogsIngestionConsumer', () => {
             })
 
             const parsed = await consumer['_parseKafkaBatch'](messages)
-            const { rateLimiterAllowedMessages, rateLimiterDroppedMessages } =
-                await consumer['filterRateLimitedMessages'](parsed)
+            const { rateLimiterAllowedMessages, rateLimiterDroppedMessages } = await filterRateLimitedMessages(
+                consumer,
+                parsed
+            )
 
             expect(rateLimiterAllowedMessages).toHaveLength(1)
             expect(rateLimiterDroppedMessages).toHaveLength(0)
@@ -1366,8 +1425,10 @@ describe('LogsIngestionConsumer', () => {
             ]
 
             const parsed = await consumer['_parseKafkaBatch'](messages)
-            const { rateLimiterAllowedMessages, rateLimiterDroppedMessages } =
-                await consumer['filterRateLimitedMessages'](parsed)
+            const { rateLimiterAllowedMessages, rateLimiterDroppedMessages } = await filterRateLimitedMessages(
+                consumer,
+                parsed
+            )
 
             expect(rateLimiterAllowedMessages).toHaveLength(1)
             expect(rateLimiterDroppedMessages).toHaveLength(1)
@@ -1549,7 +1610,7 @@ describe('LogsIngestionConsumer', () => {
             })
 
             const parsed = await consumer['_parseKafkaBatch'](messages)
-            const usageStats = consumer['trackOutgoingTrafficAndBuildUsageStats'](parsed, [])
+            const usageStats = await buildUsageStats(parsed, [])
 
             const stats = usageStats.get(team.id)
             expect(stats).toBeDefined()
@@ -1578,7 +1639,7 @@ describe('LogsIngestionConsumer', () => {
             ]
 
             const parsed = await consumer['_parseKafkaBatch'](messages)
-            const usageStats = consumer['trackOutgoingTrafficAndBuildUsageStats'](parsed, [])
+            const usageStats = await buildUsageStats(parsed, [])
 
             const stats = usageStats.get(team.id)
             expect(stats!.bytesAllowed).toBe(300)
@@ -1600,7 +1661,7 @@ describe('LogsIngestionConsumer', () => {
             ]
 
             const parsed = await consumer['_parseKafkaBatch'](messages)
-            const usageStats = consumer['trackOutgoingTrafficAndBuildUsageStats'](parsed, [])
+            const usageStats = await buildUsageStats(parsed, [])
 
             const stats = usageStats.get(team.id)
             expect(stats!.bytesReceived).toBe(300)
@@ -1624,7 +1685,7 @@ describe('LogsIngestionConsumer', () => {
             ]
 
             const parsed = await consumer['_parseKafkaBatch'](messages)
-            const usageStats = consumer['trackOutgoingTrafficAndBuildUsageStats'](parsed, [])
+            const usageStats = await buildUsageStats(parsed, [])
 
             expect(usageStats.size).toBe(2)
             expect(usageStats.get(team.id)!.bytesAllowed).toBe(100)
@@ -1654,12 +1715,11 @@ describe('LogsIngestionConsumer', () => {
             ]
 
             const parsed = await consumer['_parseKafkaBatch'](messages)
-            const { rateLimiterAllowedMessages, rateLimiterDroppedMessages } =
-                await consumer['filterRateLimitedMessages'](parsed)
-            const usageStats = consumer['trackOutgoingTrafficAndBuildUsageStats'](
-                rateLimiterAllowedMessages,
-                rateLimiterDroppedMessages
+            const { rateLimiterAllowedMessages, rateLimiterDroppedMessages } = await filterRateLimitedMessages(
+                consumer,
+                parsed
             )
+            const usageStats = await buildUsageStats(rateLimiterAllowedMessages, rateLimiterDroppedMessages)
 
             expect(usageStats.get(team.id)!.bytesAllowed).toBe(512)
             expect(usageStats.get(team.id)!.bytesDropped).toBe(2048)
@@ -1678,7 +1738,7 @@ describe('LogsIngestionConsumer', () => {
         }
 
         it('should queue + flush metric with correct structure', async () => {
-            consumer['queueUsageMetric'](123, 'test_metric', 500)
+            pipelineContext(consumer).usageMetrics.queueUsageMetric(123, 'test_metric', 500)
             await consumer['appMetricsAggregator'].flush()
 
             const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
@@ -1697,7 +1757,7 @@ describe('LogsIngestionConsumer', () => {
         })
 
         it('should not queue metric when count is zero', async () => {
-            consumer['queueUsageMetric'](123, 'test_metric', 0)
+            pipelineContext(consumer).usageMetrics.queueUsageMetric(123, 'test_metric', 0)
             await consumer['appMetricsAggregator'].flush()
 
             const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
@@ -1734,7 +1794,7 @@ describe('LogsIngestionConsumer', () => {
                 ],
             ])
 
-            await consumer['emitUsageMetrics'](usageStats)
+            await emitUsageMetrics(pipelineContext(consumer), usageStats)
 
             const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
 
@@ -1787,7 +1847,7 @@ describe('LogsIngestionConsumer', () => {
                     ],
                 ])
 
-                await consumer['emitUsageMetrics'](usageStats)
+                await emitUsageMetrics(pipelineContext(consumer), usageStats)
 
                 const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
                 const parsed = messages.map((m) => parseMetricValue(m.value))
@@ -1828,7 +1888,7 @@ describe('LogsIngestionConsumer', () => {
             // Mid-hour, so the rows show the truncation to the hour.
             jest.spyOn(Date, 'now').mockReturnValue(DateTime.fromISO('2025-01-01T05:37:12Z').toMillis())
 
-            await consumer['emitUsageMetrics'](usageStats)
+            await emitUsageMetrics(pipelineContext(consumer), usageStats)
 
             const timestamps = getProducedKafkaMessages()
                 .filter((m) => m.topic === KAFKA_APP_METRICS_2)
@@ -1865,7 +1925,7 @@ describe('LogsIngestionConsumer', () => {
                 ],
             ])
 
-            await consumer['emitUsageMetrics'](usageStats)
+            await emitUsageMetrics(pipelineContext(consumer), usageStats)
 
             const months = new Set(
                 getProducedKafkaMessages()
@@ -1893,7 +1953,7 @@ describe('LogsIngestionConsumer', () => {
                 ],
             ])
 
-            await consumer['emitUsageMetrics'](usageStats)
+            await emitUsageMetrics(pipelineContext(consumer), usageStats)
 
             const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
 
@@ -1909,7 +1969,7 @@ describe('LogsIngestionConsumer', () => {
         it('should handle empty usageStats', async () => {
             const usageStats = new Map()
 
-            await consumer['emitUsageMetrics'](usageStats)
+            await emitUsageMetrics(pipelineContext(consumer), usageStats)
 
             const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
 
@@ -1948,7 +2008,7 @@ describe('LogsIngestionConsumer', () => {
                 ],
             ])
 
-            await consumer['emitUsageMetrics'](usageStats)
+            await emitUsageMetrics(pipelineContext(consumer), usageStats)
 
             const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
 
@@ -2739,7 +2799,7 @@ describe('LogsIngestionConsumer', () => {
         it('leaves pattern masking off even on a wildcard allowlist, because a trace record has no body', () => {
             const tracesConsumer = createTracesIngestionConsumer({ LOGS_PATTERN_MASKING_ENABLED_TEAMS: '*' })
 
-            expect(tracesConsumer['isPatternMaskingEnabledForTeam'](team.id)).toEqual(false)
+            expect(isPatternMaskingEnabledForTeam(pipelineContext(tracesConsumer), team.id)).toEqual(false)
         })
 
         it('never sniffs or decodes traces for a configured JSON attribute on a wildcard allowlist', async () => {
@@ -2767,7 +2827,7 @@ describe('LogsIngestionConsumer', () => {
 
         it('meters usage as traces, not logs', async () => {
             const tracesConsumer = createTracesIngestionConsumer()
-            tracesConsumer['queueUsageMetric'](team.id, 'bytes_ingested', 500)
+            pipelineContext(tracesConsumer).usageMetrics.queueUsageMetric(team.id, 'bytes_ingested', 500)
             await tracesConsumer['appMetricsAggregator'].flush()
 
             const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
@@ -2792,8 +2852,10 @@ describe('LogsIngestionConsumer', () => {
                 record_count: '5',
             })
             const parsed = await tracesConsumer['_parseKafkaBatch'](messages)
-            const { quotaAllowedMessages, quotaDroppedMessages } =
-                await tracesConsumer['filterQuotaLimitedMessages'](parsed)
+            const { quotaAllowedMessages, quotaDroppedMessages } = await filterQuotaLimitedMessages(
+                tracesConsumer,
+                parsed
+            )
 
             expect(quotaAllowedMessages).toHaveLength(0)
             expect(quotaDroppedMessages).toHaveLength(1)
@@ -2827,7 +2889,7 @@ describe('LogsIngestionConsumer', () => {
         it('gates retention on TRACES_RETENTION_* rather than the logs config', () => {
             const tracesConsumer = createTracesIngestionConsumer({ TRACES_RETENTION_KILLSWITCH: true })
 
-            expect(tracesConsumer['isRetentionEvalEnabledForTeam'](team.id)).toBe(false)
+            expect(isRetentionEvalEnabledForTeam(pipelineContext(tracesConsumer), team.id)).toBe(false)
         })
 
         it('takes its default retention from the tracing config, not logs_settings', async () => {
