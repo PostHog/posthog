@@ -326,6 +326,7 @@ class _Recommender:
             text="After a week, check the campaign's search terms. If misspellings of your brand still show, "
             "add each one the same way.",
             url=ADS_SEARCH_TERMS_URL,
+            linkText="search terms",
         )
         # Performance Max takes no negative keywords; brand exclusions are its equivalent.
         if campaign.channel_type == "PERFORMANCE_MAX":
@@ -340,7 +341,11 @@ class _Recommender:
             action = f'Add "{brand}" as a negative keyword'
             steps = (
                 self._open_campaign(campaign.name),
-                Step(text="Open Negative keywords and add one for this campaign.", url=ADS_NEGATIVE_KEYWORDS_URL),
+                Step(
+                    text="Open Negative keywords and add one for this campaign.",
+                    url=ADS_NEGATIVE_KEYWORDS_URL,
+                    linkText="Negative keywords",
+                ),
                 Step(
                     text="Paste this keyword. The quotes make it phrase match, so it blocks searches that contain it "
                     "spelled this way.",
@@ -525,6 +530,7 @@ class _Recommender:
             "so it blocks only this search.",
             copyValue=exact,
             url=ADS_NEGATIVE_KEYWORDS_URL,
+            linkText="Negative keywords",
         )
         if self._mentions(term.term, competitors):
             matched_by = f' It matched the keyword "{keyword.keyword}" ({match_type} match).' if keyword else ""
@@ -537,6 +543,7 @@ class _Recommender:
                         "for the campaign in exact match.",
                         copyValue=exact,
                         url=ADS_NEGATIVE_KEYWORDS_URL,
+                        linkText="Negative keywords",
                     ),
                 ),
             )
@@ -555,6 +562,7 @@ class _Recommender:
                         "and change its match type to exact.",
                         copyValue=keyword.keyword,
                         url=ADS_KEYWORDS_URL,
+                        linkText="Keywords",
                     ),
                 ),
             )
@@ -566,6 +574,7 @@ class _Recommender:
                     text="Open Keywords, find this keyword, and check its bid and final URL.",
                     copyValue=keyword.keyword,
                     url=ADS_KEYWORDS_URL,
+                    linkText="Keywords",
                 ),
                 Step(text="If the bid and the page look right and it still does not convert, pause the keyword."),
             ),
@@ -652,13 +661,15 @@ class _Recommender:
                 steps: tuple[Step, ...] = (
                     self._open_campaign(
                         campaign.name if campaign else None,
-                        fallback="In Google Ads, open the search campaign closest to this topic, or create one.",
+                        fallback="In Google Ads, open Campaigns and pick the search campaign closest to this topic, "
+                        "or create one.",
                     ),
                     Step(
                         text="Open Keywords and add this one to an ad group of the campaign. The quotes make it "
                         "phrase match, so it also matches longer searches that contain it.",
                         copyValue=f'"{query.query}"',
                         url=ADS_KEYWORDS_URL,
+                        linkText="Keywords",
                     ),
                     Step(text="Check that the ad and the landing page answer this search."),
                 )
@@ -666,7 +677,7 @@ class _Recommender:
                 steps = (
                     self._open_campaign(
                         campaign.name if campaign else None,
-                        fallback="In Google Ads, open your Performance Max campaign.",
+                        fallback="In Google Ads, open Campaigns and pick your Performance Max campaign.",
                     ),
                     Step(text="Open the asset group and add this search theme.", copyValue=query.query),
                 )
@@ -842,12 +853,16 @@ class _Recommender:
 
     @staticmethod
     def _open_campaign(
-        name: str | None, fallback: str = "In Google Ads, open the campaign that shows ads for this search."
+        name: str | None,
+        fallback: str = "In Google Ads, open Campaigns and pick the campaign that shows ads for this search.",
     ) -> Step:
         if name is None:
-            return Step(text=fallback, url=ADS_CAMPAIGNS_URL)
+            return Step(text=fallback, url=ADS_CAMPAIGNS_URL, linkText="Campaigns")
         return Step(
-            text="In Google Ads, open Campaigns and search for this campaign.", copyValue=name, url=ADS_CAMPAIGNS_URL
+            text="In Google Ads, open Campaigns and search for this campaign.",
+            copyValue=name,
+            url=ADS_CAMPAIGNS_URL,
+            linkText="Campaigns",
         )
 
     def _term_recommendation(

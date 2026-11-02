@@ -36364,6 +36364,10 @@
                     "description": "Text to paste into Google Ads at this step, such as a campaign name or a keyword in match type syntax.",
                     "type": ["string", "null"]
                 },
+                "linkText": {
+                    "description": "The words in `text` that link to `url`, usually the section name.",
+                    "type": ["string", "null"]
+                },
                 "text": {
                     "type": "string"
                 },

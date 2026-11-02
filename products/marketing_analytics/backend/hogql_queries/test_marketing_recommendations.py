@@ -254,6 +254,7 @@ class TestMarketingRecommendations(SimpleTestCase):
             for step in recs[0].steps or []
             if step.copyValue
         ] == expected_copy
+        assert all(step.linkText and step.linkText in step.text for step in recs[0].steps or [] if step.url)
 
     @parameterized.expand([("serving", "ELIGIBLE", 1), ("paused", "PAUSED", 0), ("removed", "REMOVED", 0)])
     def test_spend_without_conversions_skips_campaigns_that_do_not_serve(

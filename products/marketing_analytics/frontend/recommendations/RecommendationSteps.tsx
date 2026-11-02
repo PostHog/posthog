@@ -1,27 +1,15 @@
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { Link } from 'lib/lemon-ui/Link'
 
 import { MarketingAnalyticsRecommendationStep } from '~/queries/schema/schema-general'
+
+import { RecommendationStepText } from './RecommendationStepText'
 
 export function RecommendationSteps({ steps }: { steps: MarketingAnalyticsRecommendationStep[] }): JSX.Element {
     return (
         <ol className="m-0 flex list-decimal flex-col gap-2 py-2 pl-5">
             {steps.map((step, index) => (
                 <li key={index}>
-                    <span>{step.text}</span>
-                    {step.url && (
-                        <>
-                            <span> </span>
-                            <Link
-                                to={step.url}
-                                target="_blank"
-                                targetBlankIcon
-                                data-attr="marketing-recommendations-step-open-google-ads"
-                            >
-                                Open in Google Ads
-                            </Link>
-                        </>
-                    )}
+                    <RecommendationStepText step={step} />
                     {step.copyValue && (
                         <div className="mt-1">
                             <CopyToClipboardInline

@@ -2234,6 +2234,10 @@ class MarketingAnalyticsRecommendationStep(BaseModel):
             "Text to paste into Google Ads at this step, such as a campaign name or a keyword in match type syntax."
         ),
     )
+    linkText: str | None = Field(
+        default=None,
+        description="The words in `text` that link to `url`, usually the section name.",
+    )
     text: str
     url: str | None = Field(
         default=None,
