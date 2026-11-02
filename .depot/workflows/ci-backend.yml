@@ -3805,8 +3805,8 @@ jobs:
                   include-hidden-files: true
                   retention-days: 2
 
-            - name: Verify new snapshots for flakiness
-              # Only in UPDATE mode - CHECK mode doesn't update snapshots
+            - name: Prepare snapshot patch
+              id: snapshot-patch
               if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.compat && steps.run-core-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure' }}
               shell: bash
               # The reruns must write the same schema mode's snapshot file as the main
@@ -3814,39 +3814,36 @@ jobs:
               env:
                   CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
               run: |
-                  unset GITHUB_TOKEN # reserved var injected by Depot CI; can't override via env: (see workflow env note)
-                  .github/scripts/verify-new-snapshots.sh
-
-            - name: Generate snapshot patch
-              # Only in UPDATE mode - CHECK mode verifies snapshots match exactly
-              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.compat && steps.run-core-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure' }}
-              shell: bash
-              env:
-                  NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
-              run: |
-                  mkdir -p /tmp/patches
-                  # Stage any new/modified .ambr files so they appear in git diff
-                  git add -N '*.ambr' || true
                   # Each schema leg may only ship its own snapshot files. A leg still
                   # *claims* the other schema mode's snapshot names without writing them,
                   # so syrupy deletes them from the working tree as unused; scoping the
                   # patch keeps those deletions out of the committed diff.
-                  if [[ "$NEW_EVENTS_SCHEMA" == "true" ]]; then
+                  if [[ "$CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA" == "true" ]]; then
                     ambr_pathspec=('*.new_events_schema.ambr')
                   else
                     ambr_pathspec=('*.ambr' ':(exclude)*.new_events_schema.ambr')
                   fi
+                  if [[ -z "$(git ls-files --others --exclude-standard -- "${ambr_pathspec[@]}")" ]] && git diff --quiet -- "${ambr_pathspec[@]}"; then
+                    echo "No snapshot changes"
+                    exit 0
+                  fi
+
+                  unset GITHUB_TOKEN # reserved var injected by Depot CI; can't override via env: (see workflow env note)
+                  .github/scripts/verify-new-snapshots.sh
+                  mkdir -p /tmp/patches
+                  # Stage any new/modified .ambr files so they appear in git diff
+                  git add -N '*.ambr' || true
                   # Generate patch if there are changes
                   if ! git diff --quiet -- "${ambr_pathspec[@]}" 2>/dev/null; then
                     git diff --binary --full-index -- "${ambr_pathspec[@]}" > /tmp/patches/backend-${{ matrix.artifact_key }}.patch
                     echo "Generated patch with $(wc -l < /tmp/patches/backend-${{ matrix.artifact_key }}.patch) lines"
+                    echo "changed=true" >> "$GITHUB_OUTPUT"
                   else
                     echo "No snapshot changes to patch"
                   fi
 
             - name: Upload snapshot patch
-              # Only in UPDATE mode
-              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.compat && steps.run-core-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure' }}
+              if: ${{ steps.snapshot-patch.outputs.changed == 'true' }}
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: snapshot-patch-${{ matrix.artifact_key }}
@@ -4531,7 +4528,7 @@ jobs:
 
     backend-coverage-report:
         name: Backend coverage report
-        needs: [changes, turbo-tests, django_tests, turbo-discover]
+        needs: [changes, django, turbo-tests, django_tests, turbo-discover]
         runs-on: depot-ubuntu-24.04
         continue-on-error: true
         timeout-minutes: 10
@@ -4543,7 +4540,7 @@ jobs:
             github.event.pull_request.draft == false &&
             needs.turbo-discover.outputs.mode != 'selected' &&
             github.event.pull_request.head.repo.full_name == 'PostHog/posthog' &&
-            (needs.turbo-tests.result != 'skipped' || needs.django_tests.result != 'skipped')
+            (needs.turbo-tests.result != 'skipped' || needs.django.result != 'skipped')
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -4626,7 +4623,7 @@ jobs:
 
     calculate-running-time:
         name: Calculate running time
-        needs: [changes, django_tests]
+        needs: [changes, django, turbo-tests, django_tests]
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
@@ -4638,13 +4635,26 @@ jobs:
         permissions:
             contents: read
         steps:
+            - name: Check whether stale backend coverage can be cleared
+              id: coverage-cleanup
+              if: >-
+                  github.event_name == 'pull_request' &&
+                  github.event.pull_request.draft == false &&
+                  needs.changes.outputs.backend == 'false' &&
+                  needs.django.result == 'skipped' &&
+                  needs.turbo-tests.result == 'skipped' &&
+                  needs.django_tests.result == 'success'
+              run: echo "needed=true" >> "$GITHUB_OUTPUT"
             # Depot evaluates github.run_attempt as empty in a job-level `if`, so the attempt guard sits on the steps.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               id: checkout
-              if: github.run_attempt == '1'
+              if: github.run_attempt == '1' || steps.coverage-cleanup.outputs.needed == 'true'
               continue-on-error: true
               with:
-                  sparse-checkout: .github/scripts/capture_depot_running_time.py
+                  sparse-checkout: |
+                      .github/scripts/capture_depot_running_time.py
+                      frontend/bin/ci-report/update-ci-report.mjs
+                      .nvmrc
                   sparse-checkout-cone-mode: false
             - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
               id: setup-depot
@@ -4659,3 +4669,27 @@ jobs:
                   POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
                   STATUS_JOB: django_tests
               run: python3 .github/scripts/capture_depot_running_time.py
+            - name: Get app token for coverage cleanup
+              id: coverage-cleanup-token
+              if: steps.coverage-cleanup.outputs.needed == 'true' && steps.checkout.outcome == 'success' && hashFiles('frontend/bin/ci-report/update-ci-report.mjs') != ''
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+                  permission-pull-requests: write
+            - name: Set up Node.js for coverage cleanup
+              if: steps.coverage-cleanup-token.outcome == 'success'
+              id: coverage-cleanup-node
+              continue-on-error: true
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  token: ${{ steps.coverage-cleanup-token.outputs.token }}
+            - name: Clear stale backend coverage warning
+              if: steps.coverage-cleanup-node.outcome == 'success' && hashFiles('frontend/bin/ci-report/update-ci-report.mjs') != ''
+              continue-on-error: true
+              env:
+                  GITHUB_TOKEN: ${{ steps.coverage-cleanup-token.outputs.token }}
+              run: |
+                  node --input-type=module -e "import { clearSectionIfPresent } from './frontend/bin/ci-report/update-ci-report.mjs'; await clearSectionIfPresent({ id: 'backend-coverage', summary: 'no backend files changed', body: 'No backend coverage report is needed for this change.' })"

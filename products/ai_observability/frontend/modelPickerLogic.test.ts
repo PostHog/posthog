@@ -115,6 +115,7 @@ describe('modelPickerLogic', () => {
                     isRecommended: true,
                     supportsDecisions: false,
                     supportsChat: true,
+                    supportsReasoning: false,
                     providerKeyId: 'key-1',
                 }))
             )
@@ -291,6 +292,7 @@ describe('modelPickerLogic', () => {
                     providerKeyId: 'key-2',
                     supportsDecisions: false,
                     supportsChat: true,
+                    supportsReasoning: false,
                 }))
             )
             expect(logic.values.providerModelGroups.find((g) => g.providerKeyId === 'key-1')).toEqual({

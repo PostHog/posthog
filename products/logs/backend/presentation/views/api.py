@@ -1633,7 +1633,10 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         # Note: cursor pagination no longer skips time-slicing because we narrow the date range
         # to end at the cursor timestamp, allowing time-slicing to work on the remaining range.
         try:
-            if live_logs_checkpoint:
+            # Replay asks for session logs on every recording open, and most of those teams send no logs.
+            if query.sessionId and not team_has_logs(self.team, cache_negative=True):
+                results: list[Any] = []
+            elif live_logs_checkpoint:
                 response = LogsQueryRunner(query, self.team).run(
                     ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props
                 )

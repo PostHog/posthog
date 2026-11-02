@@ -629,9 +629,9 @@ def _fetch(
 
     tag_queries(**get_team_query_tags(team), insight_id=insight.pk)
     tag_queries(product=Product.SIGNALS, feature=Feature.ALERTING)
-    if run is not None:
-        # Splits the scoring queries in `query_log`, so train and score cost can be compared.
-        tag_queries(name=f"anomaly_scoring_{run.value}")
+    # Splits the scoring queries in `query_log`, so train and score cost can be compared, and lets `spend.py`
+    # find them. A visit with the split off fetches the full history, as a train step does.
+    tag_queries(name=f"anomaly_scoring_{(run or ScoringRun.TRAIN).value}")
     runner = TrendsQueryRunner(
         query=scoring_query,
         team=team,

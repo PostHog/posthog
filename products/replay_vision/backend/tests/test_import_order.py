@@ -13,10 +13,6 @@ class TestImportOrder(SimpleTestCase):
         [
             ("prompt_questions", "products.replay_vision.backend.prompt_questions"),
             ("inline_scan", "products.replay_vision.backend.inline_scan"),
-            (
-                "backfill_command",
-                "products.replay_vision.backend.management.commands.backfill_replay_scanner_prompt_questions",
-            ),
         ]
     )
     def test_module_imports_before_the_temporal_package(self, _name: str, module: str) -> None:
