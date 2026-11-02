@@ -390,6 +390,7 @@ export function extractEmailsFromAddressList(value: string | undefined): string[
 // characters that would let a templated value smuggle a second address or break out of the
 // RFC-822 `"Name" <email>` framing (whitespace, quotes, angle brackets, list separators).
 const FROM_OVERRIDE_EMAIL_REGEX = /^[^\s@"<>,;]+@[^\s@"<>,;]+\.[^\s@"<>,;]+$/
+const MAX_FROM_OVERRIDE_EMAIL_LENGTH = 254
 
 // The display name is embedded as `"${name}" <email>`, so strip the characters that would
 // terminate the quoted phrase or start the address part, plus control characters.
@@ -1109,6 +1110,14 @@ export class EmailService {
         addLog: ReturnType<typeof createAddLogFunction>
     ): string {
         if (!overrideEmail) {
+            return integration.config.email
+        }
+
+        if (overrideEmail.length > MAX_FROM_OVERRIDE_EMAIL_LENGTH) {
+            addLog(
+                'warn',
+                `Ignoring the custom sender address because it is too long. Sending from ${integration.config.email} instead. Use a From address with ${MAX_FROM_OVERRIDE_EMAIL_LENGTH} characters or fewer.`
+            )
             return integration.config.email
         }
 
