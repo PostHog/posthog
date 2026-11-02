@@ -29,7 +29,7 @@ def publication_claim_owner(claim: object) -> str | None:
 
 
 def is_publication_claim_live(claim: object) -> bool:
-    if publication_claim_owner(claim) is None:
+    if not isinstance(claim, dict) or publication_claim_owner(claim) is None:
         return False
     try:
         claimed_at = datetime.fromisoformat(claim["claimed_at"])
