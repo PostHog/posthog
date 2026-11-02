@@ -25,6 +25,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.teachable.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    TEACHABLE_API_VERSION_V1,
+    TEACHABLE_API_VERSION_V2,
     TRANSACTIONS_INCREMENTAL_LOOKBACK_SECONDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.teachable.teachable import (
@@ -40,8 +42,10 @@ class TeachableSource(ResumableSource[TeachableSourceConfig, TeachableResumeConf
     codebase_detection = detect(env=("^TEACHABLE_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    # Teachable's API only exposes an unversioned `/v1/` path with no documented version
-    # choice, so we leave the framework's unversioned default in place.
+    # v2 moves users, courses, enrollments, course progress and lectures onto the v2 wire. The
+    # other tables stay on v1 under a v2 pin, so the table set is the same for both versions.
+    supported_versions = (TEACHABLE_API_VERSION_V1, TEACHABLE_API_VERSION_V2)
+    default_version = TEACHABLE_API_VERSION_V2
     api_docs_url = "https://docs.teachable.com/"
 
     @property
@@ -51,7 +55,7 @@ class TeachableSource(ResumableSource[TeachableSourceConfig, TeachableResumeConf
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error: Unauthorized for url": "Invalid Teachable API key. Please create a new key in your school admin under Settings > API and reconnect.",
-            "403 Client Error: Forbidden for url": "Teachable rejected the API key. Check that the key is active and that your school is on the Growth plan or higher (required for API access).",
+            "403 Client Error: Forbidden for url": "Teachable rejected the API key. Check that the key is active and can read every table you sync, and that your school is on the Growth plan or higher (required for API access). For Teachable API v2, you may also need to ask Teachable Support to turn on API v2 for your school.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -85,7 +89,7 @@ class TeachableSource(ResumableSource[TeachableSourceConfig, TeachableResumeConf
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_teachable_credentials(config.api_key)
+        return validate_teachable_credentials(config.api_key, self.resolve_api_version(api_version), schema_name)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[TeachableResumeConfig]:
         return ResumableSourceManager[TeachableResumeConfig](inputs, TeachableResumeConfig)
@@ -101,6 +105,7 @@ class TeachableSource(ResumableSource[TeachableSourceConfig, TeachableResumeConf
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,
+            api_version=self.resolve_api_version(inputs.api_version),
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

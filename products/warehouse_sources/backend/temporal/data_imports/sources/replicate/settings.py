@@ -85,6 +85,33 @@ REPLICATE_ENDPOINTS: dict[str, ReplicateEndpointConfig] = {
         response_shape="object",
         primary_keys=["username"],
     ),
+    # Versions of the models the account deploys or trains (base and destination models). Fanning out
+    # over the full public catalog would cost one request series per public model, so the parents
+    # come from deployments and trainings instead. Full refresh.
+    "model_versions": ReplicateEndpointConfig(
+        name="model_versions",
+        path="/models/{model_owner}/{model_name}/versions",
+        primary_keys=["model_owner", "model_name", "id"],
+        partition_key="created_at",
+    ),
+    # Replicate's curated model collections. Small, no timestamp filter — full refresh.
+    "collections": ReplicateEndpointConfig(
+        name="collections",
+        path="/collections",
+        primary_keys=["slug"],
+    ),
+    # One row per model in each collection, from a fan-out over /collections/{collection_slug}.
+    "collection_models": ReplicateEndpointConfig(
+        name="collection_models",
+        path="/collections/{collection_slug}",
+        primary_keys=["collection_slug", "owner", "name"],
+    ),
+    # Files the account uploaded. No timestamp filter — full refresh.
+    "files": ReplicateEndpointConfig(
+        name="files",
+        path="/files",
+        partition_key="created_at",
+    ),
 }
 
 ENDPOINTS = tuple(REPLICATE_ENDPOINTS.keys())

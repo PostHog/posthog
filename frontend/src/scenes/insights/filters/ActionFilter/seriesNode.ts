@@ -99,22 +99,6 @@ export function seriesNodeEntityType(node: SeriesNode | null | undefined): Entit
     return node ? ENTITY_TYPE_BY_SERIES_NODE_KIND[node.kind] : undefined
 }
 
-export function seriesNodeKindForEntityType(
-    type: EntityType | null | undefined,
-    warehouseKind: WarehouseSeriesNodeKind
-): SeriesNode['kind'] {
-    switch (type) {
-        case EntityTypes.ACTIONS:
-            return NodeKind.ActionsNode
-        case EntityTypes.DATA_WAREHOUSE:
-            return warehouseKind
-        case EntityTypes.GROUPS:
-            return NodeKind.GroupNode
-        default:
-            return NodeKind.EventsNode
-    }
-}
-
 /**
  * An action id reaches the editor as a string from the taxonomic picker, while the schema types
  * `ActionsNode.id` as an integer. Coerce once, here, so no consumer has to repair it later.
