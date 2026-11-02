@@ -2,7 +2,7 @@ import Redis from 'ioredis'
 
 import { RedisClient, RedisClientPipeline, RedisV2 } from '~/common/redis/redis-v2'
 
-import { teamEmailCapBuckets } from '../messaging/email.service'
+import { teamEmailCapBuckets } from '../messaging/email-pacing'
 import { RateLimiterService } from './rate-limiter.service'
 
 const host = process.env.CDP_VALKEY_HOST ?? '127.0.0.1'

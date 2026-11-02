@@ -26,16 +26,11 @@ import { Hub, Team } from '../../../types'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
+import { teamEmailCapBuckets } from './email-pacing'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailStatusService } from './email-status.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
-import {
-    EmailService,
-    formatMailbox,
-    parseAddressList,
-    sanitizeEmailSubject,
-    teamEmailCapBuckets,
-} from './email.service'
+import { EmailService, formatMailbox, parseAddressList, sanitizeEmailSubject } from './email.service'
 import { MailDevAPI } from './helpers/maildev'
 import { EmailTrackingCodeSigner } from './helpers/tracking-code'
 import { MessageAssetsService } from './message-assets.service'

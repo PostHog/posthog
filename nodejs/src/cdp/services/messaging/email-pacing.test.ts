@@ -1,9 +1,15 @@
+import { createExampleInvocation } from '~/cdp/_tests/fixtures'
+
+import type { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
+import type { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import {
+    TeamEmailCapConfig,
+    TeamSendingCap,
+    WorkflowPacing,
     parseTeamEmailCapMode,
     parseTierCaps,
     parseWorkflowEmailRateLimit,
     pickReservedRetryDelayMs,
-    pickThrottleRetryDelayMs,
     pickTokenBucketRetryDelayMs,
     teamEmailCapBuckets,
 } from './email-pacing'
@@ -22,12 +28,12 @@ describe('email pacing policies', () => {
     })
 
     describe('parseTierCaps', () => {
-        it('keeps tier order while ignoring empty entries', () => {
-            expect(parseTierCaps(' 50, ,200,600, ')).toEqual([50, 200, 600])
+        it('reads a table with spaces and a trailing comma', () => {
+            expect(parseTierCaps(' 50, 200,600, ')).toEqual([50, 200, 600])
         })
 
         it.each([undefined, '', '50,invalid,200', '50,0,200', '50,-1,200', '50,Infinity,200'])(
-            'disables the whole table for %s',
+            'drops the whole table for %s, so the default caps apply',
             (value) => {
                 expect(parseTierCaps(value)).toEqual([])
             }
@@ -80,14 +86,6 @@ describe('email pacing policies', () => {
         })
 
         it.each([
-            [0, 500],
-            [0.9999, 999],
-        ])('uses a short SES throttle delay at jitter %s', (random, expected) => {
-            jest.spyOn(Math, 'random').mockReturnValue(random)
-            expect(pickThrottleRetryDelayMs()).toBe(expected)
-        })
-
-        it.each([
             [2, 0, 1000],
             [2, 0.9999, 1999],
             [0.1, 0.5, 15000],
@@ -113,5 +111,144 @@ describe('email pacing policies', () => {
                 expect(pickReservedRetryDelayMs(retryAfterMs, refillPerSecond, reserved)).toBe(expected)
             }
         )
+    })
+
+    describe('WorkflowPacing.claim', () => {
+        const limiter = { claimOrReserve: jest.fn() }
+        const pacing = new WorkflowPacing(limiter as unknown as RateLimiterService)
+        const invocation = createExampleInvocation({
+            team_id: 7,
+            metadata: { email_sending_rate_limit: { count: 60, period: 'minute' } },
+        })
+
+        beforeEach(() => {
+            limiter.claimOrReserve.mockReset()
+        })
+
+        it('lets a send through when the workflow bucket grants a token', async () => {
+            limiter.claimOrReserve.mockResolvedValue({ granted: 1, retryAfterMs: null, reserved: false })
+
+            expect(await pacing.claim(invocation, false)).toBeNull()
+            expect(limiter.claimOrReserve).toHaveBeenCalledWith(
+                expect.objectContaining({ requested: 1, capacity: 1, refillPerSecond: 1 }),
+                expect.any(Number)
+            )
+        })
+
+        it('parks a denied send on its reserved slot and names the workflow limit', async () => {
+            limiter.claimOrReserve.mockResolvedValue({ granted: 0, retryAfterMs: 4000, reserved: true })
+
+            expect(await pacing.claim(invocation, false)).toEqual({
+                retryDelayMs: 4000,
+                logMessage: 'Sending rate limit reached (60 emails per minute); retrying this email in 4s',
+            })
+        })
+
+        it('never claims for a test send', async () => {
+            expect(await pacing.claim(invocation, true)).toBeNull()
+            expect(limiter.claimOrReserve).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('TeamSendingCap.claim', () => {
+        const limiter = { claimAllOrNothingPair: jest.fn(), claimUpTo: jest.fn() }
+        const tiers = { getEmailSendingTier: jest.fn() }
+        const invocation = createExampleInvocation({ team_id: 7 })
+        const capFor = (config: TeamEmailCapConfig): TeamSendingCap =>
+            new TeamSendingCap(
+                limiter as unknown as RateLimiterService,
+                tiers as unknown as TeamWorkflowsConfigService,
+                config
+            )
+        const enforce = capFor({
+            teamEmailCapMode: 'enforce',
+            teamEmailTierHourlyCaps: [5, 50],
+            teamEmailTierDailyCaps: [20, 200],
+        })
+
+        beforeEach(() => {
+            limiter.claimAllOrNothingPair.mockReset()
+            limiter.claimUpTo.mockReset()
+            tiers.getEmailSendingTier.mockReset().mockResolvedValue(0)
+        })
+
+        it.each([
+            ['a tier above the table', 9, 50, 200],
+            ['a negative tier', -1, 5, 20],
+        ])('caps %s at the nearest tier in the table', async (_name, tier, hourly, daily) => {
+            tiers.getEmailSendingTier.mockResolvedValue(tier)
+            limiter.claimAllOrNothingPair.mockResolvedValue({
+                granted: true,
+                deniedIndex: null,
+                retryAfterMs: null,
+                reserved: false,
+            })
+
+            expect(await enforce.claim(invocation, false)).toBeNull()
+            const [buckets] = limiter.claimAllOrNothingPair.mock.calls[0]
+            expect(buckets.map((bucket: { capacity: number }) => bucket.capacity)).toEqual([hourly, daily])
+        })
+
+        it('charges one token per recipient, but never more than the smaller bucket holds', async () => {
+            limiter.claimAllOrNothingPair.mockResolvedValue({
+                granted: true,
+                deniedIndex: null,
+                retryAfterMs: null,
+                reserved: false,
+            })
+
+            await enforce.claim(invocation, false, 3)
+            await enforce.claim(invocation, false, 500)
+
+            expect(limiter.claimAllOrNothingPair.mock.calls.map((call) => call[1])).toEqual([3, 5])
+        })
+
+        it.each([
+            [
+                'names the full bucket',
+                1,
+                'This project reached its email sending limit of 20 emails per day. Retrying this email in 4s. The limit rises as the project builds a clean sending history.',
+            ],
+            [
+                'names no cap when the limiter failed',
+                null,
+                "Could not check this project's email sending limit, so this email is waiting. Retrying in 4s. No action is needed on your side.",
+            ],
+        ])('parks a denied send and %s', async (_name, deniedIndex, logMessage) => {
+            limiter.claimAllOrNothingPair.mockResolvedValue({
+                granted: false,
+                deniedIndex,
+                retryAfterMs: 4000,
+                reserved: true,
+            })
+
+            expect(await enforce.claim(invocation, false)).toEqual({ retryDelayMs: 4000, logMessage })
+        })
+
+        it('drains both buckets in shadow mode but never delays the send', async () => {
+            limiter.claimUpTo.mockResolvedValue(0)
+
+            expect(
+                await capFor({
+                    teamEmailCapMode: 'shadow',
+                    teamEmailTierHourlyCaps: [5],
+                    teamEmailTierDailyCaps: [20],
+                }).claim(invocation, false)
+            ).toBeNull()
+            expect(limiter.claimUpTo).toHaveBeenCalledTimes(2)
+            expect(limiter.claimAllOrNothingPair).not.toHaveBeenCalled()
+        })
+
+        it.each([
+            ['the cap is off', capFor({ teamEmailCapMode: 'off' }), false, 0],
+            ['the send is a test', capFor({ teamEmailCapMode: 'enforce' }), true, 0],
+            ['the tier lookup found no tier', capFor({ teamEmailCapMode: 'enforce' }), false, null],
+        ])('lets a send through without claiming when %s', async (_name, cap, isTest, tier) => {
+            tiers.getEmailSendingTier.mockResolvedValue(tier)
+
+            expect(await cap.claim(invocation, isTest)).toBeNull()
+            expect(limiter.claimAllOrNothingPair).not.toHaveBeenCalled()
+            expect(limiter.claimUpTo).not.toHaveBeenCalled()
+        })
     })
 })

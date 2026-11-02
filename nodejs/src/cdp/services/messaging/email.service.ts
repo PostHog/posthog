@@ -21,7 +21,7 @@ import { RecipientManagerRecipient, RecipientsManagerService } from '../managers
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import type { TeamEmailCapConfig } from './email-pacing'
-import { TeamSendingCap, WorkflowPacing, pickThrottleRetryDelayMs } from './email-pacing'
+import { TeamSendingCap, WorkflowPacing } from './email-pacing'
 import { getEmailQueuePriorityClass } from './email-priority'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailStatusService, isTransactionalEmailSend } from './email-status.service'
@@ -44,8 +44,13 @@ import {
     preferencesTokenSourceForInvocation,
 } from './recipient-tokens.service'
 
-export type { TeamEmailCapMode } from './email-pacing'
-export { parseTeamEmailCapMode, parseTierCaps, teamEmailCapBuckets } from './email-pacing'
+function pickThrottleRetryDelayMs(): number {
+    // Constant 500–1000ms jitter is plenty: the local Valkey bucket already
+    // gates re-dequeue at the configured refill rate, so a quick retry will
+    // simply re-claim a token if SES capacity has refreshed. Exponential
+    // backoff isn't needed at this layer.
+    return 500 + Math.floor(Math.random() * 500)
+}
 
 const sesThrottleResponsesTotal = new Counter({
     name: 'cdp_ses_throttle_responses_total',
@@ -192,6 +197,7 @@ export interface EmailServiceConfig extends TeamEmailCapConfig {
     sesSecretAccessKey: string
     sesRegion: string
     sesEndpoint: string
+    // Configuration set with ESP-level open/click tracking enabled.
     sesTrackedConfigurationSet: string
     // Configuration set without open/click tracking. Empty means not provisioned: tracking-off
     // sends fall back to the tracked set (with a warning) rather than failing.
@@ -209,7 +215,9 @@ export function sanitizeEmailSubject(subject: string): string {
         .trim()
 }
 
-// The suppression list stores bare addresses, so strip the name from RFC-822 `"Name" <email>` entries.
+// Splits a comma-separated address list and extracts the bare email from any RFC-822
+// `"Name" <email@x>` entries. Used by the pre-send suppression check to normalize cc/bcc entries
+// before matching against the suppression list (which stores bare, lower-cased addresses).
 export function extractEmailsFromAddressList(value: string | undefined): string[] {
     if (typeof value !== 'string' || value.trim().length === 0) {
         return []
@@ -263,7 +271,8 @@ export interface EmailServiceDeps {
     trackingCodeSigner: EmailTrackingCodeSigner
     emailSuppressionService: EmailSuppressionService
     recipientsManager: RecipientsManagerService
-    // Required, so a caller that builds the service without it fails to compile. Pass null only where no email status is recorded.
+    // Required, so that a caller which builds the service without it fails to compile. Pass null
+    // only where no email status is recorded.
     emailStatusService: EmailStatusService | null
     messageAssetsService?: MessageAssetsService
     workflowEmailRateLimiter?: RateLimiterService | null
@@ -507,7 +516,8 @@ export class EmailService {
                 bcc: suppression.bcc,
             }
 
-            // Resolve tracking at the same choke point as suppression, so every send path gets the same decision.
+            // Like suppression, the tracking decision lives at this choke point so every send path
+            // (workflow action or email destination hog function) resolves it the same way.
             trackingEnabled = await this.resolveTrackingEnabled(result.invocation, deliverableParams)
 
             // User-configured per-workflow pacing. Claimed last, after every skip gate, so a
@@ -540,6 +550,9 @@ export class EmailService {
             const capDelay = await this.teamSendingCap.claim(invocation, isTest, capRecipients)
             if (capDelay) {
                 result.finished = false
+                // Re-attach the email payload before rescheduling, for the same reason as the
+                // per-workflow limit above: createInvocationResult cleared queueParameters, and
+                // without them the rescheduled dequeue resumes the Hog VM and drops the send.
                 result.invocation.queueParameters = params
                 result.invocation.queueMetadata = invocation.queueMetadata
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: capDelay.retryDelayMs })
@@ -641,6 +654,7 @@ export class EmailService {
             return result
         }
 
+        // Push the response to the VM stack if running inline (not from the email queue)
         result.invocation.state.vmState?.stack.push({
             success,
         })
@@ -833,8 +847,9 @@ export class EmailService {
         }
     }
 
-    // Legacy sender pickers wrote placeholder addresses without user input; rejecting those
-    // overrides would fail otherwise valid sends. Fall back to the integration sender.
+    // An unusable override degrades to the integration's own sender rather than failing the send.
+    // Steps authored before mid-2026 carry a placeholder address written by an old sender picker,
+    // so throwing here fails sends whose author never typed an address at all.
     private resolveFromEmailAddress(
         integration: IntegrationType,
         overrideEmail: string | undefined,
@@ -873,6 +888,7 @@ export class EmailService {
         return overrideEmail
     }
 
+    // Send email to local maildev instance for testing (DEBUG=1 only)
     private async sendEmailWithMaildev(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         params: CyclotronInvocationQueueParametersEmailType,

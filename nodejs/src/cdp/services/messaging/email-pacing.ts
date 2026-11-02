@@ -7,14 +7,6 @@ import { logger } from '~/common/utils/logger'
 import type { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import type { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 
-export function pickThrottleRetryDelayMs(): number {
-    // Constant 500–1000ms jitter is plenty: the local Valkey bucket already
-    // gates re-dequeue at the configured refill rate, so a quick retry will
-    // simply re-claim a token if SES capacity has refreshed. Exponential
-    // backoff isn't needed at this layer.
-    return 500 + Math.floor(Math.random() * 500)
-}
-
 const workflowEmailRateLimitedTotal = new Counter({
     name: 'cdp_workflow_email_rate_limited_total',
     help: 'Email sends delayed by a user-configured per-workflow sending rate limit.',
@@ -107,8 +99,9 @@ export function parseTeamEmailCapMode(value: string | undefined): TeamEmailCapMo
     return mode === 'shadow' || mode === 'enforce' ? mode : 'off'
 }
 
-/** Parses a comma-separated cap table. Any unusable entry drops the whole table, which turns the
- * cap off rather than applying a wrong number to a paying customer. */
+/** Parses a comma-separated cap table, skipping blank entries. Any unusable entry drops the whole
+ * table, so `TeamSendingCap` falls back to the default caps rather than applying a wrong number to
+ * a paying customer. */
 export function parseTierCaps(value: string | undefined): number[] {
     const parts = (value ?? '')
         .split(',')
@@ -138,6 +131,7 @@ type TeamEmailCapBucket = {
     capacity: number
     refillPerSecond: number
     ttlSeconds: number
+    /** Cap and period as the customer sees them in the log line. */
     label: string
 }
 
@@ -166,7 +160,8 @@ export function teamEmailCapBuckets(teamId: number, hourlyCap: number, dailyCap:
 }
 
 export interface TeamEmailCapConfig {
-    // Optional and off by default, so an EmailService built without caps sends uncapped.
+    // Trust-tiered per-team sending caps. Optional and defaulting to off, so every send path that
+    // builds an EmailService without them keeps its pre-cap behavior.
     teamEmailCapMode?: TeamEmailCapMode
     teamEmailTierHourlyCaps?: number[]
     teamEmailTierDailyCaps?: number[]
@@ -177,15 +172,7 @@ type SendDelay = {
     logMessage: string
 }
 
-export interface SendPacer {
-    claim(
-        invocation: CyclotronJobInvocationHogFunction,
-        isTest: boolean,
-        recipients?: number
-    ): Promise<SendDelay | null>
-}
-
-export class WorkflowPacing implements SendPacer {
+export class WorkflowPacing {
     constructor(private limiter: RateLimiterService | null) {}
 
     public async claim(invocation: CyclotronJobInvocationHogFunction, isTest: boolean): Promise<SendDelay | null> {
@@ -222,7 +209,7 @@ export class WorkflowPacing implements SendPacer {
     }
 }
 
-export class TeamSendingCap implements SendPacer {
+export class TeamSendingCap {
     constructor(
         private limiter: RateLimiterService | null,
         private teamWorkflowsConfigService: TeamWorkflowsConfigService,
@@ -307,7 +294,8 @@ export class TeamSendingCap implements SendPacer {
             }
         }
 
-        // Shadow mode always sends, so drain each bucket by the send's cost and log the first cap that would delay it.
+        // Shadow mode: the send goes out regardless, so drain each bucket by what the send costs
+        // and log the first cap that would have delayed it, measuring both against real traffic.
         let firstDenial: TeamEmailCapBucket | null = null
         for (const bucket of buckets) {
             const granted = await this.limiter.claimUpTo({

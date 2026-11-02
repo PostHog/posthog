@@ -12,7 +12,7 @@ import {
 } from '~/cdp/_tests/fixtures-hogflows'
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { invocationToV2JobInit, v2JobToInvocation } from '~/cdp/services/job-queue/job-queue-postgres-v2'
-import { teamEmailCapBuckets } from '~/cdp/services/messaging/email.service'
+import { teamEmailCapBuckets } from '~/cdp/services/messaging/email-pacing'
 import { RateLimiterService } from '~/cdp/services/rate-limiter/rate-limiter.service'
 import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '~/cdp/types'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
