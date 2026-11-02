@@ -15,7 +15,6 @@ export const OAUTH_SCOPES = [
   "organization:read",
   "organization:write",
   "task:write",
-  "inbox:write",
   "integration:read",
   "conversation:write",
   "query:read",
