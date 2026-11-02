@@ -107,7 +107,8 @@ def _onboarding_campaign() -> CampaignSource:
     return CampaignSource(campaign=campaign, actions=actions, templates=templates)
 
 
-def _sync_email_template() -> None:
+def _sync_templates() -> None:
+    sync_template_to_db(MOCK_NODE_TEMPLATES[0])
     sync_template_to_db(
         {
             **MOCK_NODE_TEMPLATES[0],
@@ -124,7 +125,7 @@ _OPTIONS = ImportOptions(snippets={"footer": '<a href="{% unsubscribe_url %}">Un
 class TestCustomerioCampaignTranslation(BaseTest):
     def setUp(self) -> None:
         super().setUp()
-        _sync_email_template()
+        _sync_templates()
 
     def test_translated_campaign_saves_as_a_draft_with_the_same_paths(self) -> None:
         translated = translate_campaign(_onboarding_campaign(), _OPTIONS)
@@ -270,22 +271,43 @@ class TestCustomerioCampaignTranslation(BaseTest):
 
         assert {"from": "trigger_node", "to": "cio_99", "type": "continue"} in workflow["edges"]
 
-    def test_segment_trigger_without_a_cohort_still_saves_and_asks_for_one(self) -> None:
+    def test_draft_without_a_segment_cohort_or_webhook_content_still_saves_and_asks_for_them(self) -> None:
         source = _onboarding_campaign()
-        campaign = {**source.campaign, "type": "seg_attr", "trigger": {"and": [{"or": [{"segment": {"id": 7}}]}]}}
+        campaign = {
+            **source.campaign,
+            "type": "seg_attr",
+            "trigger": {"and": [{"or": [{"segment": {"id": 7}}]}]},
+            "edges": [*source.campaign["edges"], {"from": "7", "to": "10", "type": "continue"}],
+            "workflow_action_ids": [*source.campaign["workflow_action_ids"], "10"],
+        }
+        actions = [
+            *source.actions,
+            {"id": "10", "type": "webhook_action", "name": "CRM", "template_id": "15", "hostname": "crm.example.com"},
+        ]
         translated = translate_campaign(
-            CampaignSource(campaign=campaign, actions=source.actions, templates=source.templates), _OPTIONS
+            CampaignSource(campaign=campaign, actions=actions, templates=source.templates), _OPTIONS
         )
 
         assert validated_draft(self.team, translated.workflow, EventSource.API) is not None
         assert any(note.level == NoteLevel.NEEDS_INPUT and "segment 7" in note.message for note in translated.notes)
+        assert any(
+            note.step_id == "cio_10"
+            and "Set the webhook URL. Customer.io sends this request to crm.example.com." == note.message
+            for note in translated.notes
+        )
 
     def test_email_takes_its_layout_sender_and_category(self) -> None:
         source = _onboarding_campaign()
-        campaign = {**source.campaign, "filters": _encode([{"type": "segments", "segments": [9]}])}
+        campaign = {
+            **source.campaign,
+            "filters": _encode([{"type": "segments", "segments": [9]}]),
+            "subscription_topic_id": "4",
+        }
         actions = [
             {**action, "subscription_topic_id": 3, "name": "Welcome {{ customer.first_name }} !"}
             if action["id"] == "1"
+            else {**action, "send_to_unsubscribed": True}
+            if action["id"] == "7"
             else action
             for action in source.actions
         ]
@@ -293,6 +315,11 @@ class TestCustomerioCampaignTranslation(BaseTest):
             **source.templates,
             "11": {**source.templates["11"], "layout_id": 5, "from_identity_id": "77", "reply_to": "help@example.com"},
             "12": {**source.templates["12"], "from": "Ops <ops@example.com>", "layout_id": 6},
+            "13": {
+                **source.templates["13"],
+                "subject": "Tips & tricks for {{ customer.company }}",
+                "body": "<title>{{message.subject | default: ''}}</title><h1>{{ message.subject | upcase }}</h1>",
+            },
         }
         options = ImportOptions(
             snippets={},
@@ -303,7 +330,10 @@ class TestCustomerioCampaignTranslation(BaseTest):
             },
             sender_addresses={"77": "Team <team@example.com>"},
             senders={"team@example.com": ImportSender(integration_id=12, email="team@example.com", name="PostHog")},
-            topic_categories={"3": ImportCategory(id="cat-1", category_type="marketing")},
+            topic_categories={
+                "3": ImportCategory(id="cat-1", category_type="marketing"),
+                "4": ImportCategory(id="cat-2", category_type="marketing"),
+            },
             segments={"9": ImportSegment(name="Beta list", type="static")},
         )
         translated = translate_campaign(
@@ -323,6 +353,12 @@ class TestCustomerioCampaignTranslation(BaseTest):
         assert email["from"] == {"integrationId": 12, "email": "team@example.com", "name": "Team"}
         assert email["replyTo"] == "help@example.com"
         assert (welcome["message_category_id"], welcome["message_category_type"]) == ("cat-1", "marketing")
+        assert actions_by_id["cio_5"]["config"]["message_category_id"] == "cat-2"
+        nudge = actions_by_id["cio_7"]["config"]
+        assert (nudge.get("message_category_id"), nudge["message_category_type"]) == (None, "transactional")
+        nudge_html = nudge["inputs"]["email"]["value"]["html"]
+        assert "<title>Tips &amp; tricks for {{ person.properties.company }}</title>" in nudge_html
+        assert "<h1>{{ message.subject | upcase }}</h1>" in nudge_html
         activated = actions_by_id["cio_5"]["config"]["inputs"]["email"]["value"]
         assert activated["from"]["email"] == "ops@example.com"
         assert activated["html"].startswith('<div style="font-family: Arial, Helvetica, sans-serif;">')
@@ -340,6 +376,7 @@ class TestCustomerioCampaignTranslation(BaseTest):
         )
         assert any(text.startswith('Only people in segment "Beta list" (9) can enter') for _, _, text in messages)
         assert not any(step == "cio_1" and "sender" in text for _, step, text in messages)
+        assert any(step == "cio_7" and "`message`" in text for _, step, text in messages)
 
     def test_language_split_keeps_only_the_default_message(self) -> None:
         campaign = {
@@ -508,11 +545,24 @@ class TestCustomerioLiquid(SimpleTestCase):
         assert rewritten.text == "0123456" + tag * 2
         assert rewritten.missing_snippets == ("big",)
 
+    def test_stops_inlining_the_subject_past_the_budget(self) -> None:
+        source = _onboarding_campaign()
+        templates = {**source.templates, "12": {**source.templates["12"], "body": "{{ message.subject }}" * 3}}
+        translated = translate_campaign(
+            CampaignSource(campaign=source.campaign, actions=source.actions, templates=templates),
+            _OPTIONS,
+            SnippetRoom(remaining=20),
+        )
+
+        steps = {action["id"]: action for action in translated.workflow["actions"]}
+        assert "message.subject" in steps["cio_5"]["config"]["inputs"]["email"]["value"]["html"]
+        assert any(note.step_id == "cio_5" and "`message`" in note.message for note in translated.notes)
+
 
 class TestWorkflowImportAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        _sync_email_template()
+        _sync_templates()
         flag = patch("posthoganalytics.feature_enabled", return_value=True)
         flag.start()
         self.addCleanup(flag.stop)
