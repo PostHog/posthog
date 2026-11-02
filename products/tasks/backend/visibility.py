@@ -12,6 +12,7 @@ from django.db.models.functions import Coalesce
 
 from posthog.models.team import Team
 
+from products.tasks.backend.facade.profiles import Read, TaskProfile
 from products.tasks.backend.models import Channel, Task
 
 # These origins predate channels and remain team-scoped while their tasks have no channel.
@@ -38,6 +39,12 @@ PRODUCT_PRIVATE_ORIGIN_PRODUCTS = [
     Task.OriginProduct.ACCOUNT_AUDIT,
     Task.OriginProduct.METRICS_IMPORT,
 ]
+
+
+def readable_without_channel(origin_product: str, profile: TaskProfile | None) -> bool:
+    if profile is not None:
+        return profile.read_without_channel == Read.TEAM
+    return origin_product in TEAM_READABLE_ORIGIN_PRODUCTS
 
 
 def _creator_q(user_id: int | None) -> Q:
