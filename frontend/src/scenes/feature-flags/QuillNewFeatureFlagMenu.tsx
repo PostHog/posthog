@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import React from 'react'
 
-import { IconChevronDown, IconCode, IconFlask, IconSparkles, IconWrench } from '@posthog/icons'
+import { IconChevronDown, IconCode, IconFlag, IconFlask, IconSparkles, IconWrench } from '@posthog/icons'
 import {
     Button,
     DropdownMenu,
@@ -31,7 +32,15 @@ import { INTENT_KEYS, INTENT_METADATA } from 'products/feature_flags/frontend/fe
 
 import { AI_SUGGESTIONS, AI_TOOL_DEFINITION, TEMPLATES, TEMPLATE_METADATA } from './NewFeatureFlagMenu'
 
-export function QuillNewFeatureFlagMenu({ disabledReason }: { disabledReason?: string | null }): JSX.Element {
+export function QuillNewFeatureFlagMenu({
+    disabledReason,
+    showRulesV2Editor,
+    rulesV2DisabledReason,
+}: {
+    disabledReason?: string | null
+    showRulesV2Editor?: boolean
+    rulesV2DisabledReason?: string | null
+}): JSX.Element {
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const { setActiveGroup } = useActions(maxLogic({ panelId: SIDE_PANEL_PANEL_ID }))
     const { openSidePanel } = useActions(sidePanelLogic)
@@ -55,6 +64,19 @@ export function QuillNewFeatureFlagMenu({ disabledReason }: { disabledReason?: s
                 <IconChevronDown />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-64">
+                {showRulesV2Editor && (
+                    <>
+                        <DropdownMenuItem
+                            data-attr="new-rules-v2-feature-flag"
+                            disabledReason={disabledReason || rulesV2DisabledReason}
+                            onClick={() => router.actions.push(urls.featureFlagNew({ format: 'rules_v2' }))}
+                        >
+                            <IconFlag />
+                            New rules v2 flag
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                    </>
+                )}
                 {TEMPLATES.map((template) => {
                     const metadata = TEMPLATE_METADATA[template]
                     if (intentsEnabled) {
