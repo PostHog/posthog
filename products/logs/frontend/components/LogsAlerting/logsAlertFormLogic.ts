@@ -262,7 +262,12 @@ export interface logsAlertFormLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         isEditing: (arg: any) => boolean
-        canGroup: (arg: any, alerts: LogsAlertConfigurationApi[], alertsLoaded: any, createdByFilter: any) => boolean
+        canGroup: (
+            arg: any,
+            alerts: LogsAlertConfigurationApi[],
+            alertsLoaded: boolean,
+            createdByFilter: string | null
+        ) => boolean
         regroupConfirmation: (arg: any) => string
         needsRegroupConfirmation: (arg: any, canGroup: boolean, alertForm: LogsAlertFormType) => boolean
         simulationDisabledReason: (canGroup: boolean, alertForm: LogsAlertFormType) => string | undefined
