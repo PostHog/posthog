@@ -95,7 +95,9 @@ class AppStoreConnectEndpointConfig:
     report_frequency: str = "DAILY"
     # Apple sometimes returns a misleading 400 instead of 404 for an empty report day. Endpoints that
     # exhibit this quirk tolerate 400; `_fetch_report` classifies the response body before swallowing it.
-    missing_report_status_codes: tuple[int, ...] = (404,)
+    # 410 shows up once a report date falls out of Apple's retention window — the oldest day in the
+    # lookback (SALES_REPORT_LOOKBACK_DAYS) reaches it on a cold start or a long-stalled sync.
+    missing_report_status_codes: tuple[int, ...] = (404, 410)
 
 
 _REPORT_DATE_FIELD: IncrementalField = incremental_field("report_date", IncrementalFieldType.Date)
@@ -220,7 +222,7 @@ APP_STORE_CONNECT_ENDPOINTS: dict[str, AppStoreConnectEndpointConfig] = {
         incremental_fields=[_REPORT_DATE_FIELD],
         partition_key="report_date",
         should_sync_default=False,
-        missing_report_status_codes=(404, 400),
+        missing_report_status_codes=(404, 400, 410),
     ),
     # Daily active subscription counts by state and territory.
     "subscription_reports": AppStoreConnectEndpointConfig(
@@ -233,7 +235,7 @@ APP_STORE_CONNECT_ENDPOINTS: dict[str, AppStoreConnectEndpointConfig] = {
         incremental_fields=[_REPORT_DATE_FIELD],
         partition_key="report_date",
         should_sync_default=False,
-        missing_report_status_codes=(404, 400),
+        missing_report_status_codes=(404, 400, 410),
     ),
     # Daily subscription lifecycle events (renewals, cancellations, upgrades).
     "subscription_event_reports": AppStoreConnectEndpointConfig(
@@ -246,7 +248,7 @@ APP_STORE_CONNECT_ENDPOINTS: dict[str, AppStoreConnectEndpointConfig] = {
         incremental_fields=[_REPORT_DATE_FIELD],
         partition_key="report_date",
         should_sync_default=False,
-        missing_report_status_codes=(404, 400),
+        missing_report_status_codes=(404, 400, 410),
     ),
     # Analytics Reports API streams: the behavioural data (sessions, downloads, installs
     # and deletions, discovery, crashes, pre-orders, App Clips) that has no sales-report

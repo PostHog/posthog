@@ -10,6 +10,7 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use futures::stream::{self, StreamExt, TryStreamExt};
 use metrics::counter;
+use posthog_replay_anonymizer::v4_image_refs::ImageDecline;
 use rand::Rng;
 use replay_core_v4::bytescan::write_json_string;
 use replay_core_v4::envelope::{seal_frame, seal_json_envelope, Codec, Context, Version};
@@ -26,7 +27,7 @@ use tokio::sync::Semaphore;
 
 use crate::batch::{Block, SessionKey};
 use crate::index::{BlockIndexRow, ImageIndexRow};
-use crate::rewrite::{canonical_strings, Fallback, RewriteReport, UrlRewrite};
+use crate::rewrite::{Fallback, RewriteReport, UrlRewrite};
 use crate::scrub::Scrub;
 use crate::store::{BlobStore, StoreError};
 
@@ -134,7 +135,7 @@ fn prepare_block(
     let mut images = Vec::new();
     let mut kept = HashSet::new();
     let mut counts = WriterCounts::default();
-    let mut removed_avif = 0u64;
+    let mut removed_images = [0u64; ImageDecline::ALL.len()];
     for message in &block.messages {
         let mut window = Vec::new();
         write_json_string(
@@ -152,15 +153,13 @@ fn prepare_block(
             out.write_all(b"[")?;
             out.write_all(&window)?;
             out.write_all(b",")?;
-            let canonical = canonical_strings(
-                extracted
-                    .as_deref()
-                    .unwrap_or(&message.inner[event.span.0..event.span.1]),
-            );
+            let stored = extracted
+                .as_deref()
+                .unwrap_or(&message.inner[event.span.0..event.span.1]);
             // The inspector reads image slots in full snapshots and mutations only.
             let dom_event =
                 event.kind == Some(2) || (event.kind == Some(3) && event.source == Some(0));
-            let event_bytes = rewrite.apply(&canonical, dom_event);
+            let event_bytes = rewrite.apply(stored, dom_event);
             out.write_all(&event_bytes)?;
             out.write_all(b"]\n")?;
             let line = (window.len() + event_bytes.len() + 4) as u64;
@@ -174,7 +173,9 @@ fn prepare_block(
             .map(|i| i.bytes.len() as u64)
             .sum::<u64>();
         counts.inline += sink.left_inline;
-        removed_avif += u64::from(sink.removed_avif);
+        for (removed, declined) in removed_images.iter_mut().zip(sink.declined) {
+            *removed += u64::from(declined);
+        }
         images.extend(
             sink.images
                 .into_iter()
@@ -182,7 +183,7 @@ fn prepare_block(
         );
     }
     let mut report = rewrite.finish();
-    report.counters.removed_avif = removed_avif;
+    report.counters.removed_images = removed_images;
     counts.scrubbed = report.scrubbed;
     Ok((images, counts, report))
 }
@@ -849,8 +850,7 @@ mod tests {
         .1;
         assert!(
             lines.contains(&format!(
-                r#""src":"{}","srcset":"{reference} 2x""#,
-                crate::rewrite::declined_marker("credential")
+                r#""src":"imageurl:v4:declined:credential","srcset":"{reference} 2x""#
             )),
             "{lines}"
         );
@@ -864,7 +864,7 @@ mod tests {
         // A URL too long to fetch is declined, and the block is kept.
         let long_lines = stored_lines(&long(16 * 1024), &[]);
         assert!(
-            long_lines.contains(&crate::rewrite::declined_marker("too_long")),
+            long_lines.contains("imageurl:v4:declined:too_long"),
             "{long_lines}"
         );
         // Keys written with escapes hide no URL.
@@ -883,8 +883,7 @@ mod tests {
             .to_string();
             let lines = stored_lines(&events, &[]);
             assert!(
-                lines.contains(&crate::rewrite::declined_marker("credential"))
-                    && !lines.contains("secret"),
+                lines.contains("imageurl:v4:declined:credential") && !lines.contains("secret"),
                 "{lines}"
             );
         }
@@ -899,7 +898,7 @@ mod tests {
         ] {
             let lines = stored_lines(&events, &[]);
             assert!(
-                lines.contains(&crate::rewrite::declined_marker("credential"))
+                lines.contains("imageurl:v4:declined:credential")
                     && !lines.contains("X-Amz-Signature"),
                 "{lines}"
             );
@@ -939,7 +938,7 @@ mod tests {
             lines.contains("imageurl:v4:7:2026-10:"),
             "named URLs keep their references"
         );
-        assert!(lines.contains(crate::scrub::UNCHECKED_MARKER));
+        assert!(lines.contains("imageurl:v4:declined:unchecked"));
         assert!(!lines.contains("https://"));
     }
 
@@ -980,10 +979,7 @@ mod tests {
                 r#"image-set(url({}) 2x)"#,
                 reference("https://cdn.example.com/2x.png")
             ),
-            format!(
-                r#"url(\"{}\")"#,
-                crate::rewrite::declined_marker("credential")
-            ),
+            r#"url(\"imageurl:v4:declined:credential\")"#.to_owned(),
         ] {
             assert!(lines.contains(&expected), "{expected} in {lines}");
         }
@@ -1059,6 +1055,7 @@ mod tests {
             "data:image/avif;base64,{}",
             STANDARD.encode(b"\x00\x00\x00\x1cftypavif\x00\x00\x00\x00avifmif1other")
         );
+        let bitmap = format!("data:image/bmp;base64,{}", STANDARD.encode(b"BMbitmap"));
         // The dataset keeps no AVIF, so an inline one leaves the list too.
         let inline_avif = format!(
             "data:image/avif;base64,{}",
@@ -1076,7 +1073,8 @@ mod tests {
             source(12, json!({"type": "image/webp", "srcset": format!("{shared} 1x, {other_avif} 2x")})),
             // An empty type gives no hint, so the source keeps its candidate.
             source(9, json!({"type": "", "srcset": format!("{typeless} 1x")})),
-            source(4, json!({"type": "image/webp", "srcset": format!("{signed} 2x, {webp} 1x")})),
+            // An inline image the image scrub cannot read leaves the list as a declined URL does.
+            source(4, json!({"type": "image/webp", "srcset": format!("{signed} 2x, {webp} 1x, {bitmap} 3x")})),
             {"type": 2, "tagName": "img", "attributes": {"src": fallback}, "childNodes": [], "id": 5},
         ]});
         let img = json!({"type": 2, "tagName": "img", "attributes": {"src": bare}, "childNodes": [], "id": 10});
@@ -1141,10 +1139,10 @@ mod tests {
 
     #[test]
     fn rebuilds_a_srcset_as_the_block_holds_it_after_escapes_are_written_again() {
-        // The `\/` escapes keep the PNG inline, and the writer then writes them as `/`.
-        let png = STANDARD.encode(png(&[0xff; 30]));
-        assert!(png.contains('/'));
-        let inline = format!("data:image/png;base64,{png}");
+        // An SVG stays inline, and the writer writes its `\/` escapes as `/`.
+        let svg = STANDARD.encode(b"<svg><!--??? --></svg>");
+        assert!(svg.contains('/'));
+        let inline = format!("data:image/svg+xml;base64,{svg}");
         let events = format!(
             r#"[{{"type":3,"timestamp":1,"data":{{"source":0,"adds":[],"removes":[],"texts":[],"attributes":[{{"id":99,"attributes":{{"srcset":"{} 1x, https://10.0.0.7/a.png 2x"}}}}]}}}}]"#,
             inline.replace('/', "\\/")
@@ -1182,8 +1180,7 @@ mod tests {
         );
         assert!(
             custom.contains(&format!(
-                r#""srcset":"{reference} 1x, {} 2x""#,
-                crate::rewrite::declined_marker("non_public_host")
+                r#""srcset":"{reference} 1x, imageurl:v4:declined:non_public_host 2x""#
             )),
             "{custom}"
         );
@@ -1241,10 +1238,7 @@ mod tests {
             lines.contains(&format!(r#""src":"{reference}""#)),
             "{lines}"
         );
-        assert!(lines.contains(&format!(
-            r#""srcset":"{} 2x""#,
-            crate::rewrite::declined_marker("credential")
-        )));
+        assert!(lines.contains(r#""srcset":"imageurl:v4:declined:credential 2x""#));
         assert!(!lines.contains("cdn.example.com"));
     }
 
@@ -1346,7 +1340,7 @@ mod tests {
             keys.sessions.insert(id, key);
         }
         keys.team_months.insert(7, [6; 32]);
-        let old_ref = replay_core_v4::refs::image_ref(
+        let old_ref = posthog_replay_anonymizer::v4_image_refs::image_ref(
             7,
             "2026-10",
             &replay_core_v4::refs::reference_hash(&image_content_key(&[6; 32]), &png(b"old")),

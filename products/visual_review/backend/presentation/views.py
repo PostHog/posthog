@@ -25,7 +25,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.mixins import TypedRequest, validated_request
-from posthog.api.pagination import PrecountedLimitOffsetPagination
+from posthog.api.pagination import FacadeLimitOffsetPagination, PrecountedLimitOffsetPagination, facade_page_response
 from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
 from posthog.auth import is_mcp_request
 from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH
@@ -179,6 +179,8 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     scope_object = "visual_review"
     path_parameters = {"pk": UUID}
+
+    pagination_class = FacadeLimitOffsetPagination
     scope_object_write_actions = ["create", "partial_update", "quarantine", "unquarantine"]
     scope_object_read_actions = [
         "list",
@@ -193,12 +195,9 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(responses={200: RepoSerializer(many=True)})
     def list(self, request: Request, **kwargs) -> Response:
         """List all projects for the team."""
-        projects = api.list_repos(self.team_id)
-        page = self.paginate_queryset(projects)
-        if page is not None:
-            serializer = RepoSerializer(instance=page, many=True)
-            return self.get_paginated_response(serializer.data)
-        return Response(RepoSerializer(instance=projects, many=True).data)
+        return facade_page_response(
+            self, lambda page: api.list_repos(self.team_id, page), serializer_class=RepoSerializer
+        )
 
     @validated_request(
         request_serializer=CreateRepoInputSerializer,
@@ -315,12 +314,12 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         """List quarantined identifiers. Without filter: active only. With identifier: full history."""
         identifier = request.query_params.get("identifier")
         run_type = request.query_params.get("run_type")
-        entries = api.list_quarantined(pk, team_id=self.team_id, identifier=identifier, run_type=run_type)
-        page = self.paginate_queryset(entries)
-        if page is not None:
-            serializer = QuarantinedIdentifierEntrySerializer(instance=page, many=True)
-            return self.get_paginated_response(serializer.data)
-        return Response(QuarantinedIdentifierEntrySerializer(instance=entries, many=True).data)
+        return facade_page_response(
+            self,
+            lambda page: api.list_quarantined(pk, team_id=self.team_id, identifier=identifier, run_type=run_type, page=page
+            ),
+            serializer_class=QuarantinedIdentifierEntrySerializer,
+        )
 
     @validated_request(
         request_serializer=QuarantineInputSerializer,
@@ -525,6 +524,8 @@ class RepoRunsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     scope_object = "visual_review"
     path_parameters = {"repo_id": UUID}
+
+    pagination_class = FacadeLimitOffsetPagination
     scope_object_read_actions = ["list", "counts"]
     serializer_class = RunSerializer
 
@@ -550,12 +551,13 @@ class RepoRunsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         repo_id: UUID = self.kwargs["parent_lookup_repo_id"]
-        runs = api.list_runs(self.team_id, review_state=review_state, repo_id=repo_id, search=search)
-        page = self.paginate_queryset(runs)
-        if page is not None:
-            serializer = RunSerializer(instance=page, many=True)
-            return self.get_paginated_response(serializer.data)
-        return Response(RunSerializer(instance=runs, many=True).data)
+        return facade_page_response(
+            self,
+            lambda page: api.list_runs(
+                self.team_id, review_state=review_state, repo_id=repo_id, search=search, page=page
+            ),
+            serializer_class=RunSerializer,
+        )
 
     @extend_schema(responses={200: ReviewStateCountsSerializer})
     @action(detail=False, methods=["get"])
@@ -579,6 +581,8 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             type=UUID, description="UUID of a pending lift request for this run's pull request."
         ),
     }
+
+    pagination_class = FacadeLimitOffsetPagination
     scope_object_write_actions = [
         "create",
         "complete",
@@ -630,19 +634,20 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 {"detail": f"search must be at most {MAX_SEARCH_LENGTH} characters"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        runs = api.list_runs(
-            self.team_id,
-            review_state=_parse_review_state(request),
-            pr_number=pr_number,
-            commit_sha=request.query_params.get("commit_sha"),
-            branch=request.query_params.get("branch"),
-            search=search,
+        review_state = _parse_review_state(request)
+        return facade_page_response(
+            self,
+            lambda page: api.list_runs(
+                self.team_id,
+                review_state=review_state,
+                pr_number=pr_number,
+                commit_sha=request.query_params.get("commit_sha"),
+                branch=request.query_params.get("branch"),
+                search=search,
+                page=page,
+            ),
+            serializer_class=RunSerializer,
         )
-        page = self.paginate_queryset(runs)
-        if page is not None:
-            serializer = RunSerializer(instance=page, many=True)
-            return self.get_paginated_response(serializer.data)
-        return Response(RunSerializer(instance=runs, many=True).data)
 
     @extend_schema(responses={200: ReviewStateCountsSerializer})
     @action(detail=False, methods=["get"])

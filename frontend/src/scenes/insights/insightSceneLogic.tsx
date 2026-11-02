@@ -12,7 +12,6 @@ import {
 } from 'kea'
 import type { BreakPointFunction } from 'kea'
 import { combineUrl, router, urlToAction } from 'kea-router'
-import { objectsEqual } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
@@ -21,6 +20,7 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { InsightEventSource, sanitizeQuery } from 'lib/utils/eventUsageLogic'
 import { isEmptyObject, isObject } from 'lib/utils/guards'
+import { objectsEqual } from 'lib/utils/objects'
 import { analyticsBackLink } from 'scenes/analytics/analyticsBackLink'
 import { isDashboardFilterOverrideEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
 import {
