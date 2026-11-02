@@ -42,8 +42,13 @@ def _declared_variant_fields_only(variant: object) -> object:
     return variant if fields is None else _declared_fields_only(variant, fields)
 
 
-def _mean(total: float, number_of_samples: int) -> float | None:
-    return total / number_of_samples if number_of_samples else None
+def _mean(
+    stats: ExperimentStatsBaseValidated | ExperimentVariantResultBayesian | ExperimentVariantResultFrequentist,
+) -> float | None:
+    # A quantile metric stores the count of events at or below the quantile in sum, so its value is the quantile itself.
+    if stats.quantile_grid:
+        return stats.quantile_grid[0]
+    return stats.sum / stats.number_of_samples if stats.number_of_samples else None
 
 
 def _is_finite_interval(value: object) -> bool:
@@ -107,7 +112,7 @@ class BaselineStats:
         return cls(
             key=baseline.key,
             number_of_samples=baseline.number_of_samples,
-            mean=_mean(baseline.sum, baseline.number_of_samples),
+            mean=_mean(baseline),
         )
 
 
@@ -134,7 +139,7 @@ class VariantStats:
         return cls(
             key=variant.key,
             number_of_samples=variant.number_of_samples,
-            mean=_mean(variant.sum, variant.number_of_samples),
+            mean=_mean(variant),
             interval=None if bounds is None else Interval(low=bounds[0], high=bounds[1]),
             chance_to_win=chance_to_win,
             p_value=p_value,
