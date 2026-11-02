@@ -102,9 +102,10 @@ _Avoid_: Audience, Subscriptions, Contacts, Consent
 A kind of message, either marketing or transactional.
 A person can opt out of a marketing topic.
 Each email, SMS or push step saves its own **transactional mark**.
-The editors set the mark from the chosen topic's kind, every transactional email has it, and an import can set it too.
+The editors set the mark from the chosen topic's kind, and every transactional email has it.
+An import or an API call can set the mark directly, whatever the topic.
 The mark stays as saved, even if the topic changes kind later.
-A message with the mark ignores opt-outs.
+A message with the mark ignores opt-outs and the frequency cap.
 _Avoid_: Message category, Category, Subscription type
 
 **Opt-out**:
