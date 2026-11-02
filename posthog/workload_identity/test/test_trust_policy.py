@@ -10,6 +10,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.email import CUSTOMER_IO_TEMPLATE_ID_MAP, WORKFLOWS_TEMPLATE_ID_MAP
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.instance_setting import set_instance_setting
@@ -17,7 +18,7 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.models.workload_trust_policy import WorkloadTrustPolicy, WorkloadTrustPolicyRequest
-from posthog.tasks.email import send_ci_trust_policy_changed
+from posthog.tasks.email import send_workload_trust_policy_changed
 from posthog.tasks.test.utils_email_tests import mock_email_messages
 from posthog.workload_identity.test.fixtures import FAKE_WORKLOAD_ISSUER, with_fake_workload_provider
 
@@ -195,7 +196,7 @@ class TestWorkloadTrustPolicyAPI(APIBaseTest):
 
         assert response.json()["results"] == []
 
-    @patch("posthog.workload_identity.trust_policy.send_ci_trust_policy_changed")
+    @patch("posthog.workload_identity.trust_policy.send_workload_trust_policy_changed")
     def test_every_change_is_logged_and_emailed_to_admins(self, mock_send: MagicMock) -> None:
         self._set_level(OrganizationMembership.Level.ADMIN)
 
@@ -234,13 +235,16 @@ class TestSendWorkloadTrustPolicyChangedEmail(APIBaseTest):
         other_org = Organization.objects.create(name="Other")
         User.objects.create_and_join(other_org, "outsider@example.com", None, level=OrganizationMembership.Level.OWNER)
 
-        send_ci_trust_policy_changed(self.team.id, "policy-id", "Production deploys", "created", self.user.id)
+        send_workload_trust_policy_changed(self.team.id, "policy-id", "Production deploys", "created", self.user.id)
 
         assert len(sent) == 1
         assert sorted(recipient["raw_email"] for recipient in sent[0].to) == sorted(
             [self.user.email, "admin@example.com"]
         )
         assert "Production deploys" in sent[0].html_body
+        assert sent[0].use_http is True
+        assert sent[0].template_name in CUSTOMER_IO_TEMPLATE_ID_MAP
+        assert sent[0].template_name in WORKFLOWS_TEMPLATE_ID_MAP
 
 
 @with_fake_workload_provider()
@@ -359,7 +363,7 @@ class TestWorkloadTrustPolicyRequestAPI(APIBaseTest):
         policy_request.refresh_from_db()
         assert policy_request.status == WorkloadTrustPolicyRequest.Status.PENDING
 
-    @patch("posthog.workload_identity.trust_policy.send_ci_trust_policy_changed")
+    @patch("posthog.workload_identity.trust_policy.send_workload_trust_policy_changed")
     def test_admin_approves_their_own_request_which_creates_the_policy(self, mock_send: MagicMock) -> None:
         self._set_level(OrganizationMembership.Level.ADMIN)
         policy_request = self._create_request()
