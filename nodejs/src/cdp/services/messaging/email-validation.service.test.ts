@@ -237,6 +237,19 @@ describe('EmailValidationService', () => {
             expect(reason).toContain('no reachable mail servers')
             expect(mockResolveMx).not.toHaveBeenCalled()
         })
+
+        it('falls back to DNS when no Valkey connection can be acquired', async () => {
+            // failOpen covers only the callback: a pool with an acquire timeout rejects before it runs.
+            const valkey: RedisV2 = {
+                useClient: jest.fn().mockRejectedValue(new Error('ResourceRequest timed out')),
+                usePipeline: jest.fn(),
+            }
+            const withValkey = new EmailValidationService(valkey)
+
+            await expect(withValkey.getRecipientSkipReason(2, 'user@example.com')).resolves.toBeNull()
+            expect(mockResolveMx).toHaveBeenCalledTimes(1)
+            expect(valkey.useClient).toHaveBeenCalledTimes(2)
+        })
     })
     describe('out-of-band domain detection', () => {
         const originalCloudDeployment = process.env.CLOUD_DEPLOYMENT
