@@ -639,6 +639,35 @@ describe('EmailService', () => {
                 }
             })
 
+            it('blocks a member removed during preparation while the member snapshot is still fresh', async () => {
+                const clock = jest.spyOn(Date, 'now').mockReturnValue(Date.now())
+                const preparation = jest.spyOn(EmailSuppressionService.prototype, 'isSuppressed')
+                const isSuppressed = preparation.getMockImplementation()!
+                try {
+                    service = createSandboxService(true)
+                    await service.executeSendEmail(invocation)
+                    expect(capture).not.toHaveBeenCalled()
+                    preparation.mockImplementation(async function (this: EmailSuppressionService, ...args) {
+                        await hub.postgres.query(
+                            PostgresUse.COMMON_WRITE,
+                            'DELETE FROM posthog_organizationmembership WHERE user_id = $1',
+                            [memberId],
+                            'test:revoke-sandbox-member-during-preparation'
+                        )
+                        return isSuppressed.apply(this, args)
+                    })
+                    invocation.state.vmState = { stack: [] } as any
+
+                    const result = await service.executeSendEmail(invocation)
+
+                    expectSkipped(result)
+                    expectBlockedEvent('recipient_not_member', false, 1)
+                } finally {
+                    clock.mockRestore()
+                    preparation.mockRestore()
+                }
+            })
+
             it('captures one blocked event per reason and send kind while logging every skip', async () => {
                 for (let attempt = 0; attempt < 2; attempt++) {
                     service = createSandboxService(true)
