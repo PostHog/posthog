@@ -36,12 +36,14 @@ from posthog.hogql import ast
 from posthog.hogql.ast import SelectQuery, SelectSetNode, SelectSetQuery
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.flag_called_warnings import count_flag_calls_read_from_events
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property import get_property_type
 from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.constants import PropertyOperatorType
+from posthog.dataclasses import frozen
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.models import Property, Team, User
@@ -81,7 +83,7 @@ def parse_and_validate_positive_integer(value: Optional[Union[str, int]], value_
     return parsed_value
 
 
-def _behavioral_date_range(prop: Property) -> tuple[str, Optional[str]]:
+def behavioral_date_range(prop: Property) -> tuple[str, Optional[str]]:
     if prop.explicit_datetime:
         # Explicit datetime filter, can be a relative or absolute date, follows same convention
         # as all analytics datetime filters
@@ -344,7 +346,7 @@ class HogQLCohortQuery:
             filter = parse_property_group_data(prop.event_filters)
             series[0].properties = filter
 
-        date_from, date_to = _behavioral_date_range(prop)
+        date_from, date_to = behavioral_date_range(prop)
 
         trends_query = TrendsQuery(
             dateRange=DateRange(date_from=date_from, date_to=date_to),
@@ -357,7 +359,7 @@ class HogQLCohortQuery:
     def get_performed_event_multiple(self, prop: Property) -> ast.SelectQuery:
         count = parse_and_validate_positive_integer(prop.operator_value, "operator_value")
 
-        date_from, date_to = _behavioral_date_range(prop)
+        date_from, date_to = behavioral_date_range(prop)
 
         events_query = EventsQuery(after=date_from, before=date_to, select=["person_id", "count()"])
         if prop.event_type == "events":
@@ -414,7 +416,7 @@ class HogQLCohortQuery:
         else:
             raise ValueError(f"Event type must be 'events' or 'actions'")
 
-        date_from, date_to = _behavioral_date_range(prop)
+        date_from, date_to = behavioral_date_range(prop)
 
         date_value = parse_and_validate_positive_integer(prop.seq_time_value, "seq_time_value")
         date_interval = validate_interval(prop.seq_time_interval)
@@ -793,3 +795,22 @@ class HogQLCohortQuery:
         if condition.negation:
             raise ValidationError("Top level condition cannot be negated", str(self.property_groups))
         return condition.query
+
+
+@frozen
+class FlagCallReads:
+    reads_from_events: int
+
+
+def batch_flag_call_reads(cohort: Cohort, team: Team) -> FlagCallReads:
+    """How many flag-call reads the batch query for this cohort leaves on events.
+
+    It compiles the cohort the way the batch calculation does, so it follows the rewrite's rules and its fallback to
+    events when a field doesn't resolve on flag_evaluations. It raises whatever the compile raises.
+    """
+    executor = HogQLCohortQuery(cohort=cohort, team=team).get_query_executor(bypass_warehouse_access_control=True)
+    executor.generate_clickhouse_sql()
+    prepared = executor.clickhouse_prepared_ast
+    return FlagCallReads(
+        reads_from_events=count_flag_calls_read_from_events(prepared) if prepared is not None else 0,
+    )

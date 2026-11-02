@@ -4,7 +4,10 @@ import {
     buildExplanation,
     buildOptions,
     defaultCadenceWithin,
+    inheritedCadence,
     modeDisabledReason,
+    SyncFrequencyValue,
+    speedUpWarning,
     unsatisfiableReason,
 } from './SyncFrequencySelect'
 
@@ -38,8 +41,8 @@ describe('SyncFrequencySelect', () => {
 
         const bySource = options.find((option) => option.value === '15min')
         const byConsumer = options.find((option) => option.value === '24hour')
-        expect(bySource?.disabledReason).toBe('More often than stripe_invoices syncs')
-        expect(byConsumer?.disabledReason).toBe('Too slow for daily_revenue')
+        expect(bySource?.disabledReason).toBe('More often than upstream source stripe_invoices syncs')
+        expect(byConsumer?.disabledReason).toBe('Too slow for downstream view daily_revenue')
         expect(options.find((option) => option.value === '6hour')?.disabledReason).toBeUndefined()
     })
 
@@ -93,16 +96,16 @@ describe('SyncFrequencySelect', () => {
         it('names both ends and what to change when the bounds cross', () => {
             // Every cadence blocked means Materialize would 400 whatever the picker had selected.
             expect(unsatisfiableReason(nothingAllowed())).toBe(
-                'No cadence works here: stripe_invoices only syncs every 6 hours, ' +
-                    'but daily_revenue refreshes every 12 hours. ' +
-                    'Slow down daily_revenue or speed up stripe_invoices.'
+                'No cadence works here: upstream source stripe_invoices only syncs every 6 hours, ' +
+                    'but downstream view daily_revenue refreshes every 12 hours. ' +
+                    'Slow down downstream view daily_revenue or speed up upstream source stripe_invoices.'
             )
         })
 
         it('asks for the source to speed up when only a floor blocks every cadence', () => {
             expect(unsatisfiableReason(nothingAllowed({ ceiling: null }))).toBe(
-                'No cadence works here: stripe_invoices only syncs every 6 hours, ' +
-                    'less often than anything this can refresh at. Speed up stripe_invoices first.'
+                'No cadence works here: upstream source stripe_invoices only syncs every 6 hours, ' +
+                    'less often than anything this can refresh at. Speed up upstream source stripe_invoices first.'
             )
         })
 
@@ -132,10 +135,10 @@ describe('SyncFrequencySelect', () => {
             )
 
             expect(options.find((option) => option.value === '15min')?.disabledReason).toBe(
-                'More often than the sources this view reads'
+                'More often than the upstream sources sync'
             )
             expect(options.find((option) => option.value === '24hour')?.disabledReason).toBe(
-                'Too slow for something built on this view'
+                'Too slow for a downstream view'
             )
         })
 
@@ -194,6 +197,104 @@ describe('SyncFrequencySelect', () => {
 
         it('leaves a tiered view editable', () => {
             expect(modeDisabledReason(bounds())).toBeNull()
+        })
+    })
+
+    describe('speedUpWarning', () => {
+        const withSpeedsUp = (names: string[], withheld = false): SyncFrequencyBoundsApi =>
+            bounds({
+                options: [
+                    {
+                        cadence: '6hour',
+                        allowed: true,
+                        blocked_by: null,
+                        blocker: null,
+                        speeds_up: names.map(blocker),
+                        speeds_up_withheld: withheld,
+                    },
+                ],
+            } as Partial<SyncFrequencyBoundsApi>)
+
+        it.each([
+            ['nothing upstream is slower', [], false, null],
+            [
+                'one upstream view is slower',
+                ['org_universe'],
+                false,
+                'Upstream view org_universe also refreshes every 6 hours to keep up with this view.',
+            ],
+            [
+                'a slower upstream view is withheld',
+                ['org_universe'],
+                true,
+                'Upstream views org_universe and others also refresh every 6 hours to keep up with this view.',
+            ],
+            [
+                'every slower upstream view is withheld',
+                [],
+                true,
+                'Some upstream views also refresh every 6 hours to keep up with this view.',
+            ],
+        ])('when %s', (_case, names, withheld, expected) => {
+            expect(speedUpWarning(withSpeedsUp(names, withheld), '6hour')).toBe(expected)
+        })
+    })
+
+    describe('inheritedCadence', () => {
+        const consumerBound = (name: string | null): SyncFrequencyBoundsApi =>
+            bounds({
+                options: [
+                    {
+                        cadence: '1hour',
+                        allowed: true,
+                        blocked_by: null,
+                        blocker: null,
+                        speeds_up: [],
+                        speeds_up_withheld: false,
+                    },
+                    {
+                        cadence: '6hour',
+                        allowed: true,
+                        blocked_by: null,
+                        blocker: null,
+                        speeds_up: [],
+                        speeds_up_withheld: false,
+                    },
+                    {
+                        cadence: '24hour',
+                        allowed: false,
+                        blocked_by: 'consumer',
+                        blocker: null,
+                        speeds_up: [],
+                        speeds_up_withheld: false,
+                    },
+                ],
+                ceiling: { label: '6 hours', blocker: name ? blocker(name) : null },
+            } as Partial<SyncFrequencyBoundsApi>)
+
+        it.each([
+            ['the saved setting is allowed', consumerBound('maps'), '6hour', null],
+            ['the view is paused', consumerBound('maps'), 'never', null],
+            [
+                'a consumer needs it fresher',
+                consumerBound('maps'),
+                '24hour',
+                {
+                    cadence: '6hour',
+                    note: 'Refreshes every 6 hours to keep up with downstream view maps. Your 1 day setting applies again if maps refreshes less often.',
+                },
+            ],
+            [
+                'the consumer is withheld',
+                consumerBound(null),
+                '24hour',
+                {
+                    cadence: '6hour',
+                    note: 'Refreshes every 6 hours to keep up with a downstream view. Your 1 day setting applies again if that view refreshes less often.',
+                },
+            ],
+        ])('when %s', (_case, input, value, expected) => {
+            expect(inheritedCadence(input, value as SyncFrequencyValue)).toEqual(expected)
         })
     })
 })
