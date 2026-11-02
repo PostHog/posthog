@@ -793,6 +793,7 @@ export interface SubscriptionDeliveryApi {
 }
 
 export interface PaginatedSubscriptionDeliveryListApi {
+    count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
@@ -827,6 +828,7 @@ export interface SubscriptionSummaryApi {
 }
 
 export interface PaginatedSubscriptionSummaryListApi {
+    count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
@@ -857,6 +859,7 @@ export type SubscriptionsListParams = {
     insights?: string
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

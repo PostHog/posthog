@@ -18,17 +18,23 @@ import type { TicketMacroApi } from 'products/conversations/frontend/generated/a
 
 const SHORTCUT_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
+export type MacroVisibility = NonNullable<TicketMacroApi['visibility']>
+
 export interface MacroDraft {
     id: string | null
     name: string
     shortcut: string
     body: string
+    visibility: MacroVisibility
+    /** Null for a new macro. */
+    createdById: number | null
 }
 
 export interface MacroSavePayload {
     name: string
     shortcut: string
     body: string
+    visibility: MacroVisibility
 }
 
 function normalizeShortcut(shortcut: string): string | null {
@@ -119,6 +125,9 @@ export interface supportMacrosLogicActions {
     setMacroDraftShortcut: (shortcut: string) => {
         shortcut: string
     }
+    setMacroDraftVisibility: (visibility: MacroVisibility) => {
+        visibility: MacroVisibility
+    }
     setMacroSaving: (saving: boolean) => {
         saving: boolean
     }
@@ -165,6 +174,7 @@ export const supportMacrosLogic = kea<supportMacrosLogicType>([
         closeMacroDraft: true,
         setMacroDraftName: (name: string) => ({ name }),
         setMacroDraftShortcut: (shortcut: string) => ({ shortcut }),
+        setMacroDraftVisibility: (visibility: MacroVisibility) => ({ visibility }),
         setMacroSaving: (saving: boolean) => ({ saving }),
         ensureMacrosLoaded: true,
     }),
@@ -216,10 +226,13 @@ export const supportMacrosLogic = kea<supportMacrosLogicType>([
                     name: macro?.name ?? '',
                     shortcut: macro?.shortcut ?? '',
                     body: macro?.body ?? '',
+                    visibility: macro?.visibility ?? 'shared',
+                    createdById: macro?.created_by?.id ?? null,
                 }),
                 closeMacroDraft: () => null,
                 setMacroDraftName: (state, { name }) => (state ? { ...state, name } : state),
                 setMacroDraftShortcut: (state, { shortcut }) => (state ? { ...state, shortcut } : state),
+                setMacroDraftVisibility: (state, { visibility }) => (state ? { ...state, visibility } : state),
             },
         ],
         macroSaving: [
@@ -261,7 +274,7 @@ export const supportMacrosLogic = kea<supportMacrosLogicType>([
         [featureFlagLogic.actionTypes.setFeatureFlags]: () => {
             actions.ensureMacrosLoaded()
         },
-        createMacro: async ({ name, shortcut, body }) => {
+        createMacro: async ({ name, shortcut, body, visibility }) => {
             if (!values.currentTeamId) {
                 return
             }
@@ -276,6 +289,7 @@ export const supportMacrosLogic = kea<supportMacrosLogicType>([
                     name: name.trim(),
                     shortcut: normalizeShortcut(shortcut),
                     body,
+                    visibility,
                 })
                 actions.upsertMacro(created)
                 actions.closeMacroDraft()
@@ -286,7 +300,7 @@ export const supportMacrosLogic = kea<supportMacrosLogicType>([
                 actions.setMacroSaving(false)
             }
         },
-        updateMacro: async ({ id, name, shortcut, body }) => {
+        updateMacro: async ({ id, name, shortcut, body, visibility }) => {
             if (!values.currentTeamId) {
                 return
             }
@@ -301,6 +315,7 @@ export const supportMacrosLogic = kea<supportMacrosLogicType>([
                     name: name.trim(),
                     shortcut: normalizeShortcut(shortcut),
                     body,
+                    visibility,
                 })
                 actions.upsertMacro(updated)
                 actions.closeMacroDraft()
