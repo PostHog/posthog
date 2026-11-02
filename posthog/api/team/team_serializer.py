@@ -65,9 +65,9 @@ tracer = trace.get_tracer(__name__)
 
 # Credentials a project response carries that outlive a workload token: the project secret token and its backup,
 # the heatmaps screenshot secret, and the 7-day live events token. A workload token acts as the organization owner,
-# so without this a CI job could read one and keep access after its token expires. The public project token
+# so without this a workload could read one and keep access after its token expires. The public project token
 # (`api_token`) stays.
-TEAM_SECRET_FIELDS_HIDDEN_FROM_CI_TOKENS = (
+TEAM_SECRET_FIELDS_HIDDEN_FROM_WORKLOAD_TOKENS = (
     "secret_api_token",
     "secret_api_token_backup",
     "heatmaps_screenshot_secret",
@@ -75,10 +75,10 @@ TEAM_SECRET_FIELDS_HIDDEN_FROM_CI_TOKENS = (
 )
 
 
-def hide_team_secrets_from_ci_tokens(representation: dict[str, Any], request: Request | None) -> dict[str, Any]:
+def hide_team_secrets_from_workload_tokens(representation: dict[str, Any], request: Request | None) -> dict[str, Any]:
     # The page-load path passes a plain Django request, which has no authenticator.
     if isinstance(getattr(request, "successful_authenticator", None), WorkloadAccessTokenAuthentication):
-        for field in TEAM_SECRET_FIELDS_HIDDEN_FROM_CI_TOKENS:
+        for field in TEAM_SECRET_FIELDS_HIDDEN_FROM_WORKLOAD_TOKENS:
             representation.pop(field, None)
     return representation
 
@@ -207,7 +207,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 representation["default_data_theme"] = live_events._default_data_color_theme_id()
         settings_validation.hide_secret_api_tokens_from_unscoped_caller(representation, self.context.get("request"))
 
-        return hide_team_secrets_from_ci_tokens(representation, self.context.get("request"))
+        return hide_team_secrets_from_workload_tokens(representation, self.context.get("request"))
 
     @tracer.start_as_current_span("team_serializer.effective_membership_level")
     def get_effective_membership_level(self, team: Team) -> OrganizationMembership.Level | None:

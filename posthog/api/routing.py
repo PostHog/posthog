@@ -391,14 +391,14 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             # permission chain cannot remove them.
             # A workload token acts as an owner, who may pass a view's own checks (a staff owner passes staff
             # bypasses), so its policy's scopes and project are enforced whatever chain the view builds.
-            ci_token_boundary = (
+            workload_token_boundary = (
                 [APIScopePermission()]
                 if isinstance(self.request.successful_authenticator, WorkloadAccessTokenAuthentication)
                 else []
             )
             return [
                 *dangerously_defined,
-                *ci_token_boundary,
+                *workload_token_boundary,
                 VerifiedDomainEnforcementPermission(),
                 MCPAccessPermission(),
                 ActiveOrganizationPermission(),

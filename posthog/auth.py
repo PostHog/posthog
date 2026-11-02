@@ -822,7 +822,7 @@ class VerifiedWorkloadAccessToken:
 
 class WorkloadAccessTokenAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
     """
-    Authenticates API requests made with the short-lived token a CI job gets by exchanging its
+    Authenticates API requests made with the short-lived token a workload gets by exchanging its
     provider's OIDC token under a workload trust policy (`posthog.workload_identity.token_exchange`).
 
     The token is a stateless JWT signed with the OIDC key. It acts as the organization owner the
@@ -841,7 +841,7 @@ class WorkloadAccessTokenAuthentication(ActivityCredentialMixin, authentication.
     policy_id: str
 
     @classmethod
-    def is_ci_token(cls, token: str) -> bool:
+    def is_workload_token(cls, token: str) -> bool:
         return _is_signed_jwt_of_type(token, WORKLOAD_ACCESS_TOKEN_TYPE)
 
     def insufficient_scope_error(self, view: Any, required_scopes: list[str], missing_scopes: list[str]) -> Exception:
@@ -952,7 +952,7 @@ class WorkloadAccessTokenAuthentication(ActivityCredentialMixin, authentication.
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         with tracer.start_as_current_span("posthog.auth.oidc_workload"):
             token = _bearer_token(request)
-            if not token or not self.is_ci_token(token):
+            if not token or not self.is_workload_token(token):
                 return None
 
             verified = self.verify_access_token(token)

@@ -168,7 +168,7 @@ def _provider_for(subject_token: str) -> WorkloadProvider:
         supported = [provider.name for provider in get_supported_workload_providers()]
         raise WorkloadExchangeError(
             WorkloadExchangeErrorCode.ISSUER_NOT_ALLOWED,
-            f"PostHog doesn't trust OIDC tokens from issuer {issuer!r}. Only the listed CI providers are trusted.",
+            f"PostHog doesn't trust OIDC tokens from issuer {issuer!r}. Only the supported providers are trusted.",
             details={"issuer": issuer[:255], "supported_providers": supported},
         )
     return provider
@@ -231,7 +231,7 @@ def _verify_subject_token(subject_token: str, provider: WorkloadProvider) -> tup
     except jwt.InvalidAudienceError:
         raise WorkloadExchangeError(
             WorkloadExchangeErrorCode.TOKEN_INVALID,
-            f"The OIDC token's audience must be {audience}. Ask your CI provider for a token with that audience.",
+            f"The OIDC token's audience must be {audience}. Ask your provider for a token with that audience.",
         )
     except jwt.MissingRequiredClaimError as e:
         raise WorkloadExchangeError(WorkloadExchangeErrorCode.TOKEN_INVALID, f"The OIDC token has no {e.claim} claim.")

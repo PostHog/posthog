@@ -28,19 +28,19 @@ from posthog.workload_identity.token_exchange import TOKEN_EXCHANGE_GRANT_TYPE
 from products.annotations.backend.models import Annotation
 
 # RSA key generation is slow, so the keys are made once per module.
-_CI_PROVIDER_KEY_PEM = generate_rsa_private_key_pem()
+_PROVIDER_KEY_PEM = generate_rsa_private_key_pem()
 _OTHER_KEY_PEM = generate_rsa_private_key_pem()
 _POSTHOG_KEY_PEM = generate_rsa_private_key_pem()
-_CI_KEY_ID = "ci-key-1"
+_PROVIDER_KEY_ID = "ci-key-1"
 _SITE_URL = "https://posthog.test"
 
 
 def _jwks() -> dict[str, Any]:
-    public_jwk = json.loads(jwk_from_pem(_CI_PROVIDER_KEY_PEM).export_public())
-    return {"keys": [{**public_jwk, "kid": _CI_KEY_ID, "alg": "RS256", "use": "sig"}]}
+    public_jwk = json.loads(jwk_from_pem(_PROVIDER_KEY_PEM).export_public())
+    return {"keys": [{**public_jwk, "kid": _PROVIDER_KEY_ID, "alg": "RS256", "use": "sig"}]}
 
 
-def _oidc_token(*, signing_key: str = _CI_PROVIDER_KEY_PEM, **overrides: Any) -> str:
+def _oidc_token(*, signing_key: str = _PROVIDER_KEY_PEM, **overrides: Any) -> str:
     now = int(time.time())
     claims = {
         "iss": FAKE_WORKLOAD_ISSUER,
@@ -56,7 +56,7 @@ def _oidc_token(*, signing_key: str = _CI_PROVIDER_KEY_PEM, **overrides: Any) ->
         "sha": "abc123",
         **overrides,
     }
-    return jwt.encode(claims, signing_key, algorithm="RS256", headers={"kid": _CI_KEY_ID})
+    return jwt.encode(claims, signing_key, algorithm="RS256", headers={"kid": _PROVIDER_KEY_ID})
 
 
 @with_fake_workload_provider()
