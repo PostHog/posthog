@@ -42,9 +42,9 @@ const lemonRichContentEditorChunk = retryableChunk(() =>
     importLemonRichContentEditor().then((m) => ({ default: m.LemonRichContentEditor }))
 )
 
-interface LazyChunkProps<P extends object> {
-    chunk: RetryableChunk<ComponentType<P>>
-    chunkProps: P
+interface LazyChunkProps<T extends ComponentType<any>> {
+    chunk: RetryableChunk<T>
+    render: (Chunk: LazyExoticComponent<T>) => ReactNode
     loading: ReactNode
     renderError: (recover: ChunkRecovery) => ReactNode
 }
@@ -58,7 +58,10 @@ interface ChunkRecovery {
  * Keeps a failed rich text chunk local to the component that needs it. Without it the error reaches the
  * app's ChunkLoadErrorBoundary, which reloads the page and drops what the user was doing.
  */
-class LazyChunk<P extends object> extends Component<LazyChunkProps<P>, { error: unknown; retried: boolean }> {
+class LazyChunk<T extends ComponentType<any>> extends Component<
+    LazyChunkProps<T>,
+    { error: unknown; retried: boolean }
+> {
     override state: { error: unknown; retried: boolean } = { error: null, retried: false }
 
     static getDerivedStateFromError(error: unknown): { error: unknown } {
@@ -94,12 +97,7 @@ class LazyChunk<P extends object> extends Component<LazyChunkProps<P>, { error: 
             return this.props.renderError(this.recovery(error))
         }
         // Read on every render, so a retry renders the new lazy component.
-        const Chunk = this.props.chunk.get() as unknown as ComponentType<P>
-        return (
-            <Suspense fallback={this.props.loading}>
-                <Chunk {...this.props.chunkProps} />
-            </Suspense>
-        )
+        return <Suspense fallback={this.props.loading}>{this.props.render(this.props.chunk.get())}</Suspense>
     }
 }
 
@@ -126,7 +124,7 @@ export function LazyTextContent(props: TextContentProps): JSX.Element {
     return (
         <LazyChunk
             chunk={textContentChunk}
-            chunkProps={props}
+            render={(Chunk) => <Chunk {...props} />}
             loading={<PlainTextContent {...props} busy />}
             renderError={() => <PlainTextContent {...props} />}
         />
@@ -157,7 +155,7 @@ export function LazyRichContentPreview(props: { content: JSONContent | null; cla
     return (
         <LazyChunk
             chunk={richContentPreviewChunk}
-            chunkProps={props}
+            render={(Chunk) => <Chunk {...props} />}
             loading={<PlainRichContentPreview {...props} busy />}
             renderError={() => <PlainRichContentPreview {...props} />}
         />
@@ -169,7 +167,7 @@ export function LazyLemonRichContentEditor(props: LemonRichContentEditorProps): 
     return (
         <LazyChunk
             chunk={lemonRichContentEditorChunk}
-            chunkProps={props}
+            render={(Chunk) => <Chunk {...props} />}
             loading={
                 <div className="flex flex-col border rounded mt-4 input-like" aria-busy>
                     <div className="p-2 min-h-16" />
