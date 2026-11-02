@@ -11,8 +11,6 @@ from django.apps import apps
 from django.conf import settings
 from django.db import IntegrityError
 
-import structlog
-
 from posthog.schema import (
     ActionsNode,
     BaseMathType,
@@ -85,7 +83,6 @@ from products.experiments.backend.models.experiment import (
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.facade.api import record_insight_views
 from products.product_analytics.backend.facade.models import Insight
-from products.signals.backend.facade import demo_data as signals_demo_data
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, get_or_create_datawarehouse_credential
 from products.warehouse_sources.backend.facade.types import DataWarehouseTableCreatedVia, DataWarehouseTableFormat
 
@@ -117,8 +114,6 @@ from .taxonomy import (
 if TYPE_CHECKING:
     from posthog.models.team import Team
     from posthog.models.user import User
-
-logger = structlog.get_logger(__name__)
 
 ErrorTrackingIssue = apps.get_model("error_tracking", "ErrorTrackingIssue")
 ErrorTrackingIssueFingerprintV2 = apps.get_model("error_tracking", "ErrorTrackingIssueFingerprintV2")
@@ -1630,7 +1625,6 @@ class HedgeboxMatrix(Matrix):
         self._set_up_error_tracking_demo_data(team)
 
         self._set_up_demo_oauth_application(team, user)
-        self._set_up_demo_inbox(team, user)
 
     def _set_up_file_engagement_experiment(self, team: "Team", user: "User", flag: FeatureFlag) -> None:
         """Create the "File engagement boost" experiment, its shared metrics, and its timeseries data.
@@ -1859,21 +1853,6 @@ class HedgeboxMatrix(Matrix):
                 ).model_dump(mode="json"),
             },
         )
-
-    def _set_up_demo_inbox(self, team: "Team", user: "User") -> None:
-        # The seeded reports and chat are fake data for local mobile and inbox work. Demo projects also
-        # get created in cloud and in the eval harness, where fake reports would mislead real users.
-        if not (settings.DEBUG and not is_cloud()):
-            return
-        try:
-            # Without runs, the reports create no implementation tasks. Those would add billable bridge
-            # rows and fill the user's chat list with report tasks.
-            signals_demo_data.seed_demo_inbox(team_id=team.pk, user_id=user.pk, count=3, with_runs=False)
-            signals_demo_data.seed_demo_chat(team_id=team.pk, user_id=user.pk)
-        except Exception as e:
-            # The chat transcript needs local object storage, which is optional. Never fail demo generation over it.
-            capture_exception(e)
-            logger.warning("demo_inbox_seed_failed", team_id=team.pk, error=str(e))
 
     def _set_up_error_tracking_demo_data(self, team: "Team") -> None:
         issue_specs: list[ErrorTrackingDemoIssueSpec] = [
