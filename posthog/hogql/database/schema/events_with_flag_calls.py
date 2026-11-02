@@ -132,10 +132,11 @@ class EventsWithFlagCallsTable(LazyTable):
         # Lazy table resolution drops the scan's SAMPLE, so each branch applies the ratio itself.
         sample = union_scan_sample(node, self)
 
-        def sampled_scan(**kwargs) -> ast.JoinExpr:
+        def sampled_scan(table: ast.Field, alias: str | None = None) -> ast.JoinExpr:
             return ast.JoinExpr(
                 sample=clone_expr(sample, clear_types=True, clear_locations=True) if sample is not None else None,
-                **kwargs,
+                table=table,
+                alias=alias,
             )
 
         # `SELECT count()` reads no field, and a subquery needs at least one column.

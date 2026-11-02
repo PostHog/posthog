@@ -174,6 +174,12 @@ class TestRenameFlagCallScansToUnion(SimpleTestCase):
                 [],
             ),
             (
+                "only_flag_calls_with_sample_on_posthog_events_on_mode_2",
+                "SELECT count() FROM posthog.events SAMPLE 0.1 WHERE event = '$feature_flag_called'",
+                [UNION],
+                [],
+            ),
+            (
                 "left_join_after_the_scan",
                 f"SELECT count() FROM events AS e LEFT JOIN persons AS p ON e.person_id = p.id WHERE {E_MIXED}",
                 [UNION, "persons"],
@@ -629,6 +635,15 @@ class TestReadFlagCallsWithUnion(BaseTest):
         assert [("SAMPLE 0.1" in branch) for branch in branches] == [True, True, False]
         assert "less(cityHash64(flag_evaluations.distinct_id), 1844674407370955161)" in branches[-1]
 
+    def test_ratio_sample_applies_when_a_joined_person_field_reads_a_second_union_scan(self):
+        sql = self._sql(
+            f"SELECT person.properties.email, count() FROM events SAMPLE 0.1 WHERE {MIXED} GROUP BY 1",
+            persons_on_events=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+        )
+
+        assert sql.count("SAMPLE 0.1") == 2
+        assert "less(cityHash64(flag_evaluations.distinct_id), 1844674407370955161)" in sql
+
     @parameterized.expand(
         [
             ("subquery_on_mode_1", READ, InCohortVia.SUBQUERY, False),
@@ -653,7 +668,22 @@ class TestReadFlagCallsWithUnion(BaseTest):
 
         assert (re.search(r"FROM flag_evaluations\b", sql) is not None) is expected_flag_evaluations
 
-    def test_mode_2_raises_when_an_inline_cohort_reads_a_field_the_union_cannot_supply(self):
+    @parameterized.expand(
+        [
+            ("outer_query_names_no_flag_calls", "SELECT count() FROM events WHERE person_id IN COHORT {cohort}"),
+            (
+                "outer_query_excludes_flag_calls",
+                "SELECT count() FROM events WHERE event != '$feature_flag_called' AND person_id IN COHORT {cohort}",
+            ),
+            (
+                "outer_query_swapped_by_phase_1",
+                "SELECT count() FROM events WHERE event = '$feature_flag_called' AND person_id IN COHORT {cohort}",
+            ),
+        ]
+    )
+    def test_mode_2_raises_when_an_inline_cohort_reads_a_field_the_union_cannot_supply(
+        self, _name: str, outer_query: str
+    ):
         PropertyDefinition.objects.create(
             team=self.team, name="probe", property_type="Numeric", type=PropertyDefinition.Type.EVENT
         )
@@ -667,9 +697,7 @@ class TestReadFlagCallsWithUnion(BaseTest):
             patch("posthog.hogql_queries.hogql_cohort_query.HogQLCohortQuery.get_query", return_value=cohort_query),
             pytest.raises(QueryError, match="Numeric event property probe"),
         ):
-            self._sql(
-                f"SELECT count() FROM events WHERE person_id IN COHORT {cohort.pk}", mode=ONLY, inline_cohorts=True
-            )
+            self._sql(outer_query.format(cohort=cohort.pk), mode=ONLY, inline_cohorts=True)
 
     @parameterized.expand(
         [
@@ -684,8 +712,8 @@ class TestReadFlagCallsWithUnion(BaseTest):
     def test_mode_2_reads_a_sampled_flag_call_scan_from_the_union(self, _name: str, query: str):
         sql = self._sql(query, mode=ONLY)
 
-        assert "UNION ALL" not in sql or re.search(r"FROM flag_evaluations\b", sql) is not None
         assert re.search(r"FROM flag_evaluations\b", sql) is not None
+        assert "less(cityHash64(flag_evaluations.distinct_id), 1844674407370955161)" in sql
 
     def test_sessions_join_keeps_its_time_bound(self):
         sql = self._sql(

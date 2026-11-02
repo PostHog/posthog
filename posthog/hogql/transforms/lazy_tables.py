@@ -778,6 +778,8 @@ class LazyTableResolver(TraversingVisitor):
                     # A lazy table expands into an aggregating subquery. ClickHouse rejects a SAMPLE
                     # modifier on a subquery, and sampling a pre-aggregated table is meaningless, so
                     # drop the modifier rather than emitting invalid SQL.
+                    # EventsWithFlagCallsTable.lazy_select, called above, already copied the SAMPLE into each union
+                    # branch, so it needs no warning. This clear must stay after that call.
                     if join_ptr.sample is not None and not isinstance(
                         table_to_add.lazy_table, EventsWithFlagCallsTable
                     ):

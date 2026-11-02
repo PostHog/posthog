@@ -216,8 +216,9 @@ def swap_flag_calls(
 
     For an organization whose flag calls are only in `flag_evaluations`, a scan that the syntactic rules miss swaps
     too when the resolved original shows that its filters pin `event` to flag calls in its WHERE or PREWHERE. The
-    query raises when such a scan cannot swap. A scan that the resolver adds, such as one in an inline cohort, keeps
-    reading `events`.
+    query raises when such a scan cannot swap. A scan that the resolver adds, such as one in an inline cohort, is not
+    swapped here. On mode 2 with the union enabled, `read_flag_calls_in_inline_cohort` points an inline cohort's scans
+    at the union. Otherwise they read `events`.
 
     The resolver runs this on the body of each saved view that it inlines, and `view_name` names that view for the
     error. The check of resolved filters skips the joins of a view's body in the enclosing query, because the swap of
@@ -299,7 +300,8 @@ def _resolve_with_swaps(
         # Expected for a query that reads a field flag_evaluations lacks, such as goe_0.properties.
         reason = f"it reads something that table doesn't have: {error}"
     else:
-        unreadable = union_unreadable_reason(swapped, context) if union.renamed else None
+        # An inline cohort renames its own scans during resolution, so the outer rename does not show them.
+        unreadable = union_unreadable_reason(swapped, context) if union.renamed or only_in_flag_evaluations else None
         if unreadable is not None:
             reason = unreadable
         elif not _swap_keeps_bindings(original, swapped, swapper.flag_key_predicates):
@@ -1012,7 +1014,9 @@ class _EventsScanSwapper(ScanVisitor):
             self._swap(node, scan, conjuncts)
         else:
             # On mode 2 the union reads a scan of `events` with a ratio SAMPLE, so this refuses only the other shapes.
-            union_reads_sample = self.union_reads_ratio_samples and _table_chain(scan.join) == ["events"]
+            union_reads_sample = (
+                self.union_reads_ratio_samples and ".".join(_table_chain(scan.join) or []) in EVENTS_NAMES
+            )
             refusal = scan.shape_refusal(node, ratio_sample_ok=union_reads_sample)
             if refusal is not None and scan.pins_flag_calls(conjuncts, needs_flag_key=False):
                 self.refusals.append(refusal)
@@ -1031,7 +1035,8 @@ class _EventsScanSwapper(ScanVisitor):
         original join of each resolved join, and `clones` holds the clones of each original join. Returns why one of
         them cannot swap, or None.
 
-        A scan that the resolver adds, such as one in a saved view's body or an inline cohort, keeps reading events.
+        A scan that the resolver adds, such as one in a saved view's body or an inline cohort, is not swapped here. A
+        view's scan keeps reading events. On mode 2 with the union enabled, an inline cohort's scan reads the union.
         Any other scan without a clone cannot swap.
         """
         for select, join in _joins(resolved):
