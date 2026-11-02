@@ -1432,7 +1432,7 @@ class ClickHousePropertyResolver(CloningVisitor):
 
         regex_guard = self._regex_call_key_guard(node)
         if regex_guard is not None:
-            return _call("and", [regex_guard, super().visit_call(node)])
+            return _call("and", [super().visit_call(node), regex_guard])
 
         # A comparison written in call form (`equals(properties.x, v)`, `ilike(toString(properties.x), p)`,
         # `in(properties.x, (...))`) is still a comparison: route it through visit_compare_operation so the same rewrites
@@ -1961,10 +1961,13 @@ class ClickHousePropertyResolver(CloningVisitor):
         # surviving PropertyAccess reads the scrubbed materialized column. An is-set check therefore treats both an empty
         # string and the literal text "null" as "not set", which over-matches a true "does this key exist in the blob"
         # test. Left this way deliberately — tightening it would change query results.
-        prefilter = self._person_json_substring_prefilter(node) or self._property_group_key_guard(node)
+        prefilter = self._person_json_substring_prefilter(node)
+        key_guard = self._property_group_key_guard(node) if prefilter is None else None
         compared = super().visit_compare_operation(node)
         if prefilter is not None:
             return _call("and", [prefilter, compared])
+        if key_guard is not None:
+            return _call("and", [compared, key_guard])
         return compared
 
     # --- unbacked person JSON: a substring pre-check ahead of the JSON parse ---
@@ -2362,12 +2365,13 @@ class ClickHousePropertyResolver(CloningVisitor):
         return None
 
     def _property_group_key_guard(self, node: ast.CompareOperation) -> ast.Call | None:
-        """`indexHint(has(map, key))` to AND ahead of a range or positive pattern comparison over a property-group property.
+        """`has(map, key)` to AND after a range or positive pattern comparison over a property-group property.
 
         Those comparisons read `if(has(map, key), map[key], NULL)` inside the comparison, where no skip index can see
-        it; the `has()` conjunct lets the keys bloom filter skip granules without the key. `indexHint` keeps it to index
-        analysis and evaluates to 1 per row, so it cannot change the result and costs no row-level work (a plain `has()`
-        per OR branch cost 20-30% more CPU on an OR of 11 ILIKE patterns). Skipping is sound because an absent key reads
+        it; the `has()` conjunct lets the keys bloom filter skip granules without the key. It goes last because
+        ClickHouse evaluates `and` lazily and copies each later argument's input columns down to the rows still
+        selected: placed first, every guarded comparison re-filtered the wide map column (+24% CPU on an OR of 11 ILIKE
+        patterns), while placed last `has()` only sees rows the comparison kept. Skipping is sound because an absent key reads
         NULL through the NULL-preserving wrappers unwrapped below, so the comparison is NULL or false. Only a WHERE or
         PREWHERE comparison under `and`/`or` alone qualifies: index analysis reads only those clauses, and there a NULL
         or false comparison drops the row, whereas under `not` or `if` it can still select it (the printer leaves a
@@ -2397,7 +2401,7 @@ class ClickHousePropertyResolver(CloningVisitor):
                 continue
             prop = self._property_group_property(operand)
             if prop is not None:
-                return _call("indexHint", [prop.group_has()])
+                return prop.group_has()
         return None
 
     # --- individually-materialized-column optimizers ---

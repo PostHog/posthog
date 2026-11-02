@@ -730,7 +730,7 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
             ("is_not_set", PropertyOperator.IS_NOT_SET, None, {PG_KEYS_INDEX}, {PG_VALUES_INDEX}),
             # Multi-value IN → ``and(has(map, key), in(map[key], tuple(...)))`` — keys only; ``transform_null_in`` defaults break a direct values-bloom probe.
             ("in_multi", PropertyOperator.IN_, ["2", "5"], {PG_KEYS_INDEX}, {PG_VALUES_INDEX}),
-            # Range and positive pattern ops keep their comparison behind ``and(indexHint(has(map, key)), ...)`` — keys only.
+            # Range and positive pattern ops AND their comparison with ``has(map, key)`` — keys only.
             ("lt", PropertyOperator.LT, "5", {PG_KEYS_INDEX}, {PG_VALUES_INDEX}),
             ("icontains", PropertyOperator.ICONTAINS, "5", {PG_KEYS_INDEX}, {PG_VALUES_INDEX}),
             ("gte", PropertyOperator.GTE, "5", {PG_KEYS_INDEX}, {PG_VALUES_INDEX}),

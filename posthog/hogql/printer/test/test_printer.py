@@ -1815,58 +1815,61 @@ class TestPrinter(BaseTest):
         assert_result_is_equal("[]", set())
 
     def test_property_groups_optimized_range_and_pattern_comparisons(self) -> None:
-        has_key = "indexHint(has(events.properties_group_custom, %(hogql_val_0)s))"
-        value_read = "if(has(events.properties_group_custom, %(hogql_val_1)s), events.properties_group_custom[%(hogql_val_2)s], NULL)"
+        has_key = "has(events.properties_group_custom, %(hogql_val_3)s)"
+        value_read = "if(has(events.properties_group_custom, %(hogql_val_0)s), events.properties_group_custom[%(hogql_val_1)s], NULL)"
         for expression, comparison in (
-            ("properties.key < 'b'", f"ifNull(less({value_read}, %(hogql_val_3)s), 0)"),
-            ("properties.key <= 'b'", f"ifNull(lessOrEquals({value_read}, %(hogql_val_3)s), 0)"),
+            ("properties.key < 'b'", f"ifNull(less({value_read}, %(hogql_val_2)s), 0)"),
+            ("properties.key <= 'b'", f"ifNull(lessOrEquals({value_read}, %(hogql_val_2)s), 0)"),
             (
                 "toFloat(properties.key) > 5",
-                f"ifNull(greater(accurateCastOrNull({value_read}, %(hogql_val_3)s), 5), 0)",
+                f"ifNull(greater(accurateCastOrNull({value_read}, %(hogql_val_2)s), 5), 0)",
             ),
             (
                 "toInt(properties.key) >= 5",
-                f"ifNull(greaterOrEquals(accurateCastOrNull({value_read}, %(hogql_val_3)s), 5), 0)",
+                f"ifNull(greaterOrEquals(accurateCastOrNull({value_read}, %(hogql_val_2)s), 5), 0)",
             ),
-            ("less(properties.key, 'b')", f"ifNull(less({value_read}, %(hogql_val_3)s), 0)"),
-            ("properties.key LIKE 'a%'", f"ifNull(like({value_read}, %(hogql_val_3)s), 0)"),
-            ("toString(properties.key) ILIKE '%a%'", f"ifNull(ilike(toString({value_read}), %(hogql_val_3)s), 0)"),
-            ("lower(properties.key) LIKE '%a%'", f"ifNull(like(lower({value_read}), %(hogql_val_3)s), 0)"),
+            ("less(properties.key, 'b')", f"ifNull(less({value_read}, %(hogql_val_2)s), 0)"),
+            ("properties.key LIKE 'a%'", f"ifNull(like({value_read}, %(hogql_val_2)s), 0)"),
+            ("toString(properties.key) ILIKE '%a%'", f"ifNull(ilike(toString({value_read}), %(hogql_val_2)s), 0)"),
+            ("lower(properties.key) LIKE '%a%'", f"ifNull(like(lower({value_read}), %(hogql_val_2)s), 0)"),
             (
                 "lower(toString(properties.key)) LIKE '%a%'",
-                f"ifNull(like(lower(toString({value_read})), %(hogql_val_3)s), 0)",
+                f"ifNull(like(lower(toString({value_read})), %(hogql_val_2)s), 0)",
             ),
             (
                 "properties.key =~ 'a'",
-                f"ifNull(match({value_read}, %(hogql_val_3)s), isNull({value_read}) and isNull(%(hogql_val_3)s))",
+                f"ifNull(match({value_read}, %(hogql_val_2)s), isNull({value_read}) and isNull(%(hogql_val_2)s))",
             ),
             (
                 "properties.key =~* 'a'",
-                f"ifNull(match({value_read}, concat('(?i)', %(hogql_val_3)s)), isNull({value_read}) and isNull(%(hogql_val_3)s))",
-            ),
-            (
-                "toDateTime(properties.key) > '2024-01-01'",
-                f"ifNull(greater(parseDateTime64BestEffortOrNull({value_read}, 6, %(hogql_val_3)s), %(hogql_val_4)s), 0)",
+                f"ifNull(match({value_read}, concat('(?i)', %(hogql_val_2)s)), isNull({value_read}) and isNull(%(hogql_val_2)s))",
             ),
             # The `regex` property filter's call form, and a bare `match` call.
             (
                 "ifNull(match(toString(properties.key), '[0-9]'), 0)",
-                f"ifNull(match(toString({value_read}), %(hogql_val_3)s), 0)",
+                f"ifNull(match(toString({value_read}), %(hogql_val_2)s), 0)",
             ),
-            ("match(properties.key, 'a')", f"match({value_read}, %(hogql_val_3)s)"),
+            ("match(properties.key, 'a')", f"match({value_read}, %(hogql_val_2)s)"),
         ):
             with self.subTest(expression):
                 self._test_property_group_comparison(
                     expression,
-                    f"and({has_key}, {comparison})",
+                    f"and({comparison}, {has_key})",
                     expected_skip_indexes_used={"properties_group_custom_keys_bf"},
                     in_where=True,
                 )
 
-        swapped_read = "if(has(events.properties_group_custom, %(hogql_val_2)s), events.properties_group_custom[%(hogql_val_3)s], NULL)"
+        self._test_property_group_comparison(
+            "toDateTime(properties.key) > '2024-01-01'",
+            f"and(ifNull(greater(parseDateTime64BestEffortOrNull({value_read}, 6, %(hogql_val_2)s), %(hogql_val_3)s), 0), "
+            "has(events.properties_group_custom, %(hogql_val_4)s))",
+            expected_skip_indexes_used={"properties_group_custom_keys_bf"},
+            in_where=True,
+        )
+        swapped_read = "if(has(events.properties_group_custom, %(hogql_val_1)s), events.properties_group_custom[%(hogql_val_2)s], NULL)"
         self._test_property_group_comparison(
             "'b' > properties.key",
-            f"and({has_key}, ifNull(greater(%(hogql_val_1)s, {swapped_read}), 0))",
+            f"and(ifNull(greater(%(hogql_val_0)s, {swapped_read}), 0), {has_key})",
             expected_skip_indexes_used={"properties_group_custom_keys_bf"},
             in_where=True,
         )
@@ -1894,7 +1897,7 @@ class TestPrinter(BaseTest):
             self._test_property_group_comparison("toString(properties.key) ILIKE '%a%'", None, in_where=True)
 
     def test_property_groups_key_guard_only_in_where_and_or_chains(self) -> None:
-        guard = "and(indexHint(has(events.properties_group_custom,"
+        guard = ", has(events.properties_group_custom, "
 
         def optimized_sql(query: str) -> str:
             modifiers = HogQLQueryModifiers(
@@ -2032,7 +2035,7 @@ class TestPrinter(BaseTest):
                         optimized_results, optimized_sql = query_results(shape, expr, PropertyGroupsMode.OPTIMIZED)
                         self.assertEqual(optimized_results, disabled_results)
                         if shape_name == "where" and not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-                            self.assertIn("and(indexHint(has(events.properties_group_custom,", optimized_sql)
+                            self.assertIn(", has(events.properties_group_custom, ", optimized_sql)
                             self.assertEqual({label for (label,) in optimized_results}, matching_labels)
 
         # `transform`'s default makes an absent key match, so skipping granules without the key would drop rows.
@@ -2041,7 +2044,7 @@ class TestPrinter(BaseTest):
         optimized_results, optimized_sql = query_results(shapes["where"], expr, PropertyGroupsMode.OPTIMIZED)
         self.assertEqual(optimized_results, disabled_results)
         self.assertIn(("absent",), optimized_results)
-        self.assertNotIn("indexHint", optimized_sql)
+        self.assertNotIn(", has(events.properties_group_custom, ", optimized_sql)
 
     def test_property_groups_optimized_timestamp_comparison_query_results(self):
         # The printer leaves a comparison against an events timestamp without `ifNull`, so an absent key gives NULL
@@ -2086,7 +2089,7 @@ class TestPrinter(BaseTest):
                 disabled_results, _ = query_results(query, PropertyGroupsMode.DISABLED)
                 optimized_results, optimized_sql = query_results(query, PropertyGroupsMode.OPTIMIZED)
                 self.assertEqual(optimized_results, disabled_results)
-                has_guard = "and(indexHint(has(events.properties_group_custom," in optimized_sql
+                has_guard = ", has(events.properties_group_custom, " in optimized_sql
                 if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
                     self.assertEqual(has_guard, name in ("where", "where or"))
 

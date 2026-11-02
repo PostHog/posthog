@@ -471,7 +471,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(indexHint(has(events.properties_group_custom, 'test_prop')), ifNull(less(accurateCastOrNull(if(has(events.properties_group_custom, 'test_prop'), events.properties_group_custom['test_prop'], NULL), 'Float64'), 5.0), 0)))
+  WHERE and(equals(events.team_id, 99999), and(ifNull(less(accurateCastOrNull(if(has(events.properties_group_custom, 'test_prop'), events.properties_group_custom['test_prop'], NULL), 'Float64'), 5.0), 0), has(events.properties_group_custom, 'test_prop')))
   LIMIT 50000
   '''
 # ---
@@ -479,7 +479,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(indexHint(has(events.properties_group_custom, 'test_prop')), ifNull(ilike(toString(if(has(events.properties_group_custom, 'test_prop'), events.properties_group_custom['test_prop'], NULL)), '%5%'), 0)))
+  WHERE and(equals(events.team_id, 99999), and(ifNull(ilike(toString(if(has(events.properties_group_custom, 'test_prop'), events.properties_group_custom['test_prop'], NULL)), '%5%'), 0), has(events.properties_group_custom, 'test_prop')))
   LIMIT 50000
   '''
 # ---
@@ -487,7 +487,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(indexHint(has(events.properties_group_custom, 'test_prop')), ifNull(greaterOrEquals(accurateCastOrNull(if(has(events.properties_group_custom, 'test_prop'), events.properties_group_custom['test_prop'], NULL), 'Float64'), 5.0), 0)))
+  WHERE and(equals(events.team_id, 99999), and(ifNull(greaterOrEquals(accurateCastOrNull(if(has(events.properties_group_custom, 'test_prop'), events.properties_group_custom['test_prop'], NULL), 'Float64'), 5.0), 0), has(events.properties_group_custom, 'test_prop')))
   LIMIT 50000
   '''
 # ---
@@ -495,7 +495,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(indexHint(has(events.properties_group_custom, 'test_prop')), ifNull(match(toString(if(has(events.properties_group_custom, 'test_prop'), events.properties_group_custom['test_prop'], NULL)), '[0-9]'), 0)))
+  WHERE and(equals(events.team_id, 99999), and(ifNull(match(toString(if(has(events.properties_group_custom, 'test_prop'), events.properties_group_custom['test_prop'], NULL)), '[0-9]'), 0), has(events.properties_group_custom, 'test_prop')))
   LIMIT 50000
   '''
 # ---
@@ -647,7 +647,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(indexHint(has(events.person_properties_map_custom, 'test_prop')), ifNull(less(accurateCastOrNull(if(has(events.person_properties_map_custom, 'test_prop'), events.person_properties_map_custom['test_prop'], NULL), 'Float64'), 5.0), 0)))
+  WHERE and(equals(events.team_id, 99999), and(ifNull(less(accurateCastOrNull(if(has(events.person_properties_map_custom, 'test_prop'), events.person_properties_map_custom['test_prop'], NULL), 'Float64'), 5.0), 0), has(events.person_properties_map_custom, 'test_prop')))
   LIMIT 50000
   '''
 # ---
@@ -655,7 +655,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(indexHint(has(events.person_properties_map_custom, 'test_prop')), ifNull(ilike(toString(if(has(events.person_properties_map_custom, 'test_prop'), events.person_properties_map_custom['test_prop'], NULL)), '%5%'), 0)))
+  WHERE and(equals(events.team_id, 99999), and(ifNull(ilike(toString(if(has(events.person_properties_map_custom, 'test_prop'), events.person_properties_map_custom['test_prop'], NULL)), '%5%'), 0), has(events.person_properties_map_custom, 'test_prop')))
   LIMIT 50000
   '''
 # ---
@@ -663,7 +663,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(indexHint(has(events.person_properties_map_custom, 'test_prop')), ifNull(match(toString(if(has(events.person_properties_map_custom, 'test_prop'), events.person_properties_map_custom['test_prop'], NULL)), '[0-9]'), 0)))
+  WHERE and(equals(events.team_id, 99999), and(ifNull(match(toString(if(has(events.person_properties_map_custom, 'test_prop'), events.person_properties_map_custom['test_prop'], NULL)), '[0-9]'), 0), has(events.person_properties_map_custom, 'test_prop')))
   LIMIT 50000
   '''
 # ---
