@@ -299,12 +299,14 @@ pub struct Fallback {
 /// What `finish` found about a block.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RewriteReport {
-    /// No URL the policy declines can stay in the stored bytes.
+    /// No URL the policy declines can stay in the stored bytes, and no URL the inspector named stays there as written.
     pub safe: bool,
     /// A declined URL stayed, as a second copy that the rewrite passed over.
     pub declined_kept: bool,
-    /// The hosts of declined URLs the inspector named but the stored bytes do not hold as it read them. `None` when
-    /// one of them has no host to look for.
+    /// A declined URL is among the URLs of `unfound_hosts`.
+    pub declined_unfound: bool,
+    /// The hosts of URLs the inspector named but the stored bytes do not hold as it read them. `None` when one of
+    /// them has no host to look for.
     pub unfound_hosts: Option<Vec<String>>,
     pub scrubbed: u64,
     pub kept_in: Option<String>,
@@ -678,17 +680,20 @@ impl UrlRewrite {
             Scrub::Nothing => false,
         };
         let mut unfound_hosts = Some(Vec::new());
+        let mut declined_unfound = false;
         let mut safe = !self.declined_kept;
         for target in &self.targets {
-            if !target.found.get() && target.declined.is_some() && !covered(&target.url) {
+            // The policy checks an accepted URL without its fragment, which the URL as written can still hold.
+            if !target.found.get() && !covered(&target.url) {
                 safe = false;
+                declined_unfound |= target.declined.is_some();
                 match (url_host(&target.url), &mut unfound_hosts) {
                     (Some(host), Some(hosts)) => hosts.push(host),
                     _ => unfound_hosts = None,
                 }
             }
         }
-        // Many declined URLs share a host. The second pass binary-searches this list for every target, so it is sorted.
+        // Many URLs share a host. The second pass binary-searches this list for every target, so it is sorted.
         if let Some(hosts) = &mut unfound_hosts {
             hosts.sort_unstable();
             hosts.dedup();
@@ -715,6 +720,7 @@ impl UrlRewrite {
         RewriteReport {
             safe,
             declined_kept: self.declined_kept,
+            declined_unfound,
             unfound_hosts,
             scrubbed: self.scrubbed,
             kept_in: self.kept_in,

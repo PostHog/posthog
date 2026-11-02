@@ -202,17 +202,19 @@ fn first_fallback(block: &Block) -> Fallback {
 }
 
 /// What the second pass does about what the first left unsafe: it overwrites each declined URL wherever it is, and
-/// scrubs the tokens that hold the host of a declined URL the stored bytes do not hold as the inspector read it.
+/// scrubs the tokens that hold the host of a URL the stored bytes do not hold as the inspector read it.
 fn second_fallback(first: &Fallback, report: &RewriteReport) -> Fallback {
     let scrub = match (&first.scrub, &report.unfound_hosts) {
         (Scrub::AllRemote, _) | (_, None) => Scrub::AllRemote,
         (_, Some(hosts)) if hosts.is_empty() => Scrub::Nothing,
         (_, Some(hosts)) => Scrub::Hosts(hosts.clone()),
     };
-    let reason = if report.unfound_hosts.as_ref().is_some_and(Vec::is_empty) {
+    let reason = if report.declined_unfound {
+        "declined_unfound"
+    } else if report.declined_kept {
         "declined_kept"
     } else {
-        "declined_unfound"
+        "accepted_unfound"
     };
     Fallback {
         overwrite_declined: true,
@@ -914,6 +916,23 @@ mod tests {
             "{lines}"
         );
         assert!(!stored_lines(&event, &[public]).is_empty());
+        // An inline image taken out of an accepted URL changes the URL, so the stored bytes do not show it as the
+        // inspector read it either. Its reference leaves out the fragment, which the stored URL must not keep.
+        let inline_in_url =
+            "https://cdn.example.com/data:image/png;base64,iVBORw0KGgo=#access_token=secret";
+        for attributes in [
+            json!({"src": inline_in_url}),
+            json!({"srcset": format!("{inline_in_url} 1x")}),
+        ] {
+            let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "removes": [], "texts": [], "attributes": [],
+                "adds": [{"parentId": 1, "node": {"type": 2, "tagName": "img", "attributes": attributes, "childNodes": [], "id": 5}}]}}])
+            .to_string();
+            let lines = stored_lines(&events, &[]);
+            assert!(
+                !lines.is_empty() && !lines.contains("access_token"),
+                "{lines}"
+            );
+        }
         // A declined URL that a longer URL also holds is overwritten there too, and the block is kept.
         let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
             "attributes": [{"id": 99, "attributes": {"src": signed, "alt": format!("{signed}&size=2")}}]}}])
