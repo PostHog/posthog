@@ -2130,19 +2130,23 @@ describe('EmailService', () => {
             })
         })
 
+        const useMessageAssets = ({ failing }: { failing: boolean }): void => {
+            const messageAssets = new MessageAssetsService({
+                produce: jest.fn().mockResolvedValue(undefined),
+            } as unknown as IngestionOutputs<'message_assets'>)
+            if (failing) {
+                jest.spyOn(messageAssets, 'buildRowForEmail').mockImplementation(() => {
+                    throw new Error('Asset row fault')
+                })
+            }
+            service['messageAssetsService'] = messageAssets
+        }
+
         it.each([
             {
                 stage: 'saving the email copy',
                 warning: 'Email sent, but its saved copy could not be created.',
-                breakBookkeeping: () => {
-                    const messageAssets = new MessageAssetsService({
-                        produce: jest.fn().mockResolvedValue(undefined),
-                    } as unknown as IngestionOutputs<'message_assets'>)
-                    jest.spyOn(messageAssets, 'buildRowForEmail').mockImplementation(() => {
-                        throw new Error('Asset row fault')
-                    })
-                    service['messageAssetsService'] = messageAssets
-                },
+                breakBookkeeping: () => useMessageAssets({ failing: true }),
             },
             {
                 stage: 'reading the engagement setting',
@@ -2168,22 +2172,20 @@ describe('EmailService', () => {
             expect(sendEmailSpy).toHaveBeenCalledTimes(1)
         })
 
-        it('leaves out the View email link and the saved copy when the copy fails', async () => {
+        it.each([
+            { link: 'adds', outcome: 'succeeds', failing: false, linked: true, savedCopies: 1 },
+            { link: 'leaves out', outcome: 'fails', failing: true, linked: false, savedCopies: 0 },
+        ])('$link the View email link when saving the copy $outcome', async ({ failing, linked, savedCopies }) => {
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
-            const messageAssets = new MessageAssetsService({
-                produce: jest.fn().mockResolvedValue(undefined),
-            } as unknown as IngestionOutputs<'message_assets'>)
-            jest.spyOn(messageAssets, 'buildRowForEmail').mockImplementation(() => {
-                throw new Error('Asset row fault')
-            })
-            service['messageAssetsService'] = messageAssets
+            invocation.state.actionId = 'email_1'
+            useMessageAssets({ failing })
 
             const result = await service.executeSendEmail(invocation)
 
             const sentLine = result.logs.find((log) => log.message.startsWith('Email sent to '))
             expect(sentLine).toBeDefined()
-            expect(sentLine?.message).not.toContain('[Email:')
-            expect(result.messageAssets).toEqual([])
+            expect(sentLine?.message.includes(`[Email:${invocation.id}:email_1]`)).toBe(linked)
+            expect(result.messageAssets).toHaveLength(savedCopies)
         })
 
         it('records a failed send as failed when the engagement setting read also fails', async () => {
