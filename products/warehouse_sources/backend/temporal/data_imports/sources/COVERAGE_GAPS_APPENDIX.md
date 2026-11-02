@@ -324,7 +324,7 @@ Note: Airbrake's readable v4 surface is small and coverage is close to complete:
 
 ## Aircall — gaps
 
-Today (10): `call_evaluations`, `call_sentiments`, `call_topics`, `call_transcriptions`, `calls`, `contacts`, `numbers`, `tags`, `teams`, `users`
+Today (15): `call_evaluations`, `call_sentiments`, `call_topics`, `call_transcriptions`, `calls`, `campaign_call_outcomes`, `campaign_outcomes`, `campaign_stats`, `campaigns`, `contacts`, `numbers`, `tags`, `teams`, `trackers`, `users`
 
 Diffed against: <https://developer.aircall.io/api-references/>
 
@@ -338,6 +338,11 @@ Diffed against: <https://developer.aircall.io/api-references/>
 - [ ] `user availabilities (GET /v1/users/availabilities)` — agent availability state, needed for staffing and utilization analysis (medium)
 - [ ] `analytics report export (POST/GET /v1/analytics/report/export)` — Aircall's own aggregated analytics reports (volumes, service level) as a ready-made fact table (medium)
 - [ ] `company (GET /v1/company)` — account-level lookup row giving the tenant these calls belong to (low)
+- [x] `campaigns (GET /v1/campaigns)` — outbound Campaigns, the dimension every Campaign call outcome hangs off (medium)
+- [x] `campaign stats (GET /v1/campaigns/{id}/stats)` — per-Campaign progress snapshot (contacts done, connected, average duration) (medium)
+- [x] `campaign call outcomes (GET /v1/campaigns/{id}/call_outcomes)` — disposition log per Campaign, joinable to calls (medium)
+- [x] `campaign outcomes (GET /v1/campaign_outcomes)` — lookup decoding custom outcome ids on Campaign call outcomes (low)
+- [x] `trackers (GET /v1/trackers)` — Conversation Intelligence keyword trackers configured for the company (low)
 
 Note: The Conversation Intelligence endpoints are all per-call sub-resources, so they require fanning out over the already-synced calls table rather than a top-level list call. Aircall also has Users V2 alongside V1 and a Messages/WhatsApp surface that is send-only (inbound arrives via webhooks), so there is no listable conversations table to sync.
 
@@ -977,6 +982,16 @@ Diffed against: <https://docs.attentive.com/llms.txt>
 No material gaps found.
 
 Note: This is a webhook-ingestion source (the directory contains webhook_template.py), and the 8 tables map exactly 1:1 onto the 8 event types Attentive's createwebhook endpoint accepts: sms.subscribed, sms.sent, sms.message_link_click, email.subscribed, email.unsubscribed, email.message_link_click, email.opened, custom_attribute.set. Full coverage of the webhook surface. Attentive's REST/GraphQL APIs are almost entirely write/ingest (POST events, attributes, subscriptions, catalog uploads); the only GETs are single-user lookups by phone/email, webhook config, catalog upload status and /me - no analytical collections to backfill from, so historical data before webhook setup is simply unavailable from the vendor.
+
+## Attio — gaps
+
+Today (10): `activities`, `companies`, `deals`, `lists`, `notes`, `people`, `tasks`, `users`, `workspace_members`, `workspaces`
+
+Diffed against: <https://docs.attio.com/changelog/rest-api>
+
+- [x] `Activities (GET /v2/activities)` — activity type definitions, so activity records can be labelled by type (low)
+
+Note: The main gap list for Attio is in COVERAGE_GAPS.md. `GET /v2/emails` was not added: it is alpha, Attio enables it per workspace on request, and it only returns emails filtered by linked records, participants, or domain, so it cannot list a workspace's emails.
 
 ## Auth0 — gaps
 
@@ -3042,7 +3057,7 @@ Note: docs.coinapi.io is behind a Cloudflare interstitial and returns 403 to cur
 
 ## CoinGecko — gaps
 
-Today (20): `asset_platforms`, `coins_categories`, `coins_categories_list`, `coins_list`, `coins_market_chart`, `coins_markets`, `coins_ohlc`, `coins_tickers`, `derivatives_exchanges`, `derivatives_tickers`, `exchange_rates`, `exchanges`, `exchanges_list`, `global_market_cap_chart`, `global_market_data`, `insights`, `nfts_markets`, `rwas_issuers_list`, `rwas_list`, `rwas_markets`
+Today (21): `asset_platforms`, `coins_categories`, `coins_categories_list`, `coins_list`, `coins_market_chart`, `coins_markets`, `coins_ohlc`, `coins_tickers`, `derivatives_exchanges`, `derivatives_tickers`, `exchange_rates`, `exchanges`, `exchanges_list`, `global_fear_and_greed_chart`, `global_market_cap_chart`, `global_market_data`, `insights`, `nfts_markets`, `rwas_issuers_list`, `rwas_list`, `rwas_markets`
 
 Diffed against: <https://docs.coingecko.com/llms.txt>
 
@@ -3050,6 +3065,7 @@ Diffed against: <https://docs.coingecko.com/llms.txt>
 - [x] `/coins/{id}/ohlc/range` — OHLC candles per coin over an arbitrary range, needed for any price analysis (high)
 - [x] `/global` — total crypto market cap, active coins and BTC dominance - CoinGecko's flagship market-wide metric (high)
 - [x] `/global/market_cap_chart` — historical global market cap and volume, the time series behind the above (high)
+- [x] `/global/fear_and_greed_chart` — daily Fear & Greed index history from 2024-08-14 onwards (Pro, Analyst plan and above) (medium)
 - [x] `/coins/{id}/tickers` — market pairs per coin on CEX and DEX - the join that resolves coins_list against exchanges_list, which we sync but cannot currently link (high)
 - [ ] `/exchanges/{id}/tickers` — trading pairs per exchange; the other half of the coin-to-exchange lookup (medium)
 - [ ] `/exchanges/{id}/volume_chart/range` — historical exchange volume for ranking exchanges over time (medium)
@@ -3067,7 +3083,7 @@ Note: docs.coingecko.com/reference/\* pages are client-rendered and unparseable 
 
 ## CoinMarketCap — gaps
 
-Today (15): `categories`, `cryptocurrency_info`, `cryptocurrency_map`, `exchange_info`, `exchange_listings_latest`, `exchange_map`, `exchange_quotes_historical`, `fiat_map`, `global_metrics_quotes_historical`, `liquidations_by_cryptocurrency_latest`, `liquidations_by_exchange_latest`, `listings_historical`, `listings_latest`, `ohlcv_historical`, `quotes_historical`
+Today (17): `categories`, `cmc_ai_coins_latest`, `cmc_ai_latest`, `cryptocurrency_info`, `cryptocurrency_map`, `exchange_info`, `exchange_listings_latest`, `exchange_map`, `exchange_quotes_historical`, `fiat_map`, `global_metrics_quotes_historical`, `liquidations_by_cryptocurrency_latest`, `liquidations_by_exchange_latest`, `listings_historical`, `listings_latest`, `ohlcv_historical`, `quotes_historical`
 
 Diffed against: <https://pro.coinmarketcap.com/api/documentation/pro-api-reference/cryptocurrency.md>
 
@@ -3085,6 +3101,8 @@ Diffed against: <https://pro.coinmarketcap.com/api/documentation/pro-api-referen
 - [ ] `GET /v3/fear-and-greed/historical` — CMC's proprietary sentiment index over time, a commonly requested signal (medium)
 - [x] `GET /v5/derivatives/liquidations/cryptocurrency/list/latest` — latest long/short liquidations per coin over rolling 1h/4h/24h windows (medium)
 - [x] `GET /v5/derivatives/liquidations/exchange/list/latest` — latest long/short liquidations per derivatives exchange over rolling 1h/4h/24h windows (medium)
+- [x] `GET /v5/cmc-ai/latest` — market-wide CMC AI questions, answers and top news from the homepage (low)
+- [x] `GET /v5/cmc-ai/coins/latest` — per-coin CMC AI questions and answers from Coin Detail Pages (low)
 
 Note: coinmarketcap.com/api/documentation is a client-rendered zudoku app, but every page is served as markdown by appending .md, and pro.coinmarketcap.com/llms.txt indexes the whole reference by family (Cryptocurrency 19, Exchange 7, Global Metrics 6, DEX/Token 16, Holder 5, Derivatives 3, RWA 7, CMC Index 4...). The cryptocurrency and global-metrics historical families are now covered, as is the exchange family apart from market pairs, assets and proof-of-reserves. The DEX (Token/Pool/Holder/OHLCV) and Real World Assets families are also entirely uncovered but are treated as separate products rather than enumerated here.
 
@@ -4675,6 +4693,7 @@ Diffed against: <https://docs.fintoc.com/_llms/v2026-02-01/en/api-reference.txt>
 - [ ] `Entities (GET /v2/entities)` — group business accounts and transfer activity by legal account holder (medium)
 - [ ] `Fiscal invoices and tax filings (GET /v1/invoices; GET /v1/tax_returns; GET /v1/tax_statements)` — analyze fiscal sales records and tax filings separately from recurring payment invoices (medium)
 - [ ] `Payment links (GET /v1/payment_links)` — track requested payment amounts, link status, and collection activity across payment links (medium)
+- [x] `Transfer batches (GET /v2/transfer_batches)` — group outbound transfers by the Dashboard approval batch and track batch status and settled amounts (medium)
 
 Note: The versioned vendor index and linked pages supplied embedded OpenAPI operations and object fields. Current accounts and movements use v1 open banking routes; business accounts and fiscal invoices are separate resources. Movement and payout reads require parent IDs; fiscal records require suitable link tokens and represent three grouped operations. Webhook configuration, token refresh, and uploads are excluded; source webhook updates do not create an event history table.
 
@@ -9506,10 +9525,10 @@ Diffed against: <https://raw.githubusercontent.com/plaid/plaid-openapi/master/20
 - [x] `/investments/transactions/get` — buys, sells, dividends and fees; the investments analogue of the transactions table we already sync (high)
 - [x] `/liabilities/get` — loan and credit-card detail (APR, minimum payment, due date, origination) that never appears in accounts or transactions (high)
 - [x] `/institutions/get_by_id (and /institutions/get)` — lookup resolving the institution_id on the item whose accounts we sync - today the bank is only an opaque ID (high)
-- [ ] `/transactions/recurring/get` — Plaid-derived recurring inflow/outflow streams - the headline subscription and income-detection product (high)
-- [ ] `/accounts/balance/get` — live available/current balance refresh; the balances embedded in /accounts/get are cached and can be stale (medium)
-- [ ] `/identity/get` — account owner names, emails, phones and addresses, the standard join key to customer records (medium)
-- [ ] `/item/get` — item metadata - institution, enabled products, consent expiry, last error - needed to explain gaps in synced data (medium)
+- [x] `/transactions/recurring/get` — Plaid-derived recurring inflow/outflow streams - the headline subscription and income-detection product (high)
+- [x] `/accounts/balance/get` — live available/current balance refresh; the balances embedded in /accounts/get are cached and can be stale (medium)
+- [x] `/identity/get` — account owner names, emails, phones and addresses, the standard join key to customer records (medium)
+- [x] `/item/get` — item metadata - institution, enabled products, consent expiry, last error - needed to explain gaps in synced data (medium)
 - [ ] `/transfer/list` — money-movement records for Plaid Transfer customers, an analytical object with no equivalent today (medium)
 - [ ] `/transfer/event/list` — transfer state-transition history (pending, posted, returned) for settlement and return-rate analysis (medium)
 - [ ] `/statements/list` — available bank statement metadata per account for reconciliation coverage checks (low)
@@ -9551,12 +9570,12 @@ Diffed against: <https://docs.planhat.com/developers/api/planhat-models>
 - [x] `sale` — closed revenue transactions (high)
 - [x] `churn` — churn records, the headline customer-success metric (high)
 - [x] `metrics` — time-series usage and health metrics per company; Planhat's central analytical object (high)
-- [ ] `product` — lookup resolving the product IDs carried on synced licenses and on line items (high)
+- [x] `product` — lookup resolving the product IDs carried on synced licenses and on line items (high)
 - [x] `line-item` — line-level breakdown of licenses, invoices and sales (high)
 - [x] `opportunity` — open pipeline against existing accounts (high)
-- [ ] `user-activities` — enduser activity events, the raw input to adoption analysis (medium)
-- [ ] `custom-field` — lookup describing the custom fields present on companies, endusers and licenses (medium)
-- [ ] `task` — CSM task records for workload and playbook execution (medium)
+- [ ] `user-activities` — enduser activity events, the raw input to adoption analysis (medium); skipped: the User Activities API only ingests events (POST to analytics.planhat.com) and has no list endpoint to read them back
+- [x] `custom-field` — lookup describing the custom fields present on companies, endusers and licenses (medium)
+- [x] `task` — CSM task records for workload and playbook execution (medium)
 
 Note: docs.planhat.com is now a Framer SPA that serves the same HTML shell for every path, so the page list is not readable by plain curl. I recovered the authoritative model list from the site's own search index (https://framerusercontent.com/sites/2dYA2Fo9WB6PMbsWedNqce/searchIndex-RF4JY9qKBv0J.json), which serializes the /developers/api/\* page titles and the full model nav on the planhat-models page. Also documented but omitted as lower value: issue, objective, project, campaign, deal, time-entry, timesheet.
 
@@ -9744,23 +9763,23 @@ Today (7): `blueprints`, `orders`, `print_providers`, `products`, `shops`, `uplo
 
 Diffed against: <https://developers.printify.com/>
 
-- [ ] `catalog/blueprints/{blueprint_id}/print_providers/{print_provider_id}/variants` — the variant lookup table that resolves the variant_id carried on every synced product and order line item (size/color/SKU/price) (high)
-- [ ] `catalog/blueprints/{blueprint_id}/print_providers` — blueprint-to-print-provider mapping table; joins the two catalog tables already synced (medium)
-- [ ] `catalog/blueprints/{blueprint_id}/print_providers/{print_provider_id}/shipping (and the v2 shipping/standard|express|priority|economy variants)` — shipping cost and handling time per variant/country, needed for order margin analysis (medium)
-- [ ] `shops/{shop_id}/products/{product_id}/gpsr` — product safety/compliance attributes per product (low)
+- [x] `catalog/blueprints/{blueprint_id}/print_providers/{print_provider_id}/variants` — the variant lookup table that resolves the variant_id carried on every synced product and order line item (size/color/SKU/price) (high)
+- [x] `catalog/blueprints/{blueprint_id}/print_providers` — blueprint-to-print-provider mapping table; joins the two catalog tables already synced (medium)
+- [x] `catalog/blueprints/{blueprint_id}/print_providers/{print_provider_id}/shipping (and the v2 shipping/standard|express|priority|economy variants)` — shipping cost and handling time per variant/country, needed for order margin analysis (medium)
+- [x] `shops/{shop_id}/products/{product_id}/gpsr` — product safety/compliance attributes per product (low)
 
 Note: Single-page reference; v1 covers catalog/shops/products/orders/uploads/webhooks, and a v2 catalog shipping family (shipping/standard, /express, /priority, /economy) exists alongside the v1 shipping endpoint. Order line items are nested inside the orders payload, so they are not a separate gap.
 
 ## Productboard — gaps
 
-Today (14): `companies`, `components`, `features`, `initiatives`, `key_results`, `members`, `notes`, `objectives`, `products`, `release_groups`, `releases`, `subfeatures`, `teams`, `users`
+Today (17): `companies`, `components`, `entity_configurations`, `entity_relationships`, `features`, `initiatives`, `key_results`, `members`, `note_relationships`, `notes`, `objectives`, `products`, `release_groups`, `releases`, `subfeatures`, `teams`, `users`
 
 Diffed against: <https://developer.productboard.com/reference/listentityfieldvalues>
 
-- [ ] `GET /v2/entities/configurations/{type}` — defines every custom field and status for each entity type - the lookup that names the field/status IDs stored on entities (high)
+- [x] `GET /v2/entities/configurations/{type}` — defines every custom field and status for each entity type - the lookup that names the field/status IDs stored on entities (high)
 - [ ] `GET /v2/entities/fields/{fieldId}/values` — actual custom-field and status values per entity (e.g. status per feature); without it the entity rows carry no field data (high)
-- [ ] `GET /v2/entities/{id}/relationships` — the join table linking features to subfeatures, components, products, objectives and initiatives (high)
-- [ ] `GET /v2/notes/{id}/relationships` — links each piece of customer feedback to the feature/company it belongs to - the core insight-to-feature join (high)
+- [x] `GET /v2/entities/{id}/relationships` — the join table linking features to subfeatures, components, products, objectives and initiatives (high)
+- [x] `GET /v2/notes/{id}/relationships` — links each piece of customer feedback to the feature/company it belongs to - the core insight-to-feature join (high)
 - [ ] `GET /v2/teams/{id}/members` — team membership join table for the teams and members already synced (high)
 - [ ] `GET /v2/entities/{id}/score` — customer/user impact score per feature - a headline prioritization metric (medium)
 - [ ] `GET /v2/analytics/member-activities` — per-member activity events for adoption and engagement reporting (medium)
@@ -9823,10 +9842,10 @@ Today (4): `clicks_blocked`, `clicks_permitted`, `messages_blocked`, `messages_d
 
 Diffed against: <https://help.proofpoint.com/Threat_Insight_Dashboard/API_Documentation>
 
-- [ ] `Threat summary (GET /v2/threat/summary/{threatId})` — resolve threat identifiers from existing SIEM events into threat details and classifications (high)
-- [ ] `Campaign IDs and details (GET /v2/campaign/ids; GET /v2/campaign/{campaignId})` — resolve campaign identifiers in SIEM events and analyze related threat activity (high)
-- [ ] `Very Attacked People (GET /v2/people/vap)` — measure the vendor attack index and identify highly targeted users (high)
-- [ ] `Top clickers (GET /v2/people/top-clickers)` — rank risky clicking behavior with user identity and threat family breakdowns (medium)
+- [x] `Threat summary (GET /v2/threat/summary/{threatId})` — resolve threat identifiers from existing SIEM events into threat details and classifications (high)
+- [x] `Campaign IDs and details (GET /v2/campaign/ids; GET /v2/campaign/{campaignId})` — resolve campaign identifiers in SIEM events and analyze related threat activity (high)
+- [x] `Very Attacked People (GET /v2/people/vap)` — measure the vendor attack index and identify highly targeted users (high)
+- [x] `Top clickers (GET /v2/people/top-clickers)` — rank risky clicking behavior with user identity and threat family breakdowns (medium)
 - [ ] `Forensics (GET /v2/forensics)` — analyze threat evidence and indicators of compromise linked to events (medium)
 
 Note: The official API index links the People, Campaign, Threat, and Forensics references, whose GET operations were inspected. Threat summaries and forensics need IDs from existing events; campaign details need an ID listing or event fan-out. People results use rolling windows and quotas. SIEM aggregate endpoints duplicate existing tables, and URL decoding is excluded.
@@ -10015,7 +10034,7 @@ Note: No published SDL file; I ran an unauthenticated GraphQL introspection quer
 
 ## Ramp — **thin**
 
-Today (5): `cards`, `departments`, `reimbursements`, `transactions`, `users`
+Today (6): `billing_statements`, `cards`, `departments`, `reimbursements`, `transactions`, `users`
 
 Diffed against: <https://docs.ramp.com/openapi/developer-api.json>
 
@@ -10031,6 +10050,7 @@ Diffed against: <https://docs.ramp.com/openapi/developer-api.json>
 - [ ] `accounting/fields and accounting/field-options` — Custom accounting dimensions and their allowed values - the breakdown dimensions for coded spend (medium)
 - [ ] `receipts and item-receipts` — Receipt records and line-item detail attached to transactions, for compliance reporting (medium)
 - [ ] `spend-programs / unified-requests` — Spend limits and the approval-request stream that explains why spend was allowed or blocked (medium)
+- [x] `billing/statements` — Ramp billing statements per statement period, with the amount due and statement PDF link (medium)
 
 Note: Ramp publishes a full OpenAPI spec (2.1 MB) plus llms-api.txt; the docs HTML explicitly points machine readers at /openapi/developer-api.json. The spec has ~95 GET paths across ~40 resources; PostHog exposes 5. Also note PostHog syncs the legacy /cards path, which no longer appears in the current spec (now /cards/physical and /cards/virtual) - worth confirming it still returns data.
 
