@@ -222,10 +222,9 @@ class PauseHistory:
 @frozen
 class ExperimentOnFlag:
     """Another experiment of the project that uses the same feature flag. The API lets several experiments share one
-    flag, so the flag's state can belong to one of them."""
+    flag, so the flag's state can belong to one of them. It has no name or id, because the reader of this experiment
+    may have no access to the other one."""
 
-    id: int
-    name: str
     # None for a draft.
     launched_at: datetime | None
     # None while it runs, and for a draft.
@@ -741,13 +740,10 @@ def _other_experiments_on_flag(experiment: Experiment) -> tuple[ExperimentOnFlag
     others = (
         Experiment.objects.filter(team_id=experiment.team_id, feature_flag_id=experiment.feature_flag_id, deleted=False)
         .exclude(id=experiment.id)
-        .order_by("-created_at")
-        .values_list("id", "name", "start_date", "end_date", "archived", named=True)
+        .values_list("start_date", "end_date", "archived", named=True)
     )
     return tuple(
-        ExperimentOnFlag(
-            id=other.id, name=other.name, launched_at=other.start_date, ended_at=other.end_date, archived=other.archived
-        )
+        ExperimentOnFlag(launched_at=other.start_date, ended_at=other.end_date, archived=other.archived)
         for other in others
     )
 

@@ -86,7 +86,7 @@ ENDED_AT = datetime(2026, 10, 14, 8, 30, tzinfo=UTC)
 
 
 def _other(*, launched_at: datetime | None, ended_at: datetime | None = None) -> ExperimentOnFlag:
-    return ExperimentOnFlag(id=7, name="Pricing page v2", launched_at=launched_at, ended_at=ended_at, archived=False)
+    return ExperimentOnFlag(launched_at=launched_at, ended_at=ended_at, archived=False)
 
 
 DRAFT_ON_FLAG = _other(launched_at=None)
@@ -474,10 +474,10 @@ class TestFlagState(TestCase):
                     other_experiments=(DRAFT_ON_FLAG,),
                 ),
                 "The experiment ended on October 14, 2026 at 10:30 AM CEST, and the linked feature flag is still "
-                'active with multiple variants. The draft experiment "Pricing page v2" uses the same flag, so users '
-                "get its variants whenever your code reads the flag, before that experiment launches. This is expected "
-                "while you test its variants. Otherwise, disable the flag until you launch it.",
-                {"ended_at": "2026-10-14T08:30:00+00:00", "draft_experiment_id": 7},
+                "active with multiple variants. A draft experiment uses the same flag, so users get its variants "
+                "whenever your code reads the flag, before that experiment launches. This is expected while you test "
+                "its variants. Otherwise, disable the flag until you launch it.",
+                {"ended_at": "2026-10-14T08:30:00+00:00"},
             ),
         ]
     )

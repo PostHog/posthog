@@ -225,9 +225,8 @@ def _live_after_end(ctx: HealthContext, ended_at: datetime) -> ExperimentHealthF
     # Disabling the flag would stop the later experiment, and that experiment's own check reports the flag's state.
     if any(_serves_later_experiment(other, ended_at) for other in others):
         return None
-    draft = next((other for other in others if other.launched_at is None and not other.archived), None)
-    if draft is not None:
-        return _shared_with_draft(draft, ended_at, ctx.team_timezone)
+    if any(other.launched_at is None and not other.archived for other in others):
+        return _shared_with_draft(ended_at, ctx.team_timezone)
     if ctx.flag_called_after_end is True:
         return _finding(
             code=ExperimentHealthFindingCode.FLAG_LIVE_AFTER_END,
@@ -258,7 +257,7 @@ def _serves_later_experiment(other: ExperimentOnFlag, ended_at: datetime) -> boo
     return other.launched_at is not None and (other.ended_at is None or other.launched_at > ended_at)
 
 
-def _shared_with_draft(draft: ExperimentOnFlag, ended_at: datetime, team_timezone: str) -> ExperimentHealthFinding:
+def _shared_with_draft(ended_at: datetime, team_timezone: str) -> ExperimentHealthFinding:
     # Info, because the draft's own check reports a flag that is active before launch.
     return _finding(
         code=ExperimentHealthFindingCode.FLAG_LIVE_AFTER_END,
@@ -267,11 +266,11 @@ def _shared_with_draft(draft: ExperimentOnFlag, ended_at: datetime, team_timezon
         title="The feature flag is still active, and a draft experiment uses it",
         detail=(
             f"The experiment ended on {format_change_time(ended_at, team_timezone)}, and the linked feature flag is "
-            f'still active with multiple variants. The draft experiment "{draft.name}" uses the same flag, so users '
-            "get its variants whenever your code reads the flag, before that experiment launches. This is expected "
-            "while you test its variants. Otherwise, disable the flag until you launch it."
+            "still active with multiple variants. A draft experiment uses the same flag, so users get its variants "
+            "whenever your code reads the flag, before that experiment launches. This is expected while you test its "
+            "variants. Otherwise, disable the flag until you launch it."
         ),
-        evidence={"ended_at": ended_at.astimezone(UTC).isoformat(), "draft_experiment_id": draft.id},
+        evidence={"ended_at": ended_at.astimezone(UTC).isoformat()},
     )
 
 
