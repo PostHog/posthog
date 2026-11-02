@@ -14,8 +14,11 @@ from posthog.temporal.common.logger import get_write_only_logger
 
 from products.batch_exports.backend.models.batch_export import BatchExportRun
 from products.batch_exports.backend.service import aupdate_batch_export_run
-from products.batch_exports.backend.temporal.errors import UnsupportedColumnTypeError
+from products.batch_exports.backend.temporal.errors import ColumnTypeMappingError, UnsupportedColumnTypeError
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
+
+if typing.TYPE_CHECKING:
+    from products.batch_exports.backend.service import AnyBatchExportModel
 
 T = typing.TypeVar("T")
 LOGGER = get_write_only_logger(__name__)
@@ -322,6 +325,16 @@ def make_retryable_with_exponential_backoff(
     return inner
 
 
+@contextlib.contextmanager
+def handle_column_type_mapping_errors(model: AnyBatchExportModel) -> collections.abc.Iterator[None]:
+    try:
+        yield
+    except ColumnTypeMappingError as error:
+        if model.name == "hogql":
+            raise UnsupportedColumnTypeError(error.destination, error.column, error.column_type) from error
+        raise
+
+
 def handle_non_retryable_errors(non_retryable_error_types: typing.Sequence[str]):
     """Decorator to handle non-retryable errors in batch export activities.
 
@@ -353,7 +366,7 @@ def handle_non_retryable_errors(non_retryable_error_types: typing.Sequence[str])
             try:
                 return await func(*args, **kwargs)
             except Exception as e:
-                if isinstance(e, UnsupportedColumnTypeError):
+                if isinstance(e, (ColumnTypeMappingError, UnsupportedColumnTypeError)):
                     LOGGER.warning(
                         "Unsupported column type in batch export",
                         destination=e.destination,

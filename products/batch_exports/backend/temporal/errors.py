@@ -9,6 +9,14 @@ class MissingRequiredInputsError(RuntimeError):
     pass
 
 
+class ColumnTypeMappingError(TypeError):
+    def __init__(self, destination: str, column: str, column_type: object) -> None:
+        self.destination = destination
+        self.column = column
+        self.column_type = str(column_type)
+        super().__init__(f"No {destination} type mapping for column '{column}' with Arrow type '{column_type}'.")
+
+
 class UnsupportedColumnTypeError(Exception):
     """We tried to export a type that `destination` does not support.
 
