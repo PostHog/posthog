@@ -656,6 +656,22 @@ class CommentPagination(StableCursorPagination):
     ordering = ("-created_at", "-id")
     page_size = 100
 
+    def get_paginated_response(self, data: Any) -> Response:
+        # A short first page holds every row, so the total needs no query over the whole set.
+        is_first_page = self.cursor_query_param not in self.request.query_params
+        if is_first_page and len(data) < self.get_page_size(self.request):
+            count = len(data)
+        else:
+            count = self.counted_rows.count()
+        return Response(
+            {
+                "count": count,
+                "next": self.get_next_link(),
+                "previous": self.get_previous_link(),
+                "results": data,
+            }
+        )
+
 
 class CommentListQueryParamsSerializer(serializers.Serializer):
     scope = serializers.CharField(
