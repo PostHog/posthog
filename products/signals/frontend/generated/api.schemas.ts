@@ -10961,6 +10961,7 @@ export type SignalsReportsListParams = {
     include_unlisted?: boolean
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
