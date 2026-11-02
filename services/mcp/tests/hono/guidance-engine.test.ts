@@ -274,6 +274,13 @@ describe('GuidanceEngine', () => {
             false,
         ],
         ['sql-aggregate-to-typed-runner', 'SELECT count() FROM events e, persons p WHERE e.person_id = p.id', false],
+        ['sql-aggregate-to-typed-runner', 'SELECT person_id, count() FROM events GROUP BY 1', false],
+        [
+            'sql-aggregate-to-typed-runner',
+            'SELECT properties.$session_id AS sid, count() FROM events GROUP BY sid',
+            false,
+        ],
+        ['sql-aggregate-to-typed-runner', 'SELECT count(), max(e.timestamp) FROM events e', false],
         ['sql-aggregate-to-typed-runner', 'SELECT count() FROM system.insights', false],
         ['sql-aggregate-to-typed-runner', 'SELECT count() FROM posthog.ai_events', false],
         ['sql-aggregate-to-typed-runner', 'SELECT count() FROM events_archive', false],

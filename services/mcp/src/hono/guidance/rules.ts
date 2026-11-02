@@ -50,12 +50,9 @@ const TYPED_RUNNER_TOOLS = [
     'query-lifecycle',
 ]
 
-// SQL constructs that no typed runner can express. A query that uses one of them needs SQL, so
-// the typed-runner hint stays silent: per-actor rows, exact first or last timestamps, time
-// between events, array work, HAVING filters, joins (also comma joins), CTEs, window functions,
-// unions, subqueries and system tables. A first or last timestamp grouped by event is an event
-// inventory, which `read-data-schema` answers, so it still matches. The two look-ahead scans are
-// bounded, because an unbounded scan from every `GROUP BY` takes quadratic time on a crafted query.
+// A query with any of these constructs needs SQL, so the typed-runner hint stays silent. A first or
+// last timestamp grouped by event is an event inventory, which `read-data-schema` answers. The scans
+// after `max(timestamp` and `GROUP BY` are bounded, because an unbounded scan takes quadratic time.
 const SQL_ONLY_CONSTRUCTS = [
     String.raw`\b(JOIN|WITH|OVER|UNION|HAVING)\b`,
     String.raw`\bFROM\s+events\b(?:\s+(?:AS\s+)?\w+)?\s*,`,
@@ -63,8 +60,9 @@ const SQL_ONLY_CONSTRUCTS = [
     String.raw`\(\s*SELECT\b`,
     String.raw`\barray\w*\s*\(`,
     String.raw`\b(groupArray|groupUniqArray|argMax|argMin|dateDiff|date_diff)\w*\s*\(`,
-    String.raw`\b(max|min)(If)?\s*\(\s*timestamp\b(?![\s\S]{0,1000}\bGROUP\s+BY\s+event\b)`,
+    String.raw`\b(max|min)(If)?\s*\(\s*(\w+\.)?timestamp\b(?![\s\S]{0,1000}\bGROUP\s+BY\s+event\b)`,
     String.raw`\bGROUP\s+BY\b(?:(?!\b(ORDER|LIMIT)\b)[\s\S]){0,300}?\b(person_id|distinct_id|session_id)\b`,
+    String.raw`(\bSELECT\b|,)\s*(DISTINCT\s+)?(\w+\.)*\$?(person_id|distinct_id|session_id)\b\s*(AS\s+\w+\s*)?(,|\bFROM\b)`,
 ]
 const SIMPLE_EVENTS_AGGREGATE = new RegExp(
     String.raw`^(?![\s\S]*(${SQL_ONLY_CONSTRUCTS.join('|')}))(?=[\s\S]*\bFROM\s+events\b)(?=[\s\S]*\b(count|uniq)\w*\s*\()`,
@@ -129,7 +127,6 @@ const RULES: GuidanceRule[] = [
             tool: 'execute-sql',
             argPath: 'query',
             argPattern: SIMPLE_EVENTS_AGGREGATE,
-            // A simple aggregate is short; the cap keeps the pattern cheap on every execute-sql call.
             argMaxLength: 4000,
             // A direct warehouse connection has its own `events` table, which typed runners cannot query.
             excludeArgs: ['connectionId'],
