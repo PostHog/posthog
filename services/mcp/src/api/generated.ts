@@ -76969,7 +76969,11 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly updated_at: string;
-      /** @nullable */
+      /**
+         * Optional personal message in the invite email.
+         * @maxLength 1000
+         * @nullable
+         */
       message?: string | null;
       /** List of team IDs and corresponding access levels to private projects. */
       private_project_access?: unknown;
@@ -79326,11 +79330,11 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `DEBUG` - DEBUG
-     * * `LOG` - LOG
-     * * `INFO` - INFO
-     * * `WARN` - WARN
-     * * `ERROR` - ERROR
+     * * `DEBUG` - Debug
+     * * `LOG` - Log
+     * * `INFO` - Info
+     * * `WARN` - Warn
+     * * `ERROR` - Error
      */
     export type PluginLogEntryTypeEnum = typeof PluginLogEntryTypeEnum[keyof typeof PluginLogEntryTypeEnum];
 
@@ -96457,12 +96461,12 @@ export namespace Schemas {
       personalized: boolean;
       /** True when the list is a stored one. False when it is the inbox order fallback or the new list that `wait_seconds` waited for. */
       cached: boolean;
-      /** True when the list does not match your current inbox or focus. When `building` is true, a newer list is on the way. Otherwise you reached the build limit, so try again later. */
+      /** True when the list does not match your current inbox or focus. When `building` is true, a newer list is on the way. Otherwise a build limit was reached, so try again later. */
       stale: boolean;
       /** True when a new list is being built in the background. Call again in a few seconds, or pass `wait_seconds`, to get it. */
       building: boolean;
       /**
-         * Why the list is in inbox order and not ranked by the language model. building: no list is stored yet and one is being built. rate_limited: no list is stored yet and you reached the build limit. build_failed: no list is stored yet and the build could not start. llm_error, timeout, malformed_output, truncated_output, no_candidates or ai_not_approved: the stored build fell back. Null when the model ranked it.
+         * Why the list is in inbox order and not ranked by the language model. building: no list is stored yet and one is being built. rate_limited: no list is stored yet and a build limit was reached, either yours or the shared daily one. build_failed: no list is stored yet and the build could not start. no_activity_summary: you have no activity summary yet, so the model did not rank the list. llm_error, timeout, malformed_output, truncated_output, no_candidates or ai_not_approved: the stored build fell back. Null when the model ranked it.
          * @nullable
          */
       fallback_reason: string | null;
@@ -130424,6 +130428,7 @@ export namespace Schemas {
     export type CrossProjectDashboardsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -130435,6 +130440,7 @@ export namespace Schemas {
     export type CrossProjectDashboardsTilesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -137725,6 +137731,7 @@ export namespace Schemas {
     include_tags?: boolean;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -138185,6 +138192,7 @@ export namespace Schemas {
     latest_send_first?: boolean;
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number;
     /**
@@ -138600,6 +138608,7 @@ export namespace Schemas {
     export type HogFlowsProposalsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number;
     /**
@@ -138625,6 +138634,7 @@ export namespace Schemas {
     export type HogFlowsRevisionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number;
     /**
@@ -141791,14 +141801,50 @@ export namespace Schemas {
 
     export type PluginConfigsLogsListParams = {
     /**
-     * Number of results to return per page.
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Maximum number of log entries to return (1-1000, default 100).
+     * @minimum 1
+     * @maximum 1000
      */
     limit?: number;
     /**
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     */
+    search?: string;
+    /**
+     * Log types to include. Repeat the parameter to include more than one type.
+     */
+    type_filter?: PluginConfigsLogsListTypeFilterItem[];
     };
+
+    /**
+     * * `DEBUG` - Debug
+     * * `LOG` - Log
+     * * `INFO` - Info
+     * * `WARN` - Warn
+     * * `ERROR` - Error
+     */
+    export type PluginConfigsLogsListTypeFilterItem = typeof PluginConfigsLogsListTypeFilterItem[keyof typeof PluginConfigsLogsListTypeFilterItem];
+
+
+    export const PluginConfigsLogsListTypeFilterItem = {
+      Debug: 'DEBUG',
+      Log: 'LOG',
+      Info: 'INFO',
+      Warn: 'WARN',
+      Error: 'ERROR',
+    } as const;
 
     export type PrecomputeDebugStateParams = {
     /**
@@ -142467,6 +142513,7 @@ export namespace Schemas {
     created_by?: number;
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number;
     /**
@@ -145830,6 +145877,7 @@ export namespace Schemas {
     kind?: WarehouseSuggestionsListKind;
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -146079,6 +146127,7 @@ export namespace Schemas {
     created_after?: string;
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -146116,7 +146165,7 @@ export namespace Schemas {
     export type WizardSessionsListParams = {
     /**
      * Maximum number of sessions to return.
-     * @minimum 0
+     * @minimum 1
      * @maximum 200
      */
     limit?: number;

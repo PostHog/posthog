@@ -8,7 +8,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use common_kafka::config::KafkaConfig;
 use futures::FutureExt;
 use lifecycle::Handle;
-use metrics::counter;
+use metrics::{counter, histogram};
 use rdkafka::consumer::{
     BaseConsumer, CommitMode, Consumer, ConsumerContext, RebalanceProtocol, StreamConsumer,
 };
@@ -705,6 +705,7 @@ async fn flush_steps(
     handle: &Handle,
     retries: u32,
 ) -> Result<(), String> {
+    let flush_started = Instant::now();
     let offsets: HashMap<Tp, (u64, i64)> = batch
         .spans
         .iter()
@@ -747,6 +748,7 @@ async fn flush_steps(
                 ));
             }
             let timeout = settings.flush_timeout.min(left);
+            let attempt_started = Instant::now();
             let stored = tokio::time::timeout(
                 timeout,
                 with_heartbeat(
@@ -755,6 +757,13 @@ async fn flush_steps(
                 ),
             )
             .await;
+            let outcome = match &stored {
+                Ok(Ok(())) => "ok",
+                Ok(Err(_)) => "error",
+                Err(_) => "timeout",
+            };
+            histogram!("ai_research_v4_recorder_flush_attempt_duration_seconds", "outcome" => outcome)
+                .record(attempt_started.elapsed().as_secs_f64());
             let error = match stored {
                 Ok(Ok(())) => break,
                 Ok(Err(error)) => error.to_string(),
@@ -770,6 +779,8 @@ async fn flush_steps(
         }
     }
     with_heartbeat(handle, consumer.commit(&offsets)).await?;
+    histogram!("ai_research_v4_recorder_flush_duration_seconds")
+        .record(flush_started.elapsed().as_secs_f64());
     inspectors.evict_idle(settings.session_idle);
     Ok(())
 }

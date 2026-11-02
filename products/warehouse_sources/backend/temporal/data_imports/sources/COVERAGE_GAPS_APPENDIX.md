@@ -10220,9 +10220,9 @@ Today (6): `account`, `deployments`, `hardware`, `models`, `predictions`, `train
 
 Diffed against: <https://api.replicate.com/openapi.json>
 
-- [ ] `/models/{model_owner}/{model_name}/versions` — lookup resolving the version ID stamped on every prediction and training row already synced (high)
-- [ ] `/collections and /collections/{collection_slug}` — the vendor's own model taxonomy - gives a category dimension for grouping model and prediction usage (medium)
-- [ ] `/files` — uploaded input/output file records with size and expiry, joinable to predictions (low)
+- [x] `/models/{model_owner}/{model_name}/versions` — lookup resolving the version ID stamped on every prediction and training row already synced (high) → `model_versions` (full refresh, fan-out over models referenced by `deployments` and `trainings`)
+- [x] `/collections and /collections/{collection_slug}` — the vendor's own model taxonomy - gives a category dimension for grouping model and prediction usage (medium) → `collections` and `collection_models` (full refresh, fan-out over `collections`)
+- [x] `/files` — uploaded input/output file records with size and expiry, joinable to predictions (low) → `files` (full refresh)
 
 ## ReplyIo — gaps
 
@@ -10230,12 +10230,12 @@ Today (11): `account_lists`, `accounts`, `contact_lists`, `contacts`, `custom_fi
 
 Diffed against: <https://docs.reply.io/llms.txt>
 
-- [ ] `reports/list-email-activity` — per-message send/open/click/reply/bounce events - the core outreach fact table (high)
-- [ ] `sequence-contacts/list-contacts-in-sequence (and list-contacts-in-sequence-with-extended-state)` — membership table joining contacts to sequences with per-sequence status; without it sequences and contacts cannot be related (high)
-- [ ] `sequence-steps/list-all-sequence-steps (and list-step-variants)` — lookup resolving the step and variant IDs referenced by activity, plus A/B variant analysis (high)
+- [x] `reports/list-email-activity` — per-message send/open/click/reply/bounce events - the core outreach fact table (high). Added as `email_activity`, a full refresh of the all-time report including one-off emails. Not incremental: the engagement flags change after delivery, and the `from` filter is read in the account's time zone
+- [x] `sequence-contacts/list-contacts-in-sequence (and list-contacts-in-sequence-with-extended-state)` — membership table joining contacts to sequences with per-sequence status; without it sequences and contacts cannot be related (high). Added as `sequence_contacts`, one walk per sequence. The extended-state variant is not synced: it pages at 100 rows instead of 1000 for the same membership rows
+- [x] `sequence-steps/list-all-sequence-steps (and list-step-variants)` — lookup resolving the step and variant IDs referenced by activity, plus A/B variant analysis (high). Added as `sequence_steps`, one request per sequence. Variants need no table of their own: every email and LinkedIn step row already carries its `variants` array, and a separate table would cost one more request per step
 - [ ] `reports/list-meetings` — booked meetings, the outcome metric outreach performance is judged on (high)
 - [ ] `sequences/get-stats-for-all-sequences` — vendor-computed per-sequence delivery and reply rates (high)
-- [ ] `user-account/list-team-users` — lookup resolving the owner/user IDs carried on contacts, accounts, sequences and tasks (high)
+- [x] `user-account/list-team-users` — lookup resolving the owner/user IDs carried on contacts, accounts, sequences and tasks (high). Added as `team_users`, one row per user per team
 - [ ] `inbox/list-messages-in-an-inbox-thread` — message-level rows under the inbox_threads already synced (medium)
 - [ ] `inbox/list-inbox-categories` — lookup for the category IDs assigned to inbox threads (medium)
 - [ ] `reports/list-call-activity` — call outcomes and durations, the phone channel equivalent of email activity (medium)
@@ -10274,9 +10274,9 @@ Today (7): `campaigns`, `companies`, `customers`, `feedback`, `outbox`, `reports
 
 Diffed against: <https://www.retently.com/api/>
 
-- [ ] `GET /api/v2/nps/score, /csat/score, /ces/score, /star/score` — the vendor's headline metric - the aggregate NPS/CSAT/CES/star score the whole product exists to report (high)
-- [ ] `GET /api/v2/trends and /api/v2/trends/{groupId}` — trend groups and their trends are the topic taxonomy behind feedback; a lookup that turns free-text feedback into a breakdown dimension (high)
-- [ ] `GET /api/v2/suppressions/emails and /suppressions/domains` — suppressed recipients explain gaps in outbox delivery coverage (low)
+- [x] `GET /api/v2/nps/score, /csat/score, /ces/score, /star/score` — the vendor's headline metric - the aggregate NPS/CSAT/CES/star score the whole product exists to report (high)
+- [x] `GET /api/v2/trends and /api/v2/trends/{groupId}` — trend groups and their trends are the topic taxonomy behind feedback; a lookup that turns free-text feedback into a breakdown dimension (high)
+- [x] `GET /api/v2/suppressions/emails and /suppressions/domains` — suppressed recipients explain gaps in outbox delivery coverage (low)
 
 ## Reverb — gaps
 
@@ -10336,10 +10336,10 @@ Today (11): `districts`, `germany`, `germany_age_groups`, `germany_history_cases
 
 Diffed against: <https://api.corona-zahlen.org/docs/>
 
-- [ ] `GET /vaccinations` — national vaccination totals and quotas - an entire headline dataset with no table today (high)
-- [ ] `GET /vaccinations/history/:days` — daily vaccination time series, the analytical form of the vaccination data (high)
-- [ ] `GET /vaccinations/states/:state` — per-state vaccination breakdown, the standard comparison dimension (high)
-- [ ] `GET /states/history/cases/:days` — per-state case time series; only Germany-level history is synced, so no state comparison over time is possible (high)
+- [x] `GET /vaccinations` — national vaccination totals and quotas - an entire headline dataset with no table today (high) → `vaccinations` (per-state figures go to `vaccinations_states`)
+- [x] `GET /vaccinations/history/:days` — daily vaccination time series, the analytical form of the vaccination data (high) → `vaccinations_history`
+- [x] `GET /vaccinations/states/:state` — per-state vaccination breakdown, the standard comparison dimension (high) → `vaccinations_states` (reads `GET /vaccinations/states`, which returns every state in one response)
+- [x] `GET /states/history/cases/:days` — per-state case time series; only Germany-level history is synced, so no state comparison over time is possible (high) → `states_history_cases`
 - [ ] `GET /states/history/deaths/:days` — per-state death time series to match the national germany_history_deaths table (high)
 - [ ] `GET /states/history/incidence/:days` — per-state 7-day incidence, the metric the whole dataset is organized around (high)
 - [ ] `GET /districts/history/cases/:days` — per-district case time series - the finest granularity the API offers and the reason to use it over aggregate sources (high)
