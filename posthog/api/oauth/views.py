@@ -62,7 +62,7 @@ from posthog.api.oauth.client_assertion import (
     verify_client_assertion,
 )
 from posthog.api.oauth.client_auth import verify_client_secret
-from posthog.api.oauth.mcp_resource_scopes import build_oauth_mcp_consent_context
+from posthog.api.oauth.mcp_resource_scopes import build_oauth_mcp_consent_context, is_trusted_posthog_mcp_resource
 from posthog.api.oauth.metadata import (
     Document,
     authorization_server_metadata,
@@ -70,6 +70,7 @@ from posthog.api.oauth.metadata import (
     openid_provider_metadata,
     protected_resource_metadata,
 )
+from posthog.api.oauth.step_up import live_granted_scopes, resolve_step_up_grant
 from posthog.auth import IDJagAccessTokenAuthentication, SessionAuthentication
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
 from posthog.helpers.oauth_pending_connection import (
@@ -1475,6 +1476,10 @@ def authenticated_oauth_client(view, request, *, resolve_cimd: bool = False) -> 
     return oauth_request.client
 
 
+def _step_up_hidden_scopes_session_key(application: OAuthApplication) -> str:
+    return f"oauth_step_up_hidden_scopes:{application.pk}"
+
+
 class OAuthAuthorizationView(OAuthLibMixin, APIView):
     """
     This view handles incoming requests to /authorize.
@@ -1682,6 +1687,18 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         impersonator_id = _impersonator_id_for_request(request)
         credentials["impersonated_by_id"] = impersonator_id
 
+        required_resource_scopes = {scope for scope in application.required_scopes if ":" in scope}
+        resource = request.query_params.get("resource")
+        step_up_grant = None
+        if application.supports_step_up and resource and is_trusted_posthog_mcp_resource(resource):
+            step_up_grant = resolve_step_up_grant(
+                requested=scopes,
+                application=application,
+                user_id=request.user.id,
+                required=required_resource_scopes,
+            )
+            scopes = step_up_grant.scopes
+
         scope_str = " ".join(scopes)
         if is_read_only_impersonation(request):
             scope_str = downgrade_scopes_to_read_only(scope_str)
@@ -1709,7 +1726,6 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         # Check for auto-approval. Skipped when the request omits a required scope:
         # auto-approving would mint a grant below the app's required floor, so fall
         # through to the consent screen, which displays and grants the full required set.
-        required_resource_scopes = {scope for scope in application.required_scopes if ":" in scope}
         if request.query_params.get(
             "approval_prompt", oauth2_settings.REQUEST_APPROVAL_PROMPT
         ) == "auto" and required_resource_scopes <= set(scope_str.split()):
@@ -1744,6 +1760,12 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             except OAuthToolkitError as error:
                 return self.error_response(error, application, state=request.query_params.get("state"))
 
+        consent_scopes = scope_str.split()
+        if step_up_grant:
+            consent_scopes = step_up_grant.consent_scopes
+            if is_read_only_impersonation(request):
+                consent_scopes = downgrade_scopes_to_read_only(" ".join(consent_scopes)).split()
+
         template_context: dict[str, object] = {
             "oauth_application": {
                 "name": application.name,
@@ -1766,7 +1788,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             # from the URL, so a request the server defaulted or repaired cannot show the
             # user a narrower list than the token gets.
             "oauth_scope_resolution": {
-                "scopes": scope_str.split(),
+                "scopes": consent_scopes,
                 "was_defaulted": scopes_were_defaulted,
             },
         }
@@ -1781,7 +1803,17 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         if scopes_were_defaulted:
             oauth_mcp_consent = build_oauth_mcp_consent_context(request.query_params.get("resource"))
             if oauth_mcp_consent is not None:
+                if step_up_grant:
+                    oauth_mcp_consent["scopes"] = consent_scopes
                 template_context["oauth_mcp_consent"] = oauth_mcp_consent
+
+        # The consent POST cannot tell a step-up screen from any other, so the scopes this screen
+        # leaves out travel in the session, never in the form the browser submits.
+        hidden_scopes_key = _step_up_hidden_scopes_session_key(application)
+        if step_up_grant and step_up_grant.hidden_scopes:
+            request.session[hidden_scopes_key] = step_up_grant.hidden_scopes
+        else:
+            request.session.pop(hidden_scopes_key, None)
 
         return render_template("index.html", request, context=template_context)
 
@@ -1821,6 +1853,12 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 credentials[field] = serializer.validated_data[field]
 
         scopes = serializer.validated_data.get("scope", "")
+        hidden_scopes = request.session.pop(_step_up_hidden_scopes_session_key(application), None)
+        if serializer.validated_data["allow"] and hidden_scopes and application.supports_step_up:
+            # A step-up consent screen lists only the added scopes, so the ones it left out go back
+            # in here. Only those the user still holds come back, in case a revoke ran in between.
+            still_granted = live_granted_scopes(application=application, user_id=request.user.id) or set()
+            scopes = " ".join(sorted(set(scopes.split()) | (set(hidden_scopes) & still_granted)))
         if is_read_only_impersonation(request):
             scopes = downgrade_scopes_to_read_only(scopes)
 

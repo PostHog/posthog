@@ -82,6 +82,9 @@ def private_pem_to_public_pem(private_key_pem: str) -> str:
     return public_pem(private_key.public_key())
 
 
+MCP_RESOURCE_PARAM = "&resource=https%3A%2F%2Fmcp.posthog.com%2Fmcp"
+
+
 class TestOAuthAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -327,6 +330,73 @@ class TestOAuthAPI(APIBaseTest):
         resolution = response.context["posthog_app_context"]["oauth_scope_resolution"]
         self.assertEqual(resolution["scopes"], sorted({"insight:read", "canvas:read"} | ALWAYS_ALLOWED_SCOPES))
         self.assertTrue(resolution["was_defaulted"])
+
+    @parameterized.expand(
+        [
+            (
+                "step_up_first_connection",
+                True,
+                "openid insight:write batch_export:write comment:write",
+                ["batch_export:read", "insight:write", "openid"],
+            ),
+            (
+                "no_step_up",
+                False,
+                "openid insight:write batch_export:write comment:write",
+                ["batch_export:write", "comment:write", "insight:write", "openid"],
+            ),
+            ("step_up_nothing_in_default_set", True, "openid comment:write", ["comment:write", "openid"]),
+        ]
+    )
+    def test_mcp_authorize_narrows_the_first_connection_of_a_step_up_app(
+        self, _name, supports_step_up, requested, expected
+    ):
+        self.confidential_application.supports_step_up = supports_step_up
+        self.confidential_application.save()
+
+        response = self.client.get(
+            f"{self.base_authorization_url}&scope={quote(requested)}&resource=https%3A%2F%2Fmcp.posthog.com%2Fmcp"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        resolution = response.context["posthog_app_context"]["oauth_scope_resolution"]
+        self.assertEqual(sorted(resolution["scopes"]), expected)
+
+    @parameterized.expand(
+        [
+            ("step_up", True, MCP_RESOURCE_PARAM, ["comment:write"], {"openid", "insight:write", "comment:write"}),
+            ("no_step_up", False, MCP_RESOURCE_PARAM, ["comment:write"], {"comment:write"}),
+            ("step_up_outside_mcp", True, "", ["comment:write"], {"comment:write"}),
+        ]
+    )
+    def test_mcp_reauthorize_keeps_prior_scopes_only_for_a_step_up_app(
+        self, _name, supports_step_up, resource_param, expected_consent, expected
+    ):
+        self.confidential_application.supports_step_up = supports_step_up
+        self.confidential_application.save()
+        expired_access_token = OAuthAccessToken.objects.create(
+            application=self.confidential_application,
+            user=self.user,
+            token="pha_prior_grant",
+            expires=timezone.now() - timedelta(hours=1),
+            scope="openid insight:write",
+        )
+        OAuthRefreshToken.objects.create(
+            application=self.confidential_application,
+            user=self.user,
+            token="prior_refresh_token",
+            access_token=expired_access_token,
+        )
+
+        consent = self.client.get(f"{self.base_authorization_url}&scope={quote('comment:write')}{resource_param}")
+        authorize = self.client.post(
+            "/oauth/authorize/", {**self.base_authorization_post_body, "scope": "comment:write"}
+        )
+        code = authorize.json()["redirect_to"].split("code=")[1].split("&")[0]
+        token = self.post("/oauth/token/", {**self.base_token_body, "code": code}).json()
+
+        self.assertEqual(consent.context["posthog_app_context"]["oauth_scope_resolution"]["scopes"], expected_consent)
+        self.assertEqual(set(token["scope"].split()), expected)
 
     @patch("posthog.api.oauth.views.render_template")
     def test_authorize_omits_mcp_consent_for_untrusted_resource(self, mock_render):
