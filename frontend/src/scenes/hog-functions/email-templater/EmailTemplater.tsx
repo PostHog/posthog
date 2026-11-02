@@ -844,14 +844,14 @@ function NativeEmailTemplaterForm({
                         </div>
                     </>
                 ) : (
-                    <LemonField name="html" className="flex relative flex-col flex-1">
+                    <LemonField name="html" className="group/email-preview flex relative flex-col flex-1">
                         {({ value }: ChildFunctionProps) => (
                             <>
                                 <div
                                     className={clsx(
-                                        'flex absolute inset-0 justify-center items-center p-2 transition-opacity',
+                                        'flex absolute inset-0 justify-center items-center p-2 transition-opacity pointer-events-none',
                                         // Persistent start buttons while empty; hover-reveal once there is content
-                                        value ? 'opacity-0 hover:opacity-100' : 'opacity-100'
+                                        value ? 'opacity-0 group-hover/email-preview:opacity-100' : 'opacity-100'
                                     )}
                                 >
                                     <div className="absolute inset-0 opacity-50 bg-surface-primary" />
@@ -887,14 +887,19 @@ function EmailPreviewOverlayButtons({ hasContent }: { hasContent: boolean }): JS
 
     if (hasContent) {
         return (
-            <LemonButton type="primary" size="small" onClick={() => setIsModalOpen(true)}>
+            <LemonButton
+                type="primary"
+                size="small"
+                className="pointer-events-auto"
+                onClick={() => setIsModalOpen(true)}
+            >
                 Click to modify content
             </LemonButton>
         )
     }
 
     return (
-        <div className="flex gap-2 z-10">
+        <div className="flex gap-2 z-10 pointer-events-auto">
             <LemonButton type="primary" size="small" onClick={() => setIsModalOpen(true)}>
                 Start blank
             </LemonButton>
