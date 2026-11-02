@@ -78,7 +78,10 @@ export function seriesValueRange(series: Series[]): SeriesValueRange {
 /** Split a {@link ValueDomain} into a pinned `[min, max]` (both ends given) and the adjustments to
  *  an auto-scaled domain (either end left open). An inverted pair is dropped rather than swapped;
  *  see {@link ValueDomain}. */
-function resolveValueDomain(valueDomain: ValueDomain | undefined): {
+function resolveValueDomain(
+    valueDomain: ValueDomain | undefined,
+    log = false
+): {
     fixed?: readonly [number, number]
     include?: readonly number[]
     bounds?: ValueDomain
@@ -90,7 +93,9 @@ function resolveValueDomain(valueDomain: ValueDomain | undefined): {
     const min = usableBound(valueDomain.min)
     const max = usableBound(valueDomain.max)
 
-    if (min !== undefined && max !== undefined) {
+    // A log domain can't hold zero, so a pair with a non-positive end stays a clamp on the auto
+    // domain, where `applyValueBounds` drops that end if the axis really is logarithmic.
+    if (min !== undefined && max !== undefined && (!log || min > 0)) {
         // Both ends pinned, so `include` has nothing left to stretch.
         return min < max ? { fixed: [min, max] } : { include }
     }
@@ -227,6 +232,20 @@ function repairDegenerateExtent(min: number, max: number): [number, number] {
     return [lo, Math.max(0, isFinite(max) ? max : 0, lo + 1)]
 }
 
+/** A value scale over a pinned `[min, max]`. A log domain can't hold zero, so a log pin with a
+ *  non-positive end falls back to linear. Unclamped, like the linear pin, so a value past the pin
+ *  maps off the plot and overlays such as goal lines can tell it is out of range. */
+function fixedValueScale(
+    fixed: readonly [number, number],
+    range: [number, number],
+    scaleType: 'linear' | 'log'
+): D3YScale {
+    if (scaleType === 'log' && fixed[0] > 0) {
+        return scaleLog().domain(fixed).range(range)
+    }
+    return scaleLinear().domain(sanitizeFixedDomain(fixed)).range(range)
+}
+
 export function createYScale(
     series: Series[],
     dimensions: ChartDimensions,
@@ -240,13 +259,11 @@ export function createYScale(
     } = {}
 ): ScaleLinear<number, number> | ScaleLogarithmic<number, number> {
     const { scaleType = 'linear', percentStack = false, valueDomain, floatBaseline = false } = options
-    const { fixed, include, bounds } = resolveValueDomain(valueDomain)
+    const { fixed, include, bounds } = resolveValueDomain(valueDomain, scaleType === 'log')
     const tickCount = yTickCountForHeight(dimensions.plotHeight)
 
     if (fixed) {
-        return scaleLinear()
-            .domain(sanitizeFixedDomain(fixed))
-            .range([dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop])
+        return fixedValueScale(fixed, [dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop], scaleType)
     }
 
     if (percentStack) {
@@ -500,6 +517,7 @@ export function createScales(
     return { x, y: primaryAxis.scale, yAxes }
 }
 
+/** A series' band in a stack, per label. Both ends are NaN where the series has no value. */
 export interface StackedBand {
     top: number[]
     bottom: number[]
@@ -547,11 +565,16 @@ function buildStackData(
         }
 
         const stacked = stack(tableData)
+        const dataByKey = new Map(axisSeries.map((s) => [s.key, s.data]))
         for (const layer of stacked) {
+            const data = dataByKey.get(layer.key) ?? []
+            // A missing value (NaN) is a gap: its band stays NaN, so the line and area break there
+            // instead of dropping to 0. d3 already stacks the series above it on the band below.
+            const isGap = (i: number): boolean => data[i] != null && !Number.isFinite(data[i])
             // stackOffsetExpand emits NaN for all-zero columns; flatten so consumers don't have to guard.
             result.set(layer.key, {
-                top: layer.map((d) => (Number.isFinite(d[1]) ? d[1] : 0)),
-                bottom: layer.map((d) => (Number.isFinite(d[0]) ? d[0] : 0)),
+                top: layer.map((d, i) => (isGap(i) ? NaN : Number.isFinite(d[1]) ? d[1] : 0)),
+                bottom: layer.map((d, i) => (isGap(i) ? NaN : Number.isFinite(d[0]) ? d[0] : 0)),
             })
         }
     }
@@ -820,7 +843,7 @@ function buildBarValueScale(
 ): D3YScale {
     const { fixed, include } = resolveValueDomain(valueDomain)
     if (fixed) {
-        return scaleLinear().domain(sanitizeFixedDomain(fixed)).range(valueRange)
+        return fixedValueScale(fixed, valueRange, scaleType)
     }
     if (barLayout === 'percent') {
         return scaleLinear().domain([0, 1]).nice(tickCount).range(valueRange)

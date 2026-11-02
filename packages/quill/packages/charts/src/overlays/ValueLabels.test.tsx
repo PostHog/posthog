@@ -346,13 +346,18 @@ describe('ValueLabels', () => {
             expect(divs.map((d) => d.textContent)).toEqual(['35'])
         })
 
-        it('sums visible series per band, skips zero totals and excluded series', () => {
+        it('sums visible series per band, skips zero totals, excluded, unstacked and overlay series', () => {
             const series: ResolvedSeries[] = [
                 { key: 'a', label: 'A', color: '#112233', data: [10, 0, 30] },
                 { key: 'b', label: 'B', color: '#445566', data: [5, 0, 5] },
                 { key: 'c', label: 'C', color: '#778899', data: [99, 99, 99], visibility: { valueLabel: false } },
+                { key: 'd', label: 'D', color: '#aabbcc', data: [50, 50, 50], stacked: false },
+                { key: 'e', label: 'Moving average', color: '#ddeeff', data: [7, 7, 7], overlay: true },
             ]
-            const ctx = makeContext(series, { labels: ['Mon', 'Tue', 'Wed'] })
+            const ctx = {
+                ...makeContext(series, { labels: ['Mon', 'Tue', 'Wed'] }),
+                stackedSeriesKeys: new Set(['a', 'b', 'c']),
+            }
             const divs = labelDivs(renderInChart(ctx, <ValueLabels mode="stack-total" />).container)
             expect(divs.map((d) => d.textContent)).toEqual(['15', '35'])
             // Total label uses the topmost visible series color.
@@ -490,7 +495,10 @@ describe('ValueLabels', () => {
             scales: { x: xScale, y: (value) => 48 + value * 720, yTicks: () => [] },
             resolvePositionValue: (s) => tops[s.key],
         })
-        const { container } = renderInChart(ctx, <ValueLabels position="center" background={background} fontSize={16} rotation={-45} />)
+        const { container } = renderInChart(
+            ctx,
+            <ValueLabels position="center" background={background} fontSize={16} rotation={-45} />
+        )
         expect(labelDivs(container).map((label) => label.style.left)).toEqual(['120px', '300px', '588px'])
         const text = labelDivs(container)[0].querySelector('span')!
         expect(text.style.fontSize).toBe('16px')

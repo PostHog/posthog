@@ -19,7 +19,14 @@ import {
 } from './canvas-renderer'
 import { ChartHoverContext, ChartLayoutContext } from './chart-context'
 import type { ChartHoverContextValue, ChartLayoutContextValue } from './chart-context'
-import { ChartShell, countVisibleSeries, useCanvasBounds, useColoredSeries } from './chart-shell'
+import {
+    ChartShell,
+    type ChartWrapperElement,
+    countVisibleSeries,
+    useCanvasBounds,
+    useColoredSeries,
+    X_FOR_INDEX,
+} from './chart-shell'
 import { useChartCanvas } from './hooks/useChartCanvas'
 import { useChartDraw } from './hooks/useChartDraw'
 import { useChartInteraction } from './hooks/useChartInteraction'
@@ -28,6 +35,7 @@ import { useLatest } from './hooks/useLatest'
 import { useResolvedYFormatter } from './hooks/useResolvedYFormatters'
 import { useStableResolveValue } from './hooks/useStableResolveValue'
 import { useYAxisMaps } from './hooks/useYAxisMaps'
+import { useHoverSync } from './hover-sync'
 import { useResolvedChartTheme } from './theme'
 import type {
     AreaSelectData,
@@ -47,6 +55,8 @@ import { computeYAxisGutters, type Gutter } from './y-axis-gutters'
 
 const DEFAULT_AXIS_COLOR = 'rgba(0, 0, 0, 0.5)'
 const DEFAULT_HOVER_ANIMATION_MS = 150
+// A synced chart draws only the crosshair, with no point highlights.
+const DRAW_NOTHING = (): boolean => true
 // Horizontal charts let category labels use this share of the chart width when it beats the fixed cap.
 const HORIZONTAL_CATEGORY_LABEL_WIDTH_RATIO = 0.3
 
@@ -104,6 +114,8 @@ export interface ChartProps<Meta = unknown> {
      *  visual top of each segment, while each tooltip row still shows that series's own value
      *  via `resolveValue`. */
     resolvePositionValue?: ResolveValueFn
+    /** See {@link ChartLayoutContextValue.stackedSeriesKeys}. */
+    stackedSeriesKeys?: ReadonlySet<string>
     /** Resolves the stacked bottom value per series — used to compute segment midpoints for
      *  tooltip closest-series detection. Only bar charts provide this. */
     resolveBottomValue?: ResolveValueFn
@@ -145,6 +157,7 @@ export function Chart<Meta = unknown>({
     children,
     resolveValue,
     resolvePositionValue,
+    stackedSeriesKeys,
     resolveBottomValue,
     labelToCoord,
     valueRangeSeries,
@@ -162,6 +175,7 @@ export function Chart<Meta = unknown>({
         yAxisLabel,
         tooltip: tooltipConfig,
         showCrosshair = false,
+        syncHover = false,
         showTickMarks = false,
         axisOrientation = 'vertical',
         isPercent = false,
@@ -169,6 +183,7 @@ export function Chart<Meta = unknown>({
         margins: marginsOverride,
         maxCategoryLabelWidth: baseMaxCategoryLabelWidth,
         yAxes,
+        xTickLabels,
     } = config ?? {}
 
     // Width from the last layout. Margins feed the canvas size, so the cap can only react to it one render later.
@@ -200,7 +215,8 @@ export function Chart<Meta = unknown>({
 
     const margins = useChartMargins({
         series,
-        labels,
+        // The x tick formatter indexes the tick labels, so measure those.
+        labels: xTickLabels ?? labels,
         hideXAxis,
         hideYAxis,
         xAxisLabel,
@@ -281,9 +297,13 @@ export function Chart<Meta = unknown>({
         }
         const xs = hideXAxis
             ? []
-            : computeVisibleXLabels(labels, scales.x, xTickFormatter, maxCategoryLabelWidth, xTickLabelRotation).map(
-                  (l) => l.x
-              )
+            : computeVisibleXLabels(
+                  xTickLabels ?? labels,
+                  scales.x,
+                  xTickFormatter,
+                  maxCategoryLabelWidth,
+                  xTickLabelRotation
+              ).map((l) => l.x)
         const ys = yGutters.flatMap((gutter) =>
             computeVisibleYTicks(gutter.ticks, gutter.scale)
                 .map((tick) => gutter.scale(tick))
@@ -297,6 +317,7 @@ export function Chart<Meta = unknown>({
         dimensions,
         axisOrientation,
         labels,
+        xTickLabels,
         xTickFormatter,
         xTickLabelRotation,
         maxCategoryLabelWidth,
@@ -363,6 +384,34 @@ export function Chart<Meta = unknown>({
         drawHoverRef.current,
     ])
 
+    // Inside a <ChartHoverSync>, another chart's hover draws a bare crosshair here while this chart
+    // isn't hovered itself. Its tooltip and point highlights stay on the hovered chart.
+    const syncedIndex = useHoverSync(labels, hoverIndex >= 0 ? (labels[hoverIndex] ?? null) : null, syncHover)
+    const showSyncedCrosshair = hoverIndex < 0 && syncedIndex >= 0
+    const syncedCrosshairColor = theme.crosshairColor ?? resolveAxisLineColor(theme) ?? DEFAULT_AXIS_COLOR
+    const drawSyncedCrosshair = useMemo(
+        () =>
+            composeDrawHoverWithCrosshair(() => DRAW_NOTHING, {
+                crosshairColor: syncedCrosshairColor,
+                crosshairDash: theme.crosshairDashPattern,
+                showCrosshair: true,
+                axisOrientation,
+                labelToCoord,
+            }),
+        [syncedCrosshairColor, theme.crosshairDashPattern, axisOrientation, labelToCoord]
+    )
+
+    useLayoutEffect(() => {
+        const wrapper = wrapperRef.current as ChartWrapperElement | null
+        if (wrapper) {
+            // Bar charts keep the even grid, which lands inside a band rather than on its center.
+            wrapper[X_FOR_INDEX] =
+                scales && !scales.extent && axisOrientation === 'vertical'
+                    ? (index) => scales.x(labels[index])
+                    : undefined
+        }
+    }, [wrapperRef, scales, labels, axisOrientation])
+
     useChartDraw({
         ctx,
         overlayCtx,
@@ -370,12 +419,12 @@ export function Chart<Meta = unknown>({
         scales,
         series: coloredSeries,
         labels,
-        hoverIndex,
+        hoverIndex: showSyncedCrosshair ? syncedIndex : hoverIndex,
         hoverPosition,
         theme,
         dragRect,
         drawStatic: drawStaticWithTicks,
-        drawHover: composedDrawHover,
+        drawHover: showSyncedCrosshair ? drawSyncedCrosshair : composedDrawHover,
         hoverAnimationMs,
     })
 
@@ -399,8 +448,8 @@ export function Chart<Meta = unknown>({
     const stablePositionValue = useStableResolveValue(resolvePositionValue ?? resolveValue)
 
     const axisValue = useMemo(
-        () => ({ orientation: axisOrientation, xTickFormatter, isPercent }),
-        [axisOrientation, xTickFormatter, isPercent]
+        () => ({ orientation: axisOrientation, xTickFormatter, xTickLabels: xTickLabels ?? labels, isPercent }),
+        [axisOrientation, xTickFormatter, xTickLabels, labels, isPercent]
     )
     const axisColor = theme.axisColor ?? DEFAULT_AXIS_COLOR
 
@@ -418,8 +467,20 @@ export function Chart<Meta = unknown>({
             canvasBounds,
             axis: axisValue,
             yGutters,
+            stackedSeriesKeys,
         }
-    }, [scales, dimensions, labels, coloredSeries, theme, stablePositionValue, canvasBounds, axisValue, yGutters])
+    }, [
+        scales,
+        dimensions,
+        labels,
+        coloredSeries,
+        theme,
+        stablePositionValue,
+        canvasBounds,
+        axisValue,
+        yGutters,
+        stackedSeriesKeys,
+    ])
 
     const hoverValue = useMemo<ChartHoverContextValue>(() => ({ hoverIndex }), [hoverIndex])
 
@@ -442,6 +503,7 @@ export function Chart<Meta = unknown>({
                     contextMenu={!!onPointContextMenu}
                     ariaLabel={ariaLabel}
                     labelCount={labels.length}
+                    syncedIndex={showSyncedCrosshair ? syncedIndex : undefined}
                     handlers={handlers}
                     showOverlay={!!(dimensions && scales)}
                 >
@@ -455,6 +517,7 @@ export function Chart<Meta = unknown>({
                         orientation={axisOrientation}
                         labelToCoord={labelToCoord}
                         maxCategoryLabelWidth={maxCategoryLabelWidth}
+                        xTickLabels={xTickLabels}
                     />
                     <AxisTitles
                         xAxisLabel={xAxisLabel}

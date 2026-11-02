@@ -1,4 +1,4 @@
-import { createTooltipDateFormatter, createXAxisTickCallback } from './dates'
+import { buildTimeTickLabels, createTooltipDateFormatter, createXAxisTickCallback } from './dates'
 
 function weeklyDates(start: string, count: number): string[] {
     const dates: string[] = []
@@ -391,5 +391,48 @@ describe('createTooltipDateFormatter', () => {
     it('passes non-date labels through unchanged', () => {
         const format = createTooltipDateFormatter({ interval: 'day', timezone: 'UTC' })
         expect(format('not-a-date')).toBe('not-a-date')
+    })
+})
+
+describe('buildTimeTickLabels', () => {
+    it.each([
+        [
+            'starts at the first boundary inside the range',
+            ['2026-03-01T00:30:00Z', '2026-03-01T03:00:00Z', 'hour', 'UTC'],
+            ['2026-03-01T01:00:00.000Z', '2026-03-01T02:00:00.000Z', '2026-03-01T03:00:00.000Z'],
+        ],
+        [
+            'keeps days at midnight across a daylight saving change',
+            ['2026-03-07T05:00:00Z', '2026-03-10T04:00:00Z', 'day', 'America/New_York'],
+            [
+                '2026-03-07T05:00:00.000Z',
+                '2026-03-08T05:00:00.000Z',
+                '2026-03-09T04:00:00.000Z',
+                '2026-03-10T04:00:00.000Z',
+            ],
+        ],
+        [
+            'aligns quarters to quarter boundaries',
+            ['2026-02-15T00:00:00Z', '2026-08-01T00:00:00Z', 'quarter', 'UTC'],
+            ['2026-04-01T00:00:00.000Z', '2026-07-01T00:00:00.000Z'],
+        ],
+        [
+            'aligns days to the timezone',
+            ['2026-03-01T00:00:00Z', '2026-03-02T12:00:00Z', 'day', 'America/New_York'],
+            ['2026-03-01T05:00:00.000Z', '2026-03-02T05:00:00.000Z'],
+        ],
+        [
+            'returns no ticks for an unknown timezone',
+            ['2026-03-01T00:00:00Z', '2026-03-02T00:00:00Z', 'day', 'Not/AZone'],
+            [],
+        ],
+    ] as const)('%s', (_, [from, to, interval, timezone], expected) => {
+        expect(buildTimeTickLabels(Date.parse(from), Date.parse(to), interval, timezone)).toEqual(expected)
+    })
+
+    it('steps several intervals at a time to cap the tick count', () => {
+        const ticks = buildTimeTickLabels(0, 30 * 24 * 60 * 60 * 1000, 'minute', 'UTC')
+        expect(ticks.length).toBeLessThanOrEqual(400)
+        expect(ticks.length).toBeGreaterThan(200)
     })
 })

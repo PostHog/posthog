@@ -253,6 +253,22 @@ describe('hog-charts scales', () => {
             expect(scale.domain()).toEqual([0, 40])
         })
 
+        // A log domain can't hold zero, so a non-positive end is dropped and the axis stays logarithmic.
+        it.each([
+            ['both ends positive', { min: 1, max: 100 }],
+            ['a zero min', { min: 0, max: 100 }],
+        ])('keeps a log scale with %s', (_name, valueDomain) => {
+            const series = [makeSeries({ key: 's1', data: [1, 10, 100] })]
+            const scale = createYScale(series, dimensions, { scaleType: 'log', valueDomain })
+            expect(scale(10)).toBeCloseTo((scale(1) + scale(100)) / 2)
+        })
+
+        it('maps a value past a pinned log domain off the plot, so overlays can hide it', () => {
+            const series = [makeSeries({ key: 's1', data: [1, 10, 100] })]
+            const scale = createYScale(series, dimensions, { scaleType: 'log', valueDomain: { min: 1, max: 100 } })
+            expect(scale(1000)).toBeLessThan(dimensions.plotTop)
+        })
+
         it('takes precedence over percent stack mode', () => {
             const series = [makeSeries({ key: 's1', data: [10, 20, 30] })]
             const scale = createYScale(series, dimensions, { percentStack: true, valueDomain: { min: 0, max: 200 } })
@@ -683,6 +699,23 @@ describe('hog-charts scales', () => {
             expect(band.top[1]).toBe(0)
             expect(band.bottom[1]).toBe(0)
         })
+    })
+
+    // A 0 band would drop the line to the axis and invert the area, so a gap stays NaN and breaks
+    // them. The series above sits on the band below the gap.
+    it.each([
+        ['computeStackData', computeStackData],
+        ['computePercentStackData', computePercentStackData],
+        ['computeDivergingStackData', computeDivergingStackData],
+    ])('%s keeps a NaN gap as a NaN band and stacks the next series on the one below', (_, compute) => {
+        const s1 = makeSeries({ key: 's1', data: [10, 20, 30] })
+        const s2 = makeSeries({ key: 's2', data: [5, NaN, 5] })
+        const s3 = makeSeries({ key: 's3', data: [1, 1, 1] })
+        const result = compute([s1, s2, s3], ['a', 'b', 'c'])
+        const gap = result.get('s2')!
+        expect([gap.top[1], gap.bottom[1]]).toEqual([NaN, NaN])
+        expect([...gap.top, ...gap.bottom].filter(Number.isFinite)).toHaveLength(4)
+        expect(result.get('s3')!.bottom[1]).toBe(result.get('s1')!.top[1])
     })
 
     describe('computeStackData', () => {

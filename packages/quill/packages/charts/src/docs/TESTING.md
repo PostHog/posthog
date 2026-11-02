@@ -50,10 +50,14 @@ chart.yAxisLabelElement() // optional y-axis label SVG element
 chart.hasRightAxis // boolean
 chart.referenceLines() // [{ label, position, color, orientation }, …]
 chart.valueLabels() // [{ text, color }, …]
+chart.valueBands() // [{ top, left, width, height, color }, …]
 chart.anomalyPoints() // [{ element, color }, …] (TimeSeriesLineChart)
 chart.legend() // legend container in the render scope, null when hidden
 chart.legendItems() // [{ label, secondaryLabel }, …] legend rows in the render scope, empty when hidden
+chart.syncedIndex() // label index of another chart's shared crosshair here, or null
 chart.clickLegendItem('A', { additive: true }) // click a legend row, additive toggles instead of isolating
+chart.legendValues() // [['12 ms', '40 ms'], …] value-table cells per legend row
+chart.sortLegendBy('Max') // click a value-table header to sort by that column
 chart.slope.valueLabels() // [{ text, color, side }, …] slope value labels, start and end columns
 chart.slope.seriesLabels() // slope series names, after collision avoidance
 chart.sankey.nodeLabels() // ['/home', '/pricing', …] Sankey node labels in layout order, after overlap hiding

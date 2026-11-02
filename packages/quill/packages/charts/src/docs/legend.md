@@ -54,6 +54,22 @@ On time-series charts the legend lists the user's series only, and hiding a seri
 - Long labels clip with an ellipsis only when they run out of available space. A vertical legend truncates at the column edge. A horizontal legend caps each row at an equal share of the line floored at 180px, because flexbox wraps before it shrinks and one long label would otherwise take a whole line. The full text is always in a native `title` tooltip.
 - `LegendItem.secondaryLabel` shows muted trailing text (a slope chart's per-series change).
 
+## Value columns
+
+`values: ['mean', 'max', 'last']` renders the legend as a table with one column per summary: `mean`, `min`, `max`, `first`, `last`, `sum`.
+Each is computed over the series' finite values, so `first` and `last` skip missing points.
+A series with no finite value shows empty cells.
+Rows click, dim, and take `renderItem` exactly like the list legend.
+A header click sorts by that column: values start highest first and names A to Z, and a second click flips the order.
+`sortBy` and `sortDescending` set the initial sort, in the same direction a header click starts with unless `sortDescending` says otherwise.
+`columnLabels` replaces the header text, for example `{ label: 'Series', sum: 'Sum' }`.
+`valueFormatter(value, item)` formats a cell; the time-series charts default it to the tick format of the series' own axis.
+A percent chart, and a secondary axis without a format, keep the plain number format, because legend values are raw.
+`BoxPlot` and `ScatterChart` ignore `values`.
+The summaries are computed only while the legend is shown.
+A left or right table legend gets more width than a list legend, up to 60% of the chart or 480px.
+On a chart narrower than 480px it moves below the plot (above for `left`), so the plot and the series names keep their room.
+
 ## Lower-level primitives
 
 `Legend` (and `ChartLegend` for layout) is the presentational primitive: pass `items`, `onItemClick`, `hiddenKeys`; filtering series is the caller's state.
@@ -62,4 +78,4 @@ Use it directly when `config.legend` cannot express what you need (custom item o
 
 `useChartLegend(series, theme, config, items?)` is the shared hook the charts use.
 It returns `visibleSeries` (hidden applied as `visibility.excluded`) plus `legendProps` to spread onto `<ChartLegend>`.
-`applyHiddenSeries` is the underlying helper, and `legendItemsFromSeries(series, theme)` builds the item list.
+`applyHiddenSeries` is the underlying helper, and `legendItemsFromSeries(series, theme, values?)` builds the item list.

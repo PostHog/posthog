@@ -335,6 +335,12 @@ describe('MetricCard', () => {
             expect(container.querySelector('canvas')).toBeNull()
         })
 
+        it('colors only the headline with `valueColor`', () => {
+            const { container } = render(<MetricCard title="Errors" value={4.2} valueColor="rgb(240, 68, 56)" />)
+            const colored = container.querySelectorAll<HTMLElement>('[style*="color"]')
+            expect(Array.from(colored, (el) => [el.textContent, el.style.color])).toEqual([['4.2', 'rgb(240, 68, 56)']])
+        })
+
         it('renders nothing when neither `value` nor `data` is supplied', () => {
             const { container } = render(<MetricCard title="Revenue" />)
             expect(container.textContent).toBe('')

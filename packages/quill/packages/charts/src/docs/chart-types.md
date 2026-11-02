@@ -9,6 +9,9 @@ Prop-level docs live on each chart's props and config interfaces.
 `LineChart` plus time-series chrome: date ticks from `xAxis.timezone` and `interval`, an interval-aware tooltip header, `goalLines`, `valueLabels`, `legend`, and the derived series configs (`confidenceIntervals`, `movingAverage`, `trendLines`).
 `comparisonOf` maps comparison series keys to their primary so they render dimmed.
 `percentStackView` renders area series as a 100% stack with a 0..100% axis.
+Two or more `fill` series stack by default. `stacked: false` draws every series at its own value, so filled areas overlap, and `stacked: true` stacks unfilled lines too. `Series.stacked: false` keeps one series out of the stack, such as a total line drawn over a stacked breakdown.
+Give that total line `visibility: { total: false }` too, or the tooltip total counts it twice.
+`percentStackView` stacks every series and ignores `Series.stacked`, and bar and combo charts ignore it.
 
 Derived series: trend lines and moving averages are `overlay: true`, so they are excluded from stacking and from the baseline calculation and a projection cannot drag the axis below zero.
 Confidence bands are not overlays; they represent real uncertainty whose range should still influence the axis.
@@ -75,6 +78,18 @@ It takes the same `series` as `PieChart` and sizes each part the same way as a p
 - The legend shows below the bar by default. Each row shows `share · value` as its `secondaryLabel`, because the bar has no axis to read a size from. A part hidden through the legend leaves the total, and its row shows no share.
 - A `tooltip` render prop receives the hovered part as `seriesData[0]`, with its raw `value` and its `fraction` of the visible parts, as on `PieChart`.
 - `barHeight` sets the bar thickness. The chart takes its height from the bar and the legend, so it does not need a parent with a fixed height. It does not grow to fill a flex parent either, so the legend stays next to the bar; center the pair in the parent if you want it in the middle.
+
+## Gauge
+
+One gauge per item in `items: { key, label?, value, color? }[]`, each reading a single value against `min`..`max` (default 0..100).
+Reduce a series to that value before you pass it in.
+
+- `variant: 'radial'` (default) draws a 240° arc open at the bottom, laid out in a wrapping grid. `'bar'` draws a bar on a neutral track: rows for `orientation: 'horizontal'` (default), columns for `'vertical'`.
+- `thresholds: { value, color }[]` colors the fill and the value text with the highest threshold at or below the value. Below every threshold the gauge uses the item's `color`, then `theme.colors` by index.
+- A radial gauge draws each threshold's range as a band outside its arc. `showThresholdMarkers: false` hides them.
+- A `null` value draws an empty gauge that reads "No data".
+- Each gauge is a `role="meter"` element with its value, range, and label for assistive technology. Without a `label`, its `key` names it.
+- It renders SVG and DOM, not canvas, so it needs no fixed-height parent for a bar layout; a radial or vertical layout fills the height it is given.
 
 ## BarList
 
@@ -169,6 +184,7 @@ A left-aligned tile: headline number, change pill, sparkline.
 
 - `title={null}` drops the title row. The header band collapses when there is no title and no change pill, and the subtitle row is omitted when there is no subtitle and no `labels`, so a value-only card renders just the number.
 - `changeSize="md"` renders a larger pill (default `sm`); `changeInline` puts it beside the headline instead of in the header. The inline pill wraps under the headline when the card is too narrow for both.
+- `valueColor` colors the headline number, for example with a threshold status color; `color` colors only the sparkline. `valueColor` accepts a `var(--…)` reference, but `color` needs a concrete color, because the sparkline draws on canvas.
 - `headlineClassName` replaces the headline's default `text-4xl`, for example with container query sizes so a narrow tile keeps the number on one line.
 - `sparklineFill` makes the sparkline fill the card's remaining height instead of a fixed `sparklineHeight`; `sparklineDashedFromIndex` dashes it from that index onward (an in-progress trailing period).
 - `subtitle` always wins. `restingSubtitle` (`'Avg'`) shows only at rest and yields to the hovered point's label on hover; pair it with a `value` that summarizes the series.

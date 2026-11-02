@@ -1,4 +1,4 @@
-import { type Dayjs, parseDateInTimezone } from './dayjs'
+import { dayjs, type Dayjs, parseDateInTimezone } from './dayjs'
 
 /** Bucket size for a date-based X axis. Mirrors `IntervalType` from product code without
  * coupling hog-charts to it. */
@@ -284,4 +284,75 @@ function buildVisibleBoundaries(parsedDates: Dayjs[]): Set<number> {
     }
 
     return visible
+}
+
+/** Most ticks {@link buildTimeTickLabels} emits; a finer grid steps several intervals at a time. */
+const MAX_TIME_TICKS = 400
+const APPROX_INTERVAL_MS: Record<TimeInterval, number> = {
+    second: 1000,
+    minute: 60 * 1000,
+    hour: HOUR_MS,
+    day: DAY_MS,
+    week: 7 * DAY_MS,
+    month: 30 * DAY_MS,
+    quarter: 91 * DAY_MS,
+    year: 365 * DAY_MS,
+}
+
+/** Earliest and latest finite time among `labels`, or NaN for both when none parses. */
+export function labelTimeExtent(labels: readonly string[], parse: (label: string) => number): [number, number] {
+    let from = Infinity
+    let to = -Infinity
+    for (const label of labels) {
+        const t = parse(label)
+        if (isFinite(t)) {
+            from = Math.min(from, t)
+            to = Math.max(to, t)
+        }
+    }
+    return from <= to ? [from, to] : [NaN, NaN]
+}
+
+/** A regular grid of ISO labels from `from` to `to` (epoch ms), one per `interval` starting at
+ *  the first interval boundary in `timezone`. Feeds the ticks of a time-scaled axis that spans
+ *  beyond its data. */
+export function buildTimeTickLabels(from: number, to: number, interval: TimeInterval, timezone: string): string[] {
+    if (!isFinite(from) || !isFinite(to) || to < from) {
+        return []
+    }
+    try {
+        // An unknown timezone throws in `.tz()`, and this runs outside the chart's error boundary.
+        dayjs().tz(timezone)
+    } catch {
+        return []
+    }
+    // dayjs has no quarter unit without a plugin, so a quarter steps three months.
+    const unit = interval === 'quarter' ? 'month' : interval
+    const step =
+        Math.max(1, Math.ceil((to - from) / APPROX_INTERVAL_MS[interval] / (MAX_TIME_TICKS - 1))) *
+        (interval === 'quarter' ? 3 : 1)
+    const calendarUnit = unit !== 'second' && unit !== 'minute' && unit !== 'hour'
+    // Calendar units step on the wall clock and re-resolve the timezone offset, so a tick stays at
+    // midnight across a daylight saving change. Clock units step by elapsed time.
+    const add = (tick: Dayjs, count: number): Dayjs =>
+        calendarUnit
+            ? parseDateInTimezone(
+                  dayjs.utc(tick.format('YYYY-MM-DDTHH:mm:ss')).add(count, unit).format('YYYY-MM-DD HH:mm:ss'),
+                  timezone
+              )
+            : dayjs(tick.valueOf() + count * APPROX_INTERVAL_MS[interval]).tz(timezone)
+
+    let tick = dayjs(from).tz(timezone).startOf(unit)
+    if (interval === 'quarter') {
+        tick = add(tick, -(tick.month() % 3))
+    }
+    if (tick.valueOf() < from) {
+        tick = add(tick, step)
+    }
+    const labels: string[] = []
+    while (tick.valueOf() <= to) {
+        labels.push(tick.toISOString())
+        tick = add(tick, step)
+    }
+    return labels
 }

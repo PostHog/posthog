@@ -6,7 +6,8 @@ import { buildYTickFormatter, type YFormatterConfig } from './y-formatters'
 
 export interface XAxisConfig {
     label?: string
-    /** Explicit tick formatter. When set, it wins over the auto date formatter. */
+    /** Explicit tick formatter. When set, it wins over the auto date formatter. `index` refers to
+     *  the tick labels, which on a time scale are the tick grid rather than the data labels. */
     tickFormatter?: (value: string, index: number) => string | null
     /** Fixed tick-label rotation in degrees, clamped to -90..90. Negative values tilt left. */
     tickLabelRotation?: number
@@ -34,14 +35,12 @@ export interface YAxisConfig extends YFormatterConfig {
     showGrid?: boolean
     /** Y-axis baseline behavior. The default (`undefined`/`true`) clamps a non-negative axis down to
      *  0. Set `false` to float the axis to its data range instead (zoom in on the variation). Ignored
-     *  on a log scale; honored per axis in the array (multi-axis) form, except axes carrying bar
-     *  series, which always draw from 0. */
+     *  on a log scale; honored per axis, except on axes carrying bar series, which always draw from 0. */
     startAtZero?: boolean
     /** Pins the low end of the axis, overriding both the data-derived bound and `startAtZero`. Omit
      *  for an automatic bound. Honored per axis in the array (multi-axis) form; ignored under a
-     *  percent layout, and dropped when non-positive on a log scale. Read by the line charts only:
-     *  this config is shared, but bar and combo charts ignore it, since a bar encodes magnitude as
-     *  length from zero. */
+     *  percent layout, and dropped when non-positive on a log scale. Bar charts, and combo-chart axes
+     *  carrying bar series, ignore it, since a bar encodes magnitude as length from zero. */
     min?: number
     /** Pins the high end of the axis. Omit for an automatic bound. See {@link YAxisConfig.min}. */
     max?: number
