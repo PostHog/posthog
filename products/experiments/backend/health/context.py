@@ -233,6 +233,18 @@ class PrimaryMetric:
 
 
 @frozen
+class MetricWindow:
+    """How long a primary metric holds a user back while "Require completed conversion or retention window" is on."""
+
+    name: str
+    # 0 when the metric has no window, so the setting holds nobody back.
+    window_seconds: int
+    # The launch plus the window. The window starts at a user's first exposure, or at the start event for retention,
+    # so a user who arrives later counts later.
+    first_users_count_at: datetime
+
+
+@frozen
 class ExposureSegment:
     """The persons or groups whose first exposure carries one value of a dimension, such as the SDK library."""
 
@@ -541,6 +553,11 @@ class HealthContext:
     # None when not loaded, unknown, or the experiment calculates no primary metric. Only the health endpoints load it,
     # and only for a launched experiment.
     primary_metric: PrimaryMetric | None
+    only_count_matured_users: bool
+    # In the order of the results page. None when not loaded or when a metric doesn't parse. Only the health endpoints
+    # load it, and only for a launched experiment that hasn't ended, isn't archived and has `only_count_matured_users`
+    # on.
+    primary_metric_windows: tuple[MetricWindow, ...] | None
     # The variants that the analysis leaves out of the results.
     excluded_variant_keys: frozenset[str]
     # None when not loaded or unknown. Only the health endpoints load it, as the reader.
@@ -1007,6 +1024,8 @@ def load_health_context(
         condition_set_traffic=None,
         pause_history=None,
         primary_metric=None,
+        only_count_matured_users=experiment.only_count_matured_users,
+        primary_metric_windows=None,
         excluded_variant_keys=frozenset(experiment.excluded_variants or []),
         metric_compiles=None,
         latest_calculation=None,

@@ -136,10 +136,14 @@ from products.replay_vision.backend.quota import (
     spend_projection,
 )
 from products.replay_vision.backend.scanner_access import (
+    SCANNER_CREATOR_LOST_ACCESS_CODE,
     accessible_experiment_ids,
     accessible_observations,
+    can_read_targeted_experiment,
+    creator_can_scan,
     is_experiment_accessible,
     readable_observation_scanner_ids,
+    recording_viewer_access,
     scanner_experiment_scope_q,
     scanners_for_reading_observations,
 )
@@ -575,6 +579,15 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         required=False,
         help_text="When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work.",
     )
+    take_over_as_creator = serializers.BooleanField(
+        required=False,
+        write_only=True,
+        help_text=(
+            "Set with `enabled: true` to turn on a scanner whose creator can no longer view recordings. "
+            "The caller becomes the scanner's creator, and scheduled scans then run as the caller. "
+            f"Without it, that request fails with code `{SCANNER_CREATOR_LOST_ACCESS_CODE}`."
+        ),
+    )
     emits_signals = serializers.BooleanField(
         required=False,
         help_text="When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals.",
@@ -679,6 +692,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "scanner_type",
             "goal",
             "creation_method",
+            "take_over_as_creator",
             "scanner_config",
             "prompt_question",
             "query",
@@ -852,6 +866,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             if duplicates.exists():
                 raise serializers.ValidationError({"name": "A scanner with this name already exists in this team."})
         self._reject_scanner_type_change(attrs)
+        self._check_turning_on(attrs)
         self._restore_redacted_experiment_config(attrs)
         self._validate_scanner_config(attrs)
         self._validate_experiment_scanner(attrs)
@@ -866,6 +881,43 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             else None,
         )
         return attrs
+
+    def _check_turning_on(self, attrs: dict[str, Any]) -> None:
+        # The sweep turns a scanner without consent or a creator with recording access straight back off.
+        # Kept in attrs only when this save hands the scanner over, so `update` can act on it.
+        take_over = attrs.pop("take_over_as_creator", False)
+        if self.instance is None or self.instance.enabled or not attrs.get("enabled"):
+            return
+        if not self.context["get_team"]().organization.is_ai_data_processing_approved:
+            raise serializers.ValidationError(
+                "Your organization needs to allow AI analysis before you can turn on a Replay Vision scanner.",
+                code=AI_CONSENT_REQUIRED_CODE,
+            )
+        if not creator_can_scan(self.instance):
+            if not take_over:
+                raise serializers.ValidationError(
+                    "This scanner's creator can no longer view recordings, so turning it on makes you its creator. "
+                    "Confirm the take-over to turn it on.",
+                    code=SCANNER_CREATOR_LOST_ACCESS_CODE,
+                )
+            self._check_can_take_over(self.instance)
+            attrs["take_over_as_creator"] = True
+
+    def _check_can_take_over(self, scanner: ReplayScanner) -> None:
+        # The creator scans as themselves and manages the scanner's access, so the new one needs all of it.
+        if recording_viewer_access(acting_user(self.context), scanner.team) is None:
+            raise serializers.ValidationError(
+                {"enabled": "You need access to session recordings to take over this scanner."}
+            )
+        access = cast(UserAccessControl, self.user_access_control)
+        if not access.check_can_modify_access_levels_for_object(scanner):
+            raise serializers.ValidationError(
+                {"enabled": "You need permission to manage this scanner's access to take it over."}
+            )
+        if not can_read_targeted_experiment(access, scanner.team_id, scanner):
+            raise serializers.ValidationError(
+                {"enabled": "You need access to this scanner's experiment to take it over."}
+            )
 
     def _drop_redacted_targeting_clear(self, attrs: dict[str, Any]) -> None:
         # to_representation redacts experiment_targeting to null for callers denied the experiment,
@@ -1151,6 +1203,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         # Tags are not a scanner column: keep them out of the before/after getattr diff below.
         # The mixin's update (reached via super()) persists them as TaggedItem rows.
         tags = validated_data.pop("tags", None)
+        takes_over = validated_data.pop("take_over_as_creator", False)
         # A scanner is built once, so this says nothing about an edit. Dropped here because the UI
         # PATCHes the whole form back and would otherwise send it into the getattr diff below.
         validated_data.pop("creation_method", None)
@@ -1163,6 +1216,9 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         # The UI PATCHes the whole form on save, so edits are detected by comparing values, not keys.
         before = {field: getattr(instance, field) for field in validated_data}
         was_enabled = instance.enabled
+        if takes_over:
+            # Set after `before`, so the handover is not reported as an edit.
+            validated_data["created_by"] = acting_user(self.context)
         limit_changed = any(
             field in validated_data and validated_data[field] != getattr(instance, field)
             for field in ("credit_limit", "free_only")
