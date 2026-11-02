@@ -629,38 +629,37 @@ describe('CdpCyclotronWorkerHogFlow', () => {
         })
 
         it.each([
-            ['newer than the cached copy runs the database version', 2, [2], false],
-            ['missing runs the cached copy, as before the field', undefined, [1], false],
-            ['newer than the database fails the job', 3, [], true],
-        ])(
-            'an accepted send whose graded workflow version is %s',
-            async (_desc, hogFlowVersion, ranVersions, failed) => {
-                const hogFlow = hogFlows[0]
-                await processor['hogFlowManager'].getHogFlow(hogFlow.id)
-                await hub.postgres.query(
-                    PostgresUse.COMMON_WRITE,
-                    `UPDATE posthog_hogflow SET version = 2 WHERE id = $1`,
-                    [hogFlow.id],
-                    'upload-without-reload'
-                )
-                const invocation = createSerializedHogFlowInvocation(hogFlow, {
-                    event: { distinct_id: 'distinct_A_1', properties: {} } as any,
-                    send: { tracking: { captureEngagement: false }, hogFlowVersion },
-                })
-                const queueUnavailableRun = jest.spyOn(
-                    processor['invocationResultsService'].emailStatusService,
-                    'queueUnavailableRun'
-                )
+            ['newer than the cached copy runs the database version', 2, [{ version: 2, failed: false }]],
+            ['missing runs the cached copy, as before the field', undefined, [{ version: 1, failed: false }]],
+            ['newer than the database finishes the run as failed', 3, [{ version: 2, failed: true }]],
+        ])('an accepted send whose graded workflow version is %s', async (_desc, hogFlowVersion, outcomes) => {
+            const hogFlow = hogFlows[0]
+            await processor['hogFlowManager'].getHogFlow(hogFlow.id)
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogflow SET version = 2 WHERE id = $1`,
+                [hogFlow.id],
+                'upload-without-reload'
+            )
+            const invocation = createSerializedHogFlowInvocation(hogFlow, {
+                event: { distinct_id: 'distinct_A_1', properties: {} } as any,
+                send: { tracking: { captureEngagement: false }, hogFlowVersion },
+            })
+            const queueUnavailableRun = jest.spyOn(
+                processor['invocationResultsService'].emailStatusService,
+                'queueUnavailableRun'
+            )
 
-                const results = await processor.processInvocations([invocation])
+            const results = await processor.processInvocations([invocation])
 
-                expect(
-                    results.map((result) => (result.invocation as CyclotronJobInvocationHogFlow).hogFlow.version)
-                ).toEqual(ranVersions)
-                expect(jobQueue.dequeueInvocations).toHaveBeenLastCalledWith(failed ? [invocation] : [])
-                expect(queueUnavailableRun.mock.calls).toEqual(failed ? [[invocation]] : [])
-            }
-        )
+            expect(
+                results.map((result) => ({
+                    version: (result.invocation as CyclotronJobInvocationHogFlow).hogFlow.version,
+                    failed: result.finished && result.error !== undefined,
+                }))
+            ).toEqual(outcomes)
+            expect(queueUnavailableRun).not.toHaveBeenCalled()
+        })
 
         it('terminates invocations as canceled when the workflow is disabled after being queued', async () => {
             const hogFlow = hogFlows[0]
