@@ -94,7 +94,7 @@ class LazyChunk<P extends object> extends Component<LazyChunkProps<P>, { error: 
             return this.props.renderError(this.recovery(error))
         }
         // Read on every render, so a retry renders the new lazy component.
-        const Chunk: ComponentType<P> = this.props.chunk.get()
+        const Chunk = this.props.chunk.get() as unknown as ComponentType<P>
         return (
             <Suspense fallback={this.props.loading}>
                 <Chunk {...this.props.chunkProps} />
