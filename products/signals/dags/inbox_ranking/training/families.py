@@ -21,13 +21,13 @@ from typing import Final, Literal
 from posthog.dataclasses import frozen
 
 from products.signals.backend.ranking.features import (
+    ALL_PROJECT_VECTOR_KINDS,
     PAIR_BASE_FEATURE_SET,
     PAIR_USER_HISTORY_FEATURE_SET,
     PROJECT_VECTOR_KINDS,
     REPORT_EMBEDDINGS_FEATURE_SET,
     REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET,
     REPORT_EMBEDDINGS_PRIORITY_SOURCES_FEATURE_SET,
-    TRAINING_PROJECT_VECTOR_KINDS,
     FeatureSet,
 )
 from products.signals.backend.ranking.serving_manifest import DEFAULT_MODEL_KIND, ONNX_MODEL_KIND
@@ -65,8 +65,7 @@ class ModelFamily:
     partition day it trains in `expires`. A serving family has neither.
 
     `project_vector_kinds` are the team context kinds the network reads, in its input order. Only a
-    report-grain experiment can change them: the stored table, the serving path and the pair lane
-    read `PROJECT_VECTOR_KINDS` only.
+    report-grain experiment can change them. The pair lane reads `PROJECT_VECTOR_KINDS` only.
 
     A pair-grain family is always an experiment and declares its `heads` from `PAIR_HEAD_NAMES`. Its
     `baseline` is another pair experiment, and it names a `baseline`, a `reference`, or both: the
@@ -99,10 +98,10 @@ class ModelFamily:
 
     def _check_project_vector_kinds(self) -> None:
         kinds = self.project_vector_kinds
-        if not kinds or len(set(kinds)) != len(kinds) or not set(kinds) <= set(TRAINING_PROJECT_VECTOR_KINDS):
+        if not kinds or len(set(kinds)) != len(kinds) or not set(kinds) <= set(ALL_PROJECT_VECTOR_KINDS):
             raise ValueError(
                 f"family {self.name} declares project vector kinds {list(kinds)}; pick distinct kinds from "
-                f"{list(TRAINING_PROJECT_VECTOR_KINDS)}"
+                f"{list(ALL_PROJECT_VECTOR_KINDS)}"
             )
         if kinds != PROJECT_VECTOR_KINDS and (not self.experiment or self.grain == PAIR_GRAIN):
             raise ValueError(

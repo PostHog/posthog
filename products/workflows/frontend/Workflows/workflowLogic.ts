@@ -16,7 +16,6 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
-import { LiquidRenderer } from 'lib/utils/liquid'
 import { objectsEqual } from 'lib/utils/objects'
 import { sanitizeInputs } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import type { EmailFieldErrors } from 'scenes/hog-functions/email-templater/types'
@@ -65,6 +64,7 @@ import {
     stateToRRule,
 } from './hogflows/steps/components/rrule-helpers'
 import type { ScheduleState } from './hogflows/steps/components/rrule-helpers'
+import { getTemplatingError } from './hogflows/steps/templatingError'
 import {
     HogFlowActionSchema,
     SCHEDULED_TRIGGER_TYPES,
@@ -179,16 +179,6 @@ async function withDefaultEmailSender(workflow: HogFlow): Promise<HogFlow> {
     } catch {
         // The sender is a convenience. The person can still pick one, so a failed lookup doesn't block the editor.
         return workflow
-    }
-}
-
-function getTemplatingError(value: string, templating?: 'liquid' | 'hog'): string | undefined {
-    if (templating === 'liquid' && typeof value === 'string') {
-        try {
-            LiquidRenderer.parse(value)
-        } catch (e: any) {
-            return `Liquid template error: ${e.message}`
-        }
     }
 }
 
@@ -764,6 +754,7 @@ export interface workflowLogicActions {
                                 >
                                 message_category_id?: string | undefined
                                 message_category_type?: 'marketing' | 'transactional' | undefined
+                                sensitive?: boolean | undefined
                                 template_id: 'template-native-push'
                                 template_uuid?: string | undefined
                             }
@@ -1650,6 +1641,7 @@ export interface workflowLogicActions {
                                 >
                                 message_category_id?: string | undefined
                                 message_category_type?: 'marketing' | 'transactional' | undefined
+                                sensitive?: boolean | undefined
                                 template_id: 'template-native-push'
                                 template_uuid?: string | undefined
                             }
@@ -2489,8 +2481,19 @@ export interface workflowLogicActions {
                   >
                   message_category_id?: string | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
-                  template_id: 'template-native-push'
+                  template_id: 'template-twilio'
                   template_uuid?: string | undefined
+              }
+            | {
+                  day:
+                      | ('friday' | 'monday' | 'saturday' | 'sunday' | 'thursday' | 'tuesday' | 'wednesday')[]
+                      | 'any'
+                      | 'weekday'
+                      | 'weekend'
+                  fallback_timezone?: string | null | undefined
+                  time: [string, string] | 'any'
+                  timezone: string | null
+                  use_person_timezone?: boolean | undefined
               }
             | {
                   inputs: Record<
@@ -2505,19 +2508,9 @@ export interface workflowLogicActions {
                   >
                   message_category_id?: string | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
-                  template_id: 'template-twilio'
+                  sensitive?: boolean | undefined
+                  template_id: 'template-native-push'
                   template_uuid?: string | undefined
-              }
-            | {
-                  day:
-                      | ('friday' | 'monday' | 'saturday' | 'sunday' | 'thursday' | 'tuesday' | 'wednesday')[]
-                      | 'any'
-                      | 'weekday'
-                      | 'weekend'
-                  fallback_timezone?: string | null | undefined
-                  time: [string, string] | 'any'
-                  timezone: string | null
-                  use_person_timezone?: boolean | undefined
               }
             | {
                   inputs: Record<
@@ -2899,8 +2892,19 @@ export interface workflowLogicActions {
                   >
                   message_category_id?: string | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
-                  template_id: 'template-native-push'
+                  template_id: 'template-twilio'
                   template_uuid?: string | undefined
+              }
+            | {
+                  day:
+                      | ('friday' | 'monday' | 'saturday' | 'sunday' | 'thursday' | 'tuesday' | 'wednesday')[]
+                      | 'any'
+                      | 'weekday'
+                      | 'weekend'
+                  fallback_timezone?: string | null | undefined
+                  time: [string, string] | 'any'
+                  timezone: string | null
+                  use_person_timezone?: boolean | undefined
               }
             | {
                   inputs: Record<
@@ -2915,19 +2919,9 @@ export interface workflowLogicActions {
                   >
                   message_category_id?: string | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
-                  template_id: 'template-twilio'
+                  sensitive?: boolean | undefined
+                  template_id: 'template-native-push'
                   template_uuid?: string | undefined
-              }
-            | {
-                  day:
-                      | ('friday' | 'monday' | 'saturday' | 'sunday' | 'thursday' | 'tuesday' | 'wednesday')[]
-                      | 'any'
-                      | 'weekday'
-                      | 'weekend'
-                  fallback_timezone?: string | null | undefined
-                  time: [string, string] | 'any'
-                  timezone: string | null
-                  use_person_timezone?: boolean | undefined
               }
             | {
                   inputs: Record<
@@ -4074,6 +4068,14 @@ export const workflowLogic = kea<workflowLogicType>([
                                     channels: 'Select at least one channel to send this notification',
                                 }
                             }
+                            const title = action.config.inputs?.title?.value
+                            if (
+                                action.config.inputs?.delivery?.value !== 'silent' &&
+                                !(typeof title === 'string' && title.trim())
+                            ) {
+                                result.valid = false
+                                result.errors = { ...result.errors, title: 'Add a notification title' }
+                            }
                         }
 
                         if (
@@ -4576,20 +4578,20 @@ export const workflowLogic = kea<workflowLogicType>([
                         // Each write answers with the saved schedule, so the editor rebaselines from
                         // the response. Re-reading the list instead would leave a created schedule
                         // unknown whenever that read failed, and the next save would add a second one.
+                        // A workflow can hold several schedules, so each write only swaps the one it touched.
                         if (pendingSchedule === null && existingScheduleId) {
                             await api.hogFlows.deleteHogFlowSchedule(workflowId, existingScheduleId)
-                            actions.setSchedules([])
+                            actions.setSchedules(values.schedules.filter((s) => s.id !== existingScheduleId))
                         } else if (pendingSchedule !== null && existingScheduleId) {
-                            actions.setSchedules([
-                                // The generated client answers with HogFlowScheduleApi, whose untyped
-                                // `variables` does not satisfy the HogFlowSchedule the editor holds.
-                                // nosemgrep: prefer-codegen-api-namespaced-workflows
-                                await api.hogFlows.updateHogFlowSchedule(
-                                    workflowId,
-                                    existingScheduleId,
-                                    pendingSchedule
-                                ),
-                            ])
+                            // The generated client answers with HogFlowScheduleApi, whose untyped
+                            // `variables` does not satisfy the HogFlowSchedule the editor holds.
+                            // nosemgrep: prefer-codegen-api-namespaced-workflows
+                            const updated = await api.hogFlows.updateHogFlowSchedule(
+                                workflowId,
+                                existingScheduleId,
+                                pendingSchedule
+                            )
+                            actions.setSchedules(values.schedules.map((s) => (s.id === updated.id ? updated : s)))
                         } else if (pendingSchedule !== null) {
                             actions.setSchedules([
                                 // nosemgrep: prefer-codegen-api-namespaced-workflows

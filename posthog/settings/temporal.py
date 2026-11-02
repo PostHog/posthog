@@ -376,6 +376,9 @@ EXPERIMENTS_RECALCULATION_TASK_QUEUE = _set_temporal_task_queue("experiments-rec
 EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE = _set_temporal_task_queue(
     "experiments-recalculation-activity-task-queue"
 )
+EXPERIMENTS_RECALCULATION_PRECOMPUTE_TASK_QUEUE = _set_temporal_task_queue(
+    "experiments-recalculation-precompute-task-queue"
+)
 HEALTH_CHECK_TASK_QUEUE = _set_temporal_task_queue("health-check-task-queue")
 DUCKLAKE_TASK_QUEUE = _set_temporal_task_queue("ducklake-task-queue")
 TASKS_TASK_QUEUE = _set_temporal_task_queue("tasks-task-queue")
@@ -434,12 +437,13 @@ ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHECKS: int = max(
 # fall behind their cadence. The pool above bounds concurrent queries, not this. A key that finds the
 # pool full polls for a slot within its tick, so a high value costs waiting runs rather than load.
 # The default is never below the pool size, so a larger pool is never left idle. Discovery returns
-# every key in one activity result, so the cap keeps it at the 1000 keys the other sources use.
+# every key in one activity result. At the cap of 2000 the insight group is about 110 KB, which keeps
+# it under the 256 KB limit for one Temporal payload field.
 ALERTS_PLATFORM_INSIGHT_KEYS_PER_TICK: int = get_from_env(
     "ALERTS_PLATFORM_INSIGHT_KEYS_PER_TICK", max(200, ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS), type_cast=int
 )
-if not 0 < ALERTS_PLATFORM_INSIGHT_KEYS_PER_TICK <= 1000:
-    raise ImproperlyConfigured("ALERTS_PLATFORM_INSIGHT_KEYS_PER_TICK must be between 1 and 1000")
+if not 0 < ALERTS_PLATFORM_INSIGHT_KEYS_PER_TICK <= 2000:
+    raise ImproperlyConfigured("ALERTS_PLATFORM_INSIGHT_KEYS_PER_TICK must be between 1 and 2000")
 # Chart renders for platform insight firings allowed to run at once, across every worker. A render
 # blocks a worker thread for up to 90 seconds, so this keeps renders from taking the slots that
 # planning and recording need.
