@@ -91,14 +91,6 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
         return result
     }
 
-    private async isOverQuota(hogFlow: HogFlow): Promise<boolean> {
-        const { isLimited } = await checkHogFlowQuotaLimits(hogFlow, hogFlow.team_id, this.deps.quotaLimiting)
-        if (isLimited) {
-            counterHogFlowQuotaLimited.labels({ team_id: hogFlow.team_id }).inc()
-        }
-        return isLimited
-    }
-
     @instrumented('cdpConsumer.handleEachBatch.loadHogFlows')
     protected async loadHogFlows(invocations: CyclotronJobInvocation[]): Promise<LoadHogFlowsResult> {
         const loadedInvocations: CyclotronJobInvocationHogFlow[] = []
@@ -149,7 +141,13 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 const hogFlowInvocationState = item.state as CyclotronJobInvocationHogFlow['state']
 
                 if (!hogFlowInvocationState.quotaChecked) {
-                    if (await this.isOverQuota(hogFlow)) {
+                    const { isLimited } = await checkHogFlowQuotaLimits(
+                        hogFlow,
+                        hogFlow.team_id,
+                        this.deps.quotaLimiting
+                    )
+                    if (isLimited) {
+                        counterHogFlowQuotaLimited.labels({ team_id: hogFlow.team_id }).inc()
                         canceledResults.push(
                             this.buildCanceledResult(
                                 item,
