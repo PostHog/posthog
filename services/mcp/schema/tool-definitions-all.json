@@ -18296,6 +18296,70 @@
             "readOnlyHint": false
         }
     },
+    "workflows-transactional-email-get": {
+        "description": "Get one transactional email send by its message_id, with every step it went through: queued, sent, delivered or bounced, and each open and click, with their times and reasons. The subject is empty when the email was never sent, and an email marked sensitive keeps no subject values. Share the _posthogUrl so the user can see the rendered email.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Get a transactional email send",
+        "title": "Get a transactional email send",
+        "required_scopes": ["hog_flow:read"],
+        "api_operations": ["GET /api/projects/{project_id}/transactional_email_log/{id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "workflows-transactional-email-api"
+    },
+    "workflows-transactional-email-results": {
+        "description": "Of the people a transactional email was sent to, count those who did an event within window_days of their first send, the median time until they did, and the sum of a revenue property on those events. workflow_id is the email's transactional_hog_flow_id. Pick the event with the user, such as a signup or a purchase, and check its name with the event definitions first. Only sends that named a distinct ID count.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Get what people did after a transactional email",
+        "title": "Get what people did after a transactional email",
+        "required_scopes": ["hog_flow:read"],
+        "api_operations": ["GET /api/projects/{project_id}/transactional_email_log/results/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "workflows-transactional-email-api"
+    },
+    "workflows-transactional-email-stats": {
+        "description": "Count the project's transactional email sends by outcome, per email (group_by template) or per sending domain (group_by sending_domain): sent, delivered, bounced, spam reports, opened, clicked and not sent. To get rates, divide delivered and bounced by sent, and spam reports, opened and clicked by delivered. Defaults to the last 7 days, and the log keeps 30.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Get transactional email delivery stats",
+        "title": "Get transactional email delivery stats",
+        "required_scopes": ["hog_flow:read"],
+        "api_operations": ["GET /api/projects/{project_id}/transactional_email_log/stats/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "workflows-transactional-email-api"
+    },
+    "workflows-transactional-emails-list": {
+        "description": "List the project's transactional email sends from the last 30 days, newest first, with each send's recipient, email, delivery status, the bounce or failure reason, and whether it was opened or clicked. Use it to answer \"did the password reset reach jane@example.com\" or \"which sends bounced today\". Search takes a message_id for an exact match, or part of an email address. workflow_id is the transactional_hog_flow_id of the email to filter on. Page with limit and offset while has_more is true.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "List transactional email sends",
+        "title": "List transactional email sends",
+        "required_scopes": ["hog_flow:read"],
+        "api_operations": ["GET /api/projects/{project_id}/transactional_email_log/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "workflows-transactional-email-api"
+    },
     "workflows-update": {
         "description": "Updates workflow fields a graph patch can't express: name, description, tags, exit_condition, conversion, trigger_masking, variables. Graph content (actions/edges) is rejected here - a partial list would silently drop every step it omits - so all graph edits go through workflows-patch-graph. On an active workflow, content fields stage a draft (published with workflows-publish) while name, description and tags apply immediately. tags replaces the whole tag list, so send the tags to keep as well as the new ones. Status changes go through workflows-enable / workflows-archive.",
         "category": "Workflows",
