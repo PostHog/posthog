@@ -10,7 +10,15 @@ from django.core.exceptions import FieldFetchBlocked
 from parameterized import parameterized
 
 from posthog.models.scoping import peer_lazy_loads, team_scope, unscoped
-from posthog.models.scoping.manager import FETCH_RELATION_PEERS, TeamScopedManager, TeamScopedQuerySet, TeamScopeError
+from posthog.models.scoping.manager import (
+    FETCH_RAISE_ON_PEERS,
+    FETCH_RELATION_PEERS,
+    TeamScopedManager,
+    TeamScopedQuerySet,
+    TeamScopeError,
+    allow_peer_lazy_loads,
+    default_fetch_mode,
+)
 from posthog.models.team import Team
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -200,11 +208,11 @@ class TestFetchRaiseOnPeers(BaseTest):
     ) -> None:
         first, *_ = list(shape(self._flags()))
 
-        with (
-            patch.dict(os.environ, {peer_lazy_loads.MODE_ENV: "", peer_lazy_loads.DIR_ENV: ""}),
-            pytest.raises(FieldFetchBlocked, match=rf"{model_field}\b.*{fix}"),
-        ):
+        with pytest.raises(FieldFetchBlocked, match=rf"{model_field}\b.*{fix}"):
             read(first)
+
+        [blocked] = peer_lazy_loads.finish_test()
+        assert model_field in blocked
 
     @parameterized.expand(
         [
@@ -227,21 +235,41 @@ class TestFetchRaiseOnPeers(BaseTest):
             for flag in flags:
                 read(flag)
 
-    def test_baselined_site_batches_across_peer_rows(self) -> None:
-        site = (
-            "posthog/models/scoping/test_manager.py:TestFetchRaiseOnPeers.test_baselined_site_batches_across_peer_rows"
-        )
-        flags = list(self._flags())
+    def test_queryset_that_sets_the_production_mode_batches_across_peer_rows(self) -> None:
+        flags = list(self._flags().fetch_mode(FETCH_RELATION_PEERS))
 
-        with (
-            patch.dict(os.environ, {peer_lazy_loads.MODE_ENV: "", peer_lazy_loads.DIR_ENV: ""}),
-            patch.object(
-                peer_lazy_loads, "baseline", return_value=frozenset({f"{FeatureFlag._meta.label}.created_by {site}"})
-            ),
-            self.assertNumQueries(1),
-        ):
+        with self.assertNumQueries(1):
             for flag in flags:
                 assert flag.created_by == self.user
+
+    def test_allowed_field_batches_and_no_other_field_does(self) -> None:
+        flags = list(self._flags().only("id", "created_by"))
+
+        with allow_peer_lazy_loads("feature_flags.FeatureFlag.created_by"):
+            with self.assertNumQueries(1):
+                for flag in flags:
+                    assert flag.created_by == self.user
+            with pytest.raises(FieldFetchBlocked, match="FeatureFlag.name"):
+                _ = flags[0].name
+
+        assert len(peer_lazy_loads.finish_test()) == 1
+
+    @parameterized.expand(
+        [
+            ("under_pytest", True, FETCH_RAISE_ON_PEERS),
+            ("outside_pytest", False, FETCH_RELATION_PEERS),
+        ]
+    )
+    def test_default_fetch_mode(self, _name: str, under_pytest: bool, expected: object) -> None:
+        environ = {key: value for key, value in os.environ.items() if key != "PYTEST_VERSION"}
+        if under_pytest:
+            environ["PYTEST_VERSION"] = "test"
+        default_fetch_mode.cache_clear()
+        try:
+            with patch.dict(os.environ, environ, clear=True):
+                assert default_fetch_mode() is expected
+        finally:
+            default_fetch_mode.cache_clear()
 
 
 class TestTeamScopedQuerySet(BaseTest):

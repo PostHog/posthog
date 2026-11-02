@@ -30,6 +30,7 @@ from posthog.api.utils import action
 from posthog.event_usage import get_request_analytics_properties
 from posthog.helpers.full_text_search import build_search_vector
 from posthog.models import User
+from posthog.models.scoping.manager import FETCH_RELATION_PEERS
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle, HogQLQueryThrottle
 
 from ..facade import api
@@ -133,7 +134,8 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             metrics = metrics.filter(status=status_filter)
         if definition_kind := self.request.query_params.get("definition_kind"):
             metrics = metrics.filter(definition__kind=definition_kind)
-        return metrics
+        # The serializer reads created_by and owner per row, which production batches across the page.
+        return metrics.fetch_mode(FETCH_RELATION_PEERS)
 
     def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str] | None:
         if getattr(view, "action", None) not in ("create", "update", "partial_update"):

@@ -29,6 +29,7 @@ from posthog.models.project_secret_api_key import (
     create_project_secret_api_key_for_token,
     delete_project_secret_api_keys_for_token,
 )
+from posthog.models.scoping.manager import allow_peer_lazy_loads
 from posthog.models.signals import mutable_receiver, secret_api_token_backup_deleted, secret_api_token_rotated
 from posthog.models.utils import (
     UUIDTClassicModel,
@@ -1199,7 +1200,9 @@ class Team(UUIDTClassicModel):
         from products.access_control.backend.models.access_control import AccessControl  # noqa: PLC0415
         from products.access_control.backend.models.role import RoleMembership  # noqa: PLC0415
 
-        organization = self.organization
+        # Callers that loop over teams read each team's organization, which production batches across the rows.
+        with allow_peer_lazy_loads("posthog.Team.organization"):
+            organization = self.organization
         member_queryset = OrganizationMembership.objects.filter(organization_id=self.organization_id)
         if user_uuids is not None:
             member_queryset = member_queryset.filter(user__uuid__in=user_uuids)

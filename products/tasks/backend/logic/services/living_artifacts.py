@@ -27,6 +27,7 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
+from posthog.models.scoping.manager import FETCH_RELATION_PEERS
 from posthog.ph_client import ph_scoped_capture
 from posthog.slack.channels import MAX_BUTTON_URL_CHARS, SlackButton, section_block
 from posthog.slack.formatting import escape_slack_mrkdwn
@@ -1269,8 +1270,10 @@ def _capture_chart_delivery_events(run: TaskRun, outcomes: list[tuple[TaskArtifa
 
 
 def _pending_slack_file_queryset(run: TaskRun) -> QuerySet[TaskArtifact]:
+    # Delivery events read created_by per artifact, which production batches across the rows.
     return (
         TaskArtifact.objects.for_team(run.team_id)
+        .fetch_mode(FETCH_RELATION_PEERS)
         .filter(
             task_id=run.task_id,
             adapter=TaskArtifact.Adapter.SLACK_FILE,
