@@ -12,7 +12,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -388,16 +387,18 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
         addInsightToDashboard: async ({ insight, dashboardId }) => {
             try {
                 actions.setDashboardUpdateLoading(insight.id, true)
-                const response = await insightsApi.update(insight.id, {
-                    dashboards: [...liveDashboardIds(insight.dashboard_tiles), dashboardId],
+                const tile = await insightsApi.addToDashboard(insight.id, dashboardId)
+                actions.updateInsight({
+                    ...insight,
+                    dashboard_tiles: [
+                        ...(insight.dashboard_tiles || []).filter((t) => t.dashboard_id !== dashboardId),
+                        tile,
+                    ],
                 })
-                if (response) {
-                    actions.updateInsight(response)
-                    dashboardLogic.findMounted({ id: dashboardId })?.actions.loadDashboard({
-                        action: DashboardLoadAction.Update,
-                    })
-                    lemonToast.success('Insight added to dashboard')
-                }
+                dashboardLogic.findMounted({ id: dashboardId })?.actions.loadDashboard({
+                    action: DashboardLoadAction.Update,
+                })
+                lemonToast.success('Insight added to dashboard')
             } catch (e) {
                 actions.dashboardUpdateFailed(insight.id)
                 handleDashboardUpdateFailure(e, {
@@ -412,16 +413,15 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
         removeInsightFromDashboard: async ({ insight, dashboardId }) => {
             try {
                 actions.setDashboardUpdateLoading(insight.id, true)
-                const response = await insightsApi.update(insight.id, {
-                    dashboards: liveDashboardIds(insight.dashboard_tiles).filter((d) => d !== dashboardId),
+                await insightsApi.removeFromDashboard(insight, dashboardId)
+                actions.updateInsight({
+                    ...insight,
+                    dashboard_tiles: (insight.dashboard_tiles || []).filter((t) => t.dashboard_id !== dashboardId),
                 })
-                if (response) {
-                    actions.updateInsight(response)
-                    dashboardLogic.findMounted({ id: dashboardId })?.actions.loadDashboard({
-                        action: DashboardLoadAction.Update,
-                    })
-                    lemonToast.success('Insight removed from dashboard')
-                }
+                dashboardLogic.findMounted({ id: dashboardId })?.actions.loadDashboard({
+                    action: DashboardLoadAction.Update,
+                })
+                lemonToast.success('Insight removed from dashboard')
             } catch (e) {
                 actions.dashboardUpdateFailed(insight.id)
                 handleDashboardUpdateFailure(e, {

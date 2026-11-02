@@ -1047,6 +1047,9 @@ importers:
       d3:
         specifier: ^7.9.0
         version: 7.9.0
+      d3-array:
+        specifier: ^3.2.4
+        version: 3.2.4
       d3-flame-graph:
         specifier: ^5.0.0
         version: 5.0.0
@@ -1351,6 +1354,9 @@ importers:
       '@types/d3':
         specifier: ^7.4.3
         version: 7.4.3
+      '@types/d3-array':
+        specifier: ^3.2.1
+        version: 3.2.2
       '@types/d3-selection':
         specifier: 3.0.3
         version: 3.0.3
@@ -4721,6 +4727,9 @@ importers:
       '@types/d3':
         specifier: '*'
         version: 7.4.3
+      '@types/d3-array':
+        specifier: '*'
+        version: 3.2.2
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
@@ -4739,6 +4748,9 @@ importers:
       d3:
         specifier: '*'
         version: 7.9.0
+      d3-array:
+        specifier: '*'
+        version: 3.2.4
       elkjs:
         specifier: '*'
         version: 0.10.0
@@ -13590,9 +13602,6 @@ packages:
 
   '@types/cors@2.8.19':
     resolution: {integrity: sha512-mFNylyeyqN93lfe/9CSxOGREz8cpzAhH+E93xJ4xWQf62V8sQ/24reV2nyzUWM6H6Xji+GGHpkbLe7pVoUEskg==}
-
-  '@types/d3-array@3.0.3':
-    resolution: {integrity: sha512-Reoy+pKnvsksN0lQUlcH6dOGjRZ/3WRwXR//m+/8lt1BXeI4xyaUZoqULNjyXXRuh0Mj4LNpkCvhUpQlY3X5xQ==}
 
   '@types/d3-array@3.2.2':
     resolution: {integrity: sha512-hOLWVbm7uRza0BYXpIIW5pxfrKe0W+D5lrFiAEYR+pb6w3N2SwSMaJbXdUfSEv+dT4MfHBLtn5js0LAWaO6otw==}
@@ -33465,8 +33474,6 @@ snapshots:
     dependencies:
       '@types/node': 22.18.8
 
-  '@types/d3-array@3.0.3': {}
-
   '@types/d3-array@3.2.2': {}
 
   '@types/d3-axis@3.0.1':
@@ -33595,7 +33602,7 @@ snapshots:
 
   '@types/d3@7.4.3':
     dependencies:
-      '@types/d3-array': 3.0.3
+      '@types/d3-array': 3.2.2
       '@types/d3-axis': 3.0.1
       '@types/d3-brush': 3.0.1
       '@types/d3-chord': 3.0.1

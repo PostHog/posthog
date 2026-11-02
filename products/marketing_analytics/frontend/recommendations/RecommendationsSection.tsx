@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconInfo, IconLightBulb } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonDropdown, LemonSkeleton, Popover, Tooltip } from '@posthog/lemon-ui'
+import { IconLightBulb } from '@posthog/icons'
+import { LemonBadge, LemonButton, LemonSkeleton, Popover, Tooltip } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 import { formatMarketingMoney } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
@@ -10,7 +10,7 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { MarketingAnalyticsRecommendationsQueryResponse } from '~/queries/schema/schema-general'
 
 import { MarketingQueryError } from '../dashboard/MarketingQueryError'
-import { RecommendationDataGapList } from './RecommendationDataGapList'
+import { RecommendationDataGapButton } from './RecommendationDataGapButton'
 import {
     IMPACT_DIRECTION_DESCRIPTIONS,
     IMPACT_DIRECTION_LABELS,
@@ -141,20 +141,10 @@ export function RecommendationsSection(): JSX.Element {
                             </LemonButton>
                             <ImpactSummary totals={sumImpact(results)} />
                             {dataGaps.length > 0 && (
-                                <LemonDropdown
-                                    closeOnClickInside={false}
-                                    overlay={<RecommendationDataGapList gaps={dataGaps} />}
-                                >
-                                    <LemonButton
-                                        size="small"
-                                        type="tertiary"
-                                        icon={<IconInfo />}
-                                        sideIcon={<LemonBadge.Number count={dataGaps.length} status="muted" />}
-                                        data-attr="marketing-recommendations-data-gaps"
-                                    >
-                                        Improve recommendations
-                                    </LemonButton>
-                                </LemonDropdown>
+                                <RecommendationDataGapButton
+                                    gaps={dataGaps}
+                                    dataAttr="marketing-recommendations-data-gaps"
+                                />
                             )}
                         </>
                     ) : sourcesLoading || (responseLoading && sources.length > 0) ? (

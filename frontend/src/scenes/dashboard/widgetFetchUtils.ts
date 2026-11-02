@@ -1,7 +1,6 @@
 import { dashboardsRunWidgetsRetrieve } from '@posthog/products-dashboards/frontend/generated/api'
 import type { DashboardWidgetRunResultApi } from '@posthog/products-dashboards/frontend/generated/api.schemas'
 
-import type { DashboardFilter } from '~/queries/schema/schema-general'
 import type { DashboardTile } from '~/types'
 
 import { DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES } from './dashboardUtils'
@@ -37,20 +36,8 @@ export function chunkTileIds(tileIds: number[], chunkSize = 4): number[][] {
     return chunks
 }
 
-/** The dashboard filters a widget follows (`WidgetSpec.dashboard_filter_keys`). Other keys would only make the
- * widget refetch for a change it ignores. Empty values stay in as null, because the server merges the override
- * onto the saved filters, and a cleared filter must replace the saved one. */
-export function widgetDashboardFilters(filters: DashboardFilter, keys: readonly string[]): DashboardFilter {
-    const record = filters as Record<string, unknown>
-    return Object.fromEntries([...keys].sort().map((key) => [key, record[key] ?? null])) as DashboardFilter
-}
-
 export type FetchRunWidgetsOptions = {
     signal?: AbortSignal
-    /** The dashboard's current filters, for widgets that follow them. */
-    filtersOverride?: DashboardFilter
-    /** A manual refresh: widgets that follow dashboard filters skip their query cache. */
-    refresh?: boolean
 }
 
 export async function fetchRunWidgets(
@@ -63,15 +50,10 @@ export async function fetchRunWidgets(
         return []
     }
 
-    const filtersOverride = options?.filtersOverride
     const response = await dashboardsRunWidgetsRetrieve(
         projectId,
         dashboardId,
-        {
-            tile_ids: tileIds.join(','),
-            ...(filtersOverride ? { filters_override: JSON.stringify(filtersOverride) } : {}),
-            ...(options?.refresh ? { refresh: true } : {}),
-        },
+        { tile_ids: tileIds.join(',') },
         { signal: options?.signal }
     )
 
