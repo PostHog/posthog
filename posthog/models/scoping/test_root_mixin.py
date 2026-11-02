@@ -120,12 +120,13 @@ class TestRootTeamMixinSave(BaseTest):
 
         assert UserHomeSettings.objects.get(pk=home.pk).team_id == self.team.id
 
-    def test_partial_update_without_the_team_does_not_load_it(self) -> None:
+    @parameterized.expand([("list", lambda: ["tabs"]), ("iterator", lambda: iter(["tabs"]))])
+    def test_partial_update_without_the_team_does_not_load_it(self, _name: str, update_fields) -> None:
         created = UserHomeSettings.objects.create(team=self.team, user=self.user)
         home = UserHomeSettings.objects.get(pk=created.pk)
         home.tabs = [{"id": "home"}]
 
-        home.save(update_fields=["tabs"])
+        home.save(update_fields=update_fields())
 
         assert not UserHomeSettings.team.is_cached(home)
         assert UserHomeSettings.objects.get(pk=home.pk).tabs == [{"id": "home"}]
