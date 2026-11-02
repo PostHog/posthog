@@ -457,7 +457,9 @@ jobs:
     semgrep-devex:
         needs: changes
         if: needs.changes.outputs.devex == 'true'
-        runs-on: ubuntu-24.04
+        # One whole-tree scan is minutes of CPU-bound work and this job ends the Security lane,
+        # so the extra vCPUs pay for themselves.
+        runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 20
 
         env:
