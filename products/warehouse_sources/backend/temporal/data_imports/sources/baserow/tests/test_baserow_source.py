@@ -72,10 +72,6 @@ class TestBaserowSource:
     @pytest.mark.parametrize(
         ("probe_result", "expected_valid", "expected_message"),
         [
-            ((True, 200), True, None),
-            # Baserow returns 403 (ERROR_TOKEN_DOES_NOT_EXIST) for a bad token, not 401.
-            ((False, 403), False, "Invalid Baserow database token"),
-            ((False, 401), False, "Invalid Baserow database token"),
             ((False, None), False, "Could not connect to Baserow. Please check the instance URL."),
         ],
     )

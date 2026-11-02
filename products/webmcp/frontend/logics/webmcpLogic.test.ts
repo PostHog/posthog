@@ -10,6 +10,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import type { TeamType } from '~/types'
 
+import { WebMCPToolError } from '../webmcpToolError'
 import { webmcpLogic } from './webmcpLogic'
 
 interface RegisteredTool {
@@ -66,7 +67,9 @@ describe('webmcpLogic', () => {
 
         expect(tool.name).toEqual('exec')
         await expect(tool.execute({ command: 'search insights' })).resolves.toEqual('insight-get')
-        await expect(tool.execute({ command: 'call broken-tool {}' })).rejects.toThrow('Tool failed')
+        const failedCall = tool.execute({ command: 'call broken-tool {}' })
+        await expect(failedCall).rejects.toThrow('Tool failed')
+        await expect(failedCall).rejects.toBeInstanceOf(WebMCPToolError)
         expect(postedCommands).toEqual(['search insights', 'call broken-tool {}'])
     })
 

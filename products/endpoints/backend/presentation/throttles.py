@@ -5,7 +5,6 @@ ones. That classification is resolved through the facade; the throttle classes
 and their request-parsing helpers are pure HTTP concerns and live here.
 """
 
-from prometheus_client import Counter
 from rest_framework.throttling import SimpleRateThrottle
 
 from posthog.rate_limit import (
@@ -15,13 +14,7 @@ from posthog.rate_limit import (
     ProjectSecretApiKeyTeamRateThrottle,
 )
 
-from products.endpoints.backend.facade.api import is_materialized_request
-
-ENDPOINT_RATE_LIMITED_TOTAL = Counter(
-    "posthog_endpoint_rate_limited_total",
-    "Rate-limited endpoint requests",
-    labelnames=["scope"],
-)
+from products.endpoints.backend.facade.api import is_materialized_request, record_throttled_request
 
 
 def _parse_requested_version(request) -> int | None:
@@ -74,17 +67,18 @@ class _MaterializedRateMixin(SimpleRateThrottle):
     materialized_scope: str
 
     def allow_request(self, request, view):
-        if _is_materialized_endpoint_request(request, view):
+        materialized = _is_materialized_endpoint_request(request, view)
+        if materialized:
             self.rate = self.materialized_rate
             self.scope = self.materialized_scope
             self.num_requests, self.duration = self.parse_rate(self.rate)
 
         allowed = super().allow_request(request, view)
         if not allowed:
-            try:
-                ENDPOINT_RATE_LIMITED_TOTAL.labels(scope=self.scope).inc()
-            except Exception:
-                pass
+            team_id, endpoint_name, version = _get_endpoint_info_from_request(request, view)
+            record_throttled_request(
+                team_id, endpoint_name, version, materialized=materialized, scope=self.scope or "unknown"
+            )
         return allowed
 
 

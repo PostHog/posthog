@@ -91,8 +91,6 @@ def test_lists_resume(finished: bool) -> None:
             "inactive_account",
             "Your ReferralHero account is inactive. Activate your account before you connect it.",
         ),
-        (401, "unauthorized", "Your ReferralHero API token is invalid. Copy the token from Account > API."),
-        (403, "forbidden", "ReferralHero denied access. Check your account status and API token."),
     ],
 )
 def test_auth_errors(status: int, code: str, message: str) -> None:

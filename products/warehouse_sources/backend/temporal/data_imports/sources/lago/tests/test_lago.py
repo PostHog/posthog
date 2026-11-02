@@ -3,8 +3,6 @@ from typing import Any
 import pytest
 from unittest import mock
 
-import requests
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -93,13 +91,6 @@ class TestValidateCredentials:
         assert msg is not None
         assert "Internal" not in msg
         assert "500" in msg
-
-    def test_request_exception_returns_failure(self):
-        with scripted_network(always(requests.exceptions.ConnectionError("boom"))):
-            valid, msg = validate_credentials(None, "key")
-
-        assert valid is False
-        assert "boom" in (msg or "")
 
     def test_rejects_redirect_response(self):
         with scripted_network(

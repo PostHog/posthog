@@ -125,6 +125,6 @@ describe('ProjectsGrid', () => {
         render(<ProjectsGrid />)
 
         const link = (await screen.findByText(/Cross Project Flag/i)).closest('a')
-        expect(link).toHaveAttribute('href', `/project/${FLAG_TEAM_ID}/feature_flags/42`)
+        expect(link).toHaveAttribute('href', `/project/${FLAG_TEAM_ID}/feature-flags/42`)
     })
 })

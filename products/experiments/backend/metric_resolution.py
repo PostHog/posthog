@@ -15,6 +15,7 @@ from posthog.schema import (
     ExperimentMeanMetric,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
+    ExperimentWarehouseNativeNode,
 )
 
 from posthog.dataclasses import frozen
@@ -39,7 +40,12 @@ DAILY_TIMESERIES_METRIC_TYPES: frozenset[str] = frozenset(METRIC_BUILDERS)
 
 
 def is_daily_timeseries_metric(metric: dict[str, Any] | None) -> bool:
-    return bool(metric and metric.get("metric_type") in DAILY_TIMESERIES_METRIC_TYPES)
+    return bool(
+        metric
+        and metric.get("metric_type") in DAILY_TIMESERIES_METRIC_TYPES
+        # Warehouse-native sources have no calculation path yet, so the daily run must not attempt them.
+        and not metric_dict_uses_warehouse_native_source(metric)
+    )
 
 
 MetricRole = Literal["primary", "secondary"]
@@ -204,23 +210,19 @@ def build_metric(metric_dict: dict[str, Any]) -> ExperimentMetric:
 # Such metrics never precompute (the precomputed table lacks the join keys). The source-bearing fields
 # are the same across the two readers below: source, series[*], numerator, denominator, start_event,
 # completion_event. Keep the pair in step — one reads the typed metric, the other a raw saved definition.
-def metric_reads_data_warehouse(metric: ExperimentMetric) -> bool:
-    """Typed check, for callers that already hold a built metric (the query runner)."""
+def metric_source_nodes(metric: ExperimentMetric) -> list[Any]:
     if isinstance(metric, ExperimentMeanMetric):
-        nodes: list[Any] = [metric.source]
-    elif isinstance(metric, ExperimentFunnelMetric):
-        nodes = list(metric.series)
-    elif isinstance(metric, ExperimentRatioMetric):
-        nodes = [metric.numerator, metric.denominator]
-    else:
-        nodes = [metric.start_event, metric.completion_event]
-    return any(isinstance(node, ExperimentDataWarehouseNode) for node in nodes)
+        return [metric.source]
+    if isinstance(metric, ExperimentFunnelMetric):
+        return list(metric.series)
+    if isinstance(metric, ExperimentRatioMetric):
+        return [metric.numerator, metric.denominator]
+    return [metric.start_event, metric.completion_event]
 
 
-def metric_dict_reads_data_warehouse(metric_dict: dict[str, Any]) -> bool:
-    """Dict check, for callers that only hold a saved definition they may not be able to build (canary
-    sampling). A field absent on a shape is simply missing from the dict."""
-    nodes = [
+def _metric_dict_source_nodes(metric_dict: dict[str, Any]) -> list[Any]:
+    """A field absent on a shape is simply missing from the dict."""
+    return [
         metric_dict.get("source"),
         *(metric_dict.get("series") or []),
         metric_dict.get("numerator"),
@@ -228,4 +230,29 @@ def metric_dict_reads_data_warehouse(metric_dict: dict[str, Any]) -> bool:
         metric_dict.get("start_event"),
         metric_dict.get("completion_event"),
     ]
-    return any(isinstance(node, dict) and node.get("kind") == "ExperimentDataWarehouseNode" for node in nodes)
+
+
+def metric_reads_data_warehouse(metric: ExperimentMetric) -> bool:
+    """Typed check, for callers that already hold a built metric (the query runner)."""
+    return any(isinstance(node, ExperimentDataWarehouseNode) for node in metric_source_nodes(metric))
+
+
+def metric_dict_reads_data_warehouse(metric_dict: dict[str, Any]) -> bool:
+    """Dict check, for callers that only hold a saved definition they may not be able to build (canary
+    sampling)."""
+    return any(
+        isinstance(node, dict) and node.get("kind") == "ExperimentDataWarehouseNode"
+        for node in _metric_dict_source_nodes(metric_dict)
+    )
+
+
+# A metric with a warehouse-native source runs in the customer's warehouse, not in ClickHouse.
+def metric_uses_warehouse_native_source(metric: ExperimentMetric) -> bool:
+    return any(isinstance(node, ExperimentWarehouseNativeNode) for node in metric_source_nodes(metric))
+
+
+def metric_dict_uses_warehouse_native_source(metric_dict: dict[str, Any]) -> bool:
+    return any(
+        isinstance(node, dict) and node.get("kind") == "ExperimentWarehouseNativeNode"
+        for node in _metric_dict_source_nodes(metric_dict)
+    )

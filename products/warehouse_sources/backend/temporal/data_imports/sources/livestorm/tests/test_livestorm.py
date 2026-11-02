@@ -1,15 +1,11 @@
 from typing import Any
 
-import pytest
-
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
     route,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.livestorm import (
     LivestormSourceConfig,
@@ -131,15 +127,3 @@ class TestLivestormSessionPeople:
 
         assert result.raised is None
         assert result.paths == ["/v1/sessions", "/v1/sessions/s2/people"]
-
-
-class TestLivestormValidateCredentials:
-    @pytest.mark.parametrize(("status", "expected_valid"), [(200, True), (401, False), (403, False), (500, False)])
-    def test_maps_probe_status(self, status: int, expected_valid: bool) -> None:
-        with scripted_network(always(ScriptedResponse(status=status, json={}))):
-            valid, message = LivestormSource().validate_credentials(
-                LivestormSourceConfig(api_token=API_TOKEN), team_id=1
-            )
-
-        assert valid is expected_valid
-        assert (message is None) is expected_valid

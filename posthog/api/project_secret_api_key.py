@@ -16,7 +16,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
-from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL, wizard_identity_blocked
+from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL
 from posthog.models import Organization, User
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey, RevokedTeamSecretToken
 from posthog.models.utils import ai_credential_value, generate_random_token_secret, hash_key_value, mask_key_value
@@ -98,14 +98,7 @@ def _enforce_gateway_bans(request: Request, team) -> None:
     except Exception:
         logger.exception("security_access_check_site_failed", call_site="project_secret_api_key")
         refused = False
-    if refused or wizard_identity_blocked(
-        distinct_id=str(user.distinct_id or ""),
-        email=user.email,
-        user_uuid=str(user.uuid),
-        organization_ids=[str(team.organization_id)],
-        team_ids=[team.id],
-        surface="project_secret_api_key",
-    ):
+    if refused:
         raise PermissionDenied(WIZARD_BLOCKED_DETAIL)
 
 

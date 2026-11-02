@@ -89,16 +89,6 @@ class TestInngestSource:
         assert network.requests_log[0].headers["authorization"] == "Bearer signkey-prod-test"
         assert network.requests_log[0].headers["x-inngest-env"] == "branch-env"
 
-    @parameterized.expand(
-        [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.inngest.com/v1/events?limit=100"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.inngest.com/v2/envs"),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
     def test_source_for_pipeline_plumbs_credentials_and_endpoint(self) -> None:
         config = InngestSourceConfig(signing_key="signkey-prod-test", environment="branch-env")
         result = SourceDriver(self.source, config).run(

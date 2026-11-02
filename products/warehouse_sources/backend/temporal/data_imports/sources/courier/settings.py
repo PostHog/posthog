@@ -218,6 +218,91 @@ ENDPOINTS_CONFIG: dict[str, CourierEndpointConfig] = {
         data_selector="results",
         primary_keys=("id",),
     ),
+    # Each template's draft and published versions, for comparing performance across publishes.
+    # Courier relabels the current version ("published:v003" becomes "v003" on the next publish),
+    # so full refresh only.
+    "NotificationTemplateVersions": CourierEndpointConfig(
+        name="NotificationTemplateVersions",
+        path="/notifications/{template_id}/versions",
+        data_selector="versions",
+        # The version entry carries no reference back to its template, so the parent's id is
+        # projected in to make rows joinable and unique across templates.
+        primary_keys=("template_id", "version"),
+        partition_key="created",
+        timestamp_fields=("created",),
+        # Courier caps this endpoint at 10 versions per page and rejects a larger `limit`.
+        page_size=10,
+        fanout=DependentEndpointConfig(
+            parent_name="NotificationTemplates",
+            resolve_param="template_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "template_id"},
+            # A template deleted between the listing and this fetch 404s; skip that parent rather
+            # than failing the whole fan-out.
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    # Saved automation templates (the workflow product Journeys supersede, still running). No
+    # server-side timestamp filter, so full refresh only.
+    "Automations": CourierEndpointConfig(
+        name="Automations",
+        path="/automations",
+        data_selector="templates",
+        primary_keys=("id",),
+        partition_key="createdAt",
+        timestamp_fields=("createdAt", "updatedAt"),
+        cursor_path="cursor",
+    ),
+    # The preference sections that group subscription topics. One unpaginated response that
+    # documents no params at all.
+    "PreferenceSections": CourierEndpointConfig(
+        name="PreferenceSections",
+        path="/preferences/sections",
+        data_selector="results",
+        primary_keys=("id",),
+        partition_key="created",
+        timestamp_fields=("created", "updated"),
+        paginated=False,
+    ),
+    # The subscription topics that user preferences and preference changes refer to by
+    # `topic_id`. Fetched per section so each topic row carries its section.
+    "PreferenceTopics": CourierEndpointConfig(
+        name="PreferenceTopics",
+        path="/preferences/sections/{section_id}/topics",
+        data_selector="results",
+        primary_keys=("section_id", "id"),
+        partition_key="created",
+        timestamp_fields=("created", "updated"),
+        paginated=False,
+        # Neither the section listing nor the topic listing documents a page-size param.
+        fanout_page_size_param=None,
+        fanout=DependentEndpointConfig(
+            parent_name="PreferenceSections",
+            resolve_param="section_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "section_id"},
+            # A section archived between the listing and this fetch 404s; skip that parent rather
+            # than failing the whole fan-out.
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    # Every preference change users made, with the value before it. Courier has no listing of
+    # users to fan `GET /users/{id}/preferences` out over, so this environment-wide log is where
+    # per-user subscription state comes from. `since` is a documented server-side filter.
+    "PreferenceChanges": CourierEndpointConfig(
+        name="PreferenceChanges",
+        path="/preferences/logs",
+        data_selector="items",
+        primary_keys=("id",),
+        incremental_fields=[incremental_field("timestamp")],
+        incremental_param="since",
+        partition_key="timestamp",
+        # Documented as newest first.
+        sort_mode="desc",
+        timestamp_fields=("timestamp",),
+    ),
     # Multi-tenant scoping objects. No timestamp fields at all, so no partitioning.
     "Tenants": CourierEndpointConfig(
         name="Tenants",

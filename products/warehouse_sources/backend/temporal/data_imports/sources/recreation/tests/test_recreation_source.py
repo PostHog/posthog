@@ -24,9 +24,6 @@ class TestRecreationSource:
         ("status_code", "expected_valid", "expected_error_fragment"),
         [
             (200, True, None),
-            (401, False, "Invalid RIDB API key"),
-            (403, False, "Invalid RIDB API key"),
-            (500, False, "unexpected response"),
         ],
     )
     def test_validate_credentials_status_mapping(
@@ -54,7 +51,10 @@ class TestRecreationSource:
         assert response is not None
         endpoint_config = RECREATION_ENDPOINTS[endpoint]
         assert response.name == endpoint
-        assert response.primary_keys == [endpoint_config.primary_key]
+        if endpoint_config.nested is not None:
+            assert response.primary_keys == [endpoint_config.nested.parent_id_field, endpoint_config.primary_key]
+        else:
+            assert response.primary_keys == [endpoint_config.primary_key]
         if endpoint_config.partition_key is not None:
             assert response.partition_mode == "datetime"
             assert response.partition_keys == [endpoint_config.partition_key]

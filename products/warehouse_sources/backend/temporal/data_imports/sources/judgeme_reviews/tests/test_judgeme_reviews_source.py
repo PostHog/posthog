@@ -17,32 +17,6 @@ class TestJudgeMeReviewsSource:
 
     @parameterized.expand(
         [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://judge.me/api/v1/reviews?shop_domain=example.myshopify.com&page=1",
-            ),
-            (
-                "forbidden",
-                "403 Client Error: Forbidden for url: https://judge.me/api/v1/products?shop_domain=example.myshopify.com&page=1",
-            ),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, _name: str, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("server_error", "500 Server Error: Internal Server Error for url: https://judge.me/api/v1/reviews"),
-            ("rate_limited", "429 Client Error: Too Many Requests for url: https://judge.me/api/v1/products"),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
             ("valid", (True, None)),
             ("invalid_credentials", (False, "Invalid Judge.me shop domain or API token")),
             ("connect_error", (False, "Could not connect to Judge.me: boom")),

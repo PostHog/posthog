@@ -49,6 +49,10 @@ class TestDoItSource:
             ("Insights", None, None),
             ("Anomalies", None, None),
             ("Invoices", None, None),
+            ("Assets", None, None),
+            ("Annotations", None, None),
+            ("SupportTickets", None, None),
+            ("InsightResourceResults", None, None),
         ]
 
     def test_get_schemas_lets_a_report_keep_a_name_a_fixed_table_would_take(self):
@@ -59,7 +63,16 @@ class TestDoItSource:
         ):
             schemas = self.source.get_schemas(CONFIG, team_id=1)
 
-        assert [s.name for s in schemas] == ["invoices", "Budgets", "Insights", "Anomalies"]
+        assert [s.name for s in schemas] == [
+            "invoices",
+            "Budgets",
+            "Insights",
+            "Anomalies",
+            "Assets",
+            "Annotations",
+            "SupportTickets",
+            "InsightResourceResults",
+        ]
 
     def test_source_for_pipeline_fetches_the_report_id_from_schema_metadata(self):
         inputs = MagicMock(

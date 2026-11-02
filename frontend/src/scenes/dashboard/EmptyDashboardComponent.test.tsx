@@ -3,12 +3,8 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
-import { router } from 'kea-router'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
-import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -53,7 +49,6 @@ describe('EmptyDashboardComponent', () => {
             },
         })
         initKeaTests()
-        featureFlagLogic.mount()
         maxGlobalLogic.mount()
     })
 
@@ -61,14 +56,10 @@ describe('EmptyDashboardComponent', () => {
         cleanup()
     })
 
-    function renderEmptyState(opts: { widgetsEnabled?: boolean; canEdit?: boolean } = {}): {
+    function renderEmptyState(opts: { canEdit?: boolean } = {}): {
         logic: ReturnType<typeof dashboardLogic.build>
     } {
-        const { widgetsEnabled = false, canEdit = true } = opts
-
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DASHBOARD_WIDGETS], {
-            [FEATURE_FLAGS.DASHBOARD_WIDGETS]: widgetsEnabled,
-        })
+        const { canEdit = true } = opts
 
         const logic = dashboardLogic({ id: MOCK_DASHBOARD.id, dashboard: MOCK_DASHBOARD })
         logic.mount()
@@ -127,20 +118,6 @@ describe('EmptyDashboardComponent', () => {
         logic.unmount()
     })
 
-    it('routes Widget preview to feature previews when flag is disabled', async () => {
-        const pushSpy = jest.spyOn(router.actions, 'push')
-        const { logic } = renderEmptyState()
-
-        await openBuildItMyselfMenu()
-        await userEvent.click(screen.getByText('Widget'))
-
-        expect(pushSpy).toHaveBeenCalledWith(urls.featurePreview(FEATURE_FLAGS.DASHBOARD_WIDGETS))
-        expect(logic.values.addWidgetModalOpen).toBe(false)
-
-        pushSpy.mockRestore()
-        logic.unmount()
-    })
-
     it('shows the shared dashboard add options in the Build it myself menu', async () => {
         const { logic } = renderEmptyState()
 
@@ -152,25 +129,14 @@ describe('EmptyDashboardComponent', () => {
         expect(screen.getByText('Image')).toBeInTheDocument()
         expect(screen.getByText('Button')).toBeInTheDocument()
         expect(screen.getByText('Widget')).toBeInTheDocument()
-        expect(screen.getByText('BETA')).toBeInTheDocument()
-        expect(screen.getAllByText('NEW')).toHaveLength(1)
-
-        logic.unmount()
-    })
-
-    it('shows Widget in the Build it myself menu when dashboard widgets flag is enabled', async () => {
-        const { logic } = renderEmptyState({ widgetsEnabled: true })
-
-        await openBuildItMyselfMenu()
-
-        expect(screen.getByText('Widget')).toBeInTheDocument()
+        expect(screen.queryByText('BETA')).not.toBeInTheDocument()
         expect(screen.getAllByText('NEW')).toHaveLength(2)
 
         logic.unmount()
     })
 
     it('opens the add widget modal when Widget is clicked', async () => {
-        const { logic } = renderEmptyState({ widgetsEnabled: true })
+        const { logic } = renderEmptyState()
 
         await openBuildItMyselfMenu()
         await userEvent.click(screen.getByText('Widget'))

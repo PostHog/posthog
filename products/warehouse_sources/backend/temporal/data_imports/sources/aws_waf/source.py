@@ -139,7 +139,7 @@ Sampled requests cover at most the last 3 hours, so sync them at least every 3 h
 Protected resources are only listed for the regional scope.""",
             iconPath="/static/services/aws_waf.png",
             docsUrl="https://docs.aws.amazon.com/waf/latest/APIReference/Welcome.html",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["aws", "waf", "firewall", "security"],
             fields=cast(
                 list[FieldType],

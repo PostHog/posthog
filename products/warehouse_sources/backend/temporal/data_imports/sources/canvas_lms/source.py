@@ -61,7 +61,7 @@ class CanvasLmsSource(ResumableSource[CanvasLmsSourceConfig, CanvasLmsResumeConf
             name=ExternalDataSourceType.CANVASLMS,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Instructure Canvas LMS",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["canvas", "lms", "instructure", "education"],
             caption="""Enter your Canvas domain, account ID, and an access token to pull course, enrollment, assignment, and submission data into the PostHog Data warehouse.
 

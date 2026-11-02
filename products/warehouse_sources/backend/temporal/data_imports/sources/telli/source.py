@@ -125,5 +125,5 @@ class TelliSource(ResumableSource[TelliSourceConfig, TelliResumeConfig]):
                     )
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

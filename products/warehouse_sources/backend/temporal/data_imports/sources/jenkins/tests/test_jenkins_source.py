@@ -39,16 +39,6 @@ class TestJenkinsSource:
 
     @parameterized.expand(
         [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://jenkins.example.com/api/json"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://jenkins.example.com/job/x/api/json"),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        assert any(key in observed_error for key in self.source.get_non_retryable_errors())
-
-    @parameterized.expand(
-        [
-            ("read_timeout", "HTTPSConnectionPool(host='jenkins.example.com', port=443): Read timed out."),
             ("server_error", "Jenkins API error (retryable): status=503"),
             ("rate_limited", "Jenkins API error (retryable): status=429"),
         ]

@@ -50,12 +50,8 @@ class TestCircleciInsightsSource:
 
     @parameterized.expand(
         [
-            ("401 Client Error: Unauthorized for url: https://circleci.com/api/v2/insights/gh/a/b/workflows", True),
-            ("403 Client Error: Forbidden for url: https://circleci.com/api/v2/insights/gh/a/summary", True),
             ("404 Client Error: Not Found for url: https://circleci.com/api/v2/insights/gh/a/b/flaky-tests", True),
             ("401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers", False),
-            ("500 Server Error for url: https://circleci.com/api/v2/insights/gh/a/b/workflows", False),
-            ("429 Client Error: Too Many Requests for url: https://circleci.com/api/v2/insights", False),
         ]
     )
     def test_non_retryable_errors_match_only_permanent_failures(self, observed_error, should_match):

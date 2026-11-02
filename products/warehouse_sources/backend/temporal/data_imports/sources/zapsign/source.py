@@ -193,7 +193,7 @@ class ZapSignSource(
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             webhookSetupCaption=(
                 "PostHog tries to register a webhook in ZapSign using your API token, subscribed "
                 "to all document events (created, signed, refused, deleted). The webhook "

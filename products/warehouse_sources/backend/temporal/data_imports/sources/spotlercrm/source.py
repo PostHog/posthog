@@ -125,7 +125,7 @@ Some record types need paid add-ons: Campaigns, Campaign details and Campaign st
             docsUrl="https://posthog.com/docs/cdp/sources/spotlercrm",
             iconPath="/static/services/spotlercrm.png",
             keywords=["really simple systems", "spotler", "rss crm"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

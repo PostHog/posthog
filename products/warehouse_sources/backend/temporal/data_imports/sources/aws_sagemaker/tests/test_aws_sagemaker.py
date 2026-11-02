@@ -636,10 +636,14 @@ def test_unknown_table_and_version_are_rejected(config: AwsSagemakerSourceConfig
     assert result.requests == []
 
 
-def test_transient_validation_error_propagates(config: AwsSagemakerSourceConfig, transport: MagicMock) -> None:
+def test_transient_validation_error_reports_an_unreachable_vendor(
+    config: AwsSagemakerSourceConfig, transport: MagicMock
+) -> None:
     transport.post.return_value = response({"__type": "ServiceUnavailable"}, 503)
-    with pytest.raises(AwsSagemakerError, match="ServiceUnavailable"):
-        validate_credentials(config, "models", "2017-07-24")
+    assert validate_credentials(config, "models", "2017-07-24") == (
+        False,
+        "Couldn't reach AWS SageMaker to check your credentials. Try again in a few minutes.",
+    )
     transport.close.assert_called_once()
 
 

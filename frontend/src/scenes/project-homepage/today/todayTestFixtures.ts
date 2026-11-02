@@ -54,6 +54,7 @@ export function makePulseMetric(overrides: Partial<HighlightMetricApi> = {}): Hi
         period_starts: ['2026-09-21', '2026-09-28'],
         reason: 'routine',
         dashboard_name: null,
+        dashboard_id: null,
         opened_days: 5,
         last_opened: '2026-09-29',
         movers: [],
@@ -70,6 +71,7 @@ export function makeHighlights(overrides: Partial<HighlightsApi> = {}): Highligh
         refresh_at: '2026-10-01T00:00:00Z',
         pulse: [],
         items: [],
+        pins: [],
         ...overrides,
     }
 }

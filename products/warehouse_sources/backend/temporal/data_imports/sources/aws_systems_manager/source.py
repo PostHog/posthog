@@ -125,7 +125,7 @@ All tables use full refresh. Create a separate source for each region.""",
             iconPath="/static/services/aws_systems_manager.png",
             docsUrl=API_DOCS_URL,
             keywords=["aws", "ssm"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

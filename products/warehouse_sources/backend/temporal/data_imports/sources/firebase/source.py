@@ -261,6 +261,9 @@ class FirebaseSource(ResumableSource[FirebaseSourceConfig, FirebaseResumeConfig]
             # Identity Toolkit's `accounts:batchGet` rejects every request this way when the project
             # has no Firebase Authentication configuration at all — retrying can't create one.
             "message=CONFIGURATION_NOT_FOUND": "This Firebase project doesn't have Firebase Authentication enabled, so PostHog can't read its Auth users. Enable Firebase Authentication in the Firebase console, or remove the Auth users table from this source.",
+            # Identity Toolkit also rejects `accounts:batchGet` this way, as a 400 rather than a 403,
+            # when the service account lacks the IAM role to list Auth users at all.
+            "message=INSUFFICIENT_PERMISSION": "This service account can't read Firebase Authentication users. Grant it the Firebase Authentication Viewer role (or Firebase Viewer), then reconnect.",
         }
 
     @property
@@ -274,7 +277,7 @@ class FirebaseSource(ResumableSource[FirebaseSourceConfig, FirebaseResumeConfig]
 Create a service account key in the Firebase console under Project settings, Service accounts, Generate new private key, then upload that JSON file here. Grant the service account **Firebase Viewer** to read Auth users, **Cloud Datastore Viewer** to read Firestore, and **Firebase Realtime Database Viewer** to read the Realtime Database.""",
             iconPath="/static/services/firebase.png",
             docsUrl="https://posthog.com/docs/cdp/sources/firebase",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["firestore", "rtdb", "gcp", "nosql"],
             fields=cast(
                 list[FieldType],

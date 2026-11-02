@@ -20,9 +20,11 @@ import { useOpenTraceDialog } from 'products/tracing/frontend/components/TraceDi
 import { getMetricsInsightEditorDisabledReason } from '../metricsAccess'
 import { MetricsHistogramQueryNode } from '../nodes/MetricsHistogramQueryNode'
 import { MetricsPanel } from '../panels/MetricsPanel'
+import { MetricsFacetRailLayout, MetricsFacetRailToggle } from './FacetRail/MetricsFacetRail'
 import { MetricsAnomalyPanel } from './MetricsAnomalyPanel'
 import { type MetricsExemplar } from './MetricsExemplarMarkers'
 import { MetricsLogsSourceTag } from './MetricsLogsSourceTag'
+import { MetricsPercentileResolutionHint } from './MetricsPercentileResolutionHint'
 import { MetricsQueryControls } from './MetricsQueryControls'
 import { switchMetricsQueryLanguage } from './metricsQueryLanguageSwitch'
 import { MetricsRelatedMenu } from './MetricsRelatedMenu'
@@ -59,6 +61,7 @@ export const MetricsViewer = (): JSX.Element => {
         language,
         queryText,
         hasResults,
+        queryResults,
         seriesCapReached,
         displayType,
         metricsDisplay,
@@ -172,9 +175,11 @@ export const MetricsViewer = (): JSX.Element => {
     }, [anomalyFingerprint, dateFrom, dateTo, hasMetricName, timezone]) // eslint-disable-line react-hooks/exhaustive-deps
 
     const languagesEnabled = useFeatureFlag('METRICS_QUERY_LANGUAGES')
+    // The rail writes builder filter chips, which PromQL and SQL queries do not read.
+    const facetRailEnabled = useFeatureFlag('METRICS') && language === 'builder'
 
     return (
-        <div className="flex flex-col gap-3">
+        <MetricsFacetRailLayout enabled={facetRailEnabled}>
             <MetricsQueryControls
                 dataAttrPrefix="metrics-viewer"
                 onSwitchLanguage={
@@ -185,6 +190,7 @@ export const MetricsViewer = (): JSX.Element => {
                 heatmap={{ eligible: heatmapEligible }}
                 toolbarExtras={
                     <>
+                        {facetRailEnabled && <MetricsFacetRailToggle />}
                         <LemonSwitch
                             label="Auto-refresh"
                             checked={liveRefresh}
@@ -323,6 +329,9 @@ export const MetricsViewer = (): JSX.Element => {
                         ) : null}
                         {queryLoading && !isHeatmap && <SpinnerOverlay />}
                     </div>
+                    {hasResults && !isHeatmap && !queryError && (
+                        <MetricsPercentileResolutionHint series={queryResults} metricName={metricName} />
+                    )}
                 </div>
                 {hasMetricName && (
                     <div className="xl:w-[26rem] shrink-0 xl:max-h-[360px] flex flex-col">
@@ -330,6 +339,6 @@ export const MetricsViewer = (): JSX.Element => {
                     </div>
                 )}
             </div>
-        </div>
+        </MetricsFacetRailLayout>
     )
 }

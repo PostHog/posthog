@@ -6,6 +6,7 @@ from posthog.schema import (
     ExperimentDataWarehouseNode,
     ExperimentMetricOutlierHandling,
     ExperimentRatioMetric,
+    ExperimentWarehouseNativeNode,
 )
 
 from posthog.hogql import ast
@@ -13,6 +14,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 
 from posthog.dataclasses import frozen
 
+from products.experiments.backend.hogql_queries.base_query_utils import winsorization_bound_expr
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureQueryBuilder
 from products.experiments.backend.hogql_queries.metric_source import MetricSourceInfo
 from products.experiments.backend.hogql_queries.metric_source_precompute import (
@@ -72,7 +74,7 @@ class RatioQueryBuilder:
         )
 
     def _metric_events_query_for_precomputation(
-        self, source: EventsNode | ActionsNode | ExperimentDataWarehouseNode
+        self, source: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode
     ) -> tuple[str, dict[str, ast.Expr]]:
         assert isinstance(source, (ActionsNode, EventsNode))
         return build_metric_events_precompute_query(
@@ -153,24 +155,14 @@ class RatioQueryBuilder:
         ignore_zeros = bool(outlier_handling.ignore_zeros) if outlier_handling else False
 
         if lower_pct is not None:
-            lower_bound_expr = parse_expr(
-                f"quantileExact({{level}})(entity_metrics.{value_field})",
-                placeholders={"level": ast.Constant(value=lower_pct)},
-            )
+            lower_bound_expr = winsorization_bound_expr(lower_pct, f"entity_metrics.{value_field}")
         else:
             lower_bound_expr = parse_expr(f"min(entity_metrics.{value_field})")
 
         if upper_pct is not None:
-            if ignore_zeros:
-                upper_bound_expr = parse_expr(
-                    f"quantileExact({{level}})(if(entity_metrics.{value_field} != 0, entity_metrics.{value_field}, null))",
-                    placeholders={"level": ast.Constant(value=upper_pct)},
-                )
-            else:
-                upper_bound_expr = parse_expr(
-                    f"quantileExact({{level}})(entity_metrics.{value_field})",
-                    placeholders={"level": ast.Constant(value=upper_pct)},
-                )
+            upper_bound_expr = winsorization_bound_expr(
+                upper_pct, f"entity_metrics.{value_field}", ignore_zeros=ignore_zeros
+            )
         else:
             upper_bound_expr = parse_expr(f"max(entity_metrics.{value_field})")
 

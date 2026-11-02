@@ -48,6 +48,7 @@ class LightspeedRetailEndpointConfig:
     # `nested_parent_key`, instead of one row per record.
     nested_rows_field: Optional[str] = None
     nested_parent_key: Optional[str] = None
+    nested_parent_id_field: str = "id"
 
 
 LIGHTSPEED_RETAIL_ENDPOINTS: dict[str, LightspeedRetailEndpointConfig] = {
@@ -168,6 +169,41 @@ LIGHTSPEED_RETAIL_ENDPOINTS: dict[str, LightspeedRetailEndpointConfig] = {
         sort_mode="desc",
         nested_rows_field="gift_card_transactions",
         nested_parent_key="gift_card_id",
+    ),
+    "brands": LightspeedRetailEndpointConfig(
+        name="brands",
+        path="/brands",
+    ),
+    "customer_groups": LightspeedRetailEndpointConfig(
+        name="customer_groups",
+        path="/customer_groups",
+        partition_key="created_at",
+    ),
+    "shifts": LightspeedRetailEndpointConfig(
+        name="shifts",
+        path="/shifts",
+        partition_key="created_at",
+    ),
+    "store_credits": LightspeedRetailEndpointConfig(
+        name="store_credits",
+        path="/store_credits",
+        # One row per customer with store credit; `id` is optional in the schema, `customer_id` is not.
+        primary_key=["customer_id"],
+        incremental_fields=[],
+        partition_key="created_at",
+        # `page_size` is the only paging param and caps the list, so it is not sent.
+        pagination="single_page",
+    ),
+    "store_credit_transactions": LightspeedRetailEndpointConfig(
+        name="store_credit_transactions",
+        path="/store_credits",
+        primary_key=["customer_id", "id"],
+        incremental_fields=[],
+        partition_key="created_at",
+        pagination="single_page",
+        nested_rows_field="store_credit_transactions",
+        nested_parent_key="customer_id",
+        nested_parent_id_field="customer_id",
     ),
 }
 

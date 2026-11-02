@@ -17,7 +17,10 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
 )
-from products.experiments.backend.recalculation import RECALCULATION_ACTIVITY_QUEUE_FEATURE_FLAG
+from products.experiments.backend.recalculation import (
+    RECALCULATION_ACTIVITY_QUEUE_FEATURE_FLAG,
+    RECALCULATION_AGE_LIMIT_FEATURE_FLAG,
+)
 from products.experiments.backend.temporal.models import ExperimentMetricsRecalculationWorkflowInputs
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -61,7 +64,7 @@ class TestMetricsRecalculationAPI(APIBaseTest):
             created_by=self.user,
             feature_flag=self._flag(flag_key),
             name="exp",
-            start_date=datetime(2026, 1, 1, tzinfo=UTC),
+            start_date=timezone.now() - timedelta(days=30),
         )
         exp.metrics = [_mean_metric("m1")]
         exp.save()
@@ -137,16 +140,21 @@ class TestMetricsRecalculationAPI(APIBaseTest):
             == ExperimentMetricsRecalculation.Trigger.AGENT_MCP
         )
 
+    @parameterized.expand(
+        [
+            ("manual", ExperimentMetricsRecalculation.Trigger.MANUAL),
+            ("stale_refresh", ExperimentMetricsRecalculation.Trigger.STALE_REFRESH),
+        ]
+    )
     @mock.patch("products.experiments.backend.recalculation.sync_connect")
     @mock.patch("products.experiments.backend.recalculation.asyncio.run")
-    def test_post_without_mcp_header_honors_body_trigger(self, mock_run, mock_connect):
+    def test_post_without_mcp_header_honors_body_trigger(
+        self, trigger: str, expected_trigger: str, mock_run, mock_connect
+    ):
         exp = self._launched_experiment()
-        resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
+        resp = self.client.post(self._post_url(exp.id), {"trigger": trigger}, format="json")
         assert resp.status_code == status.HTTP_201_CREATED, resp.content
-        assert (
-            ExperimentMetricsRecalculation.objects.get(experiment=exp).trigger
-            == ExperimentMetricsRecalculation.Trigger.MANUAL
-        )
+        assert ExperimentMetricsRecalculation.objects.get(experiment=exp).trigger == expected_trigger
 
     @mock.patch("products.experiments.backend.recalculation.sync_connect")
     @mock.patch("products.experiments.backend.recalculation.asyncio.run")
@@ -203,6 +211,51 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         assert 170 <= int(resp["Retry-After"]) <= 180
         assert not mock_connect.called
         assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 1
+
+    @mock.patch(
+        "products.experiments.backend.recalculation.feature_enabled_or_false",
+        side_effect=lambda key, *args, **kwargs: key == RECALCULATION_AGE_LIMIT_FEATURE_FLAG,
+    )
+    @mock.patch("products.experiments.backend.recalculation.sync_connect")
+    @mock.patch("products.experiments.backend.recalculation.asyncio.run")
+    def test_post_for_old_experiment_rejects_without_a_workflow_and_keeps_earlier_results(
+        self, mock_run, mock_connect, _mock_flag
+    ):
+        exp = self._launched_experiment()
+        exp.start_date = timezone.now() - timedelta(days=200)
+        exp.save()
+        previous_window = timezone.now() - timedelta(days=1)
+        ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            metric_uuids=["m1"],
+            status="completed",
+            query_to=previous_window,
+            completed_at=previous_window,
+        )
+        ExperimentMetricResult.objects.create(
+            experiment=exp,
+            metric_uuid="m1",
+            fingerprint=_recalc_fingerprint(_calculation_key(exp, "m1")),
+            query_from=exp.start_date,
+            query_to=previous_window,
+            status="completed",
+            result={"ok": True},
+        )
+
+        resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
+
+        assert resp.status_code == status.HTTP_201_CREATED, resp.content
+        body = resp.json()
+        assert body["status"] == "failed"
+        assert body["is_existing"] is False
+        assert body["metric_errors"]["m1"]["error_type"] == "recalculation_window_too_long"
+        assert not mock_connect.called
+
+        latest = self.client.get(self._latest_url(exp.id)).json()
+        assert latest["id"] == body["id"]
+        assert latest["metric_errors"]["m1"]["error_type"] == "recalculation_window_too_long"
+        assert [(r["metric_uuid"], r["result"]) for r in latest["results"]] == [("m1", {"ok": True})]
 
     @mock.patch("products.experiments.backend.recalculation.sync_connect")
     @mock.patch("products.experiments.backend.recalculation.asyncio.run")

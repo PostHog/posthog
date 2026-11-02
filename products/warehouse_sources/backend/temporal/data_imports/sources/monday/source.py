@@ -82,7 +82,7 @@ class MondaySource(SimpleSource[MondaySourceConfig]):
 You can find your personal API token in monday.com under your avatar > Developers > My access tokens (admins can also use the account API token). Items are synced from every board the token can access.""",
             iconPath="/static/services/monday.png",
             docsUrl="https://posthog.com/docs/cdp/sources/monday",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

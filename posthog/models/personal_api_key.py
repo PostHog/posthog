@@ -1,3 +1,4 @@
+import re
 from typing import TYPE_CHECKING, Optional
 
 from django.contrib.auth.hashers import PBKDF2PasswordHasher
@@ -8,21 +9,28 @@ from django.utils import timezone
 
 from prometheus_client import Counter
 
+from posthog.constants import AvailableFeature
 from posthog.migration_helpers import deprecate_field
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
-from posthog.models.utils import EncryptionModeType, generate_random_token, hash_key_value
+from posthog.models.utils import PERSONAL_API_KEY_PREFIX, EncryptionModeType, generate_random_token, hash_key_value
 
 if TYPE_CHECKING:
     from posthog.models.organization import Organization
+    from posthog.models.user import User
 
-PERSONAL_API_KEY_MODES_TO_TRY: tuple[tuple[EncryptionModeType, Optional[int]], ...] = (
-    ("sha256", None),  # Moved to simple hashing in 2024-02
+HashMode = tuple[EncryptionModeType, Optional[int]]
+
+CURRENT_PERSONAL_API_KEY_MODE: HashMode = ("sha256", None)  # Moved to simple hashing in 2024-02
+PERSONAL_API_KEY_MODES_TO_TRY: tuple[HashMode, ...] = (
+    CURRENT_PERSONAL_API_KEY_MODE,
     ("pbkdf2", 260000),  # This is the iteration count used by PostHog since the beginning of time.
     ("pbkdf2", 390000),  # This is the iteration count used briefly on some API keys.
 )
 
 LEGACY_PERSONAL_API_KEY_SALT = "posthog_personal_api_key"
 LEGACY_HASH_PREFIX = f"{PBKDF2PasswordHasher.algorithm}$"
+
+DEFAULT_MAX_PERSONAL_API_KEYS = 10
 
 PERSONAL_API_KEY_AUTH_COUNTER = Counter(
     "personal_api_key_hash_mode_total",
@@ -46,6 +54,7 @@ class PersonalAPIKey(ModelActivityMixin, models.Model):
     created_at = models.DateTimeField(default=timezone.now)
     last_used_at = models.DateTimeField(null=True, blank=True)
     last_rolled_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
     scopes: ArrayField = ArrayField(models.CharField(max_length=100), default=list)
     scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True, blank=True)
     scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True, blank=True)
@@ -61,9 +70,54 @@ class PersonalAPIKey(ModelActivityMixin, models.Model):
         blank=True,
     )
 
+    @property
+    def is_expired(self) -> bool:
+        return self.expires_at is not None and self.expires_at <= timezone.now()
+
+
+def max_personal_api_keys_for_user(user: "User") -> int:
+    """How many personal API keys the user may hold.
+
+    A key is not bound to one organization, so the highest `personal_api_keys` limit across the
+    user's organizations applies. Organizations without a numeric limit grant the default.
+    """
+    org_features = user.organization_memberships.values_list("organization__available_product_features", flat=True)
+    limits = [
+        feature.get("limit")
+        for features in org_features
+        for feature in features or []
+        if feature and feature.get("key") == AvailableFeature.PERSONAL_API_KEYS
+    ]
+    return max([DEFAULT_MAX_PERSONAL_API_KEYS, *(limit for limit in limits if isinstance(limit, int))])
+
+
+_LEGACY_PERSONAL_API_KEY_PATTERN = re.compile(r"^[A-Za-z0-9_-]{43}$")
+
+
+def looks_like_legacy_personal_api_key(token: str) -> bool:
+    """Personal API keys created before the phx_ prefix (2021-06-23, commit
+    6c9bb2db0fb) are bare secrets.token_urlsafe(32) output: exactly 43 URL-safe
+    base64 characters, no prefix. They're still valid today — PERSONAL_API_KEY_MODES_TO_TRY
+    exists specifically to authenticate them via their legacy hash. This exact
+    length+charset check keeps auto-detect's cost bound intact: only a token
+    matching this precise shape reaches the expensive personal-key lookup,
+    not every unrecognized string.
+    """
+    return bool(_LEGACY_PERSONAL_API_KEY_PATTERN.match(token))
+
+
+def personal_api_key_modes_to_try(token: str) -> tuple[HashMode, ...]:
+    """Keys issued before 2024-02 can still carry a pbkdf2 hash, and those keys are either
+    phx_-prefixed or legacy-shaped. Any other token can only match sha256, so it skips the
+    pbkdf2 rounds that make a failed lookup cost hundreds of milliseconds.
+    """
+    if token.startswith(PERSONAL_API_KEY_PREFIX) or looks_like_legacy_personal_api_key(token):
+        return PERSONAL_API_KEY_MODES_TO_TRY
+    return (CURRENT_PERSONAL_API_KEY_MODE,)
+
 
 def find_personal_api_key(token: str) -> tuple[PersonalAPIKey, str] | None:
-    for mode, iterations in PERSONAL_API_KEY_MODES_TO_TRY:
+    for mode, iterations in personal_api_key_modes_to_try(token):
         secure_value = hash_key_value(token, mode=mode, legacy_salt=LEGACY_PERSONAL_API_KEY_SALT, iterations=iterations)
         try:
             obj = (

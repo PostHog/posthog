@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldSelectConfigOption,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.amplitude.amplitude import (
+    AMPLITUDE_INVALID_ARCHIVE_ERROR,
     AmplitudeResumeConfig,
     amplitude_source,
     validate_credentials as validate_amplitude_credentials,
@@ -161,6 +162,18 @@ class AmplitudeSource(ResumableSource[AmplitudeSourceConfig, AmplitudeResumeConf
             "403 Client Error: Forbidden": message,
             "Invalid API Key": message,
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # A corrupt export body is a transient download problem, not a configuration error —
+        # Temporal retries the activity and re-downloads the same window from scratch.
+        #
+        # A requests.ReadTimeout/ConnectionError that survives `_get`'s own tenacity retry is a
+        # transient network blip, not an Amplitude or customer problem — a large export window can
+        # take long enough to exhaust the shared retry budget in a single try, leaving no time for
+        # tenacity to retry in-process, but Temporal still retries the whole activity and resume
+        # state re-fetches the same window. Mirrors GitHub's and Bitbucket's identical classification
+        # of the same urllib3 wording.
+        return {AMPLITUDE_INVALID_ARCHIVE_ERROR, "Read timed out"}
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.amplitude.canonical_descriptions import (

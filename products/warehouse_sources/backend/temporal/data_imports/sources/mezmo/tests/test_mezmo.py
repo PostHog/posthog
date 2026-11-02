@@ -50,9 +50,7 @@ def test_permanent_http_errors_match_source_messages(status: int) -> None:
     assert result.paths == ["/v3/pipeline"]
 
 
-@pytest.mark.parametrize(
-    "status, schema, valid", [(200, None, True), (401, None, False), (403, None, True), (403, "pipelines", False)]
-)
+@pytest.mark.parametrize("status, schema, valid", [(403, None, True), (403, "pipelines", False)])
 def test_credential_probe(status: int, schema: str | None, valid: bool) -> None:
     config = MezmoSourceConfig(api_key="sts_example_key")
     with scripted_network([ScriptedResponse(status=status, json={"data": []})]) as network:

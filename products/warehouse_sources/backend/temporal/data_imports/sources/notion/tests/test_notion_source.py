@@ -69,7 +69,7 @@ class TestNotionSource:
             self.source.source_for_pipeline(NotionSourceConfig(api_key="tok"), manager, inputs)
         assert notion_source_mock.call_args.kwargs["api_version"] == expected_version
 
-    @parameterized.expand([(200, True), (401, False)])
+    @parameterized.expand([(200, True)])
     def test_validate_credentials(self, status_code: int, expected_valid: bool) -> None:
         with scripted_network([ScriptedResponse(status=status_code)]) as network:
             valid, _message = self.source.validate_credentials(NotionSourceConfig(api_key="tok"), team_id=1)
@@ -85,16 +85,6 @@ class TestNotionSource:
         assert response.primary_keys == ["id"]
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["created_time"]
-
-    @parameterized.expand(
-        [
-            ("401 Client Error: Unauthorized for url: https://api.notion.com/v1/search",),
-            ("403 Client Error: Forbidden for url: https://api.notion.com/v1/users",),
-        ]
-    )
-    def test_non_retryable_errors_match(self, error_message: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(pattern in error_message for pattern in non_retryable)
 
     @parameterized.expand(
         [

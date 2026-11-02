@@ -410,6 +410,7 @@ export interface playerInspectorLogicValues {
     showOnlyMatching: boolean // miniFiltersLogic
     allPerformanceEvents: PerformanceEvent[] // performanceEventDataLogic
     logs: LogMessage[] // playerInspectorLogsLogic
+    logsAccessDenied: boolean // playerInspectorLogsLogic
     logsHasMore: boolean // playerInspectorLogsLogic
     logsInitialLoadRequested: boolean // playerInspectorLogsLogic
     logsLoadError: boolean // playerInspectorLogsLogic
@@ -905,6 +906,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 'logsNextCursor',
                 'logsLoadError',
                 'logsInitialLoadRequested',
+                'logsAccessDenied',
                 'readyToLoadLogs',
             ],
         ],
@@ -1809,6 +1811,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                                 : level === 'warn'
                                   ? 'warning'
                                   : undefined,
+                        windowNumber: windowNumberForID(undefined),
                         key: `log-${logEntry.uuid}`,
                     } satisfies InspectorListItemLog)
                 }

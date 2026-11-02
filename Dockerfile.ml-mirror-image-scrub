@@ -11,7 +11,7 @@
 # Deliberately NOT the plugin-server workspace build: standalone so the heavy ML deps stay out of the
 # main image. sharp ships prebuilt libvips.
 #
-# Exact node version pinned to .nvmrc (24.13.0), matching the main Dockerfile's node stages, so the
+# Exact node version pinned to .nvmrc (24.22.1), matching the main Dockerfile's node stages, so the
 # build is reproducible instead of drifting with the floating major tag; renovate bumps it. -bookworm-slim
 # so glibc matches sharp's prebuilt binaries.
 #
@@ -34,7 +34,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     cargo build --release --locked -p replay-anonymizer-node && \
     cp target/release/libreplay_anonymizer_node.so /build/replay-anonymizer.node
 
-FROM node:24.13.0-bookworm-slim
+FROM node:24.22.1-bookworm-slim
 WORKDIR /code/app
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 

@@ -806,22 +806,23 @@ describe('ToolExecutor metrics', () => {
             expect(mockTrackToolCall.mock.calls.at(-1)?.[4]).not.toHaveProperty('$mcp_input_keys')
         })
 
-        // A name a feature flag retired is one we own, so it is recordable like any
-        // other. Recorded as unrecognized instead, the `gated_tool` class counts the
-        // wasted round trips without naming the rename that caused them.
-        it('stamps the retired tool a flag gate removed, not the unrecognized sentinel', async () => {
+        it.each(['gated_tool', 'tool_not_granted'] as const)('stamps the target tool on %s', async (reason) => {
             const state = execState()
-            // What the resolver produces with the gate on: the flag filter drops the
-            // tool from the catalog, and `getFlagGatedTools` picks it up.
             state.allTools = state.allTools.filter((tool) => tool.name !== 'notebooks-create')
-            state.flagGatedTools = [{ name: 'notebooks-create', supersededBy: ['notebooks-create-markdown'] }]
+            if (reason === 'gated_tool') {
+                state.flagGatedTools = [{ name: 'notebooks-create', supersededBy: ['notebooks-create-markdown'] }]
+            } else {
+                state.scopeGatedTools = []
+                state.flagGatedTools = []
+                state.heldTools = new Set(['docs-search'])
+            }
 
             await executor.handleToolCall({ name: 'exec', arguments: { command: 'call notebooks-create {}' } }, state)
 
             expect(mockTrackToolCall.mock.calls.at(-1)?.[4]).toMatchObject({
                 $mcp_exec_verb: 'call',
                 $mcp_exec_target_tool: 'notebooks-create',
-                $mcp_error_code: 'gated_tool',
+                $mcp_error_code: reason,
             })
         })
 

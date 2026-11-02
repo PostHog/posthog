@@ -134,5 +134,5 @@ class SlashSource(ResumableSource[SlashSourceConfig, SlashResumeConfig]):
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

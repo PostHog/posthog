@@ -101,7 +101,7 @@ class SinglestoreSource(SimpleSource[SinglestoreSourceConfig]):
             label="SingleStore, Inc.",
             iconPath="/static/services/singlestore.png",
             docsUrl="https://posthog.com/docs/cdp/sources/singlestore",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

@@ -21,6 +21,7 @@ from products.managed_warehouse.backend.facade.contracts import (
     DuckLakeCatalogConnectionConfig,
     ManagedWarehouseBackfillState,
     ManagedWarehouseProvisionStatus,
+    ManagedWarehouseTarget,
 )
 
 if TYPE_CHECKING:
@@ -44,6 +45,9 @@ __all__ = [
     "get_duckgres_query_server_config",
     "get_managed_warehouse_trino_password",
     "get_org_id_for_team",
+    "get_managed_warehouse_target",
+    "managed_warehouse_domain",
+    "managed_warehouse_ingress_ips",
     "get_team_deletion_block_reason",
     "get_stored_bucket_config",
     "get_stored_warehouse_config",
@@ -99,6 +103,36 @@ def default_bucket_region() -> str:
     return common.default_bucket_region()
 
 
+def get_managed_warehouse_target(organization_id: str, *, source_type: str) -> ManagedWarehouseTarget | None:
+    """The managed warehouse `organization_id` may reach from a `source_type` source, or None.
+
+    The warehouse-source host guard is the only caller. It decides whether a source's host is
+    exempt from the private-address check, so it needs the control plane's own answer for this
+    organization rather than any stored row.
+    """
+    from products.managed_warehouse.backend.managed_ingress import get_managed_warehouse_target as _get  # noqa: PLC0415
+
+    return _get(organization_id, source_type=source_type)
+
+
+def managed_warehouse_ingress_ips() -> tuple[str, ...]:
+    """The address set the managed warehouse ingress answers on, read per call.
+
+    The warehouse-source host guard passes this to `ManagedWarehouseTarget.accepts`, so a settings
+    override in a test takes effect without a reload.
+    """
+    from products.managed_warehouse.backend.managed_ingress import _ingress_ips  # noqa: PLC0415
+
+    return _ingress_ips()
+
+
+def managed_warehouse_domain() -> str:
+    """The zone managed warehouse hostnames are served under in this deployment."""
+    from products.managed_warehouse.backend.managed_ingress import managed_warehouse_domain as _domain  # noqa: PLC0415
+
+    return _domain()
+
+
 def get_org_id_for_team(team_id: int) -> str:
     return common._get_org_id_for_team(team_id)
 
@@ -127,12 +161,18 @@ def has_provisioned_warehouse(organization_id: str | UUID) -> bool:
 def is_data_modeling_shadow_ready(
     *,
     organization_id: str | UUID,
+    team_id: int,
 ) -> bool:
+    from products.managed_warehouse.backend.facade.cp_teams import (  # noqa: PLC0415 -- keeps control-plane imports off startup paths
+        get_org_team_membership,
+    )
     from products.managed_warehouse.backend.trino_compiler import (  # noqa: PLC0415 -- keeps optional compiler imports off startup paths
         get_ready_trino_catalog_name,
     )
 
-    return get_ready_trino_catalog_name(str(organization_id)) is not None
+    if get_ready_trino_catalog_name(str(organization_id)) is None:
+        return False
+    return get_org_team_membership(str(organization_id), team_id) is not None
 
 
 def get_duckgres_query_server_config(organization_id: str) -> DuckgresQueryServerConfig:

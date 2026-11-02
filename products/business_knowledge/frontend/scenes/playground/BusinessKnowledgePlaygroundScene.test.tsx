@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useActions, useValues } from 'kea'
 import { type ReactNode } from 'react'
 
@@ -113,6 +113,9 @@ describe('BusinessKnowledgePlaygroundScene', () => {
         expect(document.querySelector('[data-message-type="ai"] [data-testid="react-markdown"]')).toHaveTextContent(
             '**Yes**, within 30 days.'
         )
+        expect(screen.getByText('1 search')).toBeInTheDocument()
+        expect(screen.queryByText('Searched business knowledge')).not.toBeInTheDocument()
+        fireEvent.click(screen.getByText('Looked through business knowledge'))
         expect(screen.getByText('Searched business knowledge')).toBeInTheDocument()
         expect(screen.getByText('refund window')).toBeInTheDocument()
         expect(screen.queryByText(/call business-knowledge-documents-search/)).not.toBeInTheDocument()

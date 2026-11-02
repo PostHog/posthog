@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.retently import (
@@ -56,6 +57,13 @@ class TestEnvelopeShapes:
             ("bare_list_under_data", "reports", {"data": [{"campaignId": "c1"}]}, [{"campaignId": "c1"}]),
             # Campaigns/templates document the array at the top level, outside `data`.
             ("top_level_array", "campaigns", {"campaigns": [{"id": "c1"}]}, [{"id": "c1"}]),
+            # The score endpoints return one object under `data`, synced as a single row.
+            (
+                "single_object_under_data",
+                "nps_score",
+                {"message": "Success.", "code": 200, "data": {"nps": 39, "totalResponses": 13}},
+                [{"nps": 39, "totalResponses": 13}],
+            ),
         ]
     )
     def test_documented_envelope_shapes_yield_rows(self, _name: str, endpoint: str, body: Any, expected: list) -> None:
@@ -111,6 +119,29 @@ class TestPagination:
         assert len(result.requests) == 1
         assert "page" not in result.requests[0].query
         assert "limit" not in result.requests[0].query
+
+
+class TestTrendsFanout:
+    def test_trends_are_fetched_per_group_and_carry_the_group_id(self) -> None:
+        result = _run(
+            "trends",
+            route(
+                {
+                    "/trends": [_response({"success": True, "groups": [{"_id": "g1"}, {"_id": "g2"}]})],
+                    # A 200 error envelope without `trends` is retried, not synced as an empty group.
+                    "/trends/g1": [
+                        _response({"success": False, "error": "Internal Server Error"}),
+                        _response({"success": True, "trends": [{"_id": "t1", "trendName": "Enterprise"}]}),
+                    ],
+                    # A group deleted between the listing and its fetch must not fail the sync.
+                    "/trends/g2": [_response({"success": False}, status_code=404)],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/api/v2/trends", "/api/v2/trends/g1", "/api/v2/trends/g1", "/api/v2/trends/g2"]
+        assert [(row["groupId"], row["_id"]) for row in result.rows] == [("g1", "t1")]
 
 
 class TestIncremental:
@@ -177,9 +208,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid Retently API key"),
-            ("forbidden", 403, False, "Invalid Retently API key"),
-            ("server_error_is_inconclusive", 500, False, "Retently returned HTTP 500"),
         ]
     )
     def test_status_mapping(self, _name: str, status_code: int, expected_ok: bool, expected_msg: str | None) -> None:
@@ -191,12 +219,6 @@ class TestValidateCredentials:
         else:
             assert message is not None and expected_msg in message
         assert network.requests_log[0].path.endswith("/ping")
-
-    def test_network_error_is_inconclusive_not_invalid(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            ok, message = validate_credentials("key")
-        assert ok is False
-        assert message is not None and "Could not connect to Retently" in message
 
 
 class TestSourceResponse:

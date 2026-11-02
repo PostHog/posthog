@@ -140,7 +140,7 @@ If you select an aggregation region, AWS can also return findings from linked re
 The remediation tables need Security Hub with exposure findings in the selected region.""",
             iconPath="/static/services/aws_security_hub.png",
             docsUrl="https://posthog.com/docs/cdp/sources/aws-security-hub",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

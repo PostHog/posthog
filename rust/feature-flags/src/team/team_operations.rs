@@ -51,7 +51,15 @@ const TEAM_COLUMNS: &str = "
     COALESCE(
         (SELECT property_matching_version FROM feature_flags_teamfeatureflagsconfig WHERE team_id = posthog_team.id),
         1
-    )::smallint AS property_matching_version
+    )::smallint AS property_matching_version,
+    COALESCE(
+        (SELECT blocked_hosts FROM feature_flags_teamfeatureflagpolicyconfig WHERE team_id = posthog_team.id),
+        '{}'
+    )::text[] AS flags_blocked_hosts,
+    COALESCE(
+        (SELECT blocked_ips FROM feature_flags_teamfeatureflagpolicyconfig WHERE team_id = posthog_team.id),
+        '{}'
+    )::text[] AS flags_blocked_ips
 ";
 
 impl Team {
@@ -115,6 +123,7 @@ impl Team {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::team::request_blocklist::BlockReason;
     use crate::team::team_models::PropertyMatchingVersion;
     use crate::utils::test_utils::{
         insert_new_team_in_redis, setup_redis_client, setup_team_hypercache_reader, TestContext,
@@ -362,5 +371,51 @@ mod tests {
             team_from_pg.property_matching_version,
             PropertyMatchingVersion::EXPLICIT
         );
+    }
+
+    #[tokio::test]
+    async fn test_fetch_team_reflects_feature_flag_policy_blocklist() {
+        let context = TestContext::new(None).await;
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team in pg");
+
+        let mut conn = get_connection_with_metrics(
+            &context.non_persons_reader,
+            "non_persons_reader",
+            "test_insert_team_feature_flag_policy_config",
+        )
+        .await
+        .expect("Failed to get connection");
+
+        sqlx::query(
+            "INSERT INTO feature_flags_teamfeatureflagpolicyconfig \
+             (team_id, require_tags, blocked_hosts, blocked_ips) \
+             VALUES ($1, false, ARRAY['example.com'], ARRAY['203.0.113.0/24'])",
+        )
+        .bind(team.id)
+        .execute(&mut *conn)
+        .await
+        .expect("Failed to insert TeamFeatureFlagPolicyConfig row");
+
+        let by_token = Team::from_pg(context.non_persons_reader.clone(), &team.api_token)
+            .await
+            .expect("Failed to fetch team by token from pg");
+        let by_id = Team::from_pg_by_id(context.non_persons_reader.clone(), team.id)
+            .await
+            .expect("Failed to fetch team by id from pg");
+
+        for team_from_pg in [by_token, by_id] {
+            assert_eq!(
+                team_from_pg
+                    .request_block_reason(Some("app.example.com"), ["192.0.2.1".parse().unwrap()]),
+                Some(BlockReason::Host)
+            );
+            assert_eq!(
+                team_from_pg.request_block_reason(None, ["203.0.113.9".parse().unwrap()]),
+                Some(BlockReason::Ip)
+            );
+        }
     }
 }

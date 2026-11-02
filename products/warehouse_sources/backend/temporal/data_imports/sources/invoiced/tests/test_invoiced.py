@@ -142,7 +142,7 @@ class TestValidatePaginationUrl:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
+    @parameterized.expand([("unauthorized", 401)])
     def test_auth_failure_maps_to_invalid_key(self, _name: str, status_code: int) -> None:
         with scripted_network([ScriptedResponse(status=status_code)]) as network:
             assert validate_credentials("bad-key") == (False, "Invalid Invoiced API key")

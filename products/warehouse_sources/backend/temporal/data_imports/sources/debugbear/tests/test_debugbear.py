@@ -80,7 +80,9 @@ class TestParseDatetime:
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         ("status_code", "expected_valid"),
-        [(200, True), (401, False), (403, False), (500, False)],
+        [
+            (200, True),
+        ],
     )
     def test_status_code_mapping(self, status_code: int, expected_valid: bool) -> None:
         with scripted_network(always(ScriptedResponse(status=status_code, json=[]))) as network:

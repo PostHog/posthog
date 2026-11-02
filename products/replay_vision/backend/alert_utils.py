@@ -7,6 +7,8 @@ from django.db.models import Q
 
 import structlog
 
+from posthog.utils import absolute_uri
+
 from products.alerts_platform.backend.facade.scheduling import (
     advance_next_check_at,
     compute_shard_offset_seconds as shared_compute_shard_offset_seconds,
@@ -22,6 +24,7 @@ __all__ = [
     "compute_shard_offset_seconds",
     "due_alerts_q",
     "next_allowed_check_at",
+    "observation_url",
 ]
 
 # How often the Temporal schedule fires. Drives shard granularity in
@@ -35,6 +38,10 @@ def compute_shard_offset_seconds(alert_id: UUID, check_interval_minutes: int) ->
         check_interval_minutes,
         schedule_interval_seconds=SCHEDULE_INTERVAL_SECONDS,
     )
+
+
+def observation_url(team_id: int, observation_id: str) -> str:
+    return absolute_uri(f"/project/{team_id}/replay-vision/observations/{observation_id}")
 
 
 def next_allowed_check_at(

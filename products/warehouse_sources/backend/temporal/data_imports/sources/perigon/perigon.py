@@ -1,6 +1,7 @@
 import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any, Optional
+from urllib.parse import urlencode
 
 from requests import Response
 from structlog.types import FilteringBoundLogger
@@ -112,7 +113,9 @@ def get_resource(
 ) -> EndpointResource:
     config = PERIGON_ENDPOINTS[endpoint]
 
-    params: dict[str, Any] = {"size": PAGE_SIZE}
+    params: dict[str, Any] = {**config.extra_params}
+    if config.paginated:
+        params["size"] = PAGE_SIZE
     # Incremental runs must walk the cursor field even before a watermark exists so the
     # pipeline's ordering assumption (sort_mode) holds from the first sync.
     sort_by = (
@@ -128,7 +131,7 @@ def get_resource(
         "params": params,
         "data_selector": config.data_selector,
         "data_selector_required": True,
-        "paginator": PerigonPaginator(PAGE_SIZE, endpoint, logger),
+        "paginator": PerigonPaginator(PAGE_SIZE, endpoint, logger) if config.paginated else "single_page",
     }
 
     # Only filter server-side once a watermark exists; the first incremental sync reads from
@@ -204,15 +207,20 @@ def perigon_source(
     )
 
 
-def validate_credentials(api_key: str, path: Optional[str] = None) -> tuple[bool, int | None]:
+def validate_credentials(api_key: str, endpoint: Optional[str] = None) -> tuple[bool, int | None]:
     """Probe one cheap endpoint and report (is_valid, status_code).
 
     Defaults to the articles endpoint (Perigon's core dataset); pass a specific endpoint
-    path to confirm the key's plan covers that dataset.
+    name to confirm the key's plan covers that dataset.
     """
-    probe_path = path or PERIGON_ENDPOINTS["articles"].path
+    config = PERIGON_ENDPOINTS[endpoint or "articles"]
+    params: dict[str, Any] = {**config.extra_params}
+    if config.paginated:
+        params["size"] = 1
+    if config.full_refresh_sort_by:
+        params["sortBy"] = config.full_refresh_sort_by
     return validate_via_probe(
         lambda: make_tracked_session(redact_values=(api_key,)),
-        f"{PERIGON_BASE_URL}{probe_path}?size=1",
+        f"{PERIGON_BASE_URL}{config.path}?{urlencode(params)}",
         headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
     )

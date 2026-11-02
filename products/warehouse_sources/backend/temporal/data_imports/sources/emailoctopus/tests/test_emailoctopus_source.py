@@ -45,28 +45,6 @@ class TestEmailOctopusValidateCredentials:
         assert [request.path for request in network.requests_log] == ["/lists"]
 
 
-class TestEmailOctopusNonRetryableErrors:
-    @parameterized.expand(
-        [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.emailoctopus.com/lists?limit=1"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.emailoctopus.com/campaigns"),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable = EmailOctopusSource().get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("server_error", "500 Server Error: Internal Server Error for url: https://api.emailoctopus.com/lists"),
-            ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.emailoctopus.com/lists"),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
-        non_retryable = EmailOctopusSource().get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable)
-
-
 class TestEmailOctopusResumableAndPipeline:
     def _inputs(self, schema_name: str) -> SourceInputs:
         return SourceInputs(

@@ -565,6 +565,8 @@ class TestComputeTableStatisticsSync:
         [
             ("a_file_was_removed", "remove", 8, dt.timedelta(days=2), {"amount": "long"}, True),
             ("the_schema_changed", "metadata", 8, dt.timedelta(days=2), {"amount": "long"}, True),
+            ("a_later_commit_made_it_a_string", "to_string", 9, dt.timedelta(days=2), {"amount": "string"}, True),
+            ("a_later_commit_made_it_a_long", "to_long", 9, dt.timedelta(days=2), {"amount": "long"}, True),
             ("a_file_carries_no_stats", "no_stats", 8, dt.timedelta(days=2), {"amount": "long"}, True),
             ("a_column_was_added", "append", 8, dt.timedelta(days=2), {"amount": "long", "total": "long"}, False),
             (
@@ -591,9 +593,19 @@ class TestComputeTableStatisticsSync:
         schema, table, _ = self._schema_table_job(
             team, columns={name: {"clickhouse": "Nullable(Int64)"} for name in columns}
         )
-        self._stored(team, table, age=age)
+        if commit_kind == "to_long":
+            self._stored(team, table, age=age, min_value="apple", max_value="pear")
+        else:
+            self._stored(team, table, age=age)
         commit: list[dict[str, Any]]
-        if commit_kind == "remove":
+        commits: dict[int, list[dict[str, Any]]] = {}
+        if commit_kind == "to_string":
+            commit = [{"metaData": {"schemaString": "{}"}}, self._add(1, amount=("a", "z", 0))]
+            commits[8] = [self._add(10, amount=(1, 60, 0))]
+        elif commit_kind == "to_long":
+            commit = [{"metaData": {"schemaString": "{}"}}, self._add(1, amount=(1, 60, 0))]
+            commits[8] = [self._add(10, amount=("banana", "plum", 0))]
+        elif commit_kind == "remove":
             commit = [self._add(1, amount=(1, 1, 0)), {"remove": {"path": "old.parquet", "dataChange": True}}]
         elif commit_kind == "metadata":
             commit = [{"metaData": {"schemaString": "{}"}}, self._add(1, amount=(1, 1, 0))]
@@ -611,7 +623,9 @@ class TestComputeTableStatisticsSync:
         )
         helper = self._mock_delta(add_actions, version=table_version, delta_types=columns)
         with (
-            patch.object(comp, "_read_commit_actions", return_value=commit) as mock_read,
+            patch.object(
+                comp, "_read_commit_actions", side_effect=lambda _uri, _options, version: commits.get(version, commit)
+            ) as mock_read,
             patch.object(comp, "capture_exception") as mock_capture,
             patch(DELTA_HELPER_PATH, return_value=helper),
         ):
@@ -627,17 +641,17 @@ class TestComputeTableStatisticsSync:
         assert stat.computed_for_delta_version == table_version
 
     def test_an_unparseable_stored_value_falls_back_without_leaking_it(self) -> None:
-        # A stored bound written under an earlier column type (say string) cannot be parsed under a
-        # changed type (say long): `int("not-a-number")` raises `ValueError` with the raw text in its
-        # message. The fold must fall back to a full scan, and neither the capture nor the log line it
-        # reports on may repeat that text.
+        # A stored bound that does not parse under the column's type, with no schema change in the
+        # commit range to explain it: `int("not-a-number")` raises `ValueError` with the raw text in
+        # its message. The fold must fall back to a full scan, and neither the capture nor the log
+        # line it reports on may repeat that text.
         team = self._team()
         schema, table, _ = self._schema_table_job(team)
         self._stored(team, table, min_value="not-a-number", max_value="not-a-number-either")
         add_actions = pa.table({"num_records": [99], "null_count.amount": [0], "min.amount": [1], "max.amount": [1]})
         helper = self._mock_delta(add_actions, version=8, delta_types={"amount": "long"})
         with (
-            patch.object(comp, "_read_commit_actions", return_value=[self._add(1, amount=(1, 1, 0))]) as mock_read,
+            patch.object(comp, "_read_commit_actions", return_value=[self._add(1, amount=(1, 1, 0))]),
             patch.object(comp, "capture_exception") as mock_capture,
             patch(DELTA_HELPER_PATH, return_value=helper),
         ):
@@ -645,7 +659,6 @@ class TestComputeTableStatisticsSync:
 
         assert result["status"] == "done"
         assert result["basis"] == "full"
-        assert not mock_read.called
         mock_capture.assert_called_once()
         reported = str(mock_capture.call_args[0][0])
         assert "not-a-number" not in reported

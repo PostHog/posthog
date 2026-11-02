@@ -78,7 +78,7 @@ class FlutterwaveSource(ResumableSource[FlutterwaveSourceConfig, FlutterwaveResu
             name=ExternalDataSourceType.FLUTTERWAVE,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Flutterwave",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Flutterwave v4 client ID and client secret to sync your payments data into the PostHog Data warehouse.
 
 You can find them under Settings > API Keys in the [Flutterwave dashboard](https://app.flutterwave.com/dashboard/settings/apis). If the page shows a public key, secret key, and encryption key, you are on v3 keys: click **Switch to v4 live API keys** to see your client ID and client secret. Sources connected before v4 support keep using their v3 secret key.""",

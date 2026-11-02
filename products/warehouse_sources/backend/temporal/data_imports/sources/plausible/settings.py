@@ -38,6 +38,12 @@ SESSION_SCOPED_METRICS = frozenset({"bounce_rate", "visit_duration", "views_per_
 # on it and the pipeline can slide the date window incrementally.
 TIME_DIMENSION = "time:day"
 
+# Custom properties are open-ended per site and the Stats API can't list a site's keys, so the user
+# names them and each key syncs as its own table with this schema-name prefix.
+CUSTOM_PROPERTY_DIMENSION_PREFIX = "event:props:"
+CUSTOM_PROPERTY_ENDPOINT_PREFIX = "custom_property_"
+CUSTOM_PROPERTY_VALUE_COLUMN = "property_value"
+
 _DATE_INCREMENTAL_FIELDS: list[IncrementalField] = [
     {
         "label": "date",
@@ -51,11 +57,14 @@ _DATE_INCREMENTAL_FIELDS: list[IncrementalField] = [
 def dimension_to_column(dimension: str) -> str:
     """Map a Plausible query dimension to the flat column name we store it under.
 
-    `time:day` becomes `date`; every other dimension uses the part after the colon
-    (e.g. `visit:source` -> `source`, `event:page` -> `page`, `visit:os` -> `os`).
+    `time:day` becomes `date`; a custom property becomes `property_value`, because the key itself is
+    user input that could collide with a metric column; every other dimension uses the part after
+    the colon (e.g. `visit:source` -> `source`, `event:page` -> `page`, `visit:os` -> `os`).
     """
     if dimension == TIME_DIMENSION:
         return "date"
+    if dimension.startswith(CUSTOM_PROPERTY_DIMENSION_PREFIX):
+        return CUSTOM_PROPERTY_VALUE_COLUMN
     return dimension.split(":", 1)[-1]
 
 
@@ -117,6 +126,9 @@ PLAUSIBLE_ENDPOINTS: dict[str, PlausibleEndpointConfig] = {
     "utm_campaigns": PlausibleEndpointConfig(name="utm_campaigns", breakdown_dimensions=["visit:utm_campaign"]),
     "utm_terms": PlausibleEndpointConfig(name="utm_terms", breakdown_dimensions=["visit:utm_term"]),
     "utm_contents": PlausibleEndpointConfig(name="utm_contents", breakdown_dimensions=["visit:utm_content"]),
+    "channels": PlausibleEndpointConfig(name="channels", breakdown_dimensions=["visit:channel"]),
+    # Event-scoped on its own, so `__post_init__` drops the session metrics.
+    "hostnames": PlausibleEndpointConfig(name="hostnames", breakdown_dimensions=["event:hostname"]),
     # Hostname pairs with the path so rows from different subdomains stay distinct in the composite
     # primary key. It makes these breakdowns event-scoped, so `__post_init__` drops the session
     # metrics from `pages` and keeps the session metrics on the two visit-scoped page breakdowns.
@@ -132,6 +144,12 @@ PLAUSIBLE_ENDPOINTS: dict[str, PlausibleEndpointConfig] = {
     "cities": PlausibleEndpointConfig(name="cities", breakdown_dimensions=["visit:city"]),
     "browsers": PlausibleEndpointConfig(name="browsers", breakdown_dimensions=["visit:browser"]),
     "operating_systems": PlausibleEndpointConfig(name="operating_systems", breakdown_dimensions=["visit:os"]),
+    # A version number only means something next to its OS name, so both dimensions are kept.
+    "operating_system_versions": PlausibleEndpointConfig(
+        name="operating_system_versions",
+        breakdown_dimensions=["visit:os", "visit:os_version"],
+        should_sync_default=False,
+    ),
     "devices": PlausibleEndpointConfig(name="devices", breakdown_dimensions=["visit:device"]),
     # Goal conversions: `event:goal` is only valid with goal-compatible metrics, so it carries its
     # own reduced metric set rather than the generic breakdown set.
@@ -144,6 +162,26 @@ PLAUSIBLE_ENDPOINTS: dict[str, PlausibleEndpointConfig] = {
 
 ENDPOINTS = tuple(PLAUSIBLE_ENDPOINTS.keys())
 
-INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
-    name: config.incremental_fields for name, config in PLAUSIBLE_ENDPOINTS.items()
-}
+
+def parse_custom_property_keys(raw: str | None) -> list[str]:
+    keys: list[str] = []
+    for part in (raw or "").split(","):
+        key = part.strip()
+        if key and key not in keys:
+            keys.append(key)
+    return keys
+
+
+def custom_property_endpoint_name(key: str) -> str:
+    return f"{CUSTOM_PROPERTY_ENDPOINT_PREFIX}{key}"
+
+
+def get_endpoint_config(name: str) -> PlausibleEndpointConfig:
+    """Resolve a schema name to its report config, including the per-key custom property tables."""
+    if name in PLAUSIBLE_ENDPOINTS:
+        return PLAUSIBLE_ENDPOINTS[name]
+    if name.startswith(CUSTOM_PROPERTY_ENDPOINT_PREFIX):
+        key = name.removeprefix(CUSTOM_PROPERTY_ENDPOINT_PREFIX)
+        if key:
+            return PlausibleEndpointConfig(name=name, breakdown_dimensions=[f"{CUSTOM_PROPERTY_DIMENSION_PREFIX}{key}"])
+    raise KeyError(f"Unknown Plausible endpoint: {name}")

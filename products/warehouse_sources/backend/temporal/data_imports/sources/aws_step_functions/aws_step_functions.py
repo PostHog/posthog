@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_step_f
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import probe_status_message
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsstepfunctions import (
     AwsStepFunctionsSourceConfig,
@@ -32,8 +33,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 
 
 class AwsStepFunctionsError(Exception):
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(self, code: str, message: str, status_code: int | None = None) -> None:
         self.code = code
+        self.status_code = status_code
         super().__init__(f"AWS Step Functions request failed: {code} - {message}")
 
 
@@ -131,9 +133,11 @@ class AwsStepFunctionsClient:
                 and code in {"ThrottlingException", "Throttling", "TooManyRequestsException", "KmsThrottlingException"}
                 else AwsStepFunctionsError
             )
-            raise error_class(code, message)
+            raise error_class(code, message, response.status_code)
         if response.status_code != 200:
-            raise AwsStepFunctionsError(f"HTTP {response.status_code}", "Unexpected AWS response status.")
+            raise AwsStepFunctionsError(
+                f"HTTP {response.status_code}", "Unexpected AWS response status.", response.status_code
+            )
         result = response.json()
         if not isinstance(result, dict):
             raise ValueError("AWS Step Functions returned an invalid response.")
@@ -399,6 +403,9 @@ def validate_credentials(
             return True, None
         if error.code in ERROR_MESSAGES:
             return False, ERROR_MESSAGES[error.code]
+        status_message = probe_status_message("AWS Step Functions", error.status_code)
+        if status_message:
+            return False, status_message
         raise
     finally:
         client.close()

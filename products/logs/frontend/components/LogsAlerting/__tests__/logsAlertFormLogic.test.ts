@@ -1,26 +1,39 @@
 import { MOCK_TEAM_ID } from '~/lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
-import { logsAlertsCreate, logsAlertsPartialUpdate } from 'products/logs/frontend/generated/api'
 import {
+    logsAlertsCreate,
+    logsAlertsList,
+    logsAlertsPartialUpdate,
+    logsAlertsSimulateCreate,
+} from 'products/logs/frontend/generated/api'
+import {
+    GroupingModeEnumApi,
     LogsAlertConfigurationApi,
     LogsAlertConfigurationStateEnumApi,
+    LogsAlertGroupingApi,
+    LogsAlertSimulateResponseApi,
 } from 'products/logs/frontend/generated/api.schemas'
 
 import { buildFormDefaults, LogsAlertFormType, logsAlertFormLogic } from '../logsAlertFormLogic'
+import { LogsAlertGroupBy } from '../logsAlertGrouping'
 
 jest.mock('products/logs/frontend/generated/api', () => ({
     logsAlertsCreate: jest.fn(),
     logsAlertsPartialUpdate: jest.fn(),
     logsAlertsList: jest.fn(),
     logsAlertsDestroy: jest.fn(),
+    logsAlertsSimulateCreate: jest.fn(),
 }))
+
+jest.mock('posthog-js')
 
 jest.mock('@posthog/lemon-ui', () => ({
     lemonToast: {
@@ -31,6 +44,8 @@ jest.mock('@posthog/lemon-ui', () => ({
 
 const mockLogsAlertsCreate = logsAlertsCreate as jest.MockedFunction<typeof logsAlertsCreate>
 const mockLogsAlertsPartialUpdate = logsAlertsPartialUpdate as jest.MockedFunction<typeof logsAlertsPartialUpdate>
+const mockLogsAlertsList = logsAlertsList as jest.MockedFunction<typeof logsAlertsList>
+const mockLogsAlertsSimulateCreate = logsAlertsSimulateCreate as jest.MockedFunction<typeof logsAlertsSimulateCreate>
 
 const MOCK_PROJECT_ID = String(MOCK_TEAM_ID)
 
@@ -53,6 +68,7 @@ const MOCK_ALERT: LogsAlertConfigurationApi = {
     consecutive_failures: 0,
     last_error_message: null,
     destination_types: [],
+    platform_owned: false,
     state_timeline: [],
     first_enabled_at: null,
     created_at: '2024-01-01T00:00:00Z',
@@ -84,6 +100,19 @@ const VALID_FORM_VALUES: LogsAlertFormType = {
     datapointsToAlarm: 1,
     cooldownMinutes: 0,
     scheduleRestriction: null,
+    groupBy: 'none',
+    maxInstances: 20,
+}
+
+function givenTeamAlerts(alerts: LogsAlertConfigurationApi[]): void {
+    mockLogsAlertsList.mockResolvedValue({ count: alerts.length, next: null, previous: null, results: alerts })
+}
+
+const PLATFORM_ALERT: LogsAlertConfigurationApi = { ...MOCK_ALERT, platform_owned: true }
+
+const GROUPED_BY_SERVICE_ALERT: LogsAlertConfigurationApi = {
+    ...MOCK_ALERT,
+    grouping: { mode: 'by_result_labels', keys: ['service_name'], max_instances: 30 },
 }
 
 describe('logsAlertFormLogic', () => {
@@ -501,6 +530,204 @@ describe('logsAlertFormLogic', () => {
         })
     })
 
+    describe('grouping', () => {
+        it.each<[string, LogsAlertConfigurationApi | null, LogsAlertConfigurationApi[], boolean]>([
+            ['alert the source owns', MOCK_ALERT, [], false],
+            ['alert the source owns in a team that has cut over', MOCK_ALERT, [PLATFORM_ALERT], false],
+            ['alert the platform owns', PLATFORM_ALERT, [], true],
+            ['alert that already groups', GROUPED_BY_SERVICE_ALERT, [], true],
+            ['new alert in a team that has not cut over', null, [MOCK_ALERT], false],
+            ['new alert in a team that has cut over', null, [MOCK_ALERT, PLATFORM_ALERT], true],
+        ])('can group for %s', async (_, alert, teamAlerts, expected) => {
+            givenTeamAlerts(teamAlerts)
+            const logic = logsAlertFormLogic({ alert })
+            logic.mount()
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.canGroup).toBe(expected)
+            logic.unmount()
+        })
+
+        it.each<[string, LogsAlertConfigurationApi, string]>([
+            [
+                'an ungrouped alert that is not firing',
+                PLATFORM_ALERT,
+                "Saving resets this alert's state, and it starts tracking each group on its own.",
+            ],
+            [
+                'an ungrouped alert that is firing',
+                { ...PLATFORM_ALERT, state: LogsAlertConfigurationStateEnumApi.Firing },
+                "Saving resets this alert's state, and it starts tracking each group on its own. The alert is firing now, so its open notification won't get a resolve message.",
+            ],
+            [
+                'a grouped alert',
+                GROUPED_BY_SERVICE_ALERT,
+                "Saving resets every group this alert tracks. Groups that are firing now won't get a resolve message for their open notifications.",
+            ],
+        ])('describes regrouping %s', (_, alert, expected) => {
+            const logic = logsAlertFormLogic({ alert })
+            logic.mount()
+
+            expect(logic.values.regroupConfirmation).toBe(expected)
+            logic.unmount()
+        })
+
+        it('leaves grouping out of the payload when the alert cannot group', async () => {
+            mockLogsAlertsPartialUpdate.mockResolvedValue(MOCK_ALERT)
+            const logic = logsAlertFormLogic({ alert: MOCK_ALERT })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.setAlertFormValues(VALID_FORM_VALUES)
+                logic.actions.submitAlertForm()
+            }).toFinishAllListeners()
+
+            expect(mockLogsAlertsPartialUpdate.mock.calls[0][2]).not.toHaveProperty('grouping')
+            logic.unmount()
+        })
+
+        it('creates a grouped alert with the default group limit in a cut-over team', async () => {
+            givenTeamAlerts([PLATFORM_ALERT])
+            mockLogsAlertsCreate.mockResolvedValue(MOCK_CREATED_ALERT)
+            const logic = logsAlertFormLogic({ alert: null })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setAlertFormValues(VALID_FORM_VALUES)
+                logic.actions.setGroupBy('service_and_severity')
+                logic.actions.submitAlertForm()
+            }).toFinishAllListeners()
+
+            expect(logic.values.isRegroupConfirmationOpen).toBe(false)
+            expect(mockLogsAlertsCreate.mock.calls[0][1]).toMatchObject({
+                grouping: { mode: 'by_result_labels', keys: ['service_name', 'severity_text'], max_instances: 20 },
+            })
+            expect(posthog.capture).toHaveBeenCalledWith('logs alert grouping changed', {
+                group_by: 'service_and_severity',
+                previous_group_by: 'none',
+                is_editing: false,
+            })
+            logic.unmount()
+        })
+
+        it('asks before regrouping a platform alert and saves once confirmed', async () => {
+            mockLogsAlertsPartialUpdate.mockResolvedValue(PLATFORM_ALERT)
+            const logic = logsAlertFormLogic({ alert: PLATFORM_ALERT })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setGroupBy('service')
+                logic.actions.submitAlertForm()
+            }).toFinishAllListeners()
+
+            expect(logic.values.isRegroupConfirmationOpen).toBe(true)
+            expect(mockLogsAlertsPartialUpdate).not.toHaveBeenCalled()
+
+            await expectLogic(logic, () => {
+                logic.actions.confirmRegroup()
+            }).toFinishAllListeners()
+
+            expect(mockLogsAlertsPartialUpdate).toHaveBeenCalledWith(
+                MOCK_PROJECT_ID,
+                PLATFORM_ALERT.id,
+                expect.objectContaining({
+                    grouping: { mode: 'by_result_labels', keys: ['service_name'], max_instances: 20 },
+                })
+            )
+            expect(posthog.capture).toHaveBeenCalledWith('logs alert regroup confirmed', {
+                group_by: 'service',
+                previous_group_by: 'none',
+            })
+            logic.unmount()
+        })
+
+        it.each<[string, LogsAlertConfigurationApi, Partial<LogsAlertFormType>, LogsAlertGroupingApi | undefined]>([
+            [
+                'a new group limit',
+                GROUPED_BY_SERVICE_ALERT,
+                { maxInstances: 50 },
+                { mode: GroupingModeEnumApi.ByResultLabels, keys: ['service_name'], max_instances: 50 },
+            ],
+            [
+                'a rename, keeping the stored key order',
+                {
+                    ...MOCK_ALERT,
+                    grouping: {
+                        mode: GroupingModeEnumApi.ByResultLabels,
+                        keys: ['severity_text', 'service_name'],
+                        max_instances: 30,
+                    },
+                },
+                { name: 'Renamed' },
+                {
+                    mode: GroupingModeEnumApi.ByResultLabels,
+                    keys: ['severity_text', 'service_name'],
+                    max_instances: 30,
+                },
+            ],
+            [
+                'a rename of an alert grouped by keys the form cannot show',
+                {
+                    ...MOCK_ALERT,
+                    grouping: {
+                        mode: GroupingModeEnumApi.ByResultLabels,
+                        keys: ['service_name', 'http_route'],
+                        max_instances: 30,
+                    },
+                },
+                { name: 'Renamed' },
+                undefined,
+            ],
+        ])('saves %s without regrouping', async (_, alert, change, expectedGrouping) => {
+            mockLogsAlertsPartialUpdate.mockResolvedValue(alert)
+            const logic = logsAlertFormLogic({ alert })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.setAlertFormValues(change)
+                logic.actions.submitAlertForm()
+            }).toFinishAllListeners()
+
+            expect(logic.values.isRegroupConfirmationOpen).toBe(false)
+            expect(mockLogsAlertsPartialUpdate.mock.calls[0][2]?.grouping).toEqual(expectedGrouping)
+            logic.unmount()
+        })
+
+        it.each([NaN, 0, 101, 2.5])('blocks a save with a group limit of %s', async (maxInstances) => {
+            const logic = logsAlertFormLogic({ alert: GROUPED_BY_SERVICE_ALERT })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.setAlertFormValue('maxInstances', maxInstances)
+                logic.actions.submitAlertForm()
+            }).toFinishAllListeners()
+
+            expect(logic.values.alertFormValidationErrors.maxInstances).toBe('Enter a whole number from 1 to 100.')
+            expect(mockLogsAlertsPartialUpdate).not.toHaveBeenCalled()
+            logic.unmount()
+        })
+
+        it.each<[LogsAlertGroupBy, boolean]>([
+            ['service', false],
+            ['none', true],
+        ])('simulates an alert grouped by %s: %s', async (groupBy, simulates) => {
+            mockLogsAlertsSimulateCreate.mockResolvedValue({} as LogsAlertSimulateResponseApi)
+            const logic = logsAlertFormLogic({ alert: GROUPED_BY_SERVICE_ALERT })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.setGroupBy(groupBy)
+                logic.actions.simulateAlert()
+            }).toFinishAllListeners()
+
+            expect(mockLogsAlertsSimulateCreate).toHaveBeenCalledTimes(simulates ? 1 : 0)
+            logic.unmount()
+        })
+    })
+
     describe('isEditing selector', () => {
         it('is false when props.alert is null', () => {
             const logic = logsAlertFormLogic({ alert: null })
@@ -536,6 +763,8 @@ describe('logsAlertFormLogic', () => {
                 evaluationPeriods: 1,
                 datapointsToAlarm: 1,
                 cooldownMinutes: 0,
+                groupBy: 'none',
+                maxInstances: 20,
             })
 
             logic.unmount()

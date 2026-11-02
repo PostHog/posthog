@@ -274,14 +274,88 @@ function validationCommandEnd(command: string, depth = 0): number | undefined {
   return undefined;
 }
 
-export const VALIDATION_LOCK_PREFIX = [
-  "exec {__posthog_validation_lock_fd}>/tmp/posthog-memory-validation.lock",
-  'if ! flock -n "$__posthog_validation_lock_fd"; then',
-  '  printf "%s\\n" "Another build, test suite, or typecheck is running in this sandbox. Let it finish before starting more validation, including in other worktrees." >&2',
-  "  exit 75",
-  "fi",
-  "",
-].join("\n");
+export const VALIDATION_MIN_HEADROOM_GIB = 3;
+
+export const MEMORY_HEADROOM_AWK = `
+function num(path,  value) {
+  if ((getline value < path) <= 0 || value !~ /^[0-9]+$/)
+    value = -1
+  close(path)
+  return value + 0
+}
+
+function stat_value(path, key,  line, field, value) {
+  value = -1
+  while ((getline line < path) > 0)
+    if (split(line, field, " ") == 2 && field[1] == key && field[2] ~ /^[0-9]+$/)
+      value = field[2] + 0
+  close(path)
+  return value
+}
+
+function cgroup(dir, current_file, limit_file, key,  current, limit, inactive) {
+  current = num(dir "/" current_file)
+  limit = num(dir "/" limit_file)
+  if (current < 0 || limit <= 0 || limit >= 2 ^ 60)
+    return 0
+  inactive = stat_value(dir "/memory.stat", key)
+  if (inactive >= 0 && inactive < current)
+    current -= inactive
+  threshold = 0.85 * limit
+  headroom = threshold - current
+  return 1
+}
+
+BEGIN {
+  if (!cgroup("/sys/fs/cgroup/memory", "memory.usage_in_bytes", "memory.limit_in_bytes", "total_inactive_file") &&
+      !cgroup("/sys/fs/cgroup", "memory.current", "memory.max", "inactive_file")) {
+    while ((getline line < "/proc/meminfo") > 0) {
+      split(line, field, /[: ]+/)
+      if (field[1] == "MemTotal")
+        total = field[2] * 1024
+      if (field[1] == "MemAvailable") {
+        available = field[2] * 1024
+        has_available = 1
+      }
+    }
+    if (!total || !has_available)
+      exit
+    threshold = 0.85 * total
+    headroom = threshold - (total - available)
+  }
+  required = floor * 1024 ^ 3
+  if (threshold / 2 < required)
+    required = threshold / 2
+  if (headroom < required)
+    printf "%.1f\\n", (headroom > 0 ? headroom : 0) / 1024 ^ 3
+}
+`;
+
+export function validationLockPrefix(root = ""): string {
+  const awk = MEMORY_HEADROOM_AWK.replace(/"\/(sys|proc)\//g, `"${root}/$1/`);
+  return [
+    `exec {__posthog_validation_lock_fd}>${root}/tmp/posthog-memory-validation.lock`,
+    'if ! flock -n "$__posthog_validation_lock_fd"; then',
+    '  printf "%s\\n" "Another build, test suite, or typecheck is running in this sandbox. Let it finish before starting more validation, including in other worktrees." >&2',
+    "  exit 75",
+    "fi",
+    `__posthog_memory_headroom="$(awk -v floor=${VALIDATION_MIN_HEADROOM_GIB} '${awk}' 2>/dev/null)"`,
+    'if [ -n "$__posthog_memory_headroom" ]; then',
+    "  {",
+    '    printf "%s\\n" "Not starting this command. The sandbox has $__posthog_memory_headroom GiB of memory left before the sandbox memory watchdog stops processes, so it would likely stop this command. The largest processes are:"',
+    "    ps -eo rss=,pid=,comm= --sort=-rss 2>/dev/null |",
+    "      head -n 3 |",
+    `      awk '{ rss = $1; pid = $2; sub(/^ *[0-9]+ +[0-9]+ +/, ""); printf "  %.1f GiB  %s (pid %s)\\n", rss / 1024 ^ 2, $0, pid }'`,
+    '    printf "%s\\n" "Stop the processes this run does not need, such as the app dev server, Storybook, or hogli start services, then retry. The database containers can keep running."',
+    "  } >&2",
+    "  exit 75",
+    "fi",
+    "unset __posthog_memory_headroom",
+    "",
+  ].join("\n");
+}
+
+export const VALIDATION_LOCK_PREFIX = validationLockPrefix();
 
 export function validationCommandKey(command: string): string | undefined {
   const original = command.startsWith(VALIDATION_LOCK_PREFIX)

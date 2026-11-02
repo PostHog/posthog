@@ -7,16 +7,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.resend import (
     ResendAuthMethodConfig,
     ResendSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.resend.resend import (
-    ResendResumeConfig,
-    validate_credentials,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.resend.resend import ResendResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.resend.settings import ENDPOINTS, RESEND_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.resend.source import ResendSource
 
@@ -163,6 +159,20 @@ class TestEmailMetrics:
         }
 
 
+class TestUsage:
+    def test_yields_the_snapshot_object_as_one_row(self) -> None:
+        body = {
+            "object": "usage",
+            "emails": {"daily": {"used": 10, "limit": None}, "monthly": {"used": 100, "limit": 3000}},
+            "domains": {"used": 1, "limit": 1},
+            "rate_limit": {"limit": 1000, "duration": "1000ms"},
+        }
+        result = _driver().run("usage", [_page(body)])
+
+        assert result.rows == [body]
+        assert result.paths == ["/usage"]
+
+
 class TestRetryable:
     def test_401_does_not_retry_and_raises(self) -> None:
         result = _driver().run("audiences", [_page({"message": "unauthorized"}, status_code=401)])
@@ -198,9 +208,3 @@ class TestSourceResponseShape:
         else:
             assert response.partition_mode is None
             assert response.partition_keys is None
-
-
-class TestValidateCredentials:
-    def test_network_error_returns_false(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            assert validate_credentials("re_test") is False

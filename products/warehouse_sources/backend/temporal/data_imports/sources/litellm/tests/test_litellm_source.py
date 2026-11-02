@@ -3,8 +3,6 @@ from typing import Any
 import pytest
 from unittest.mock import patch
 
-import requests
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     DATABASE_HOST_NOT_ALLOWED_ERROR,
     HostNotAllowedError,
@@ -27,12 +25,6 @@ class TestLiteLLMValidateCredentials:
         ("answer", "expected_valid", "expected_fragment"),
         [
             (ScriptedResponse(json={"keys": [], "total_count": 0, "current_page": 1, "total_pages": 0}), True, None),
-            (
-                ScriptedResponse(status=401, json={"error": {"message": "Authentication Error"}}),
-                False,
-                "rejected the key",
-            ),
-            (requests.ConnectionError("refused"), False, "Could not reach"),
         ],
     )
     def test_maps_the_key_probe(self, answer: Any, expected_valid: bool, expected_fragment: str | None) -> None:

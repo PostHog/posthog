@@ -102,7 +102,7 @@ The form data, audit events, and envelope templates tables make one API request 
 The bulk send batch envelopes and PowerForm form data tables make one API request per batch or PowerForm. PowerForm form data only includes PowerForms that the connected user sent or administers. The billing invoices table needs an account administrator.""",
             iconPath="/static/services/docusign.png",
             docsUrl="https://posthog.com/docs/cdp/sources/docusign",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["esignature", "e-signature", "contracts", "agreements"],
             fields=cast(
                 list[FieldType],
@@ -201,6 +201,7 @@ The bulk send batch envelopes and PowerForm form data tables make one API reques
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

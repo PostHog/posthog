@@ -97,7 +97,7 @@ class BrowseAISource(ResumableSource[BrowseAISourceConfig, BrowseAIResumeConfig]
                 ],
             ),
             webhookSetupCaption="Connect webhooks again after adding robots to Browse AI. Each connection registers task completion events on your current robots.",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )
 
     def get_schemas(

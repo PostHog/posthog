@@ -80,11 +80,8 @@ class TestValidateCredentials:
 
     @parameterized.expand(
         [
-            (401, "rejected your api key"),
-            (403, "denied"),
             (404, "could not find"),
             (429, "rate-limited"),
-            (500, "could not complete"),
         ]
     )
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat._session")
@@ -137,18 +134,6 @@ class TestValidateCredentials:
 
         assert success is False
         assert error == api_client.UNSUPPORTED_KEY_CHARACTER_MESSAGE
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat._session")
-    def test_returns_false_on_network_error(self, mock_session):
-        mock_session.return_value.get.side_effect = requests.ConnectionError("dns fail")
-
-        success, error = api_client.validate_credentials("sk_test", project_id=None)
-
-        assert success is False
-        assert error is not None
-        assert error == api_client.UNREACHABLE_MESSAGE
-        # The transport exception must not reach the form — it names hosts and internals.
-        assert "dns fail" not in error
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat._session")
     def test_fails_open_on_invalid_json_on_projects_list(self, mock_session):

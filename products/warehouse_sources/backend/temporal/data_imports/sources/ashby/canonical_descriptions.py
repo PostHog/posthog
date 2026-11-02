@@ -281,4 +281,48 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             extraData="Arbitrary key/value pairs stored against the event.",
         ),
     },
+    "interview_stage_groups": {
+        "description": "A group of interview stages that forms one phase of the hiring funnel. Resolves the interviewStageGroupId carried on interview stages.",
+        "docs_url": "https://developers.ashbyhq.com/reference/interviewstagegrouplist",
+        "columns": {
+            "id": "Unique identifier for the interview stage group.",
+            "title": "The stage group's title.",
+            "order": "Position of the stage group in the organization's ordered list of groups.",
+            "stageType": "Type of the stages in the group (Lead, PreInterviewScreen, Active, Offer, Hired, Archived).",
+        },
+    },
+    "application_hiring_team_roles": {
+        "description": "A hiring team role that users can hold on an application, such as recruiter or hiring manager.",
+        "docs_url": "https://developers.ashbyhq.com/reference/applicationhiringteamrolelist",
+        "columns": {
+            "id": "Unique identifier for the application hiring team role.",
+            "title": "The role's title.",
+        },
+    },
+    "survey_submissions": {
+        "description": "A submitted candidate experience, questionnaire, or hiring manager experience survey.",
+        "docs_url": "https://developers.ashbyhq.com/reference/surveysubmissionlist",
+        "columns": {
+            "id": "Unique identifier for the survey submission.",
+            "surveyFormDefinitionId": "ID of the survey form definition, if any.",
+            "submittedAt": "Time at which the survey was submitted.",
+            "candidateId": "ID of the candidate the submission belongs to.",
+            "applicationId": "ID of the application the submission belongs to, if any.",
+            "surveyType": "Type of the survey (CandidateExperience, Questionnaire, HiringManagerExperience).",
+            "formDefinition": "The survey form's sections and fields.",
+            "submittedValues": "The submitted answers, keyed by the path of each form field.",
+        },
+    },
+    "candidate_notes": {
+        "description": "A note added to a candidate in Ashby.",
+        "docs_url": "https://developers.ashbyhq.com/reference/candidatelistnotes",
+        "columns": {
+            "id": "Unique identifier for the note.",
+            "candidateId": "ID of the candidate the note belongs to.",
+            "createdAt": "Time at which the note was created.",
+            "isPrivate": "Whether the note is private.",
+            "content": "The note's content as plain text.",
+            "author": "The user who created the note.",
+        },
+    },
 }

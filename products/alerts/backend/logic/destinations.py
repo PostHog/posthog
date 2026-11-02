@@ -158,6 +158,17 @@ def owned_alert_destinations_qs(
     return functions.filter(template_id__in=SPEC_BY_TEMPLATE_ID) if known_templates_only else functions
 
 
+def owned_alert_destination_ids(
+    *, team_id: int, alert_id: str, allowed_event_ids: Collection[str], hog_function_ids: Collection[UUID]
+) -> frozenset[UUID]:
+    """The named HogFunctions that are destinations of this alert, without reading their inputs."""
+    return frozenset(
+        owned_alert_destinations_qs(team_id=team_id, alert_ids=[alert_id], allowed_event_ids=allowed_event_ids)
+        .filter(pk__in=list(hog_function_ids))
+        .values_list("id", flat=True)
+    )
+
+
 def list_owned_alert_destinations(
     *,
     team_id: int,
@@ -447,7 +458,9 @@ def produce_alert_internal_event(
     properties: dict[str, Any],
     timestamp: datetime | None = None,
     uuid: str | None = None,
+    alert_id: str | None = None,
 ) -> ProduceResult | None:
+    """`alert_id` names the alert in a failure report, for an event that carries it under another property."""
     try:
         return produce_internal_event(
             team_id=team_id,
@@ -461,7 +474,7 @@ def produce_alert_internal_event(
         )
     except Exception as error:
         context = {
-            "alert_id": properties.get("alert_id"),
+            "alert_id": alert_id or properties.get("alert_id"),
             "event_name": event_name,
             "feature": "alerts",
             "team_id": team_id,
@@ -517,6 +530,7 @@ def emit_alert_internal_events(
                 properties=event.properties,
                 timestamp=event.timestamp,
                 uuid=event.uuid,
+                alert_id=alert_id,
             ),
         )
         for event in events

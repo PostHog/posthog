@@ -4,11 +4,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_analytics.settings import (
     AUDIENCE_RETENTION,
     CHANNEL_DAILY,
+    CONCURRENT_VIEWERS,
     DEMOGRAPHICS,
     DEVICE_TYPES,
     GEOGRAPHY,
     OPERATING_SYSTEMS,
     PLAYBACK_LOCATIONS,
+    PLAYLIST_DAILY,
     SHARING_SERVICES,
     SUBSCRIBED_STATUS,
     TOP_VIDEOS,
@@ -201,6 +203,49 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "startedWatching": "The number of times this segment was the first segment seen during a playback.",
             "stoppedWatching": "The number of times this segment was the last segment seen during a playback.",
             "totalSegmentImpressions": "The number of times this segment of the video was viewed.",
+        },
+    },
+    PLAYLIST_DAILY: {
+        "description": (
+            "Daily activity for each playlist the channel owns: playlist views, starts, saves and viewing time, "
+            "plus views of the channel's own videos in the playlist."
+        ),
+        "docs_url": _METRICS_DOCS_URL,
+        "columns": {
+            "day": _DAY,
+            "playlist": "The ID of the playlist the metrics describe.",
+            "views": "The number of views of the channel's own videos in the playlist, wherever they were watched.",
+            "estimatedMinutesWatched": (
+                "The number of minutes users watched the channel's own videos in the playlist, wherever they were watched."
+            ),
+            "averageViewDuration": "The average length, in seconds, of a playback of the channel's own videos in the playlist.",
+            "playlistViews": "The number of times videos were viewed in the context of the playlist.",
+            "playlistStarts": "The number of times users started playback of the playlist on the web.",
+            "playlistSaves": "The net number of times users saved the playlist.",
+            "viewsPerPlaylistStart": (
+                "The average number of video views each time the playlist was started. Counts only web playback."
+            ),
+            "playlistEstimatedMinutesWatched": "The number of minutes users watched videos in the context of the playlist.",
+            "playlistAverageViewDuration": (
+                "The average length, in seconds, of a video playback in the context of the playlist."
+            ),
+            "averageTimeInPlaylist": (
+                "The estimated average time, in minutes, that a user spent watching videos in the playlist after "
+                "starting it. Counts only web playback."
+            ),
+        },
+    },
+    CONCURRENT_VIEWERS: {
+        "description": (
+            "Concurrent viewer counts through each live stream broadcast in the sync window, with one point per "
+            "minute of the stream."
+        ),
+        "docs_url": _METRICS_DOCS_URL,
+        "columns": {
+            "video": "The ID of the live-streamed video the counts describe.",
+            "livestreamPosition": "The minute of the live stream that the counts describe.",
+            "averageConcurrentViewers": "The average number of viewers watching the live stream at this position.",
+            "peakConcurrentViewers": "The largest number of viewers watching the live stream at the same time at this position.",
         },
     },
 }

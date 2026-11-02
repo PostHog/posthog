@@ -59,7 +59,7 @@ class PipelinerSource(ResumableSource[PipelinerSourceConfig, PipelinerResumeConf
             category=DataWarehouseSourceCategory.CRM,
             label="Pipeliner",
             keywords=["coevera", "pipeliner crm"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Import data from your Pipeliner CRM (Coevera) team space into the PostHog Data warehouse.
 
 To connect, create an API application in Pipeliner under **Administration → Unit, Users & Roles → Applications**, then click **Show API Access** to reveal the space ID, service URL, and API credentials. The username and password are shown only once, so store them safely.

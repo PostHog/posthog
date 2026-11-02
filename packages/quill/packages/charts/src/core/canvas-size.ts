@@ -6,6 +6,8 @@ export interface SizeRect {
     height: number
 }
 
+const MAX_CANVAS_SIDE = 32767
+
 /** `canvas.width`/`height` are integers, so a fractional target has to be rounded before it's
  *  compared or assigned — otherwise it never equals the stored value and every sync reads as a
  *  change. */
@@ -21,6 +23,12 @@ function backingSize(cssSize: number, dpr: number): number {
  *  reallocates it, even when the assigned value is identical to the current one. Callers sync on
  *  every paint, so a redundant assignment would reallocate the bitmap on every frame. */
 export function syncCanvasSize(canvas: HTMLCanvasElement, rect: SizeRect, dpr: number): boolean {
+    // Chromium and Firefox paint nothing into a canvas with a side over 32,767 backing pixels. A
+    // very tall chart (a retention grid with hundreds of cohorts) lowers its ratio to stay under
+    // that side, so it draws less sharply instead of blank. Draw code reads the ratio back off
+    // the backing size, so it follows. ponytail: one canvas per chart; above 32,767 css px the
+    // ratio drops below 1 and blurs, and only splitting the canvas into tiles avoids that.
+    dpr = Math.min(dpr, MAX_CANVAS_SIDE / Math.max(rect.width, rect.height))
     const width = backingSize(rect.width, dpr)
     const height = backingSize(rect.height, dpr)
     let resized = false

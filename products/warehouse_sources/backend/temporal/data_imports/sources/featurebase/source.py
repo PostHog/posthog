@@ -69,7 +69,7 @@ class FeaturebaseSource(
             name=ExternalDataSourceType.FEATUREBASE,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Featurebase",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption=(
                 "Enter your Featurebase API key to pull your feedback posts, boards, comments, "
                 "upvoters, changelogs, and users into the PostHog Data warehouse.\n\n"

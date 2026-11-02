@@ -113,7 +113,7 @@ class MezmoSource(ResumableSource[MezmoSourceConfig, MezmoResumeConfig]):
             "Use its IAM access key with read access to pipelines and alerts. "
             "For an enterprise key, also enter the delegated account ID.",
             iconPath="/static/services/mezmo.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

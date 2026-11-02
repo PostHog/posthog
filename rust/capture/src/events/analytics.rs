@@ -10,7 +10,7 @@ use chrono::DateTime;
 use common_ingestion_warnings::{
     WarningEmitter, CAPTURE_LEGACY_ANALYTICS, CAPTURE_LEGACY_RATE_LIMIT,
 };
-use common_types::{CapturedEvent, RawEvent};
+use common_types::{CapturedEvent, ExtractedDistinctId, RawEvent};
 use limiters::token_dropper::TokenDropper;
 use metrics::{counter, histogram};
 use serde_json;
@@ -30,12 +30,18 @@ use crate::{
         legacy::{emit_processing_abort_warning, request_context},
     },
     outputs::OutputRegistry,
-    prometheus::{report_clock_skew, report_dropped_events, report_timestamp_path},
+    prometheus::{
+        report_clock_skew, report_dropped_events, report_over_v1_limit, report_timestamp_path,
+    },
     router,
     utils::uuid_v7_from_datetime,
     v0_request::{
         exceeds_max_ai_event_bytes, DataType, OverflowReason, ProcessedEvent,
         ProcessedEventMetadata, ProcessingContext,
+    },
+    v1::{
+        analytics::constants::{CAPTURE_V1_DISTINCT_ID_MAX_SIZE, CAPTURE_V1_MAX_EVENT_NAME_LENGTH},
+        error::Error as V1Error,
     },
 };
 
@@ -116,6 +122,16 @@ fn create_heatmap_redirect(
     process_single_event(&heatmap_event, historical_cfg, context).map(Some)
 }
 
+/// Count fields this event keeps on legacy capture but that capture v1 rejects, measured in UTF-8 bytes like v1.
+fn report_v1_limit_overruns(event_name: &str, distinct_id: &ExtractedDistinctId) {
+    if event_name.len() > CAPTURE_V1_MAX_EVENT_NAME_LENGTH {
+        report_over_v1_limit(V1Error::EventNameTooLong.tag());
+    }
+    if distinct_id.trimmed_bytes > CAPTURE_V1_DISTINCT_ID_MAX_SIZE {
+        report_over_v1_limit(V1Error::DistinctIdTooLarge.tag());
+    }
+}
+
 /// Process a single analytics event from RawEvent to ProcessedEvent.
 #[instrument(skip_all, fields(event_name, request_id))]
 pub fn process_single_event(
@@ -176,6 +192,7 @@ pub fn process_single_event(
     let extracted_distinct_id = event
         .extract_distinct_id_checked()
         .ok_or(CaptureError::MissingDistinctId)?;
+    report_v1_limit_overruns(&event_name, &extracted_distinct_id);
 
     let mut metadata = ProcessedEventMetadata {
         data_type,
@@ -3835,6 +3852,88 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Counter value for `capture_events_over_v1_limits_total` at the given `cause`.
+    fn over_v1_limit_count(
+        snapshotter: &metrics_util::debugging::Snapshotter,
+        cause: &str,
+    ) -> Option<u64> {
+        use metrics_util::debugging::DebugValue;
+
+        snapshotter
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .find_map(|(key, _, _, value)| {
+                if key.key().name() != crate::prometheus::CAPTURE_EVENTS_OVER_V1_LIMITS_TOTAL {
+                    return None;
+                }
+                let matches = key
+                    .key()
+                    .labels()
+                    .any(|l| l.key() == "cause" && l.value() == cause);
+                match value {
+                    DebugValue::Counter(v) if matches => Some(v),
+                    _ => None,
+                }
+            })
+    }
+
+    #[rstest]
+    #[case::short_fields("test_event", "user-1".to_string(), None, None)]
+    #[case::distinct_id_at_limit("test_event", "x".repeat(200), None, None)]
+    #[case::distinct_id_over_limit_and_shortened("test_event", "x".repeat(201), None, Some(1))]
+    #[case::distinct_id_over_limit_in_bytes_only("test_event", "é".repeat(101), None, Some(1))]
+    #[case::distinct_id_fits_after_trimming(
+        "test_event",
+        format!("  {}  ", "x".repeat(199)),
+        None,
+        None
+    )]
+    #[case::event_name_at_limit(&"e".repeat(200), "user-1".to_string(), None, None)]
+    #[case::event_name_over_limit(&"e".repeat(201), "user-1".to_string(), Some(1), None)]
+    #[case::event_name_over_limit_in_bytes_only(&"é".repeat(101), "user-1".to_string(), Some(1), None)]
+    #[case::both_over_limit(&"e".repeat(201), "x".repeat(201), Some(1), Some(1))]
+    fn counts_events_capture_v1_would_reject(
+        #[case] event_name: &str,
+        #[case] distinct_id: String,
+        #[case] expected_name_too_long: Option<u64>,
+        #[case] expected_distinct_id_too_large: Option<u64>,
+    ) {
+        let recorder = metrics_util::debugging::DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _metrics_guard = metrics::set_default_local_recorder(&recorder);
+
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut event = create_test_event_with_name(
+            event_name,
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        );
+        event
+            .properties
+            .insert("distinct_id".to_string(), json!(distinct_id));
+
+        // Legacy capture still accepts the event; the counter only sizes what v1 would drop.
+        process_single_event(
+            &event,
+            router::HistoricalConfig::new(false, 1),
+            &create_test_context(now, None),
+        )
+        .unwrap();
+
+        assert_eq!(
+            over_v1_limit_count(&snapshotter, "event_name_too_long"),
+            expected_name_too_long
+        );
+        assert_eq!(
+            over_v1_limit_count(&snapshotter, "distinct_id_too_large"),
+            expected_distinct_id_too_large
+        );
     }
 
     fn event_with_distinct_id(distinct_id: &str) -> RawEvent {

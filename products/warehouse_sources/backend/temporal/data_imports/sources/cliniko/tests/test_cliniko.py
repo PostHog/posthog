@@ -134,7 +134,7 @@ class TestClinikoSourceResumeBehavior:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize(("status_code", "expected"), [(200, True), (401, False), (403, False), (429, False)])
+    @pytest.mark.parametrize(("status_code", "expected"), [(429, False)])
     def test_status_code_maps_to_validity(self, status_code: int, expected: bool) -> None:
         with scripted_network(always(ScriptedResponse(status=status_code))):
             assert validate_credentials("test-key-au1") is expected

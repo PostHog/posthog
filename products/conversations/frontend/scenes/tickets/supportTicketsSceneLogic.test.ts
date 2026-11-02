@@ -1,14 +1,19 @@
+import { MOCK_DEFAULT_ORGANIZATION_MEMBER } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import { membersLogic } from '~/models/membersLogic'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
 
-import { MAX_ASSIGNEE_FILTER_ENTRIES } from '../../components/Assignee'
+import { MAX_ASSIGNEE_FILTER_ENTRIES, assigneeSelectLogic } from '../../components/Assignee'
+import { supportTicketCounterLogic } from '../../supportTicketCounterLogic'
 import { normalizeAssigneeFilter, type SavedTicketView, type Ticket, type TicketViewFilters } from '../../types'
 import { supportTicketsSceneLogic } from './supportTicketsSceneLogic'
 
@@ -129,6 +134,89 @@ describe('supportTicketsSceneLogic', () => {
                 id: i,
             }))
             expect(normalizeAssigneeFilter(oversized)).toHaveLength(MAX_ASSIGNEE_FILTER_ENTRIES)
+        })
+    })
+
+    describe('unread count changes', () => {
+        let logic: ReturnType<typeof supportTicketsSceneLogic.build>
+        let counter: ReturnType<typeof supportTicketCounterLogic.build>
+        let ticketRequests = 0
+
+        beforeEach(async () => {
+            ticketRequests = 0
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/conversations/tickets/': () => {
+                        ticketRequests++
+                        return [200, { results: [], count: 0 }]
+                    },
+                },
+            })
+            initKeaTests()
+            counter = supportTicketCounterLogic()
+            counter.mount()
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            counter.unmount()
+        })
+
+        it.each([
+            ['reloads the list when the count changes', 2, 1],
+            ['keeps the list when the count stays the same', 0, 0],
+        ])('%s', async (_, newCount, extraRequests) => {
+            const before = ticketRequests
+            await expectLogic(logic, () => {
+                counter.actions.loadUnreadCountSuccess(newCount)
+            }).toFinishAllListeners()
+            expect(ticketRequests - before).toBe(extraRequests)
+        })
+    })
+
+    describe('request timing', () => {
+        let logic: ReturnType<typeof supportTicketsSceneLogic.build>
+        let listTickets: jest.SpyInstance
+
+        beforeEach(() => {
+            jest.useFakeTimers()
+            initKeaTests()
+            listTickets = jest
+                .spyOn(api.conversationsTickets, 'list')
+                .mockResolvedValue({ results: [], count: 0 } as any)
+            router.actions.push(urls.supportTickets())
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            listTickets.mockRestore()
+            jest.useRealTimers()
+        })
+
+        it('sends one ticket list request at once when the list opens', async () => {
+            expect(listTickets).toHaveBeenCalledTimes(1)
+
+            await jest.advanceTimersByTimeAsync(1000)
+            expect(listTickets).toHaveBeenCalledTimes(1)
+        })
+
+        it('waits for typing in the search box to pause, then sends one request', async () => {
+            await jest.advanceTimersByTimeAsync(1000)
+            listTickets.mockClear()
+
+            logic.actions.setSearchQuery('refu')
+            logic.actions.setSearchQuery('refund')
+            await jest.advanceTimersByTimeAsync(299)
+            expect(listTickets).not.toHaveBeenCalled()
+
+            await jest.advanceTimersByTimeAsync(1)
+            expect(listTickets).toHaveBeenCalledTimes(1)
+            expect(listTickets).toHaveBeenCalledWith(expect.objectContaining({ search: 'refund' }))
         })
     })
 
@@ -321,6 +409,149 @@ describe('supportTicketsSceneLogic', () => {
             expect(lastOrderBy).toBe('-sla_due_at')
         })
 
+        const persistedViewMocks = {
+            get: {
+                '/api/projects/:team_id/conversations/tickets/': () => [200, { count: 0, results: [] }],
+                '/api/projects/:team_id/conversations/views/:short_id/': () => [
+                    200,
+                    makeSavedView('view-a', { status: ['open'], dateFrom: '-24h' }),
+                ],
+            },
+        }
+
+        async function reopenTickets(
+            searchParams: Record<string, any> = {}
+        ): Promise<ReturnType<typeof supportTicketsSceneLogic.build>> {
+            router.actions.push(urls.supportTickets())
+            const first = supportTicketsSceneLogic()
+            first.mount()
+            await expectLogic(first, () => {
+                first.actions.applyView(makeSavedView('view-a', { status: ['open'], dateFrom: '-24h' }))
+            }).toFinishAllListeners()
+            first.unmount()
+
+            // A new kea context reads the persisted view the way a reopened page does.
+            initKeaTests()
+            router.actions.push(urls.supportTickets(), searchParams)
+            const reopened = supportTicketsSceneLogic()
+            reopened.mount()
+            await expectLogic(reopened).toFinishAllListeners()
+            return reopened
+        }
+
+        it('reapplies a persisted saved view when the ticket list opens without a view param', async () => {
+            useMocks(persistedViewMocks)
+            logic = await reopenTickets()
+
+            expect(logic.values.activeView?.short_id).toBe('view-a')
+            expect(logic.values.statusFilter).toEqual(['open'])
+            expect(logic.values.dateFrom).toBe('-24h')
+            expect(router.values.searchParams.view).toBe('view-a')
+        })
+
+        it('keeps the list loading while a persisted view is still reloading', async () => {
+            const pending: Record<string, { resolve: (view: SavedTicketView) => void }> = {}
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/conversations/tickets/': () => [200, { count: 0, results: [] }],
+                    '/api/projects/:team_id/conversations/views/:short_id/': () =>
+                        new Promise((resolve) => {
+                            pending['view-a'] = { resolve: (view) => resolve([200, view]) }
+                        }),
+                },
+            })
+            router.actions.push(urls.supportTickets())
+            const first = supportTicketsSceneLogic()
+            first.mount()
+            await expectLogic(first, () => {
+                first.actions.applyView(makeSavedView('view-a', { status: ['open'] }))
+            }).toFinishAllListeners()
+            first.unmount()
+
+            initKeaTests()
+            router.actions.push(urls.supportTickets())
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+
+            expect(logic.values.ticketsLoading).toBe(true)
+            expect(logic.values.tickets).toEqual([])
+
+            await waitUntilPending(pending, 'view-a')
+            pending['view-a'].resolve(makeSavedView('view-a', { status: ['open'] }))
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.ticketsLoading).toBe(false)
+            expect(logic.values.activeView?.short_id).toBe('view-a')
+        })
+
+        it('ignores a restore response after another saved view is selected', async () => {
+            const pending: Record<string, { resolve: (view: SavedTicketView) => void }> = {}
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/conversations/tickets/': () => [200, { count: 0, results: [] }],
+                    '/api/projects/:team_id/conversations/views/:short_id/': () =>
+                        new Promise((resolve) => {
+                            pending['view-a'] = { resolve: (view) => resolve([200, view]) }
+                        }),
+                },
+            })
+            router.actions.push(urls.supportTickets())
+            const first = supportTicketsSceneLogic()
+            first.mount()
+            await expectLogic(first, () => {
+                first.actions.applyView(makeSavedView('view-a', { status: ['open'] }))
+            }).toFinishAllListeners()
+            first.unmount()
+
+            initKeaTests()
+            router.actions.push(urls.supportTickets())
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+            await waitUntilPending(pending, 'view-a')
+
+            logic.actions.applyView(makeSavedView('view-b', { status: ['pending'] }))
+            pending['view-a'].resolve(makeSavedView('view-a', { status: ['open'] }))
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.activeView?.short_id).toBe('view-b')
+            expect(logic.values.statusFilter).toEqual(['pending'])
+            expect(router.values.searchParams.view).toBe('view-b')
+        })
+
+        it('drops an in-flight view link when the list opens with nothing persisted', async () => {
+            const pending: Record<string, { resolve: (view: SavedTicketView) => void }> = {}
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/conversations/tickets/': () => [200, { count: 0, results: [] }],
+                    '/api/projects/:team_id/conversations/views/:short_id/': () =>
+                        new Promise((resolve) => {
+                            pending['view-a'] = { resolve: (view) => resolve([200, view]) }
+                        }),
+                },
+            })
+            router.actions.push(urls.supportTickets(), { view: 'view-a' })
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+            await waitUntilPending(pending, 'view-a')
+
+            router.actions.push(urls.supportTickets())
+            pending['view-a'].resolve(makeSavedView('view-a', { status: ['open'] }))
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.activeView).toBeNull()
+            expect(logic.values.statusFilter).toEqual([])
+            expect(router.values.searchParams.view).toBeUndefined()
+        })
+
+        it('lets an explicit filter link override a persisted saved view', async () => {
+            useMocks(persistedViewMocks)
+            logic = await reopenTickets({ status: ['pending'] })
+
+            expect(logic.values.activeView).toBeNull()
+            expect(logic.values.statusFilter).toEqual(['pending'])
+            expect(logic.values.dateFrom).toBe('-7d')
+            expect(router.values.searchParams.view).toBeUndefined()
+        })
+
         it('resets stale view filters when a linked view is missing', async () => {
             router.actions.push(urls.supportTickets())
             logic = supportTicketsSceneLogic()
@@ -336,6 +567,35 @@ describe('supportTicketsSceneLogic', () => {
             expect(logic.values.statusFilter).toEqual([])
             expect(logic.values.dateFrom).toBe('-7d')
             expect(router.values.searchParams.view).toBeUndefined()
+        })
+    })
+
+    describe('assignee names', () => {
+        let logic: ReturnType<typeof supportTicketsSceneLogic.build>
+
+        afterEach(() => {
+            logic?.unmount()
+        })
+
+        it('loads organization members on mount so a user assignee resolves to a name', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/conversations/tickets/': () => [200, { count: 0, results: [] }],
+                },
+            })
+            initKeaTests()
+            router.actions.push(urls.supportTickets())
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+
+            await expectLogic(membersLogic).toDispatchActions(['loadAllMembersSuccess'])
+
+            expect(
+                assigneeSelectLogic.values.resolveAssignee({
+                    type: 'user',
+                    id: MOCK_DEFAULT_ORGANIZATION_MEMBER.user.id,
+                })
+            ).toMatchObject({ type: 'user', id: MOCK_DEFAULT_ORGANIZATION_MEMBER.user.id })
         })
     })
 

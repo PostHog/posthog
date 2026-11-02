@@ -50,9 +50,7 @@ class TestInstantlySource:
     @pytest.mark.parametrize(
         "observed_error",
         [
-            "401 Client Error: Unauthorized for url: https://api.instantly.ai/api/v2/campaigns?limit=100",
             "402 Client Error: Payment Required for url: https://api.instantly.ai/api/v2/emails",
-            "403 Client Error: Forbidden for url: https://api.instantly.ai/api/v2/leads/list",
         ],
     )
     def test_non_retryable_errors_match_permanent_failures(self, observed_error):

@@ -133,7 +133,7 @@ class LangfuseSource(ResumableSource[LangfuseSourceConfig, LangfuseResumeConfig]
             name=ExternalDataSourceType.LANGFUSE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Langfuse",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Sync traces, observations, scores, sessions, prompts, datasets, and annotation queues from your Langfuse project.
 
 Find your project API keys in your Langfuse **Project settings > API Keys**. Set the host to match your data region (`https://cloud.langfuse.com` for EU, `https://us.cloud.langfuse.com` for US) or your self-hosted instance URL.""",

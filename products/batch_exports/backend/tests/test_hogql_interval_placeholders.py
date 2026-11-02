@@ -13,7 +13,7 @@ from products.batch_exports.backend.hogql_source import (
     parse_hogql_select_for_batch_export,
     replace_interval_placeholders,
 )
-from products.batch_exports.backend.service import BatchExportModel
+from products.batch_exports.backend.service import BatchExportHogQLModel, BatchExportModel
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     BatchExportInsertIntoInternalStageInputs,
     insert_into_internal_stage_activity,
@@ -84,7 +84,11 @@ async def test_invalid_hogql_returns_non_retryable_staging_error(hogql_query: st
         batch_export_id="00000000-0000-4000-8000-000000000001",
         data_interval_start=None,
         data_interval_end=(dt.datetime.now(dt.UTC) - dt.timedelta(hours=1)).isoformat(),
-        batch_export_model=BatchExportModel(name="hogql", schema=None, hogql_query=hogql_query, user_id=1),
+        batch_export_model=(
+            BatchExportHogQLModel(query=hogql_query, user_id=1, modifiers={})
+            if hogql_query is not None
+            else BatchExportModel(name="hogql", schema=None, user_id=1)
+        ),
     )
     clickhouse = MockClickHouseClient()
 

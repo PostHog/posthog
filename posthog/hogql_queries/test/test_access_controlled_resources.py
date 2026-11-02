@@ -17,6 +17,8 @@ from posthog.schema import (
     HogQLQuery,
     InsightActorsQuery,
     LifecycleDataWarehouseNode,
+    MarketingAnalyticsRecommendationsQuery,
+    MarketingAnalyticsSearchQuery,
     RetentionEntity,
     RetentionFilter,
     RetentionQuery,
@@ -220,6 +222,18 @@ class TestQueriedAccessControlledResources(BaseTest):
         )
         assert queried_access_controlled_resources(query, self.team) == set()
 
+    @parameterized.expand(
+        [
+            ("recommendations_without_sources", MarketingAnalyticsRecommendationsQuery(), True),
+            ("recommendations_with_empty_sources", MarketingAnalyticsRecommendationsQuery(sources=[]), False),
+            ("search_with_empty_sources", MarketingAnalyticsSearchQuery(sources=[]), False),
+        ]
+    )
+    def test_marketing_queries_partition_on_warehouse_scopes(self, _name, query, reads_warehouse):
+        scopes = queried_access_controlled_resources(query, self.team)
+        assert scopes is not None
+        assert ({"warehouse_table", "warehouse_view"} <= scopes) is reads_warehouse
+
     def test_references_data_warehouse_covers_all_variants_and_nesting(self):
         variants = [
             DataWarehouseNode(id="t", id_field="id", distinct_id_field="d", table_name="t", timestamp_field="ts"),
@@ -389,7 +403,7 @@ class TestQueriedAccessControlledResources(BaseTest):
             result = queried_access_controlled_resources(
                 query, self.team, bypassed_scopes=frozenset({"warehouse_table"})
             )
-        assert result == {"warehouse_table", "notebook", "dashboard"}
+        assert result == {"notebook", "dashboard"}
 
     def test_catalog_fetch_loads_only_name_fields(self):
         source = ExternalDataSource.objects.create(

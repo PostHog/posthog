@@ -75,7 +75,7 @@ class TestCloverSource(SimpleTestCase):
         config = self.source.get_source_config
         self.assertEqual(self.source.source_type, ExternalDataSourceType.CLOVER)
         self.assertEqual(config.label, "Clover (Fiserv)")
-        self.assertEqual(config.releaseStatus, ReleaseStatus.ALPHA)
+        self.assertEqual(config.releaseStatus, ReleaseStatus.BETA)
         self.assertFalse(config.unreleasedSource)
         self.assertEqual(config.iconPath, "/static/services/clover.png")
         self.assertEqual(config.docsUrl, "https://posthog.com/docs/cdp/sources/clover")

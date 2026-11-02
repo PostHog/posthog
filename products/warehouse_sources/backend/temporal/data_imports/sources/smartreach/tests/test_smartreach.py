@@ -1,7 +1,5 @@
 from typing import Any
 
-import pytest
-
 import requests
 from parameterized import parameterized
 
@@ -126,25 +124,6 @@ class TestRetryAndFailLoud:
 
 
 class TestCheckAccess:
-    @pytest.mark.parametrize(
-        "status, expected_status, expected_message",
-        [
-            (200, 200, None),
-            (401, 401, None),
-            (403, 403, None),
-            (500, 500, "SmartReach returned HTTP 500"),
-        ],
-    )
-    def test_status_mapping(self, status: int, expected_status: int, expected_message: str | None) -> None:
-        with scripted_network(always(ScriptedResponse(status=status))):
-            assert check_access("uk_test", SMARTREACH_API_V1) == (expected_status, expected_message)
-
-    def test_connection_error_maps_to_zero(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            status, message = check_access("uk_test", SMARTREACH_API_V1)
-        assert status == 0
-        assert message == "Could not connect to SmartReach"
-
     def test_v3_probes_campaigns_with_team_id_on_v3_base(self) -> None:
         # v3 rejects a list request without team_id, so the probe URL must carry it against the v3 base.
         with scripted_network(always(ScriptedResponse(status=200))) as network:

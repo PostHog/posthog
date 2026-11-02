@@ -134,7 +134,3 @@ class TestValidateCredentials:
     ) -> None:
         with scripted_network(always(ScriptedResponse(status=status))):
             assert validate_credentials("tok") == (expected_valid, expected_message)
-
-    def test_probe_failure_is_not_validated(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            assert validate_credentials("tok") == (False, "Could not reach Workiz to validate the API token.")

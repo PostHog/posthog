@@ -5,8 +5,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 
 import { FunnelStepWithConversionMetrics } from '~/types'
 
-import { getActionFilterFromFunnelStep } from '../shared/funnelStepTableUtils'
-import { InsightProvider, makeStep } from './__mocks__/nodeStoryUtils'
+import { InsightProvider, makeStep, makeStepSeries } from './__mocks__/nodeStoryUtils'
 import { NODE_WIDTH } from './funnelFlowGraphLogic'
 import { OptionalChip } from './FunnelFlowNode'
 import { StepNodeShell } from './StepNodeShell'
@@ -29,7 +28,7 @@ function JourneyNodeStory({
                     isOptional ? 'border-dashed border-primary bg-fill-highlight-50' : 'border-primary bg-bg-light'
                 }
                 handles={<></>}
-                eventDisplay={<EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} allowWrap />}
+                eventDisplay={<EntityFilterInfo filter={makeStepSeries(step.name)} allowWrap />}
                 headerExtra={isOptional ? <OptionalChip /> : undefined}
                 headerAction={<More overlay={<></>} />}
             />

@@ -396,7 +396,8 @@ def get_logs_api_team_rate_limiter() -> RateLimit:
             get_task_id=lambda *args, **kwargs: kwargs.get("task_id") or generate_short_id(),
             # A slot is held for a whole request. The longest request is patterns_diff, which runs six sequential
             # queries (three per window) of up to 60 seconds each, the default max_execution_time. The ttl must
-            # outlast that, or the slot expires while the request still queries ClickHouse. A worker that dies
+            # outlast that, or the slot expires while the request still queries ClickHouse. patterns_diff derives a
+            # request-wide deadline from this ttl, so a longer per-query limit cannot outlast it. A worker that dies
             # without releasing its slot keeps it for the full ttl, so the ttl stays close to that bound.
             ttl=450,
             retry=0.134,

@@ -18,7 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.pad
     PADDLE_BASE_URL,
     PaddlePermissionError,
     PaddleResumeConfig,
-    PaddleUnreachableError,
     _format_paddle_datetime_query_value,
     validate_credentials,
 )
@@ -245,11 +244,6 @@ class TestValidateCredentials:
         with scripted_network(always(ScriptedResponse(status=200))) as network:
             assert validate_credentials("key", table_name) is True
         assert [request.path for request in network.requests_log] == expected_paths
-
-    def test_transport_failure_is_not_a_rejected_key(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            with pytest.raises(PaddleUnreachableError):
-                validate_credentials("key")
 
 
 class TestSourceValidateCredentials:

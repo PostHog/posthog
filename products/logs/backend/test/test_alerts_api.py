@@ -19,6 +19,8 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.log_entries import INSERT_LOG_ENTRY_SQL
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -38,6 +40,7 @@ from products.cdp.backend.templates.fixtures import template_pagerduty, template
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.cdp.backend.templates.microsoft_teams.template_microsoft_teams import template as template_microsoft_teams
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
+from products.logs.backend.alert_creation import MAX_ALERTS_PER_TEAM
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.platform_alert_backfill import (
     backfill_platform_alert_configurations,
@@ -48,7 +51,6 @@ from products.logs.backend.platform_alert_backfill import (
 from products.logs.backend.platform_cutover import cut_over_team, hand_over
 from products.logs.backend.presentation.views.alerts_api import (
     ALLOWED_WINDOW_MINUTES,
-    MAX_ALERTS_PER_TEAM,
     MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
     LogsAlertViewSet,
 )
@@ -714,7 +716,7 @@ class TestLogsAlertAPI(APIBaseTest):
             )
 
         patched_ids = frozenset({self.team.id}) if uncapped else frozenset()
-        with patch("products.logs.backend.presentation.views.alerts_api.UNCAPPED_ALERT_TEAM_IDS", patched_ids):
+        with patch("products.logs.backend.alert_creation.UNCAPPED_ALERT_TEAM_IDS", patched_ids):
             response = self.client.post(
                 self.base_url,
                 self._valid_payload(name="Boundary"),
@@ -2450,13 +2452,238 @@ class TestLogsAlertAPI(APIBaseTest):
             True,
         )
 
+    def _create_on_the_platform(self, body: dict, team_id: int | None = None) -> Any:
+        with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True):
+            return self.client.post(f"/api/projects/{team_id or self.team.id}/platform_alerts/", body, format="json")
+
+    def test_the_platform_api_creates_both_rows_with_every_default_stored(self) -> None:
+        response = self._create_on_the_platform(
+            {
+                "source_kind": "logs",
+                "source_config": {
+                    "filters": {"serviceNames": ["api"]},
+                    "condition": {"threshold_count": 5, "threshold_operator": "above", "window_minutes": 10},
+                },
+                "grouping": {"mode": "by_result_labels", "keys": ["service_name"]},
+            }
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        created = response.json()
+        with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True):
+            read = self.client.get(f"/api/projects/{self.team.id}/platform_alerts/{created['id']}/").json()
+        assert read == created
+        assert {
+            key: created[key] for key in ("name", "enabled", "owner", "evaluation_periods", "cooldown_minutes")
+        } == {
+            "name": "Untitled alert",
+            "enabled": True,
+            "owner": "platform",
+            "evaluation_periods": 1,
+            "cooldown_minutes": 0,
+        }
+        assert created["grouping"] == {
+            "mode": "by_result_labels",
+            "keys": ["service_name"],
+            "max_instances": 100,
+            "on_overflow": "degrade_visible",
+        }
+        alert = LogsAlertConfiguration.objects.get(pk=created["legacy_configuration_id"])
+        assert (alert.platform_owned, alert.filters, alert.threshold_count, alert.window_minutes, alert.created_by) == (
+            True,
+            {"serviceNames": ["api"]},
+            5,
+            10,
+            self.user,
+        )
+        assert ActivityLog.objects.filter(
+            scope="PlatformAlertConfiguration", item_id=created["id"], activity="created", user=self.user
+        ).exists()
+
+    @parameterized.expand(
+        [
+            ("logs_write_only", ["logs:write"], status.HTTP_403_FORBIDDEN),
+            ("logs_read_only", ["alert:write", "logs:read"], status.HTTP_403_FORBIDDEN),
+            ("alert_and_logs_write", ["alert:write", "logs:write"], status.HTTP_201_CREATED),
+        ]
+    )
+    def test_a_platform_create_needs_write_access_to_alerts_and_logs(
+        self, _name: str, key_scopes: list[str], expected: int
+    ) -> None:
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.create_personal_api_key_with_scopes(key_scopes)}")
+
+        response = self._create_on_the_platform(
+            {
+                "source_kind": "logs",
+                "source_config": {
+                    "filters": {"severityLevels": ["error"]},
+                    "condition": {"threshold_count": 1, "threshold_operator": "above", "window_minutes": 5},
+                },
+            }
+        )
+
+        assert response.status_code == expected, response.json()
+        assert LogsAlertConfiguration.objects.filter(team=self.team).exists() == (expected == status.HTTP_201_CREATED)
+
+    @parameterized.expand(
+        [
+            ("unservable_kind", {"source_kind": "insight"}, None, False, status.HTTP_400_BAD_REQUEST, "source_kind"),
+            (
+                "enabled_without_filters",
+                {"source_config": {"filters": {}}},
+                None,
+                False,
+                status.HTTP_400_BAD_REQUEST,
+                "source_config",
+            ),
+            ("over_the_cap", {}, 0, False, status.HTTP_400_BAD_REQUEST, None),
+            ("environment_url", {}, None, True, status.HTTP_409_CONFLICT, None),
+        ]
+    )
+    def test_a_refused_platform_create_writes_neither_row(
+        self,
+        _name: str,
+        overrides: dict,
+        cap: int | None,
+        on_an_environment: bool,
+        expected: int,
+        field: str | None,
+    ) -> None:
+        condition = {"threshold_count": 1, "threshold_operator": "above", "window_minutes": 5}
+        body = {"source_kind": "logs", "source_config": {"filters": {"severityLevels": ["error"]}}, **overrides}
+        body["source_config"] = {**body["source_config"], "condition": condition}
+        environment = (
+            Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+            if on_an_environment
+            else None
+        )
+
+        with patch("products.logs.backend.alert_creation.MAX_ALERTS_PER_TEAM", cap if cap is not None else 20):
+            response = self._create_on_the_platform(body, team_id=environment.id if environment else None)
+
+        assert response.status_code == expected, response.json()
+        assert response.json()["attr"] == field
+        assert not LogsAlertConfiguration.objects.exists()
+        with team_scope(self.team.id):
+            assert list_configurations(team_id=self.team.id, source_kinds=["logs"], limit=1, offset=0).total == 0
+
     def test_a_new_alert_in_a_team_the_platform_has_begun_taking_over_starts_on_the_platform(self) -> None:
         self._owned_by_the_platform()
 
         created = self._create_via_api(name="Added after the cutover")
 
+        assert created["platform_owned"] is True
         assert LogsAlertConfiguration.objects.get(pk=created["id"]).platform_owned
         assert self._copy(created["id"]).owner == "platform"
+
+    def _copy_grouping_keys(self, alert_id: str) -> tuple[str, ...]:
+        with team_scope(self.team.id):
+            view = get_configuration(
+                team_id=self.team.id, source_kinds=[SourceKind.LOGS.value], configuration_id=self._copy(alert_id).id
+            )
+        assert view is not None
+        return view.grouping.keys
+
+    def test_grouping_set_on_the_logs_page_regroups_the_platform_copy(self) -> None:
+        created, copy = self._firing_on_the_platform_with_pagerduty()
+
+        temporal = MagicMock(start_workflow=AsyncMock())
+
+        with (
+            patch(f"{_WEB_START}.async_connect", AsyncMock(return_value=temporal)),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.patch(
+                f"{self.base_url}{created['id']}/",
+                {"grouping": {"mode": "by_result_labels", "keys": ["service_name"]}},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        (delivery,) = [call.args[1] for call in temporal.start_workflow.call_args_list]
+        assert delivery.incident_actions == {"": IncidentAction.RESOLVE}
+        assert response.json()["grouping"]["keys"] == ["service_name"]
+        assert self._copy_grouping_keys(created["id"]) == ("service_name",)
+        with team_scope(self.team.id):
+            assert platform_testing.alert_for(copy.id) is None
+            platform_testing.start_firing(
+                copy.id, team_id=self.team.id, at=datetime.now(UTC), grouping_key='{"service_name":"api"}'
+            )
+        assert self.client.get(f"{self.base_url}{created['id']}/").json()["state"] == "firing"
+
+    @parameterized.expand(
+        [
+            ("cut_over", True, "severity_text", status.HTTP_201_CREATED),
+            ("not_cut_over", False, "severity_text", status.HTTP_400_BAD_REQUEST),
+            ("cut_over_unknown_key", True, "host", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_creating_a_grouped_alert(self, _name: str, cut_over: bool, key: str, expected_status: int) -> None:
+        if cut_over:
+            self._owned_by_the_platform()
+        alerts_before = LogsAlertConfiguration.objects.filter(team=self.team).count()
+
+        response = self.client.post(
+            self.base_url,
+            self._valid_payload(name="Grouped", grouping={"mode": "by_result_labels", "keys": [key]}),
+            format="json",
+        )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_201_CREATED:
+            assert self._copy_grouping_keys(response.json()["id"]) == (key,)
+        else:
+            assert response.json()["attr"] == "grouping"
+            assert LogsAlertConfiguration.objects.filter(team=self.team).count() == alerts_before
+
+    @parameterized.expand(
+        [
+            ("source_owned_grouped", False, {"grouping": {"mode": "by_result_labels", "keys": ["service_name"]}}),
+            ("unknown_key", True, {"grouping": {"mode": "by_result_labels", "keys": ["host"]}}),
+            (
+                "below_threshold",
+                True,
+                {"grouping": {"mode": "by_result_labels", "keys": ["service_name"]}, "threshold_operator": "below"},
+            ),
+        ]
+    )
+    def test_a_grouping_the_alert_cannot_take_is_rejected(
+        self, _name: str, platform_owned: bool, payload: dict
+    ) -> None:
+        created = self._owned_by_the_platform() if platform_owned else self._create_via_api()
+
+        response = self.client.patch(f"{self.base_url}{created['id']}/", payload, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "grouping"
+        assert LogsAlertConfiguration.objects.get(pk=created["id"]).threshold_operator == "above"
+        if platform_owned:
+            assert self._copy_grouping_keys(created["id"]) == ()
+
+    @parameterized.expand(
+        [
+            ("as_read", None),
+            ("with_its_own_cap", {"mode": "single", "max_instances": 50}),
+        ]
+    )
+    def test_a_source_owned_alert_accepts_the_single_grouping_it_reads(self, _name: str, grouping: dict | None) -> None:
+        created = self._create_via_api()
+
+        response = self.client.put(
+            f"{self.base_url}{created['id']}/",
+            self._valid_payload(grouping=grouping or created["grouping"]),
+            format="json",
+        )
+
+        assert created["grouping"] == {
+            "mode": "single",
+            "keys": [],
+            "max_instances": 100,
+            "on_overflow": "degrade_visible",
+        }
+        assert created["platform_owned"] is False
+        assert response.status_code == status.HTTP_200_OK, response.json()
 
     def test_turning_a_broken_platform_alert_off_and_on_on_the_logs_page_revives_it(self) -> None:
         created = self._owned_by_the_platform()
@@ -2623,7 +2850,14 @@ class TestLogsAlertAPI(APIBaseTest):
         (request,) = [call.args[0] for call in deliver_evaluation.call_args_list]
         assert request.incident_actions == {"": IncidentAction.RESOLVE}
 
-    def test_deleting_a_platform_firing_resolves_its_incident_while_its_destinations_exist(self) -> None:
+    def _delete_through(self, route: str, alert_id: str) -> Any:
+        if route == "logs":
+            return self.client.delete(f"{self.base_url}{alert_id}/")
+        with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True):
+            return self.client.delete(f"/api/projects/{self.team.id}/platform_alerts/{self._copy(alert_id).id}/")
+
+    @parameterized.expand([("logs",), ("platform",)])
+    def test_deleting_a_platform_firing_resolves_its_incident_while_its_destinations_exist(self, route: str) -> None:
         created, _copy = self._firing_on_the_platform_with_pagerduty()
         destinations_when_sent: list[int] = []
 
@@ -2631,19 +2865,35 @@ class TestLogsAlertAPI(APIBaseTest):
             destinations_when_sent.append(HogFunction.objects.filter(team=self.team, deleted=False).count())
 
         with patch(f"{_WEB_START}.deliver_evaluation", side_effect=deliver) as deliver_evaluation:
-            response = self.client.delete(f"{self.base_url}{created['id']}/")
+            response = self._delete_through(route, created["id"])
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
         (request,) = [call.args[0] for call in deliver_evaluation.call_args_list]
         assert request.incident_actions == {"": IncidentAction.RESOLVE}
         assert destinations_when_sent[0] > 0
 
-    def test_deleting_an_alert_the_platform_owns_deletes_its_copy(self) -> None:
+    def test_a_platform_delete_after_a_handback_refuses_and_keeps_the_logs_row(self) -> None:
         created = self._owned_by_the_platform()
+        # The state a rollback leaves when it hands the alert back after the platform read its owner.
+        LogsAlertConfiguration.objects.filter(id=created["id"]).update(owner="source")
 
-        response = self.client.delete(f"{self.base_url}{created['id']}/")
+        response = self._delete_through("platform", created["id"])
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        assert LogsAlertConfiguration.objects.filter(id=created["id"]).exists()
+
+    @parameterized.expand([("logs",), ("platform",)])
+    def test_deleting_an_alert_the_platform_owns_deletes_both_rows(self, route: str) -> None:
+        created = self._owned_by_the_platform()
+        copy_id = self._copy(created["id"]).id
+
+        response = self._delete_through(route, created["id"])
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not LogsAlertConfiguration.objects.filter(id=created["id"]).exists()
+        assert ActivityLog.objects.filter(
+            scope="PlatformAlertConfiguration", item_id=str(copy_id), activity="deleted", user=self.user
+        ).exists()
         with team_scope(self.team.id):
             assert (
                 list_configurations(
@@ -3385,3 +3635,95 @@ class TestPlatformOwnedAlertHistory(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == "offset"
+
+
+class TestLogsAlertDestinationSends(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.base_url = f"/api/projects/{self.team.pk}/logs/alerts/"
+        patcher = patch("posthoganalytics.feature_enabled", return_value=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        HogFunctionTemplate.objects.get_or_create(
+            template_id="template-webhook",
+            defaults={
+                "sha": "1.0.0",
+                "name": "Webhook",
+                "code": "return event",
+                "code_language": "hog",
+                "inputs_schema": [{"key": "url", "type": "string"}, {"key": "body", "type": "json"}],
+                "type": "destination",
+                "status": "stable",
+                "free": True,
+            },
+        )
+
+    def _log(self, log_source: str, log_source_id: str, instance_id: str, at: datetime, level: str, message: str):
+        sync_execute(
+            INSERT_LOG_ENTRY_SQL,
+            {
+                "team_id": self.team.pk,
+                "log_source": log_source,
+                "log_source_id": log_source_id,
+                "instance_id": instance_id,
+                "timestamp": at.strftime("%Y-%m-%d %H:%M:%S.%f"),
+                "level": level,
+                "message": message,
+            },
+        )
+
+    def test_a_destination_lists_its_sends_on_both_paths_and_nothing_else(self) -> None:
+        response = self.client.post(
+            self.base_url,
+            {"name": "Errors", "threshold_count": 10, "filters": {"severityLevels": ["error"]}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        alert_id = response.json()["id"]
+        response = self.client.post(
+            f"{self.base_url}{alert_id}/destinations/",
+            {"type": "webhook", "webhook_url": "https://example.com/hook"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        functions = {
+            str(function.id): (function.filters or {})["events"][0]["id"]
+            for function in HogFunction.objects.filter(id__in=response.json()["hog_function_ids"])
+        }
+        firing = next(i for i, event in functions.items() if event == "$logs_alert_firing")
+        resolved = next(i for i, event in functions.items() if event == "$logs_alert_resolved")
+        other_alerts_function = str(uuid4())
+        now = datetime.now(UTC)
+
+        self._log("alert_destination", firing, "cfg", now - timedelta(minutes=10), "ERROR", "Webhook returned 500")
+        self._log("hog_function", firing, "inv-1", now - timedelta(minutes=30), "DEBUG", "Executing function")
+        retrying = "HTTP fetch failed on attempt 1 with status code 503. Retrying."
+        self._log("hog_function", firing, "inv-1", now - timedelta(minutes=30), "ERROR", retrying)
+        self._log("hog_function", firing, "inv-1", now - timedelta(minutes=29), "INFO", "Function completed in 12ms.")
+        self._log(
+            "hog_function",
+            resolved,
+            "inv-2",
+            now - timedelta(minutes=20),
+            "ERROR",
+            "Error executing function: POST https://hooks.example.com/token-abc failed",
+        )
+        # Still retrying, so neither sent nor failed yet.
+        self._log("hog_function", firing, "inv-3", now - timedelta(minutes=5), "DEBUG", "Executing function")
+        self._log("hog_function", firing, "inv-3", now - timedelta(minutes=5), "ERROR", retrying)
+        self._log("alert_destination", other_alerts_function, "cfg", now - timedelta(minutes=1), "INFO", "Sent")
+
+        response = self.client.get(
+            f"{self.base_url}{alert_id}/destinations/sends/",
+            {"hog_function_ids": ",".join([*functions, other_alerts_function])},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [
+            (send["hog_function_id"], send["path"], send["succeeded"], send["error"]) for send in response.json()
+        ] == [
+            (firing, "native", False, "Webhook returned 500"),
+            # Its log lines can quote a webhook URL, and reading them needs `hog_function:read`.
+            (resolved, "hog_function", False, None),
+            (firing, "hog_function", True, None),
+        ]

@@ -11,20 +11,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.replyio import (
     ReplyIoSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.reply_io.reply_io import (
-    PAGE_SIZE,
     ReplyIoResumeConfig,
-    check_access,
     check_endpoint_permissions,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.reply_io.settings import (
     ENDPOINTS,
+    PAGE_SIZE,
     REPLY_IO_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.reply_io.source import ReplyIoSource
@@ -84,6 +84,78 @@ class TestPagination:
 
         assert isinstance(result.raised, RESTClientRetryableError)
 
+    def test_email_activity_posts_all_time_filters_on_every_page(self) -> None:
+        result = _driver().run(
+            "email_activity",
+            [
+                _paged([{"contactId": 1, "emailAccountId": 9, "deliveryDate": "2026-01-01T10:00:00Z"}], has_more=True),
+                _paged([{"contactId": 2, "emailAccountId": 9, "deliveryDate": "2026-01-02T10:00:00Z"}], has_more=False),
+            ],
+        )
+
+        assert [r["contactId"] for r in result.rows] == [1, 2]
+        assert [r.method for r in result.requests] == ["POST", "POST"]
+        assert result.params("skip") == ["0", "1"]
+        # Without a window the report returns only the last seven days.
+        expected_body = {"filters": {"dateRangePreset": "allTime", "includeOutOfSequence": True}}
+        assert [r.json() for r in result.requests] == [expected_body, expected_body]
+
+    def test_sequence_contacts_pages_each_sequence_in_adding_order(self) -> None:
+        result = _driver().run(
+            "sequence_contacts",
+            route(
+                {
+                    "/sequences": [_paged([{"id": 7}, {"id": 8}], has_more=False)],
+                    "/sequences/7/contacts": [
+                        _paged([{"sequenceId": 7, "contactId": 1}], has_more=True),
+                        _paged([{"sequenceId": 7, "contactId": 2}], has_more=False),
+                    ],
+                    "/sequences/8/contacts": [_paged([{"sequenceId": 8, "contactId": 1}], has_more=False)],
+                }
+            ),
+        )
+
+        assert [(r["sequenceId"], r["contactId"]) for r in result.rows] == [(7, 1), (7, 2), (8, 1)]
+        child_requests = [r for r in result.requests if r.path.endswith("/contacts")]
+        assert [(r.path, r.param("skip")) for r in child_requests] == [
+            ("/v3/sequences/7/contacts", "0"),
+            ("/v3/sequences/7/contacts", "1"),
+            ("/v3/sequences/8/contacts", "0"),
+        ]
+        assert all(r.param("sort_by") == "addingDate" and r.param("sort_direction") == "asc" for r in child_requests)
+
+    def test_sequence_steps_carry_sequence_id_and_skip_deleted_sequences(self) -> None:
+        result = _driver().run(
+            "sequence_steps",
+            route(
+                {
+                    "/sequences": [_paged([{"id": 7}, {"id": 8}], has_more=False)],
+                    "/sequences/7/steps": [_bare([{"id": 50, "type": "email"}, {"id": 51, "type": "call"}])],
+                    # A sequence deleted between the listing and its step fetch.
+                    "/sequences/8/steps": [ScriptedResponse(status=404, json={})],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [(r["sequenceId"], r["id"]) for r in result.rows] == [(7, 50), (7, 51)]
+        assert all("_sequences_id" not in r for r in result.rows)
+
+    def test_fanout_resumes_after_finished_sequences(self) -> None:
+        script = {
+            "/sequences": [_paged([{"id": 7}, {"id": 8}], has_more=False)],
+            "/sequences/7/steps": [_bare([{"id": 50}])],
+            "/sequences/8/steps": [_bare([{"id": 60}])],
+        }
+        first = _driver().run("sequence_steps", route(script))
+        checkpoint = first.saved_states[0]
+        assert checkpoint.fanout_state is not None
+
+        resumed = _driver().run("sequence_steps", route(script), resume_state=checkpoint)
+
+        assert [r["id"] for r in resumed.rows] == [60]
+        assert "/v3/sequences/7/steps" not in resumed.paths
+
     def test_unpaginated_non_array_body_is_retryable(self) -> None:
         result = _driver().run("custom_fields", always(_bare({"items": []})))
 
@@ -109,17 +181,32 @@ class TestCredentials:
         with scripted_network(always(ScriptedResponse(status=status, json={}))):
             assert validate_credentials("reply-key") == (expected_valid, expected_message)
 
-    def test_validate_credentials_for_endpoint_names_missing_scope(self) -> None:
-        with scripted_network(always(ScriptedResponse(status=403, json={}))):
-            valid, message = validate_credentials("reply-key", endpoint="sequences")
-        assert valid is False
-        assert message == "Your Reply API key is missing the `sequences:read` scope"
-
-    def test_check_access_connection_error_maps_to_zero(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            status, message = check_access("reply-key", "/whoami")
-        assert status == 0
-        assert message is not None and "boom" in message
+    @parameterized.expand(
+        [
+            ("sequences", "GET", "/v3/sequences", "Your Reply API key is missing the `sequences:read` scope"),
+            # Per-sequence endpoints probe the sequence listing, which needs the same scope.
+            ("sequence_steps", "GET", "/v3/sequences", "Your Reply API key is missing the `sequences:read` scope"),
+            (
+                "email_activity",
+                "POST",
+                "/v3/reporting/emails",
+                "Your Reply API key is missing the `reporting:read` scope",
+            ),
+            (
+                "team_users",
+                "GET",
+                "/v3/whoami/team-users",
+                "Reply only lists team users for accounts that belong to an organization",
+            ),
+        ]
+    )
+    def test_validate_credentials_for_endpoint_reports_denied_access(
+        self, endpoint: str, method: str, path: str, expected_message: str
+    ) -> None:
+        with scripted_network(always(ScriptedResponse(status=403, json={}))) as network:
+            valid, message = validate_credentials("reply-key", endpoint=endpoint)
+        assert (valid, message) == (False, expected_message)
+        assert [(r.method, r.path) for r in network.requests_log] == [(method, path)]
 
 
 class TestEndpointPermissions:
@@ -145,11 +232,14 @@ class TestEndpointPermissions:
 class TestReplyIoSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
-        empty = _paged([], has_more=False) if REPLY_IO_ENDPOINTS[endpoint].paginated else _bare([])
+        config = REPLY_IO_ENDPOINTS[endpoint]
+        first_request = REPLY_IO_ENDPOINTS[config.fanout.parent_name] if config.fanout else config
+        empty = _paged([], has_more=False) if first_request.paginated else _bare([])
         result = _driver().run(endpoint, [empty])
 
+        assert result.raised is None
         assert result.response is not None
         assert result.response.name == endpoint
-        assert result.response.primary_keys == ["id"]
+        assert result.response.primary_keys == config.primary_keys
         # Most Reply resources expose no stable creation timestamp, so we don't partition.
         assert result.response.partition_mode is None

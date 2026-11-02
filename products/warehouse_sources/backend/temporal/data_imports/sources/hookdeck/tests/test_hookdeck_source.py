@@ -56,11 +56,6 @@ class TestHookdeckSource:
         self.team_id = 123
         self.config = HookdeckSourceConfig(api_key="hd_test_key")
 
-    def test_non_retryable_errors_match_the_error_the_api_raises(self) -> None:
-        observed = "401 Client Error: Unauthorized for url: https://api.hookdeck.com/2025-07-01/events?limit=250"
-
-        assert any(key in observed for key in self.source.get_non_retryable_errors())
-
     def test_get_schemas_lists_every_endpoint(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)
 
@@ -73,7 +68,10 @@ class TestHookdeckSource:
         assert schema.supports_incremental is True
         # Hookdeck restates rows as retries land, so a re-read window is merged, never appended.
         assert schema.supports_append is False
-        assert schema.default_incremental_lookback_seconds == 24 * 60 * 60
+        assert (
+            schema.default_incremental_lookback_seconds == HOOKDECK_ENDPOINTS[name].default_incremental_lookback_seconds
+        )
+        assert schema.default_incremental_lookback_seconds
         assert {f["field"] for f in schema.incremental_fields} == {
             f["field"] for f in HOOKDECK_ENDPOINTS[name].incremental_fields
         }

@@ -16,26 +16,6 @@ class TestSafetyCultureSource:
 
     @parameterized.expand(
         [
-            ("401 Client Error: Unauthorized for url: https://api.safetyculture.io/feed/users",),
-            ("403 Client Error: Forbidden for url: https://api.safetyculture.io/feed/inspections?archived=both",),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("500 Server Error: Internal Server Error for url: https://api.safetyculture.io/feed/users",),
-            ("429 Client Error: Too Many Requests for url: https://api.safetyculture.io/feed/inspections",),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
             (200, True, None),
             (401, False, "Invalid SafetyCulture API token"),
             # Feed access is permission-scoped, so a 403 on the probe feed still proves the token

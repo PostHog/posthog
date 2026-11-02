@@ -168,6 +168,18 @@ function describeWorkflowField(change: ActivityChange): JSX.Element[] {
             return describeWorkflowItems(change, 'variable')
         case 'schedule':
             return [describeScheduleChange(change)]
+        case 'tag':
+            return [
+                change.action === 'created' ? (
+                    <>
+                        added the tag <strong>{String(change.after)}</strong>
+                    </>
+                ) : (
+                    <>
+                        removed the tag <strong>{String(change.before)}</strong>
+                    </>
+                ),
+            ]
         default:
             return [<>updated {change.field}</>]
     }

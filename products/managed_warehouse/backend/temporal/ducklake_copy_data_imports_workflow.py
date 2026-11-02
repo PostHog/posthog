@@ -18,6 +18,7 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.ph_client import feature_enabled_or_false
@@ -211,20 +212,22 @@ class _VerificationConnection(typing.Protocol):
     def execute(self, query: str, params: typing.Sequence[object] | None = None) -> _VerificationCursor: ...
 
 
-@dataclasses.dataclass
+@frozen
 class DuckLakeCopyWorkflowGateInputs:
     """Inputs for the DuckLake copy workflow gate activity."""
 
     team_id: int
+    internal_bootstrap: bool = False
 
 
-@dataclasses.dataclass
+@frozen
 class DataImportsDuckLakeCopyInputs:
     """Workflow inputs passed to DuckLakeCopyDataImportsWorkflow."""
 
     team_id: int
     job_id: str
     schema_ids: list[uuid.UUID]
+    internal_bootstrap: bool = False
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -296,6 +299,11 @@ async def ducklake_copy_data_imports_gate_activity(inputs: DuckLakeCopyWorkflowG
     except Team.DoesNotExist:
         await logger.aerror("Team does not exist when evaluating DuckLake data imports gate")
         return False
+
+    if inputs.internal_bootstrap:
+        from products.managed_warehouse.backend.facade.access import internal_loading_enabled  # noqa: PLC0415
+
+        return await database_sync_to_async(internal_loading_enabled)(team.organization_id)
 
     try:
         return feature_enabled_or_false(
@@ -1115,6 +1123,7 @@ class DuckLakeCopyDataImportsWorkflow(PostHogWorkflow):
             team_id=loaded["team_id"],
             job_id=loaded["job_id"],
             schema_ids=schema_ids,
+            internal_bootstrap=loaded.get("internal_bootstrap", False),
         )
 
     @workflow.run
@@ -1130,7 +1139,7 @@ class DuckLakeCopyDataImportsWorkflow(PostHogWorkflow):
 
         should_copy = await workflow.execute_activity(
             ducklake_copy_data_imports_gate_activity,
-            DuckLakeCopyWorkflowGateInputs(team_id=inputs.team_id),
+            DuckLakeCopyWorkflowGateInputs(team_id=inputs.team_id, internal_bootstrap=inputs.internal_bootstrap),
             start_to_close_timeout=dt.timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=1),
         )

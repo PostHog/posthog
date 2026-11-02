@@ -1,5 +1,7 @@
 import dataclasses
 
+from django.utils import timezone
+
 from structlog import get_logger
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
@@ -120,6 +122,7 @@ def _mark_jobs_failed(job_ids: list[str], error: str) -> int:
         status=DataModelingJobStatus.FAILED,
         rows_materialized=0,
         error=error,
+        last_run_at=timezone.now(),
     )
 
 

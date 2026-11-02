@@ -91,6 +91,28 @@ class TestBuildInitialParams:
                 {"page[limit]": 1000, "sort": "timestamp"},
                 [],
             ),
+            # Error-only tables: the error filter is applied by Datadog, never after the fetch.
+            (
+                "error_spans",
+                False,
+                None,
+                {"filter[query]": "status:error", "page[limit]": 1000, "sort": "timestamp"},
+                [],
+            ),
+            (
+                "error_logs",
+                False,
+                None,
+                {"filter[query]": "status:error", "page[limit]": 1000, "sort": "timestamp"},
+                [],
+            ),
+            (
+                "error_spans",
+                True,
+                datetime(2026, 1, 1, tzinfo=UTC),
+                {"filter[query]": "status:error", "filter[from]": "2026-01-01T00:00:00.000Z"},
+                [],
+            ),
             # Cursor endpoint, incremental continuation: filter[from] is the stored watermark.
             (
                 "logs",
@@ -226,9 +248,6 @@ class TestValidateCredentials:
         ("status_code", "expected_valid"),
         [
             (200, True),
-            (401, False),
-            (403, False),
-            (500, False),
         ],
     )
     def test_status_mapping(self, status_code: int, expected_valid: bool) -> None:

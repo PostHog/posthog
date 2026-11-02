@@ -217,6 +217,7 @@ export interface evaluationBackfillsLogicMeta {
             evaluation: EvaluationConfig | null
         ) => EvaluationTargetEnumApi
         startDisabledReason: (
+            evaluation: EvaluationConfig | null,
             hasActiveBackfill: boolean,
             transitioningIds: string[],
             conditions: EvaluationConditionSet[],
@@ -394,6 +395,7 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
         ],
         startDisabledReason: [
             (s) => [
+                s.evaluation,
                 s.hasActiveBackfill,
                 s.transitioningIds,
                 s.conditions,
@@ -402,6 +404,7 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
                 s.estimateError,
             ],
             (
+                evaluation: EvaluationConfig | null,
                 hasActiveBackfill: boolean,
                 transitioningIds: string[],
                 conditions: EvaluationConditionSet[],
@@ -409,6 +412,9 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
                 estimateLoading: boolean,
                 estimateError: string | null
             ): string | undefined => {
+                if (evaluation?.enabled === false) {
+                    return 'Enable the evaluation before backfilling it'
+                }
                 if (hasActiveBackfill) {
                     return 'This evaluation already has a running backfill'
                 }

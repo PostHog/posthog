@@ -25,7 +25,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     mark_schema_running_unless_halted,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import HIDDEN_COLUMNS, DataWarehouseTable
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.destinations.enablement import (
     NoActiveDestinationsError,
     destination_ids_for_run,
@@ -141,7 +141,7 @@ def _enrichment_pending(team_id: int, table: DataWarehouseTable | None, schema: 
         return True
     # Hidden plumbing columns (_dlt_id, partition key, …) are never enriched, so they'd otherwise
     # show up perpetually in `columns - annotated` and keep this returning True on every sync.
-    columns = set((table.columns or {}).keys()) - HIDDEN_COLUMNS
+    columns = set((table.columns or {}).keys()) - table.hidden_columns()
     annotated = set(
         WarehouseColumnAnnotation.objects.for_team(team_id)
         .filter(table_id=table.id)

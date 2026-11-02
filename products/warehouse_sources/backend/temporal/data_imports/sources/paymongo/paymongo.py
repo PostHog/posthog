@@ -104,14 +104,26 @@ def get_resource(name: str) -> EndpointResource:
         }
     else:
         endpoint["params"] = {"limit": PAGE_SIZE}
-        endpoint["paginator"] = PaymongoCursorPaginator()
+        endpoint["paginator"] = PaymongoCursorPaginator(cursor_param=settings.cursor_param)
+    resource: EndpointResource = {
+        "name": name,
+        "endpoint": endpoint,
+        "data_map": normalize_row,
+        "primary_key": list(settings.primary_keys),
+    }
     if name == "refunds":
         endpoint["params"] = {
             "payment_id": {"type": "resolve", "resource": "payments", "field": "id"},
             "data.attributes.limit": PAGE_SIZE,
         }
         endpoint["paginator"] = PaymongoCursorPaginator(cursor_param="data.attributes.after")
-    return {"name": name, "endpoint": endpoint, "data_map": normalize_row, "primary_key": list(settings.primary_keys)}
+    elif name == "payout_transactions":
+        endpoint["params"] = {
+            "payout_id": {"type": "resolve", "resource": "payouts", "field": "id"},
+            "limit": PAGE_SIZE,
+        }
+        resource["include_from_parent"] = ["id"]
+    return resource
 
 
 def pull_rows(
@@ -124,15 +136,16 @@ def pull_rows(
     def save_state(paginator_state: dict[str, Any] | None) -> None:
         manager.save_state(PaymongoResumeConfig(paginator_state=paginator_state, finished=paginator_state is None))
 
+    settings = schema_for_resource(ENDPOINTS, inputs.schema_name)
     auth = PaymongoAuth(username=api_key, password="")
     with make_tracked_session(redact_values=auth.secret_values(), capture=inputs.schema_name != "webhooks") as session:
         config: RESTAPIConfig = {
-            "client": {"base_url": BASE_URL, "auth": auth, "session": session, "request_timeout": 30},
+            "client": {"base_url": settings.base_url, "auth": auth, "session": session, "request_timeout": 30},
             "resources": [get_resource(inputs.schema_name)],
         }
         initial_state = state.paginator_state if state else None
-        if inputs.schema_name == "refunds":
-            config["resources"].insert(0, get_resource("payments"))
+        if settings.parent:
+            config["resources"].insert(0, get_resource(settings.parent))
             resources = rest_api_resources(
                 config,
                 inputs.team_id,
@@ -141,7 +154,7 @@ def pull_rows(
                 resume_hook=save_state,
                 initial_paginator_state=initial_state,
             )
-            resource = next(resource for resource in resources if resource.name == "refunds")
+            resource = next(resource for resource in resources if resource.name == inputs.schema_name)
         else:
             resource = rest_api_resource(
                 config,
@@ -227,23 +240,35 @@ class PaymongoClient:
     def __init__(self, api_key: str) -> None:
         self.auth = PaymongoAuth(username=api_key, password="")
 
-    def request(self, method: str, path: str, **kwargs: Any) -> Response:
+    def request(self, method: str, path: str, base_url: str = BASE_URL, **kwargs: Any) -> Response:
         with make_tracked_session(redact_values=self.auth.secret_values(), capture=False) as session:
-            response = session.request(method, BASE_URL + path, auth=self.auth, timeout=30, **kwargs)
+            response = session.request(method, base_url + path, auth=self.auth, timeout=30, **kwargs)
             response.raise_for_status()
             return response
 
     def validate_credentials(self, schema_name: str | None) -> tuple[bool, str | None]:
         name = schema_name or "payments"
         endpoint = schema_for_resource(ENDPOINTS, name)
-        path = "payments" if name == "refunds" else endpoint.path
+        probe = ENDPOINTS[endpoint.parent] if endpoint.parent else endpoint
         try:
-            response = self.request("GET", path, params={} if endpoint.pagination == "single" else {"limit": 1})
-            if name == "refunds" and response.json()["data"]:
+            response = self.request(
+                "GET",
+                probe.path,
+                base_url=probe.base_url,
+                params={} if probe.pagination == "single" else {"limit": 1},
+            )
+            parents = response.json()["data"] if endpoint.parent else []
+            if name == "refunds" and parents:
                 self.request(
                     "GET",
                     "refunds",
-                    params={"data.attributes.payment_id": response.json()["data"][0]["id"], "data.attributes.limit": 1},
+                    params={"data.attributes.payment_id": parents[0]["id"], "data.attributes.limit": 1},
+                )
+            elif name == "payout_transactions" and parents:
+                self.request(
+                    "GET",
+                    endpoint.path.format(payout_id=quote(parents[0]["id"], safe="")),
+                    params={"limit": 1},
                 )
         except HTTPError as error:
             status = error.response.status_code if error.response is not None else None

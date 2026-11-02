@@ -54,7 +54,7 @@ class FaireSource(ResumableSource[FaireSourceConfig, FaireResumeConfig]):
             name=ExternalDataSourceType.FAIRE,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Faire",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="Enter your Faire API access token to sync your brand's orders and product "
             "catalog into the PostHog Data warehouse.\n\nGenerate a token from the developer or "
             "API access settings in your Faire Brand Portal.",

@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.db import connection
 from django.db.models.signals import post_save
 from django.test import TestCase, override_settings
 
@@ -11,6 +12,8 @@ import requests
 from celery.exceptions import Retry
 from parameterized import parameterized
 
+from posthog.models.team import Team
+from posthog.models.team.util import delete_team_records
 from posthog.models.user import User
 
 from products.cohorts.backend.facade.ready_signals import realtime_cohort_ready
@@ -69,6 +72,18 @@ class TestHogFlowBatchJob(TestCase):
         assert batch_job.variables == [{"key": "event_name", "value": "$pageview"}]
         assert str(batch_job) == f"HogFlow batch run {batch_job.id}"
         mock_create_invocation.assert_called_once()
+
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_batch_jobs_do_not_block_team_deletion(self, _mock_create_invocation):
+        HogFlowBatchJob.objects.create(team=self.team, hog_flow=self.hog_flow)
+
+        delete_team_records([self.team.id])
+        # Deferred foreign keys fail at COMMIT, which a TestCase never reaches.
+        connection.check_constraints()
+
+        assert not Team.objects.filter(id=self.team.id).exists()
 
     @parameterized.expand(
         [

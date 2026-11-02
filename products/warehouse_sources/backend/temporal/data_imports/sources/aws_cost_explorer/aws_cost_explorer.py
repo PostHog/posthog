@@ -11,7 +11,6 @@ from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
-from urllib3.util.retry import Retry
 
 from posthog.exceptions_capture import capture_exception
 
@@ -25,7 +24,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_e
     DEFAULT_LOOKBACK_DAYS,
     CostExplorerEndpointConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    BoundedRetry,
+    make_tracked_session,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
@@ -34,7 +36,7 @@ MAX_THROTTLE_ATTEMPTS = 6
 
 # The Cost Explorer API is a POST-only JSON RPC, and the tracked session's default policy only
 # retries idempotent verbs — so opt POST in explicitly for the transport-level statuses.
-TRANSPORT_RETRY = Retry(
+TRANSPORT_RETRY = BoundedRetry(
     total=3,
     backoff_factor=1,
     status_forcelist=(429, 500, 502, 503, 504),

@@ -130,7 +130,11 @@ class PostgresAdapter:
                     raise ExposedHogQLError("Invalid direct Postgres connection.")
 
             with timings.measure("postgres_source_registry", emit_span=True):
-                from products.warehouse_sources.backend.facade.source_management import PostgresSource, SourceRegistry
+                from products.warehouse_sources.backend.facade.source_management import (
+                    POSTGRES_HOST_CHECK_SOURCE_TYPE,
+                    PostgresSource,
+                    SourceRegistry,
+                )
                 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
                 postgres_source = cast(PostgresSource, SourceRegistry.get_source(ExternalDataSourceType.POSTGRES))
@@ -144,7 +148,11 @@ class PostgresAdapter:
 
         with timings.measure("postgres_host_validation"):
             valid_host, host_errors = postgres_source.is_database_host_valid(
-                config.host, team.pk, using_ssh_tunnel=config.ssh_tunnel.enabled if config.ssh_tunnel else False
+                config.host,
+                team.pk,
+                using_ssh_tunnel=config.ssh_tunnel.enabled if config.ssh_tunnel else False,
+                port=config.port,
+                source_type=POSTGRES_HOST_CHECK_SOURCE_TYPE,
             )
             if not valid_host:
                 raise ExposedHogQLError(host_errors or "Invalid Postgres host.")
@@ -159,11 +167,14 @@ class PostgresAdapter:
         with request.timings.measure("postgres_source_validation"):
             with request.timings.measure("postgres_source_helpers_import"):
                 from products.warehouse_sources.backend.facade.source_management import (
+                    POSTGRES_HOST_CHECK_SOURCE_TYPE,
                     HostNotAllowedError,
                     TemporaryHostResolutionError,
                     _get_sslmode,
+                    libpq_tls_kwargs,
                     pinned_host_kwargs,
                     source_requires_ssl,
+                    tls_options,
                 )
 
             postgres_source, source_config = self.validate_source_config(source, request.team, request.timings)
@@ -185,7 +196,9 @@ class PostgresAdapter:
                     with request.timings.measure("postgres_tunnel_open", emit_span=True):
                         try:
                             host, port = tunnel_stack.enter_context(
-                                postgres_source.with_ssh_tunnel(source_config, request.team.pk)
+                                postgres_source.with_ssh_tunnel(
+                                    source_config, request.team.pk, POSTGRES_HOST_CHECK_SOURCE_TYPE
+                                )
                             )
                         except HostNotAllowedError as error:
                             # `validate_source_config` already ran the host check, but a short-TTL
@@ -221,12 +234,16 @@ class PostgresAdapter:
                                 port=port,
                                 connect_timeout=DIRECT_POSTGRES_CONNECT_TIMEOUT_SECONDS,
                                 team_id=request.team.pk,
+                                source_type=POSTGRES_HOST_CHECK_SOURCE_TYPE,
                             ),
                         )
                     )
 
                     with request.timings.measure("postgres_connect", emit_span=True):
                         try:
+                            # The files must outlast the connect, because a cancel request reads them again.
+                            tls_kwargs = tunnel_stack.enter_context(libpq_tls_kwargs(tls_options(source_config)))
+                            connection_kwargs.update(cast(PostgresConnectionKwargs, tls_kwargs))
                             connection_context = psycopg.connect(**connection_kwargs)
                         except (psycopg.Error, RuntimeError, ValueError) as error:
                             if source.is_managed_warehouse_ready:

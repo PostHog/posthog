@@ -1,5 +1,4 @@
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -14,15 +13,6 @@ from products.workflows.backend.models.team_workflows_config import TeamWorkflow
 
 
 class TestWorkflowSetupStatusAPI(APIBaseTest):
-    def setUp(self) -> None:
-        super().setUp()
-        flag = patch(
-            "products.workflows.backend.presentation.views.workflow_setup.posthoganalytics.feature_enabled",
-            return_value=False,
-        )
-        flag.start()
-        self.addCleanup(flag.stop)
-
     def _status(self) -> dict:
         response = self.client.get(f"/api/projects/{self.team.id}/workflow_setup/status/")
         assert response.status_code == status.HTTP_200_OK, response.json()

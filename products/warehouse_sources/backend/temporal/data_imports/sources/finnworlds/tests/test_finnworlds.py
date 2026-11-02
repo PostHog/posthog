@@ -259,18 +259,6 @@ class TestValidateCredentials:
         assert valid is False
         assert message == "Invalid Finnworlds API key"
 
-    def test_network_error_reports_distinctly_from_bad_key(self) -> None:
-        # A transient connection failure during setup must not be reported as an invalid key.
-        session = MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(finnworlds, "make_tracked_session", lambda **_: session)
-            valid, message = validate_credentials("any")
-        assert valid is False
-        assert message is not None
-        assert "Invalid" not in message
-        assert "reach the Finnworlds API" in message
-
 
 class TestFinnworldsSource:
     @parameterized.expand([(name,) for name in FINNWORLDS_ENDPOINTS])

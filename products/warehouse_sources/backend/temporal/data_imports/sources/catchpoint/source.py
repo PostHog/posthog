@@ -109,7 +109,7 @@ class CatchpointSource(ResumableSource[CatchpointSourceConfig, CatchpointResumeC
             label="Catchpoint Systems",
             caption="Create an API key in Catchpoint under Settings > Integrations > REST API > Add Consumer.",
             iconPath="/static/services/catchpoint.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

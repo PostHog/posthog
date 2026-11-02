@@ -10,6 +10,7 @@ export interface MCPClientContext extends Pick<
     | 'mcpConsumer'
     | 'mcpVendorClient'
     | 'mcpElicitationUrlSupported'
+    | 'mcpUiSupported'
 > {}
 
 export interface MCPRequestContext
@@ -50,6 +51,7 @@ export function buildMCPRequestContext(props: RequestProperties): MCPRequestCont
         mcpClientVersion: props.mcpClientVersion,
         mcpProtocolVersion: props.mcpProtocolVersion,
         mcpElicitationUrlSupported: props.mcpElicitationUrlSupported,
+        mcpUiSupported: props.mcpUiSupported,
         transport: props.transport,
         mcpSessionId: props.mcpSessionId,
         mcpConversationId: props.mcpConversationId,
@@ -64,9 +66,8 @@ export function buildMCPRequestContext(props: RequestProperties): MCPRequestCont
 /**
  * The id a request carries to group its events by, most specific first. MCP 2026-07-28
  * removed `initialize` and the `Mcp-Session-Id` header, so for those clients only the
- * agent's handle is ever present. One definition because two callers must agree on the
- * order: `getEffectiveSessionUuid` turns this into `$session_id`, and the executor hands
- * the same value to the SDK, which mints a handle only when nothing was carried.
+ * agent's handle is ever present. `getEffectiveSessionUuid` turns this into `$session_id`.
+ * Wrapper-only hints group analytics but do not replace conversation handles for context switches.
  */
 export function resolveSessionKey(requestContext: MCPRequestContext): string | undefined {
     return requestContext.mcpConversationId ?? requestContext.sessionId ?? requestContext.mcpSessionId

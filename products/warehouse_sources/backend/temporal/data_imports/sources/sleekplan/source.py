@@ -129,5 +129,5 @@ Create a key in Sleekplan under **Settings > Developer**. A key inherits the per
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
         )

@@ -1,0 +1,45 @@
+{
+    "name": "shared-image-releases",
+    "version": "1.0.0",
+    "private": true,
+    "description": "Inspect source-owned shared-image release policy and publication repositories.",
+    "keywords": [
+        "github-actions",
+        "release-policy",
+        "shared-images"
+    ],
+    "license": "MIT",
+    "author": "PostHog",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/PostHog/posthog.git",
+        "directory": ".github/actions/shared-image-releases"
+    },
+    "main": "dist/index.js",
+    "scripts": {
+        "build": "tsc",
+        "pack": "ncc build src/main.ts -o dist --minify",
+        "test": "jest"
+    },
+    "dependencies": {
+        "@actions/core": "^1.10.0"
+    },
+    "devDependencies": {
+        "@types/jest": "^29.5.11",
+        "@types/js-yaml": "^4.0.9",
+        "@types/node": "^24.0.0",
+        "@vercel/ncc": "^0.38.1",
+        "jest": "^29.7.0",
+        "jest-circus": "^29.7.0",
+        "js-yaml": "^4.1.0",
+        "ts-jest": "^29.1.2",
+        "typescript": "^5.3.3"
+    },
+    "overrides": {
+        "@actions/http-client": "^3.0.2",
+        "undici": "^6.27.0"
+    },
+    "engines": {
+        "node": ">= 24"
+    }
+}

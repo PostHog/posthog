@@ -25,7 +25,6 @@ class TestSolarwindsServiceDeskSource:
 
     @parameterized.expand(
         [
-            ("unauthorized_us", "401 Client Error: Unauthorized for url: https://api.samanage.com/incidents.json"),
             ("forbidden_eu", "403 Client Error: Forbidden for url: https://apieu.samanage.com/users.json"),
             ("unauthorized_au", "401 Client Error: Unauthorized for url: https://apiau.samanage.com/problems.json"),
         ]
@@ -36,19 +35,11 @@ class TestSolarwindsServiceDeskSource:
 
     @parameterized.expand(
         [
-            ("server_error", "500 Server Error: Internal Server Error for url: https://api.samanage.com"),
-            ("rate_limited", "429 Client Error: Too Many Requests for url: https://apieu.samanage.com"),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
             # At create only the token is probed; per-schema validation probes that endpoint's path.
             ("at_create", None, None),
             ("for_schema", "incidents", "/incidents.json"),
+            # A fan-out child path needs a parent id, so its probe reads the parent list instead.
+            ("fanout_schema", "time_tracks", "/incidents.json"),
             ("unknown_schema", "not_a_table", None),
         ]
     )

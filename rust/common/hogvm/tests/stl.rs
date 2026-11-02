@@ -195,6 +195,31 @@ fn hmac_sha1_chain_rekeys_and_encodes() {
 }
 
 #[test]
+fn hmac_sha256_base64_key_matches_svix() {
+    // Known answer from the Svix webhook verification docs. The key decodes to bytes that are not
+    // valid UTF-8, so this fails if the key is read as a string.
+    let key = || str_lit("MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw");
+    let payload = || str_lit("msg_p5jXN8AQM9LWM0D4loKWxJek.1614265330.{\"test\": 2432232314}");
+    assert_eq!(
+        run(call(
+            "sha256HmacBase64Key",
+            &[key(), payload(), str_lit("base64")]
+        )),
+        json!("g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE=")
+    );
+    assert_eq!(
+        run(call(
+            "sha256HmacBase64Key",
+            &[str_lit("YWI"), str_lit("data")]
+        )),
+        run(call(
+            "sha256HmacBase64Key",
+            &[str_lit("YWI="), str_lit("data")]
+        ))
+    );
+}
+
+#[test]
 fn base64_round_trips() {
     let encoded = run(call("base64Encode", &[str_lit("Hello, World! 🦔")]));
     let decoded = run(call(

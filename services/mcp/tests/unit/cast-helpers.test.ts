@@ -12,6 +12,7 @@ import { z } from 'zod'
 
 import {
     castBooleanToString,
+    castObjectToJsonString,
     castStringToInt,
     normalizeParamAliases,
     readParamAliases,
@@ -59,6 +60,33 @@ describe('castStringToInt', () => {
         // Min constraint still applies after the cast runs.
         expect(() => wrapped.parse('0')).toThrow()
         expect(wrapped.parse('1')).toBe(1)
+    })
+})
+
+describe('castObjectToJsonString', () => {
+    const schema = z.preprocess(castObjectToJsonString, z.string())
+
+    it('JSON-encodes a plain object', () => {
+        expect(schema.parse({ date_from: '-24h' })).toBe('{"date_from":"-24h"}')
+    })
+
+    it('gives the same value for an object and its JSON-encoded string', () => {
+        expect(schema.parse({ date_from: '-1h', date_to: null })).toBe(
+            schema.parse(JSON.stringify({ date_from: '-1h', date_to: null }))
+        )
+    })
+
+    it('passes through strings untouched', () => {
+        expect(schema.parse('{"date_from": "-1h"}')).toBe('{"date_from": "-1h"}')
+    })
+
+    it.each([
+        ['array', ['-1h']],
+        ['number', 7],
+        ['boolean', true],
+        ['null', null],
+    ] as const)('passes non-object input through to zod: %s', (_label, input) => {
+        expect(() => schema.parse(input)).toThrow()
     })
 })
 

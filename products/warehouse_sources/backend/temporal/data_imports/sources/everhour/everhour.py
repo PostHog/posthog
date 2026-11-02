@@ -7,9 +7,12 @@ from urllib.parse import urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.everhour.settings import (
@@ -111,7 +114,7 @@ def _row_key(item: dict[str, Any], dedupe_keys: list[str]) -> tuple[Any, ...]:
     return tuple(item.get(key) for key in dedupe_keys)
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type((EverhourRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(MAX_RETRIES),
     wait=wait_exponential_jitter(initial=1, max=60),

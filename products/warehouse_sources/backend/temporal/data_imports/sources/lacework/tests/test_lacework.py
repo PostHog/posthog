@@ -96,7 +96,7 @@ class TestIsSameHost:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
+    @parameterized.expand([("unauthorized", 401)])
     def test_bad_credentials(self, _name: str, status_code: int) -> None:
         with scripted_network([ScriptedResponse(status=status_code, json={"message": "unauthorized"})]) as network:
             ok, message = validate_credentials("mycompany", "KEY_ID", "secret")

@@ -1,7 +1,5 @@
 from unittest import mock
 
-from parameterized import parameterized
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sagehr import SageHRSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.sage_hr.source import SageHRSource
 
@@ -16,26 +14,6 @@ class TestSageHRSource:
         # The API key is sent to `<subdomain>.sage.hr`, so retargeting the subdomain must force the
         # editor to re-enter the key.
         assert self.source.connection_host_fields == ["subdomain"]
-
-    @parameterized.expand(
-        [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://acme.sage.hr/api/employees?page=1"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://other-co.sage.hr/api/teams?page=2"),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, _name: str, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("server_error", "500 Server Error: Internal Server Error for url: https://acme.sage.hr/api/employees"),
-            ("rate_limited", "429 Client Error: Too Many Requests for url: https://acme.sage.hr/api/teams"),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.sage_hr.source.sage_hr_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:

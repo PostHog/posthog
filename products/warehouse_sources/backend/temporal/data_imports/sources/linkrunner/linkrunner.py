@@ -5,14 +5,18 @@ from typing import Any, Optional
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.boundary_checkpoint import (
     BoundaryCheckpoint,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.retry_limits import max_retry_after_seconds
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.linkrunner.settings import (
     LINKRUNNER_ENDPOINTS,
@@ -93,7 +97,19 @@ def _wait_for_retry(retry_state: RetryCallState) -> float:
     return wait_exponential_jitter(initial=1, max=30)(retry_state)
 
 
-@retry(
+_stop_after_attempts = stop_after_attempt(8)
+
+
+def _stop_retrying(retry_state: RetryCallState) -> bool:
+    if _stop_after_attempts(retry_state):
+        return True
+    # A server that asks for a longer wait than the limit is not going to answer soon. The error goes
+    # to the activity, whose own retry comes back later, and the worker stays free.
+    exc = retry_state.outcome.exception() if retry_state.outcome else None
+    return isinstance(exc, LinkrunnerRateLimitError) and exc.retry_after > max_retry_after_seconds()
+
+
+@retry_with_deadline(
     retry=retry_if_exception_type(
         (
             LinkrunnerRetryableError,
@@ -103,7 +119,7 @@ def _wait_for_retry(retry_state: RetryCallState) -> float:
             requests.exceptions.ChunkedEncodingError,
         )
     ),
-    stop=stop_after_attempt(8),
+    stop=_stop_retrying,
     wait=_wait_for_retry,
     reraise=True,
 )

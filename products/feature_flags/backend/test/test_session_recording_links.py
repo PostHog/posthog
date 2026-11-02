@@ -13,6 +13,7 @@ from products.feature_flags.backend.session_recording_links import (
     relink_teams,
     replay_gated_flags,
     replay_gated_flags_for_projects,
+    rewrite_to_current_flag_keys,
     rewritten_linked_flag,
     rewritten_trigger_groups,
     save_replay_gate_rewrites,
@@ -102,6 +103,49 @@ class TestReplayGateMatchersAgree(BaseTest):
         assert gates[other_team.project_id].gates(theirs) is True
         assert self.team.project_id not in gates
         assert replay_gated_flags(self.team.project_id).gates(mine) is False
+
+
+class TestRewriteToCurrentFlagKeys(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "linked_flag_keeps_its_variant",
+                lambda mine, theirs: ({"id": mine.id, "key": "stale", "variant": "test"}, None),
+                lambda mine: ReplayGateRewrite(linked_flag={"id": mine.id, "key": "current", "variant": "test"}),
+            ),
+            (
+                "trigger_group_object_form",
+                lambda mine, theirs: (None, trigger_groups({"flag": {"id": mine.id, "key": "stale"}})),
+                lambda mine: ReplayGateRewrite(
+                    trigger_groups=trigger_groups({"flag": {"id": mine.id, "key": "current"}})
+                ),
+            ),
+            (
+                "trigger_group_bare_key",
+                lambda mine, theirs: (None, trigger_groups({"flag": "stale"})),
+                lambda mine: ReplayGateRewrite(),
+            ),
+            (
+                "another_projects_flag",
+                lambda mine, theirs: (
+                    {"id": theirs.id, "key": "stale"},
+                    trigger_groups({"flag": {"id": theirs.id, "key": "stale"}}),
+                ),
+                lambda mine: ReplayGateRewrite(),
+            ),
+        ]
+    )
+    def test_points_references_holding_an_id_at_the_flags_current_key(
+        self, _name: str, build_columns: Any, build_expected: Any
+    ) -> None:
+        mine = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="current")
+        other_team = Team.objects.create(organization=self.organization)
+        theirs = FeatureFlag.objects.create(team=other_team, created_by=self.user, key="theirs")
+        linked_flag, groups = build_columns(mine, theirs)
+
+        rewrite = rewrite_to_current_flag_keys(linked_flag, groups, project_id=self.team.project_id)
+
+        assert rewrite == build_expected(mine)
 
 
 class TestReplayGateWritesUseTheLockedRow(BaseTest):

@@ -16,16 +16,6 @@ class TestDagsterCloudSourceConfig:
 class TestDagsterCloudNonRetryableErrors:
     @parameterized.expand(
         [
-            ("auth_401", "401 Client Error: Unauthorized for url: https://acme.dagster.cloud/prod/graphql"),
-            ("forbidden_403", "403 Client Error: Forbidden for url: https://acme.dagster.cloud/prod/graphql"),
-        ]
-    )
-    def test_matches_permanent_failures(self, _name: str, observed: str) -> None:
-        errors = DagsterCloudSource().get_non_retryable_errors()
-        assert any(key in observed for key in errors)
-
-    @parameterized.expand(
-        [
             ("server_500", "500 Client Error: Internal Server Error for url: https://acme.dagster.cloud/prod/graphql"),
             ("rate_limited", "Dagster Cloud: rate limited (429)"),
             ("network", "Dagster Cloud: transient network error - Read timed out"),

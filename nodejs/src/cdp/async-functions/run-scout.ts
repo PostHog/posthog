@@ -15,6 +15,13 @@ import { workflowStepDispatchKeyFromInvocation } from '../utils/workflow-step-di
 // The claims scope it to a single team and workflow, which keeps the longer window cheap.
 const TOKEN_TTL_SECONDS = 30 * 60
 
+// Matches MAX_RUN_NOTE_CHARS in products/signals/backend/scout_harness/limits.py. The note renders
+// from event properties, so a long value is cut here instead of failing the step with a 400.
+const MAX_NOTE_CHARS = 1000
+
+// Counts code points, as Python's max_length does, so a cut note never splits a surrogate pair.
+const truncateNote = (note: string): string => Array.from(note).slice(0, MAX_NOTE_CHARS).join('')
+
 // Its own key, not postHogCreateTask's — see products/workflows/backend/service_jwt.py for why.
 let scoutRunJwt: ScopedServiceJwt | undefined
 const getScoutRunJwt = (): ScopedServiceJwt =>
@@ -48,6 +55,9 @@ registerAsyncFunction('postHogRunScout', {
             )
         }
         const token = jwt.mint({ team_id: context.invocation.teamId, hog_flow_id: hogFlow.id }, TOKEN_TTL_SECONDS)
+        const note = typeof payload.note === 'string' ? truncateNote(payload.note.trim()) : ''
+        // Anything else is left out, so the endpoint applies its default and queues.
+        const whenBusy = payload.when_busy === 'queue' || payload.when_busy === 'skip' ? payload.when_busy : undefined
 
         result.invocation.queueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
             type: 'fetch',
@@ -60,6 +70,8 @@ registerAsyncFunction('postHogRunScout', {
             body: JSON.stringify({
                 skill_name: payload.skill_name,
                 idempotency_key: idempotencyKey,
+                ...(note ? { note } : {}),
+                ...(whenBusy ? { when_busy: whenBusy } : {}),
             }),
         })
     },

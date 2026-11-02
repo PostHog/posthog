@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useContext, useEffect, useState } from 'react'
 
 import { IconArrowRight } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -12,6 +12,7 @@ import { OnboardingStepKey } from '~/types'
 
 import { stepKeyToTitle } from './onboardingFlowUtils'
 import { onboardingLogic } from './onboardingLogic'
+import { OnboardingStepFooterStartContext } from './OnboardingStepFooterStartContext'
 
 export const OnboardingStep = ({
     stepKey,
@@ -47,10 +48,11 @@ export const OnboardingStep = ({
     fullWidth?: boolean
     actions?: JSX.Element
 }): JSX.Element => {
-    const { hasNextStep, currentStepProductKey } = useValues(onboardingLogic)
+    const { hasNextStep, currentStepProductKey, flowVariant, isCompleting } = useValues(onboardingLogic)
 
     const { completeOnboarding, goToNextStep } = useActions(onboardingLogic)
     const { openSupportForm } = useActions(supportLogic)
+    const footerStart = useContext(OnboardingStepFooterStartContext)
 
     const advance: () => void = !hasNextStep ? completeOnboarding : goToNextStep
 
@@ -70,14 +72,14 @@ export const OnboardingStep = ({
 
     const skip = (): void => {
         setPendingAdvance('skip')
-        reportOnboardingStepSkipped(stepKey, currentStepProductKey ?? undefined)
+        reportOnboardingStepSkipped(stepKey, flowVariant, currentStepProductKey ?? undefined)
         onSkip?.()
         advance()
     }
 
     const next = (): void => {
         setPendingAdvance('continue')
-        reportOnboardingStepCompleted(stepKey, currentStepProductKey ?? undefined)
+        reportOnboardingStepCompleted(stepKey, flowVariant, currentStepProductKey ?? undefined)
         onContinue?.()
         advance()
     }
@@ -105,7 +107,8 @@ export const OnboardingStep = ({
                     </div>
                 )}
                 {children}
-                <div className="mt-8 flex justify-end gap-x-2">
+                <div className="mt-8 flex flex-wrap items-center justify-end gap-2">
+                    {footerStart && <div className="mr-auto">{footerStart}</div>}
                     {showHelpButton && (
                         <LemonButton type="secondary" onClick={() => openSupportForm({ kind: 'support' })}>
                             Need help?
@@ -116,7 +119,7 @@ export const OnboardingStep = ({
                             type="secondary"
                             onClick={skip}
                             loading={pendingAdvance === 'skip'}
-                            disabledReason={pendingAdvance === 'continue' ? 'Completing…' : undefined}
+                            disabledReason={pendingAdvance === 'continue' || isCompleting ? 'Completing…' : undefined}
                             data-attr="onboarding-skip-button"
                         >
                             Skip {!hasNextStep ? 'and finish' : 'for now'}
@@ -128,7 +131,7 @@ export const OnboardingStep = ({
                             status="alt"
                             data-attr="onboarding-continue"
                             onClick={next}
-                            loading={pendingAdvance === 'continue'}
+                            loading={pendingAdvance === 'continue' || isCompleting}
                             sideIcon={hasNextStep ? <IconArrowRight /> : null}
                             disabledReason={pendingAdvance === 'skip' ? 'Completing…' : continueDisabledReason}
                         >

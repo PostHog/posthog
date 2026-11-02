@@ -12,7 +12,7 @@ def _datetime_field(name: str) -> IncrementalField:
     }
 
 
-@dataclass
+@dataclass(frozen=True)
 class RenderEndpointConfig:
     name: str
     # Path relative to the API base. Fan-out children use a `{parent_id}` placeholder
@@ -47,7 +47,13 @@ class RenderEndpointConfig:
     # slice (events default to the last hour) — read from this parent field when no
     # incremental watermark applies, so a full refresh still covers the parent's lifetime.
     window_start_from_parent_field: str | None = None
+    # Render caps one audit log export at a 90-day span and only guarantees 90 days of
+    # retention, so the lower bound sent is never earlier than this many days ago.
+    max_lookback_days: int | None = None
     should_sync_default: bool = True
+    # False for endpoints that return the whole collection in one response and take no
+    # `limit`/`cursor` params (instances, members).
+    paginated: bool = True
     page_size: int = 100
     # Hard cap on pages fetched per parent in a fan-out, to bound runaway pagination.
     # A structured warning is logged if the cap is reached.
@@ -56,12 +62,26 @@ class RenderEndpointConfig:
     # only exist for web services and static sites, not cron jobs, workers or private
     # services). Skip those parents rather than failing the whole sync.
     skip_parent_on_bad_request: bool = False
+    # Fan-out children gated by the parent's plan or the key's role (audit logs need a Pro
+    # workspace and an admin). Skip a parent that answers 403 instead of failing the sync.
+    skip_parent_on_forbidden: bool = False
+    # Set on an endpoint whose rows are owners: when the source is scoped to one workspace,
+    # fan-out children only visit the parent row whose value in this field matches it.
+    owner_id_field: str | None = None
     # Some endpoints return secrets the API key is only meant to *use* for sync (env var
     # values, secret-file contents), not data worth warehousing. Maps a list column to the
     # item keys whose values are redacted before a row is yielded, keeping the safe metadata
     # (names, keys, ids). Any endpoint with entries here is treated as sensitive: its raw
     # responses are also excluded from HTTP sample capture (see `is_sensitive`).
     redact_list_item_fields: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    # Endpoints that answer with an object holding the list under this key instead of a bare
+    # list (Postgres query insights: `{"topQueries": [...]}`).
+    response_list_key: str | None = None
+    # Metrics endpoints return time series (`{labels, values: [{timestamp, value}], unit}`)
+    # that are exploded into one row per data point.
+    metric_series: bool = False
+    # Static query params sent on every request.
+    extra_params: dict[str, str | int] = field(default_factory=dict)
 
     @property
     def is_sensitive(self) -> bool:
@@ -74,6 +94,7 @@ RENDER_ENDPOINTS: dict[str, RenderEndpointConfig] = {
         path="/owners",
         wrapper_key="owner",
         # No timestamps on the owner object and no time filters on the endpoint: full refresh only.
+        owner_id_field="id",
     ),
     "projects": RenderEndpointConfig(
         name="projects",
@@ -214,7 +235,150 @@ RENDER_ENDPOINTS: dict[str, RenderEndpointConfig] = {
         default_incremental_field="updatedAt",
         supports_owner_filter=True,
     ),
+    "instances": RenderEndpointConfig(
+        name="instances",
+        path="/services/{parent_id}/instances",
+        wrapper_key="instance",
+        primary_keys=["serviceId", "id"],
+        # No time filters on the endpoint: full refresh only.
+        partition_key="createdAt",
+        parent="services",
+        inject_parent_key="serviceId",
+        paginated=False,
+    ),
+    "members": RenderEndpointConfig(
+        name="members",
+        path="/owners/{parent_id}/members",
+        wrapper_key="member",
+        primary_keys=["ownerId", "userId"],
+        parent="owners",
+        inject_parent_key="ownerId",
+        paginated=False,
+    ),
+    "audit_logs": RenderEndpointConfig(
+        name="audit_logs",
+        path="/owners/{parent_id}/audit-logs",
+        wrapper_key="auditLog",
+        primary_keys=["ownerId", "id"],
+        incremental_fields=[_datetime_field("timestamp")],
+        incremental_param_by_field={"timestamp": "startTime"},
+        default_incremental_field="timestamp",
+        partition_key="timestamp",
+        parent="owners",
+        inject_parent_key="ownerId",
+        append_only=True,
+        max_lookback_days=90,
+        # Audit logs need a Pro workspace and an admin key. One ineligible workspace must not
+        # fail the table for a key that spans several workspaces.
+        skip_parent_on_bad_request=True,
+        skip_parent_on_forbidden=True,
+        page_size=1000,
+    ),
+    "blueprints": RenderEndpointConfig(
+        name="blueprints",
+        path="/blueprints",
+        wrapper_key="blueprint",
+        # No time filters on the endpoint, and lastSync is the only timestamp: full refresh only.
+        supports_owner_filter=True,
+    ),
+    "blueprint_syncs": RenderEndpointConfig(
+        name="blueprint_syncs",
+        path="/blueprints/{parent_id}/syncs",
+        wrapper_key="sync",
+        primary_keys=["blueprintId", "id"],
+        # No time filters on the endpoint, and startedAt is optional: full refresh, unpartitioned.
+        parent="blueprints",
+        inject_parent_key="blueprintId",
+    ),
+    "disk_snapshots": RenderEndpointConfig(
+        name="disk_snapshots",
+        path="/disks/{parent_id}/snapshots",
+        wrapper_key="snapshot",
+        primary_keys=["diskId", "snapshotKey"],
+        partition_key="createdAt",
+        parent="disks",
+        inject_parent_key="diskId",
+        paginated=False,
+    ),
+    "postgres_top_queries": RenderEndpointConfig(
+        name="postgres_top_queries",
+        path="/postgres/{parent_id}/query/top-queries",
+        wrapper_key="topQuery",
+        # A cumulative pg_stat_statements snapshot (top 50 by total time): full refresh only.
+        primary_keys=["postgresId", "queryId"],
+        parent="postgres",
+        inject_parent_key="postgresId",
+        paginated=False,
+        response_list_key="topQueries",
+        # Query insights are unavailable on some instances (e.g. suspended ones). One such
+        # database must not fail the table for the rest.
+        skip_parent_on_bad_request=True,
+    ),
+    "postgres_table_scans": RenderEndpointConfig(
+        name="postgres_table_scans",
+        path="/postgres/{parent_id}/query/table-scans",
+        wrapper_key="tableScan",
+        primary_keys=["postgresId", "Database", "Schema", "Table"],
+        parent="postgres",
+        inject_parent_key="postgresId",
+        paginated=False,
+        response_list_key="tableScans",
+        skip_parent_on_bad_request=True,
+    ),
 }
+
+
+def _service_metric(
+    name: str, path: str, resolution_seconds: int | None = 300, skip_parent_on_bad_request: bool = False
+) -> RenderEndpointConfig:
+    return RenderEndpointConfig(
+        name=name,
+        path=path,
+        wrapper_key="series",
+        primary_keys=["serviceId", "seriesKey", "timestamp"],
+        # startTime filters server-side. Merge (not append) so the still-filling latest bucket
+        # is overwritten by the next sync instead of duplicated.
+        incremental_fields=[_datetime_field("timestamp")],
+        incremental_param_by_field={"timestamp": "startTime"},
+        default_incremental_field="timestamp",
+        partition_key="timestamp",
+        parent="services",
+        parent_query_param="resource",
+        inject_parent_key="serviceId",
+        paginated=False,
+        metric_series=True,
+        # The window defaults to the last hour server-side. Render keeps at most 30 days of
+        # metrics (less on smaller plans), so a full refresh reads from that floor.
+        max_lookback_days=30,
+        # 5-minute buckets keep a 30-day window to a few thousand points per series.
+        extra_params={"resolutionSeconds": resolution_seconds} if resolution_seconds else {},
+        # High-volume time series: opt-in rather than synced with every new source.
+        should_sync_default=False,
+        skip_parent_on_bad_request=skip_parent_on_bad_request,
+    )
+
+
+RENDER_ENDPOINTS.update(
+    {
+        "metrics_cpu": _service_metric("metrics_cpu", "/metrics/cpu"),
+        "metrics_memory": _service_metric("metrics_memory", "/metrics/memory"),
+        "metrics_http_requests": _service_metric("metrics_http_requests", "/metrics/http-requests"),
+        "metrics_http_latency": _service_metric(
+            # Render 400s HTTP latency for services in Hobby workspaces. One such service must not
+            # fail the table for a key that also spans paid workspaces.
+            "metrics_http_latency",
+            "/metrics/http-latency",
+            skip_parent_on_bad_request=True,
+        ),
+        "metrics_instance_count": _service_metric("metrics_instance_count", "/metrics/instance-count"),
+        "metrics_bandwidth": _service_metric(
+            # The bandwidth endpoint takes no resolution param.
+            "metrics_bandwidth",
+            "/metrics/bandwidth",
+            resolution_seconds=None,
+        ),
+    }
+)
 
 ENDPOINTS = tuple(RENDER_ENDPOINTS.keys())
 

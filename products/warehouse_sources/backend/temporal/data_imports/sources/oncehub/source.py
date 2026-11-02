@@ -50,11 +50,11 @@ class OncehubSource(ResumableSource[OncehubSourceConfig, OncehubResumeConfig]):
             name=ExternalDataSourceType.ONCEHUB,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="OnceHub",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["scheduleonce", "scheduling", "booking"],
             caption="""Enter your OnceHub API key to pull your scheduling and booking data into the PostHog Data warehouse.
 
-You can generate an API key in [OnceHub](https://app.oncehub.com) under **Settings → API & Webhooks**. The key is shown only once at creation, so copy it right away. It grants read access to your bookings, booking calendars, contacts, users, and teams.
+You can generate an API key in [OnceHub](https://app.oncehub.com) under **Settings → API & Webhooks**. The key is shown only once at creation, so copy it right away. It grants read access to your bookings, booking calendars, booking pages, master pages, event types, contacts, users, and teams.
 """,
             iconPath="/static/services/oncehub.png",
             docsUrl="https://posthog.com/docs/cdp/sources/oncehub",

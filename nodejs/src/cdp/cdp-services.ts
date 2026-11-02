@@ -1,6 +1,7 @@
 import { AppMetricsOutput, HogInvocationResultsOutput, LogEntriesOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
+import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { UsageIngestionConfig, createUsageIngestionClient, usageReportTeamMatcher } from '~/common/usage-ingestion'
 import { PostgresRouter } from '~/common/utils/db/postgres'
@@ -8,6 +9,7 @@ import { getRedisHost } from '~/common/utils/db/redis'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
 import { TeamManager } from '~/common/utils/team-manager'
+import { InternalLogsProducer, InternalLogsProducerConfig } from '~/logs/internal-logs-producer'
 
 import type { CommonConfig } from '../common/config'
 import { InternalCaptureService } from '../common/services/internal-capture'
@@ -30,8 +32,10 @@ import { InvocationResultsService } from './services/invocation-results.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { HogFunctionTemplateManagerService } from './services/managers/hog-function-template-manager.service'
 import { IntegrationManagerService } from './services/managers/integration-manager.service'
+import { PersonsManagerService } from './services/managers/persons-manager.service'
 import { RecipientsManagerService } from './services/managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
+import { EmailStatusService } from './services/messaging/email-status.service'
 import { EmailSuppressionService } from './services/messaging/email-suppression.service'
 import { EmailValidationService } from './services/messaging/email-validation.service'
 import { EmailService, parseTeamEmailCapMode, parseTierCaps } from './services/messaging/email.service'
@@ -92,9 +96,11 @@ export interface CdpCoreServices {
     hogInputsService: HogInputsService
     hogFunctionTemplateManager: HogFunctionTemplateManagerService
     hogFlowFunctionsService: HogFlowFunctionsService
+    personsManager: PersonsManagerService
     recipientsManager: RecipientsManagerService
     recipientPreferencesService: RecipientPreferencesService
     emailSuppressionService: EmailSuppressionService
+    emailValidationService: EmailValidationService
     teamWorkflowsConfigService: TeamWorkflowsConfigService
     /** Point lookups for realtime/behavioral cohort membership (behavioral cohorts DB). */
     cohortMembershipRepository: CohortMembershipRepository
@@ -114,6 +120,8 @@ export interface CdpCoreServices {
     emailService: EmailService
     /** Buffers rendered-email asset rows and bulk-flushes them at the batch boundary. */
     messageAssetsService: MessageAssetsService
+    /** Buffers transactional email status rows. `invocationResultsService.flush()` produces them. */
+    emailStatusService: EmailStatusService
 }
 
 export type CdpCoreServicesConfig = Pick<
@@ -158,6 +166,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS'
         | 'CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS'
         | 'CDP_HOGFLOW_AWAITED_STEPS_ENABLED'
+        | 'CDP_INTERNAL_LOGS_SOURCES'
         | 'SES_ACCESS_KEY_ID'
         | 'SES_SECRET_ACCESS_KEY'
         | 'SES_REGION'
@@ -184,19 +193,24 @@ export type CdpCoreServicesConfig = Pick<
         | 'HOG_INVOCATION_RESULTS_ENABLED'
         | 'MESSAGE_ASSETS_TOPIC'
         | 'MESSAGE_ASSETS_PRODUCER'
+        | 'EMAIL_STATUS_TOPIC'
+        | 'EMAIL_STATUS_PRODUCER'
+        | 'EMAIL_STATUS_ENABLED'
         | 'CDP_WAREHOUSE_SOURCE_WEBHOOKS_TOPIC'
         | 'CDP_WAREHOUSE_SOURCE_WEBHOOKS_PRODUCER'
         | 'CDP_DLQ_ENABLED'
         | 'CDP_DLQ_BATCH_FAIL_RATIO'
         | 'CDP_EVENTS_DLQ_TOPIC'
         | 'CDP_EVENTS_DLQ_PRODUCER'
-    >
+    > &
+    InternalLogsProducerConfig
 
 export interface CdpCoreServicesDeps {
     postgres: PostgresRouter
     pubSub: PubSub
     encryptedFields: EncryptedFields
     teamManager: TeamManager
+    personRepository: PersonReadRepository
     integrationManager: IntegrationManagerService
     /** Registry of producers backing the CDP outputs (DEFAULT / MSK / Warpstream-ingestion / Warehouse). */
     cdpProducerRegistry: KafkaProducerRegistry<CdpProducerName>
@@ -430,6 +444,7 @@ export function createCdpCoreServices(
     const teamWorkflowsConfigService = new TeamWorkflowsConfigService(deps.postgres, deps.pubSub)
     const outputs = createCdpOutputsRegistry().build(deps.cdpProducerRegistry, config)
     const messageAssetsService = new MessageAssetsService(outputs)
+    const emailStatusService = new EmailStatusService(outputs, config)
     // Constructed here (rather than below with the other messaging services) so it can be threaded
     // into EmailService — the pre-send suppression check lives there so every send path shares one
     // choke point regardless of whether the invocation came from a workflow action or a hog function.
@@ -437,6 +452,7 @@ export function createCdpCoreServices(
         transientBounceThreshold: config.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD,
     })
     const recipientsManager = new RecipientsManagerService(deps.postgres)
+    const personsManager = new PersonsManagerService(deps.teamManager, deps.personRepository, config.SITE_URL)
     // Per-workflow send pacing rides the SES Valkey pool, which is only populated on pods that
     // execute email actions — exactly where the limit is enforced. Null elsewhere disables it.
     const workflowEmailRateLimiter = deps.emailValidationValkey
@@ -466,6 +482,7 @@ export function createCdpCoreServices(
         trackingCodeSigner,
         emailSuppressionService,
         recipientsManager,
+        emailStatusService,
         messageAssetsService,
         workflowEmailRateLimiter,
         teamEmailRateLimiter
@@ -484,6 +501,7 @@ export function createCdpCoreServices(
         },
         // Valkey-only: push is pre-release, so it moved over whole rather than dual-writing.
         valkeyShadow.writer,
+        personsManager,
         messageAssetsService
     )
 
@@ -525,7 +543,11 @@ export function createCdpCoreServices(
         recipientsManager,
         emailSuppressionService,
         deps.frequencyCapValkey
-            ? { teamWorkflowsConfig: teamWorkflowsConfigService, valkey: deps.frequencyCapValkey }
+            ? {
+                  teamWorkflowsConfig: teamWorkflowsConfigService,
+                  valkey: deps.frequencyCapValkey,
+                  persons: personsManager,
+              }
             : undefined
     )
     // MX verdicts live on the dedicated SES Valkey (same instance as the SES rate
@@ -546,12 +568,22 @@ export function createCdpCoreServices(
         emailValidationService,
         cohortMembershipRepository,
         deps.integrationManager,
+        emailStatusService,
         hogFlowDuplicateObserver,
         cdpUsageReporter,
         { awaitedStepsEnabled: config.CDP_HOGFLOW_AWAITED_STEPS_ENABLED }
     )
 
-    const hogFunctionMonitoringService = new HogFunctionMonitoringService(outputs)
+    const internalLogsSources = new Set(
+        config.CDP_INTERNAL_LOGS_SOURCES.split(',')
+            .map((source) => source.trim())
+            .filter(Boolean)
+    )
+    const hogFunctionMonitoringService = new HogFunctionMonitoringService(
+        outputs,
+        internalLogsSources.size > 0 ? new InternalLogsProducer(config, deps.teamManager) : undefined,
+        internalLogsSources
+    )
     const hogInvocationResultsService = new HogInvocationResultsService(outputs, config)
     const warehouseWebhooksService = new WarehouseWebhooksService(outputs)
     const capturedEventsService = new CapturedEventsService(deps.internalCaptureService, deps.teamManager)
@@ -565,7 +597,8 @@ export function createCdpCoreServices(
         warehouseWebhooksService,
         capturedEventsService,
         messageAssetsService,
-        conversionWatchersService
+        conversionWatchersService,
+        emailStatusService
     )
 
     const nativeDestinationExecutorService = new NativeDestinationExecutorService(config)
@@ -582,9 +615,11 @@ export function createCdpCoreServices(
         hogInputsService,
         hogFunctionTemplateManager,
         hogFlowFunctionsService,
+        personsManager,
         recipientsManager,
         recipientPreferencesService,
         emailSuppressionService,
+        emailValidationService,
         teamWorkflowsConfigService,
         cohortMembershipRepository,
         hogFlowExecutor,
@@ -599,5 +634,6 @@ export function createCdpCoreServices(
         outputs,
         emailService,
         messageAssetsService,
+        emailStatusService,
     }
 }

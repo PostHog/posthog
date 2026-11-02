@@ -5,9 +5,12 @@ from typing import Any, Optional
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -102,7 +105,7 @@ class SnowplowClient:
     def _org_base_url(self) -> str:
         return f"{SNOWPLOW_BASE_URL}/organizations/{self._organization_id}"
 
-    @retry(
+    @retry_with_deadline(
         retry=retry_if_exception_type(
             (
                 SnowplowRetryableError,
@@ -139,7 +142,7 @@ class SnowplowClient:
             raise SnowplowAuthError("Snowplow API authentication failed: the token response had no access token.")
         return token
 
-    @retry(
+    @retry_with_deadline(
         retry=retry_if_exception_type(
             (
                 SnowplowRetryableError,

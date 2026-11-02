@@ -1,10 +1,10 @@
 from dataclasses import dataclass, field
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=True)
 class PerigonEndpointConfig:
     name: str
     path: str
@@ -22,6 +22,10 @@ class PerigonEndpointConfig:
     # style field — those rewrite partitions on every sync.
     partition_key: Optional[str] = None
     sort_mode: Literal["asc", "desc"] = "asc"
+    # Fixed query params the endpoint needs on every request (required sort order, bucket size).
+    extra_params: dict[str, Any] = field(default_factory=dict)
+    # False for aggregate endpoints that return every row in one response with no paging.
+    paginated: bool = True
 
 
 _ARTICLE_INCREMENTAL_FIELDS: list[IncrementalField] = [
@@ -38,6 +42,24 @@ _STORY_INCREMENTAL_FIELDS: list[IncrementalField] = [
         "label": "updatedAt",
         "type": IncrementalFieldType.DateTime,
         "field": "updatedAt",
+        "field_type": IncrementalFieldType.DateTime,
+    },
+]
+
+_STORY_HISTORY_INCREMENTAL_FIELDS: list[IncrementalField] = [
+    {
+        "label": "createdAt",
+        "type": IncrementalFieldType.DateTime,
+        "field": "createdAt",
+        "field_type": IncrementalFieldType.DateTime,
+    },
+]
+
+_WIKIPEDIA_INCREMENTAL_FIELDS: list[IncrementalField] = [
+    {
+        "label": "wikiRevisionTs",
+        "type": IncrementalFieldType.DateTime,
+        "field": "wikiRevisionTs",
         "field_type": IncrementalFieldType.DateTime,
     },
 ]
@@ -108,6 +130,54 @@ PERIGON_ENDPOINTS: dict[str, PerigonEndpointConfig] = {
         path="/v1/topics/all",
         data_selector="data",
         primary_keys=["id"],
+    ),
+    # One row per story summary refresh. A record has no id of its own, so the key is the
+    # story plus the refresh time. Like stories, the only documented sort is newest-first.
+    "story_history": PerigonEndpointConfig(
+        name="story_history",
+        path="/v1/stories/history",
+        data_selector="results",
+        primary_keys=["clusterId", "createdAt"],
+        incremental_fields=_STORY_HISTORY_INCREMENTAL_FIELDS,
+        incremental_param="from",
+        incremental_sort_by="createdAt",
+        full_refresh_sort_by="createdAt",
+        partition_key="createdAt",
+        sort_mode="desc",
+    ),
+    # Daily story counts across the whole corpus. The API returns every bucket in one
+    # response, so the page/size params do not apply. Recent buckets keep growing as new
+    # stories arrive, so the table syncs as full refresh.
+    "story_stats": PerigonEndpointConfig(
+        name="story_stats",
+        path="/v1/stories/stats",
+        data_selector="results",
+        primary_keys=["date"],
+        extra_params={"splitBy": "day"},
+        paginated=False,
+    ),
+    # The API rejects a source group list request without sortBy and sortOrder.
+    "source_groups": PerigonEndpointConfig(
+        name="source_groups",
+        path="/v1/api/sourceGroups",
+        data_selector="data",
+        primary_keys=["id"],
+        full_refresh_sort_by="id",
+        extra_params={"sortOrder": "asc"},
+    ),
+    # Wikipedia pages. `wikiRevisionFrom` filters on the last edit time and `revisionTsAsc`
+    # is a documented ascending sort on the same field. The revision time changes on each
+    # edit, so it is not a partition key.
+    "wikipedia": PerigonEndpointConfig(
+        name="wikipedia",
+        path="/v1/wikipedia/all",
+        data_selector="results",
+        primary_keys=["id"],
+        incremental_fields=_WIKIPEDIA_INCREMENTAL_FIELDS,
+        incremental_param="wikiRevisionFrom",
+        incremental_sort_by="revisionTsAsc",
+        full_refresh_sort_by="revisionTsAsc",
+        sort_mode="asc",
     ),
 }
 

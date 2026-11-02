@@ -445,8 +445,48 @@ class TestDataModelingJobViewSetAccessControl(WarehouseAccessControlTestMixin):
 
     resource = "warehouse_objects"
 
+    def setUp(self):
+        super().setUp()
+        self.saved_queries = {
+            label: DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=f"{label}_view",
+                query={"kind": "HogQLQuery", "query": "select 1"},
+                created_by=self.user,
+            )
+            for label in ("allowed", "blocked")
+        }
+        self.jobs = {
+            label: DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=saved_query,
+                status="Running",
+                engine="managed_warehouse",
+                workflow_id=f"materialize-{label}",
+                error=f"{label}_error",
+            )
+            for label, saved_query in self.saved_queries.items()
+        }
+        for label, saved_query in self.saved_queries.items():
+            DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=saved_query,
+                status="Completed",
+                engine="managed_warehouse",
+                workflow_id=f"materialize-{label}-completed",
+                error=f"{label}_completed_error",
+            )
+
     def _list_url(self) -> str:
         return f"/api/environments/{self.team.pk}/data_modeling_jobs/"
+
+    def _deny_blocked_query(self) -> None:
+        self._create_access_control(
+            self.viewer_user,
+            resource="warehouse_view",
+            resource_id=str(self.saved_queries["blocked"].id),
+            access_level="none",
+        )
 
     def test_viewer_can_list(self):
         self._create_access_control(self.viewer_user, access_level="viewer")
@@ -461,6 +501,53 @@ class TestDataModelingJobViewSetAccessControl(WarehouseAccessControlTestMixin):
 
         response = self.client.get(self._list_url())
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @parameterized.expand(
+        [
+            ("list", ""),
+            ("running", "running/"),
+            ("recent", "recent/"),
+        ]
+    )
+    def test_collections_exclude_jobs_for_denied_saved_queries(self, _name: str, action_path: str):
+        self._create_access_control(self.viewer_user, access_level="viewer")
+        self._deny_blocked_query()
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.get(f"{self._list_url()}{action_path}?all_engines=true")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        rows = response.json()["results"] if action_path == "" else response.json()
+        self.assertGreater(len(rows), 0)
+        self.assertEqual({row["saved_query_id"] for row in rows}, {str(self.saved_queries["allowed"].id)})
+        self.assertNotIn("blocked_error", response.content.decode())
+
+    def test_detail_excludes_a_job_for_a_denied_saved_query(self):
+        self._create_access_control(self.viewer_user, access_level="viewer")
+        self._deny_blocked_query()
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.get(f"{self._list_url()}{self.jobs['blocked'].id}/?all_engines=true")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_specific_saved_query_grant_filters_jobs_when_project_default_is_none(self):
+        self._create_project_default(access_level="none")
+        self._create_access_control(
+            self.viewer_user,
+            resource="warehouse_view",
+            resource_id=str(self.saved_queries["allowed"].id),
+            access_level="viewer",
+        )
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.get(f"{self._list_url()}?all_engines=true")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {row["saved_query_id"] for row in response.json()["results"]},
+            {str(self.saved_queries["allowed"].id)},
+        )
 
 
 @pytest.mark.ee

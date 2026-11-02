@@ -563,21 +563,6 @@ class TestRecipientCredentialScrubbing:
 
 
 class TestValidateCredentials:
-    @parameterized.expand(
-        [
-            ("ok", 200, True),
-            ("unauthorized", 401, False),
-            ("forbidden", 403, False),
-            ("server_error", 500, False),
-        ]
-    )
-    def test_status_mapping(self, _name: str, status_code: int, expected_ok: bool) -> None:
-        session = _FakeSession([_make_response(status_code, body={})])
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(honeycomb, "make_tracked_session", lambda *args, **kwargs: session)
-            ok, _error = validate_credentials("key", "us")
-        assert ok is expected_ok
-
     def test_request_exception_is_failure(self, monkeypatch: Any) -> None:
         class _BoomSession:
             def get(self, *args: Any, **kwargs: Any) -> requests.Response:

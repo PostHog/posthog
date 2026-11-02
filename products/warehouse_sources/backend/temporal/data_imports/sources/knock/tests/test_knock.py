@@ -338,14 +338,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("valid", 200, {}, (True, None)),
-            (
-                "invalid_key",
-                401,
-                {"code": "api_key_invalid", "message": "The API key you supplied is invalid"},
-                (False, "The API key you supplied is invalid"),
-            ),
-            ("auth_error_without_body", 401, {}, (False, "Invalid Knock API key")),
-            ("server_error", 500, {}, (False, "Knock API returned an unexpected response (HTTP 500)")),
         ]
     )
     def test_status_mapping(

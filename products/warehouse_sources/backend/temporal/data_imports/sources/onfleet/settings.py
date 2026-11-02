@@ -4,13 +4,16 @@ from typing import Optional
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=True)
 class OnfleetEndpointConfig:
     name: str
     path: str
     # Only `/tasks/all` is paginated (cursor via `lastId`, 64 rows/page). Every other list
     # endpoint returns the full collection as a bare JSON array in a single response.
     paginated: bool = False
+    # `/routePlans` has no cursor and caps each response at 500 rows, so it is walked in
+    # `createdTimeFrom`/`createdTimeTo` windows instead.
+    created_time_windowed: bool = False
     # Key wrapping the row array on the paginated endpoint (e.g. {"lastId": ..., "tasks": [...]}).
     data_key: Optional[str] = None
     # `/organization` returns a single object rather than an array.
@@ -23,10 +26,11 @@ class OnfleetEndpointConfig:
 # Onfleet timestamps are UNIX epoch **milliseconds** stored as integers, so candidate incremental
 # fields are integers even though the UI presents them as datetimes.
 #
-# Only `/tasks/all` exposes a server-side time filter (`from`/`to`, epoch ms). `from` filters on a
+# `/tasks/all` exposes a server-side time filter (`from`/`to`, epoch ms). `from` filters on a
 # task's creation time (completion time for tasks in the `completed` state) and results are always
-# sorted ascending by creation time, so incremental sync anchors on `timeCreated`. Every other
-# endpoint returns a bare array with no time filter and no pagination, so those are full refresh.
+# sorted ascending by creation time, so incremental sync anchors on `timeCreated`. `/routePlans`
+# filters on creation time too (`createdTimeFrom`/`createdTimeTo`). Every other endpoint returns a
+# bare array with no time filter and no pagination, so those are full refresh.
 #
 # Partitioning is intentionally left off: the datetime partitioner interprets an integer partition
 # key as epoch *seconds*, which would misbucket Onfleet's epoch-*millisecond* timestamps.
@@ -36,6 +40,19 @@ ONFLEET_ENDPOINTS: dict[str, OnfleetEndpointConfig] = {
         path="/tasks/all",
         paginated=True,
         data_key="tasks",
+        incremental_fields=[
+            {
+                "label": "timeCreated",
+                "type": IncrementalFieldType.DateTime,
+                "field": "timeCreated",
+                "field_type": IncrementalFieldType.Integer,
+            },
+        ],
+    ),
+    "route_plans": OnfleetEndpointConfig(
+        name="route_plans",
+        path="/routePlans",
+        created_time_windowed=True,
         incremental_fields=[
             {
                 "label": "timeCreated",

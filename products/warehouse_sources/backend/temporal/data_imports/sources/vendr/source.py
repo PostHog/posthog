@@ -49,7 +49,7 @@ class VendrSource(ResumableSource[VendrSourceConfig, VendrResumeConfig]):
             name=ExternalDataSourceType.VENDR,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Vendr (OpenPrice API)",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="Sync Vendr's OpenPrice software catalog: companies, products, product "
             "families, and categories. Access is partnership-gated - email "
             "[developers@vendr.com](mailto:developers@vendr.com) to request an API key.",

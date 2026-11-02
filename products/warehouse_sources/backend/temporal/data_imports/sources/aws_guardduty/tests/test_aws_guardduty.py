@@ -414,10 +414,12 @@ def test_findings_validation_checks_hydration_permission(config: AwsGuarddutySou
     assert network.requests_log[-1].path.endswith("/findings/get")
 
 
-def test_server_errors_propagate_from_validation(config: AwsGuarddutySourceConfig) -> None:
+def test_server_errors_report_an_unreachable_vendor(config: AwsGuarddutySourceConfig) -> None:
     with scripted_network(always(ScriptedResponse(status=500, json={"__type": "InternalServerErrorException"}))):
-        with pytest.raises(AwsGuarddutyError, match="InternalServerErrorException"):
-            validate_credentials(config, VERSION)
+        assert validate_credentials(config, VERSION) == (
+            False,
+            "Couldn't reach AWS GuardDuty to check your credentials. Try again in a few minutes.",
+        )
 
 
 @pytest.mark.parametrize(

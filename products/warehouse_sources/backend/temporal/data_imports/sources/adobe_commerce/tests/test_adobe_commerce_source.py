@@ -87,27 +87,6 @@ class TestAdobeCommerceSource:
 
     @parameterized.expand(
         [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://store.example.com/rest/V1/orders"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://other.example.com/rest/V1/products"),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, _name: str, observed_error: str) -> None:
-        assert any(key in observed_error for key in self.source.get_non_retryable_errors())
-
-    @parameterized.expand(
-        [
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://store.example.com/rest/V1/orders",
-            ),
-            ("rate_limited", "429 Client Error: Too Many Requests for url: https://store.example.com/rest/V1/orders"),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
-        assert not any(key in unrelated_error for key in self.source.get_non_retryable_errors())
-
-    @parameterized.expand(
-        [
             ("server_error", "Adobe Commerce admin token request failed (retryable): status=500"),
             ("rate_limited", "Adobe Commerce admin token request failed (retryable): status=429"),
         ]

@@ -6,6 +6,7 @@ export type ExceptionCardLogicProps = {
     issueId: string
     loading: boolean
     logicKey?: string
+    onShowOnlyWithRecording?: () => void
 }
 
 export type ExceptionCardTab = 'stack_trace' | 'properties' | 'timeline' | 'recording' | 'logs'
@@ -19,6 +20,7 @@ export interface exceptionCardLogicValues {
     issueId: string
     loading: boolean
     logsScope: ExceptionLogsScope
+    onShowOnlyWithRecording: (() => void) | null
     propertyNameFilter: string
     showJSONProperties: boolean
 }
@@ -52,6 +54,7 @@ export interface exceptionCardLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         issueId: (issueId: string) => string
         loading: (loading: boolean) => boolean
+        onShowOnlyWithRecording: (arg: any) => (() => void) | null
     }
 }
 
@@ -123,6 +126,10 @@ export const exceptionCardLogic = kea<exceptionCardLogicType>([
     selectors({
         issueId: [(_, p) => [p.issueId], (issueId: string) => issueId],
         loading: [(_, p) => [p.loading], (loading: boolean) => loading],
+        onShowOnlyWithRecording: [
+            () => [(_, props) => props.onShowOnlyWithRecording],
+            (onShowOnlyWithRecording: (() => void) | undefined): (() => void) | null => onShowOnlyWithRecording ?? null,
+        ],
     }),
 
     listeners(({ props }) => ({

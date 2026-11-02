@@ -74,7 +74,7 @@ class UpPromoteSource(
             name=ExternalDataSourceType.UPPROMOTE,
             category=DataWarehouseSourceCategory.ADVERTISING,
             label="UpPromote",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Enter your UpPromote API key to pull your affiliate programs, affiliates, "
                 "referrals, coupons, and payments into the PostHog Data warehouse.\n\n"

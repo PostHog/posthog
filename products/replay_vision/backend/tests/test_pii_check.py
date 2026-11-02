@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, patch
 from google.genai import errors as genai_errors
 from parameterized import parameterized
 
+from products.ml_inference.backend.facade.contracts import DecisionGatewayError, DecisionResult, NoulAnswer
 from products.replay_vision.backend.error_kinds import FailureKind
 from products.replay_vision.backend.temporal import pii_check
 from products.replay_vision.backend.temporal.errors import ScannerFailureError
@@ -81,3 +82,34 @@ async def test_a_provider_refusal_of_the_rewrite_fails_the_observation() -> None
     with pytest.raises(ScannerFailureError) as raised:
         await _check(f"(t 12) {_SUBJECT} paid.", False, rewrite_error=_refusal("googleapis.com"))
     assert raised.value.kind == FailureKind.PII_DETECTED
+
+
+@parameterized.expand(
+    [
+        ("name_only", 0.9, 0.1, True),
+        ("contact_only", 0.1, 0.9, True),
+        ("neither", 0.1, 0.1, False),
+        ("both_just_below_the_bar", 0.39, 0.39, False),
+    ]
+)
+def test_contains_pii_flags_when_either_question_clears_the_bar(
+    _name: str, name: float, contact: float, expected: bool
+) -> None:
+    result = DecisionResult(
+        model=pii_check.PII_CHECK_MODEL,
+        answers={"name": NoulAnswer(probability=name), "contact": NoulAnswer(probability=contact)},
+        input_tokens=1,
+    )
+    with (
+        patch.object(pii_check.decision_api, "decisions_available_here", return_value=True),
+        patch.object(pii_check.decision_api, "decide_when_available", return_value=result),
+    ):
+        assert pii_check.contains_pii(team_id=1, text={"reasoning": _CLEAN}, trace_id="t") is expected
+
+
+def test_contains_pii_is_unknown_when_the_gateway_fails() -> None:
+    with (
+        patch.object(pii_check.decision_api, "decisions_available_here", return_value=True),
+        patch.object(pii_check.decision_api, "decide_when_available", side_effect=DecisionGatewayError(503, "busy")),
+    ):
+        assert pii_check.contains_pii(team_id=1, text={"reasoning": _CLEAN}, trace_id="t") is None

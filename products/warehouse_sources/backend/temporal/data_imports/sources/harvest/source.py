@@ -122,7 +122,7 @@ class HarvestSource(ResumableSource[HarvestSourceConfig, HarvestResumeConfig]):
             name=ExternalDataSourceType.HARVEST,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Harvest",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["time tracking", "timesheets", "invoicing"],
             caption="""Enter your Harvest account ID and a personal access token to sync your time tracking and invoicing data into the PostHog Data warehouse.
 

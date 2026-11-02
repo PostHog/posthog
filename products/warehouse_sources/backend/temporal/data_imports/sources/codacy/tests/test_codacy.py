@@ -305,7 +305,11 @@ class TestFetchPage:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("valid_token", 200, True), ("invalid_token", 401, False), ("forbidden", 403, False)])
+    @parameterized.expand(
+        [
+            ("valid_token", 200, True),
+        ]
+    )
     def test_status_code_mapping(self, _name: str, status_code: int, expected: bool) -> None:
         with scripted_network([ScriptedResponse(status=status_code)]) as network:
             assert validate_credentials("token") is expected

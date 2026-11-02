@@ -63,7 +63,7 @@ class FireHydrantSource(ResumableSource[FireHydrantSourceConfig, FireHydrantResu
             name=ExternalDataSourceType.FIREHYDRANT,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="FireHydrant",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your FireHydrant API key to pull your incident management data into the PostHog Data warehouse.
 
 You can create a bot token or personal API key in your [FireHydrant API keys settings](https://app.firehydrant.io/organizations/api_keys). Bot tokens are recommended for automation that isn't tied to a specific user.""",

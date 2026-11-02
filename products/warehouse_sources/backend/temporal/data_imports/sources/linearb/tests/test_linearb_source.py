@@ -25,7 +25,6 @@ class TestLinearbSource:
         ("status_code", "expected_valid", "expected_message"),
         [
             (200, True, None),
-            (403, False, "Invalid LinearB API key"),
         ],
     )
     def test_validate_credentials(

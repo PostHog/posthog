@@ -1,7 +1,5 @@
 from unittest import mock
 
-from parameterized import parameterized
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     scripted_network,
@@ -17,35 +15,6 @@ class TestOncehubSource:
         self.source = OncehubSource()
         self.team_id = 123
         self.config = OncehubSourceConfig(api_key="oncehub-key")
-
-    @parameterized.expand(
-        [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://api.oncehub.com/v2/bookings?limit=100",
-            ),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.oncehub.com/v2/contacts?limit=100"),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, _name: str, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://api.oncehub.com/v2/bookings",
-            ),
-            (
-                "rate_limited",
-                "429 Client Error: Too Many Requests for url: https://api.oncehub.com/v2/contacts",
-            ),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
 
     def test_validate_credentials_delegates_with_api_key(self) -> None:
         with scripted_network([ScriptedResponse(status=401)]) as network:

@@ -1,5 +1,6 @@
 import uuid
 import asyncio
+import dataclasses
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import timedelta
@@ -251,6 +252,7 @@ async def test_dispatch_selects_one_workflow_type_and_keeps_stable_segment_ids(
     with (
         patch(f"{_MODULE}.async_connect", return_value=client),
         patch(f"{_MODULE}.account_property_sync_fanout_enabled", return_value=fanout_enabled) as flag,
+        patch(f"{_MODULE}.get_account_property_sync_source_concurrency", return_value=8) as concurrency_flag,
         patch(
             "products.customer_analytics.backend.logic.account_property_sync_monitoring.ph_background_capture"
         ) as capture_factory,
@@ -265,6 +267,9 @@ async def test_dispatch_selects_one_workflow_type_and_keeps_stable_segment_ids(
     calls = client.start_workflow.await_args_list
     assert [call.args[0] for call in calls] == [workflow_name, workflow_name]
     assert [call.args[1].segment for call in calls] == ["tracked", "ignored"]
+    assert concurrency_flag.call_count == (1 if fanout_enabled else 0)
+    expected_concurrency = 8 if fanout_enabled else 3
+    assert [call.args[1].source_concurrency for call in calls] == [expected_concurrency, expected_concurrency]
     # Both workflow types share these IDs, so a retry after a flag change finds the running segment.
     assert [call.kwargs["id"] for call in calls] == [
         "sync-warehouse-account-properties-job-1-tracked",
@@ -411,7 +416,14 @@ async def _wait(event: asyncio.Event) -> None:
     await asyncio.wait_for(event.wait(), timeout=5)
 
 
-async def test_fanout_runs_sources_in_parallel_up_to_the_cap() -> None:
+@pytest.mark.parametrize(
+    "segment_input,cap",
+    [
+        (_segment_input(), 3),
+        (dataclasses.replace(_segment_input(), source_concurrency=2), 2),
+    ],
+)
+async def test_fanout_runs_sources_in_parallel_up_to_the_cap(segment_input: AccountPropertySyncInput, cap: int) -> None:
     source_ids = ["source-1", "source-2", "source-3", "source-4", "source-5"]
     fake = _FakeFanoutActivities(source_ids)
 
@@ -419,21 +431,21 @@ async def test_fanout_runs_sources_in_parallel_up_to_the_cap() -> None:
         patch.object(workflow, "execute_activity", new=fake.execute_activity),
         patch.object(workflow, "time", side_effect=[100.0, 145.0]),
     ):
-        run = asyncio.create_task(SyncWarehouseAccountPropertiesFanoutWorkflow().run(_segment_input()))
-        await _wait(fake.started["source-3"])
-        assert fake.started_sources() == ["source-1", "source-2", "source-3"]
+        run = asyncio.create_task(SyncWarehouseAccountPropertiesFanoutWorkflow().run(segment_input))
+        await _wait(fake.started[source_ids[cap - 1]])
+        assert fake.started_sources() == source_ids[:cap]
 
         fake.results["source-2"].set_result(dict(_FANOUT_COUNTS))
-        await _wait(fake.started["source-4"])
-        assert fake.in_flight == 3
-        assert fake.started_sources() == ["source-1", "source-2", "source-3", "source-4"]
+        await _wait(fake.started[source_ids[cap]])
+        assert fake.in_flight == cap
+        assert fake.started_sources() == source_ids[: cap + 1]
 
-        for source_id in ("source-1", "source-3", "source-4", "source-5"):
+        for source_id in source_ids:
             if not fake.results[source_id].done():
                 fake.results[source_id].set_result(dict(_FANOUT_COUNTS))
         await asyncio.wait_for(run, timeout=5)
 
-    assert fake.max_in_flight == 3
+    assert fake.max_in_flight == cap
     complete = complete_warehouse_account_property_segment_activity.__name__
     assert fake.log.count(complete) == 1
     assert all(fake.log.index(f"completed:{source_id}") < fake.log.index(complete) for source_id in source_ids)

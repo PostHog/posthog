@@ -51,9 +51,9 @@ BAKE_MANIFEST=/opt/posthog/dev-stack-bake.json
 # the vendors' published manifests (go.dev/dl, static.rust-lang.org/rustup/archive) and
 # guard the privileged downloads below: a tampered artifact fails the bake instead of
 # being published into the shared internal image. Bump them together with the versions.
-GO_VERSION=1.25.5
-GO_SHA256_AMD64=9e9b755d63b36acf30c12a9a3fc379243714c1c6d3dd72861da637f336ebb35b
-GO_SHA256_ARM64=b00b694903d126c588c378e72d3545549935d3982635ba3f7a964c9fa23fe3b9
+GO_VERSION=1.26.10
+GO_SHA256_AMD64=ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5
+GO_SHA256_ARM64=3f4227ce7b206a513e794f1393adb473a07b46e94d18bd15d1c684bbb7319797
 RUSTUP_VERSION=1.29.0
 RUSTUP_SHA256_AMD64=4acc9acc76d5079515b46346a485974457b5a79893cfb01112423c89aeb5aa10
 RUSTUP_SHA256_ARM64=9732d6c5e2a098d3521fca8145d826ae0aaa067ef2385ead08e6feac88fa5792
@@ -62,6 +62,8 @@ PROTOC_VERSION=28.3
 PROTOC_SHA256_AMD64=0ad949f04a6a174da83cdcbdb36dee0a4925272a5b6d83f79a6bf9852076d53f
 PROTOC_SHA256_ARM64=1de522032a8b194002fe35cab86d747848238b5e4de4f99648372079f5b46f9a
 SQLX_CLI_VERSION=0.8.3
+ACTIONLINT_VERSION=1.7.12
+SEMGREP_VERSION=1.175.0
 
 export RUSTUP_HOME=/opt/rust/rustup
 export CARGO_HOME=/opt/rust/cargo
@@ -107,6 +109,7 @@ log "installing dev toolchain (brotli, phrocs, go, rust)"
 # need their toolchains.
 apt-get update
 apt-get install -y --no-install-recommends brotli make unzip build-essential libssl-dev pkg-config cmake libclang-dev
+apt-get install -y --no-install-recommends ffmpeg shellcheck
 rm -rf /var/lib/apt/lists/*
 
 case "$(uname -m)" in
@@ -136,6 +139,19 @@ echo "${GO_SHA256}  /tmp/go.tar.gz" | sha256sum -c -
 tar -xzf /tmp/go.tar.gz -C /usr/local
 rm /tmp/go.tar.gz
 ln -sf /usr/local/go/bin/go /usr/local/go/bin/gofmt /usr/local/bin/
+
+log "installing actionlint ${ACTIONLINT_VERSION} and semgrep ${SEMGREP_VERSION} (same pins as CI)"
+GOBIN=/usr/local/bin go install "github.com/rhysd/actionlint/cmd/actionlint@v${ACTIONLINT_VERSION}"
+actionlint -version
+UV_TOOL_DIR=/opt/uv-tools UV_TOOL_BIN_DIR=/opt/uv-tools/bin uv tool install "semgrep==${SEMGREP_VERSION}"
+printf '%s\n' \
+    '#!/bin/sh' \
+    'for name in HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy SSL_CERT_FILE SSL_CERT_DIR; do' \
+    '    eval "[ -n \"\${$name:-}\" ] || unset $name"' \
+    'done' \
+    'exec /opt/uv-tools/bin/semgrep "$@"' > /usr/local/bin/semgrep
+chmod +x /usr/local/bin/semgrep
+semgrep --version
 
 # phrocs is built from this checkout rather than downloaded via tools/phrocs/install.sh:
 # the phrocs-latest release that installer trusts is mutable and ships checksums.txt

@@ -1,6 +1,6 @@
 ---
 name: setting-up-devbox
-description: Starts, connects to, and troubleshoots a PostHog devbox, a remote Coder workspace for PostHog development that can also run the full stack, through `hogli devbox:*` commands. Use when asked to spin up or resume a devbox, open a shell or editor on it, run a command on it, mirror a local checkout to it (devbox:sync), run the PostHog app on it and share a link, clone, update, share, or free disk on a devbox, store gh or Claude Code tokens for it, or diagnose a failing devbox command (tailnet, DNS, Coder CLI version, SSH). Not for running the stack on the local machine or for changing the Coder template in posthog-cloud-infra.
+description: Starts, connects to, and troubleshoots a PostHog devbox, a remote Coder workspace for PostHog development that can also run the full stack, through `hogli devbox:*` commands. Use when asked to spin up or resume a devbox, open a shell or editor on it, run a command on it, mirror a local checkout to it (devbox:sync), give each git worktree its own box (devbox:worktree), run the PostHog app on it and share a link, clone, update, share, or free disk on a devbox, store gh or Claude Code tokens for it, or diagnose a failing devbox command (tailnet, DNS, Coder CLI version, SSH). Not for running the stack on the local machine or for changing the Coder template in posthog-cloud-infra.
 ---
 
 # Setting up a PostHog devbox
@@ -13,6 +13,22 @@ This skill covers the order of operations and what the help text leaves out.
 
 People use a box in different ways: a shell or editor for general development, a remote target for a local checkout, or a host for the running PostHog app.
 Work out which one the user wants, and don't start the PostHog stack unless they ask for the app.
+
+## Choosing an environment
+
+When the user asks whether a devbox is the right place for the work, compare it with the other two options:
+
+|                        | Local worktree                                                               | Devbox                                                                                                    | Tasks sandbox                                                                                                                                                                                                                                                                                                                       |
+| ---------------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Persistence after stop | Everything stays on the user's machine.                                      | `devbox:stop` keeps the disk, including `/home`. Only `devbox:destroy` deletes it.                        | The sandbox is destroyed after an idle timeout: 30 minutes for background runs, 1 hour for user-created runs, 10 minutes for PostHog AI runs, and at most 2 hours with a per-task override. Interactive Modal runs snapshot `/tmp/workspace` before cleanup so a follow-up can restore it. Files outside `/tmp/workspace` are lost. |
+| Context reset          | The user decides.                                                            | The user decides. Agent sessions on the box stay on its disk.                                             | Each task starts a new agent session. A follow-up on the same task resumes that session from the snapshot or the run log.                                                                                                                                                                                                           |
+| Provisioning steps     | Create a worktree. Install dependencies or start the stack only when needed. | `devbox:doctor` and `devbox:setup` once per machine, then `devbox:start`.                                 | One message creates the task. The backend provisions the sandbox, clones the repository, and starts the agent.                                                                                                                                                                                                                      |
+| MCP reach              | The MCP servers configured on the user's machine.                            | The MCP servers the user configures in Claude Code on the box.                                            | MCP Store installations: shared team installations, plus the user's personal installations for tasks they create. Built-in agent tasks get only the connections granted to that agent. PostHog Desktop can import or relay its own servers into a run.                                                                              |
+| Preview URL            | `localhost:8010`                                                             | Stable and PostHog-internal: `https://app--<workspace>--<coder-user>.<coder-host>`.                       | One URL per run, `/api/projects/<team>/tasks/<task>/runs/<run>/preview/`, on the dev-stack image. It works only while the sandbox runs.                                                                                                                                                                                             |
+| Cost                   | The user's machine.                                                          | An EC2 instance. Billing stops on `devbox:stop`.                                                          | Sandbox time is metered per run and counts against the team's PostHog Desktop usage limit.                                                                                                                                                                                                                                          |
+| Best for               | Work that does not need the running stack.                                   | Long-lived state, MCP servers outside the MCP Store, a stable preview link, and agent history on the box. | Bounded one-off work that benefits from a fresh context.                                                                                                                                                                                                                                                                            |
+
+A stopped box keeps its state, and `hogli devbox:start` (with `-n <label>` for a labeled box) resumes it.
 
 ## Get a box
 
@@ -57,6 +73,7 @@ This creates the box on first use and resumes it after a stop.
 It returns once the box's startup scripts finish, so the box is ready to connect to. `devbox:restart`, `devbox:update` and `devbox:clone` wait the same way. If a script fails or the wait gives up, the box still runs and hogli prints a warning that points to `hogli devbox:logs`.
 It brings up the PostHog stack only when the workspace has `--start-app` set, which is covered in [Run the PostHog app](#run-the-posthog-app).
 `--disk` (`100` or `200` GiB) applies only when the box is created.
+When AWS has no capacity for the box's instance type in its zone (`InsufficientInstanceCapacity`), hogli starts the box on the template's other instance types by itself and keeps the disk. There is nothing to pass.
 `--region` (`us-east-1` or `eu-central-1`) starts that region's default box and creates it if it doesn't exist, so leave it off when resuming an existing box.
 A box's region can't change.
 
@@ -74,10 +91,12 @@ Match what the user asked for:
 - **Commands from an agent:** `hogli devbox:exec`, described in [Run commands on the box](#run-commands-on-the-box).
 - **Edit locally, run on the box:** read [references/sync.md](references/sync.md) before using `hogli devbox:sync`.
 - **The running app:** follow [Run the PostHog app](#run-the-posthog-app).
+- **A box per git worktree:** follow [One devbox per worktree](#one-devbox-per-worktree).
 
 ### 5. Stop when done
 
 `hogli devbox:stop` keeps the disk and stops billing.
+It also pauses the box's `devbox:sync` mirror, and `devbox:start` resumes it.
 Stops, starts, and `devbox:update` keep `/home`.
 `hogli devbox:destroy` deletes it, so don't keep anything irreplaceable only on a box.
 
@@ -144,6 +163,40 @@ Coder runs the template's health check against the app, so read that status inst
 `hogli devbox:forward` is the alternative when the user wants `localhost`.
 It tunnels box port 8010 to `localhost:8010` and holds the terminal until stopped.
 Pass `--port 8011` when a local stack already uses 8010.
+
+## One devbox per worktree
+
+Use this when the user runs several local git worktrees and wants each one to run its stack on its own box.
+Run `hogli devbox:worktree` from inside the linked worktree, never through `devbox:exec`.
+
+```bash
+hogli devbox:worktree --dry-run                 # print the box and sync plan
+hogli devbox:worktree                           # start or create the box, then create the mirror
+hogli devbox:worktree --clone-from default -y   # create the box as a clone of a running box
+hogli devbox:worktree --on-clean stop           # save what worktrees:clean does with the box
+```
+
+- The label comes from the branch name, lowercased, with `/` and `_` turned into `-` and a leading `worktree-` dropped. Coder caps workspace names at 32 characters, so a long branch gets a shortened label with a 4-character hash. Pass `--label` to choose one.
+- hogli records the worktree path and box name in `~/.config/posthog/hogli_devbox_worktrees.json`. A re-run reuses that box, even after a branch rename, and keeps an existing mirror.
+- It refuses a derived label whose box already exists and is not recorded for this worktree, so it never takes over a box the user made by hand. Pass `--label <label>` to use that box on purpose. It always refuses a box recorded for another worktree.
+- `--clone-from` uses `devbox:clone`, so the source must be running and the clone asks for confirmation unless `-y` is passed. Pass `-y` only after the user agrees.
+- `hogli worktrees:clean --mode full --stop-boxes` stops the recorded box of each worktree it removes, and `--delete-boxes` deletes it with its disk. With neither flag, it uses the action saved by `--on-clean`, and `--keep-boxes` overrides that. It acts only on boxes in the record file, and skips a box that was recreated under the same name. A box it leaves alone is dropped from the record file, so a later run never touches it. `--dry-run` lists the boxes, and the confirmation prompt counts them.
+- A box whose worktree was already removed gets the same action on the next `worktrees:clean` run, within that run's `--repo` and `--source` selection. A moved or unmounted worktree does not count as removed.
+- Clear the saved action with `hogli devbox:config:rm worktree-boxes`.
+
+### Provision a box for every new worktree
+
+`hogli devbox:worktree --auto claude,phw` saves the worktree sources that get a box automatically.
+The sources are `claude`, `codex`, `posthog-code`, `phw`, and `other` for a worktree outside those folders.
+It only saves the setting, so run it from any checkout.
+After that, the husky `post-checkout` hook runs `hogli devbox:worktree -y` in the background each time `git worktree add` creates a worktree from one of those sources.
+That covers `claude -w`, Codex, PostHog Desktop, `phw`, and a plain `git worktree add`.
+
+- Claude subagent worktrees (`.claude/worktrees/agent-*`) never get a box, so a fan-out of agents doesn't create one box per agent.
+- The hook returns at once. Output goes to `hogli-devbox-worktree.log` in the worktree's git directory. Read it with `cat "$(git rev-parse --git-dir)/hogli-devbox-worktree.log"`.
+- The hook skips the box when the main checkout has no Python environment to borrow, or when this worktree's `uv.lock` differs from the main checkout's.
+- Turn it off with `hogli devbox:worktree --auto off` or `hogli devbox:config:rm worktree-auto`.
+- Boxes keep running until `hogli worktrees:clean` removes their worktree, so pair this with `--on-clean stop`.
 
 ## Other tasks
 

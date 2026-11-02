@@ -121,7 +121,7 @@ class AwsStepFunctionsSource(ResumableSource[AwsStepFunctionsSourceConfig, AwsSt
             ),
             iconPath="/static/services/aws_step_functions.png",
             docsUrl="https://posthog.com/docs/cdp/sources/aws-step-functions",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

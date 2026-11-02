@@ -54,7 +54,7 @@ class LobSource(ResumableSource[LobSourceConfig, LobResumeConfig]):
             name=ExternalDataSourceType.LOB,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Lob",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Lob secret API key to automatically pull your Lob data into the PostHog Data warehouse.
 
 You can find your API keys in your [Lob dashboard](https://dashboard.lob.com/settings/api-keys). Use a **secret** key (it starts with `live_` or `test_`) — publishable keys can only access address verification.

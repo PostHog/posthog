@@ -127,7 +127,7 @@ You can generate an API key in your Quo workspace settings, under the API tab. Y
             keywords=["openphone", "phone", "sms", "calls"],
             iconPath="/static/services/quo.png",
             docsUrl="https://posthog.com/docs/cdp/sources/quo",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

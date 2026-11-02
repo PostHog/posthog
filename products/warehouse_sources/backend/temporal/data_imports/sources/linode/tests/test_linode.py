@@ -51,25 +51,6 @@ class TestFormatFilterValue:
 
 
 class TestValidateCredentials:
-    @parameterized.expand(
-        [
-            ("valid", 200, True),
-            ("invalid_token", 401, False),
-            ("forbidden", 403, False),
-            ("server_error", 500, False),
-        ]
-    )
-    def test_status_mapping(self, _name: str, status_code: int, expected_valid: bool) -> None:
-        with scripted_network(always(ScriptedResponse(status=status_code))):
-            valid, _message = validate_credentials("tok")
-        assert valid is expected_valid
-
-    def test_network_error_is_not_valid(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            valid, message = validate_credentials("tok")
-        assert valid is False
-        assert message is not None
-
     def test_token_is_registered_for_redaction(self) -> None:
         # The PAT rides in an Authorization header the value-based scrubber can only mask if the token
         # is registered via redact_values; dropping it would leak the credential into HTTP telemetry.

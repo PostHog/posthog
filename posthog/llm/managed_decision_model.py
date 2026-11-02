@@ -9,7 +9,9 @@ import structlog
 import posthoganalytics
 from posthoganalytics.ai.prompts import PromptResult, Prompts
 
-DEFAULT_DECISION_MODEL = "posthog/hogference/jevk5-fp8-0.2"
+from posthog.models.utils import SECRET_API_TOKEN_PREFIX
+
+DEFAULT_DECISION_MODEL = "posthog/hogference/jeeves-0.1"
 PROMPT_LABEL = "production"
 PROMPT_REFRESH_SECONDS = 60
 
@@ -25,12 +27,35 @@ def app_prompts() -> Prompts:
     return Prompts(posthoganalytics, capture_errors=True, default_cache_ttl_seconds=0)
 
 
+@functools.cache
+def _warn_project_secret_key() -> None:
+    logger.warning(
+        "managed_prompt_fetch_skipped",
+        reason="POSTHOG_PERSONAL_API_KEY holds a project secret key, and prompt fetches need a personal API key",
+    )
+
+
+def prompt_key_configured() -> bool:
+    """True when the SDK has a key that the prompts API can accept."""
+    # Without a key (tests, local dev, self-hosted) the SDK still sends the request and gets a 401.
+    key = posthoganalytics.personal_api_key
+    if not key:
+        return False
+    # The SDK accepts a project secret key for flags, but the prompts API rejects it. Each rejected
+    # fetch captures an exception, so skip the fetch and keep the bundled prompt.
+    if key.startswith(SECRET_API_TOKEN_PREFIX):
+        _warn_project_secret_key()
+        return False
+    return True
+
+
 def get_app_prompt(prompt_name: str, *, version: int | None = None) -> PromptResult | None:
     """The `production` version, or `version` when given. None without a personal API key."""
-    # Without a key (tests, local dev, self-hosted) the SDK still sends the request and gets a 401.
-    if not posthoganalytics.personal_api_key:
+    if not prompt_key_configured():
         if version is not None:
-            raise RuntimeError(f"Reading {prompt_name} version {version} needs POSTHOG_PERSONAL_API_KEY")
+            raise RuntimeError(
+                f"Reading {prompt_name} version {version} needs a personal API key (phx_) in POSTHOG_PERSONAL_API_KEY"
+            )
         return None
     label = PROMPT_LABEL if version is None else None
     return app_prompts().get(prompt_name, with_metadata=True, label=label, version=version)

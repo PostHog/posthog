@@ -3,7 +3,7 @@ from typing import Any
 from uuid import UUID
 
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import Exists, OuterRef, Q, Subquery
+from django.db.models import Exists, OuterRef, Q, QuerySet, Subquery
 from django.utils import timezone
 
 import structlog
@@ -89,7 +89,7 @@ def set_batch_job_status(
     jobs.update(status=status, updated_at=timezone.now())
 
 
-def hog_flow_ids_with_broadcast_status(*, team_id: int, statuses: Collection[str]) -> list[UUID]:
+def filter_by_broadcast_status(queryset: QuerySet[HogFlow], statuses: Collection[str]) -> QuerySet[HogFlow]:
     # The status a sender sees on a broadcast, derived the way the broadcasts UI derives it: from the
     # latest run and whether a schedule still has sends to come.
     latest_run_status = (
@@ -97,7 +97,7 @@ def hog_flow_ids_with_broadcast_status(*, team_id: int, statuses: Collection[str
         .order_by("-created_at")
         .values("status")[:1]
     )
-    queryset = HogFlow.objects.filter(team_id=team_id).annotate(
+    queryset = queryset.annotate(
         _latest_run_status=Subquery(latest_run_status),
         _has_pending_schedule=Exists(
             HogFlowSchedule.objects.filter(
@@ -129,7 +129,31 @@ def hog_flow_ids_with_broadcast_status(*, team_id: int, statuses: Collection[str
     combined = Q()
     for broadcast_status in statuses:
         combined |= conditions[broadcast_status]
-    return list(queryset.filter(combined).values_list("id", flat=True))
+    return queryset.filter(combined)
+
+
+def hog_flow_ids_with_broadcast_status(*, team_id: int, statuses: Collection[str]) -> list[UUID]:
+    return list(
+        filter_by_broadcast_status(HogFlow.objects.filter(team_id=team_id), statuses).values_list("id", flat=True)
+    )
+
+
+def annotate_latest_send(queryset: QuerySet[HogFlow]) -> QuerySet[HogFlow]:
+    """Adds `_latest_send_at`: when the workflow's newest completed run finished, or null."""
+    latest_send = (
+        HogFlowBatchJob.objects.filter(
+            team_id=OuterRef("team_id"), hog_flow_id=OuterRef("pk"), status=HogFlowBatchJobState.COMPLETED
+        )
+        .order_by("-updated_at")
+        .values("updated_at")[:1]
+    )
+    return queryset.annotate(_latest_send_at=Subquery(latest_send))
+
+
+def delete_batch_jobs_for_teams(team_ids: Collection[int], batch_size: int = 1000) -> None:
+    jobs = HogFlowBatchJob.objects.filter(team_id__in=team_ids)
+    while batch_ids := list(jobs.values_list("id", flat=True)[:batch_size]):
+        jobs.filter(id__in=batch_ids).delete()
 
 
 REALTIME_COHORT_RESUMES = Counter(

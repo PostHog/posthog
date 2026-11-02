@@ -119,7 +119,7 @@ class BuildiumSource(ResumableSource[BuildiumSourceConfig, BuildiumResumeConfig]
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Buildium (RealPage)",
             iconPath="/static/services/buildium.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="Create an API key in Buildium under Settings > Developer Tools. "
             "Buildium requires a Premium subscription. Grant View access to the data you want to sync.",
             fields=cast(

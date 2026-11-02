@@ -50,7 +50,7 @@ class EverhourSource(ResumableSource[EverhourSourceConfig, EverhourResumeConfig]
             name=ExternalDataSourceType.EVERHOUR,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Everhour",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Everhour API key to pull your Everhour time-tracking data into the PostHog Data warehouse.
 
 You can find your API key in your [Everhour profile settings](https://app.everhour.com/#/account/profile) under the API section.

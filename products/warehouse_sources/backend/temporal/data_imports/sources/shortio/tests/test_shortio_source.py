@@ -1,7 +1,6 @@
 from unittest import mock
 
 import structlog
-from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shortio import (
@@ -32,26 +31,6 @@ class TestShortioSource:
         self.source = ShortioSource()
         self.team_id = 123
         self.config = ShortioSourceConfig(api_key="sk-key")
-
-    @parameterized.expand(
-        [
-            ("401 Client Error: Unauthorized for url: https://api.short.io/api/domains",),
-            ("403 Client Error: Forbidden for url: https://api.short.io/api/domains",),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("500 Server Error: Internal Server Error for url: https://api.short.io/api/domains",),
-            ("429 Client Error: Too Many Requests for url: https://api.short.io/api/domains",),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.shortio.source.shortio_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:

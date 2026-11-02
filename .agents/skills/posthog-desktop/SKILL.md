@@ -40,7 +40,7 @@ Step outside only when one of these is true:
    `.github/scripts/desktop/`, and the exclusion entries in `pnpm-workspace.yaml`,
    `pyproject.toml`, `pytest.ini`, `package.json` (`lint:css`), `frontend/jest.config.ts`,
    `.dockerignore`, `.oxlintrc.json`, `.oxfmtrc.json`, `.config/.markdownlint-cli2.jsonc`,
-   `.github/workflows/ci-{frontend,storybook,backend}.yml` (+ `.depot/workflows/ci-backend.yml`).
+   `.github/workflows/ci-{frontend,storybook}.yml`, `.depot/workflows/ci-backend.yml`.
    Touch these only to keep an exclusion correct; say so when you do.
 4. **The agent runtime changes.** `@posthog/agent`, `agent-contracts`, `enricher`, `git` and
    `harness` live in a sibling workspace at `packages/agent/` (same toolchain, own lockfile),

@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     SourceDriver,
     UnexpectedRequest,
     always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tally import TallySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.tally.settings import (
@@ -20,14 +19,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tally.sett
     SUBMISSION_FILTER_ALL,
     SUBMISSION_FILTER_COMPLETED,
     SUBMISSIONS_PAGE_SIZE,
+    TALLY_API_VERSION_2025_02_01,
+    TALLY_API_VERSION_2026_10_27,
     TALLY_BASE_URL,
+    TALLY_VERSION_HEADER,
     WEBHOOKS_PAGE_SIZE,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.tally.source import TallySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.tally.tally import (
-    TallyResumeConfig,
-    validate_credentials,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.tally.tally import TallyResumeConfig
 
 BASE = TALLY_BASE_URL
 FORMS_PAGE_1 = f"{BASE}/forms?limit={FORMS_PAGE_SIZE}&page=1"
@@ -141,6 +140,25 @@ class TestFanOut:
         result = _driver(submission_filter).run("submissions", _by_url(responses))
         assert result.requests[1].param("filter") == submission_filter
 
+    @parameterized.expand(
+        [
+            ("unpinned", None, TALLY_API_VERSION_2026_10_27),
+            ("pinned_2025_02_01", TALLY_API_VERSION_2025_02_01, TALLY_API_VERSION_2025_02_01),
+            ("pinned_2026_10_27", TALLY_API_VERSION_2026_10_27, TALLY_API_VERSION_2026_10_27),
+        ]
+    )
+    def test_every_request_sends_the_pinned_version(
+        self, _name: str, api_version: str | None, expected_header: str
+    ) -> None:
+        responses = {
+            FORMS_PAGE_1: [_page([{"id": "F1"}])],
+            f"{BASE}/forms/F1/submissions?limit={SUBMISSIONS_PAGE_SIZE}&page=1&filter={SUBMISSION_FILTER_COMPLETED}": [
+                _resp({"submissions": [], "hasMore": False})
+            ],
+        }
+        result = _driver().run("submissions", _by_url(responses), api_version=api_version)
+        assert [request.headers.get(TALLY_VERSION_HEADER) for request in result.requests] == [expected_header] * 2
+
     def test_resume_continues_mid_form_from_the_saved_page(self) -> None:
         responses = {
             FORMS_PAGE_1: [_page([{"id": "F1"}])],
@@ -221,12 +239,3 @@ class TestRetryClassification:
         responses = {FORMS_PAGE_1: [_resp({"error": "nope"}, status=status)]}
         result = _driver().run("forms", _by_url(responses))
         assert isinstance(result.raised, requests.HTTPError)
-
-
-class TestValidateCredentials:
-    @parameterized.expand([(200, True), (401, False), (403, False), (500, False)])
-    def test_status_mapping(self, status: int, expected_ok: bool) -> None:
-        with scripted_network(always(ScriptedResponse(status=status))):
-            ok, returned_status = validate_credentials("key")
-        assert ok is expected_ok
-        assert returned_status == status

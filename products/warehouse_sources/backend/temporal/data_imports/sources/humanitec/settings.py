@@ -31,6 +31,15 @@ ENDPOINTS: dict[str, HumanitecEndpoint] = {
     "pipelines": HumanitecEndpoint(
         path="apps/{app_id}/pipelines", primary_keys=("app_id", "id"), parent="applications", paginated=True
     ),
+    "deployment_deltas": HumanitecEndpoint(
+        path="apps/{app_id}/deltas", primary_keys=("app_id", "id"), parent="applications"
+    ),
+    "resource_definitions": HumanitecEndpoint(path="resources/defs", primary_keys=("id",)),
+    "resource_types": HumanitecEndpoint(path="resources/types", primary_keys=("type",)),
+    # Runs change status after creation, so a created_after watermark would freeze in-flight runs; sync in full.
+    "pipeline_runs": HumanitecEndpoint(
+        path="pipeline-runs", primary_keys=("app_id", "pipeline_id", "id"), paginated=True
+    ),
 }
 
 AUTH_ERROR = "Humanitec rejected the API token. Check the token and its expiration date."

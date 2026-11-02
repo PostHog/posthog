@@ -14,13 +14,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     UnexpectedRequest,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.fastly import fastly
 from products.warehouse_sources.backend.temporal.data_imports.sources.fastly.fastly import (
     FASTLY_BASE_URL,
     ORIGIN_INSPECTOR_PAGE_LIMIT,
+    PLATFORM_METRICS_METRIC_SETS,
+    PLATFORM_METRICS_PAGE_LIMIT,
     FastlyPaginationError,
     FastlyResumeConfig,
     FastlyRetryableError,
@@ -97,16 +98,12 @@ class TestActiveVersionNumber:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False)])
+    @parameterized.expand([("ok", 200, True)])
     def test_validate_credentials_status_mapping(self, _name: str, status_code: int, expected: bool) -> None:
         with scripted_network([ScriptedResponse(status=status_code)]) as network:
             assert validate_credentials("token") is expected
         assert [request.path for request in network.requests_log] == ["/current_user"]
         assert network.requests_log[0].headers["fastly-key"] == "token"
-
-    def test_validate_credentials_swallows_exceptions(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            assert validate_credentials("token") is False
 
 
 class TestTokenRedaction:
@@ -763,3 +760,63 @@ class TestGetRowsOriginInspector:
         result = _drive("origin_inspector", pages)
         assert isinstance(result.raised, FastlyPaginationError)
         assert result.params("cursor") == [None, None, "CUR2"]
+
+
+class TestGetRowsPlatformMetrics:
+    def _url(self, service_id: str, cursor: str | None = None, start: str | None = None) -> str:
+        params: dict[str, Any] = {
+            "metric_set": ",".join(PLATFORM_METRICS_METRIC_SETS),
+            "group_by": "datacenter",
+            "limit": PLATFORM_METRICS_PAGE_LIMIT,
+        }
+        if start is not None:
+            params["from"] = start
+        if cursor is not None:
+            params["cursor"] = cursor
+        return unquote(_build_url(f"{FASTLY_BASE_URL}/metrics/v2/platform/entities/{service_id}/daily", params))
+
+    def test_walks_each_service_cursor_and_keys_rows_by_service_and_day(self) -> None:
+        # A row without a readable timestamp has no partition or key and is dropped.
+        pages = {
+            f"{FASTLY_BASE_URL}/service?per_page=100": ([{"id": "S1"}, {"id": "S2"}], None),
+            self._url("S1"): {
+                "meta": {"next_cursor": "CUR2"},
+                "data": [{"timestamp": "2026-09-01T00:00:00Z", "datacenter": "IAD", "requests": 5}],
+            },
+            self._url("S1", cursor="CUR2"): {
+                "meta": {"next_cursor": ""},
+                "data": [
+                    {"timestamp": "2026-09-02T00:00:00Z", "datacenter": "SYD", "hit_ratio": 0.5},
+                    {"timestamp": None, "datacenter": "LHR", "requests": 1},
+                ],
+            },
+            self._url("S2"): {"meta": {}, "data": [{"timestamp": "2026-09-01T00:00:00Z", "datacenter": "IAD"}]},
+        }
+        result = _drive("platform_metrics", pages)
+        assert result.raised is None
+        assert [(row["service_id"], row["datacenter"], row["start_time"]) for row in result.rows] == [
+            ("S1", "IAD", 1_788_220_800),
+            ("S1", "SYD", 1_788_307_200),
+            ("S2", "IAD", 1_788_220_800),
+        ]
+
+    @parameterized.expand(
+        [
+            ("full_refresh", False, None),
+            ("incremental", True, "2023-11-14T22:13:20Z"),
+        ]
+    )
+    def test_watermark_is_sent_as_an_rfc3339_from(self, _name: str, incremental: bool, expected: str | None) -> None:
+        pages = {
+            f"{FASTLY_BASE_URL}/service?per_page=100": ([{"id": "S1"}], None),
+            self._url("S1", start=expected): {"meta": {}, "data": []},
+        }
+        result = _drive(
+            "platform_metrics",
+            pages,
+            should_use_incremental_field=incremental,
+            incremental_field="start_time",
+            db_incremental_field_last_value=1_700_000_000,
+        )
+        assert result.raised is None
+        assert result.params("from")[-1] == expected

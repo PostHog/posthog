@@ -7,10 +7,12 @@ API_VERSION = "2026-02-01"
 @frozen
 class FintocEndpoint:
     path: str
-    page_size_param: str = "limit"
+    page_size_param: str | None = "limit"
     primary_keys: tuple[str, ...] = ("id",)
     partition_key: str | None = "created_at"
     requires_link_token: bool = False
+    # Name of the account endpoint whose IDs fill `{account_id}` in the path.
+    parent: str | None = None
     webhook_object: str | None = None
     webhook_events: tuple[str, ...] = ()
 
@@ -40,6 +42,7 @@ ENDPOINTS: dict[str, FintocEndpoint] = {
             "transfer.outbound.reversed",
         ),
     ),
+    "transfer_batches": FintocEndpoint(path="/v2/transfer_batches"),
     "refunds": FintocEndpoint(
         path="/v1/refunds",
         page_size_param="per_page",
@@ -88,6 +91,17 @@ ENDPOINTS: dict[str, FintocEndpoint] = {
         primary_keys=("account_id", "id"),
         partition_key=None,
         requires_link_token=True,
+        parent="accounts",
+    ),
+    "payment_methods": FintocEndpoint(path="/v2/payment_methods"),
+    # The disputes list documents no pagination parameters.
+    "disputes": FintocEndpoint(path="/v1/disputes", page_size_param=None),
+    "business_accounts": FintocEndpoint(path="/v2/accounts", partition_key=None),
+    "business_account_movements": FintocEndpoint(
+        path="/v2/accounts/{account_id}/movements",
+        primary_keys=("account_id", "id"),
+        partition_key="transaction_date",
+        parent="business_accounts",
     ),
 }
 

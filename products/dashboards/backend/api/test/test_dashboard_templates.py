@@ -20,6 +20,7 @@ from products.dashboards.backend.api.dashboard_templates import (
     MAX_DASHBOARD_TEMPLATES_PER_ORGANIZATION,
     organization_dashboard_template_limit_detail,
 )
+from products.dashboards.backend.constants import MAX_GROUP_KEY_LENGTH, MAX_GROUP_TITLE_LENGTH, MAX_GROUPS
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 
 
@@ -77,7 +78,7 @@ def _listable_dashboard_template_db_count(team_pk: int) -> int:
     return DashboardTemplate.objects.filter(Q(scope=DashboardTemplate.Scope.GLOBAL) | Q(team_id=team_pk)).count()
 
 
-variable_template = {
+variable_template: dict[str, Any] = {
     "template_name": "Sign up conversion template with variables",
     "dashboard_description": "Use this template to see how many users sign up after visiting your pricing page.",
     "dashboard_filters": {},
@@ -634,7 +635,12 @@ class TestDashboardTemplates(APIBaseTest):
                                 "description": "Optional context for AI agents. Maximum 10000 characters.",
                                 "type": ["string", "null"],
                                 "maxLength": 10000,
-                            }
+                            },
+                            "group_key": {
+                                "description": "Key of the tile group this tile joins. Tiles with the same key belong together.",
+                                "type": ["string", "null"],
+                                "maxLength": 100,
+                            },
                         },
                     },
                     "minItems": 1,
@@ -684,6 +690,10 @@ class TestDashboardTemplates(APIBaseTest):
                         },
                         {"type": "null"},
                     ],
+                },
+                "customization": {
+                    "description": "Display settings that the new dashboard starts with, such as tile spacing and tile groups",
+                    "type": ["object", "null"],
                 },
                 "tags": {
                     "description": "The tags of the dashboard template",
@@ -1214,6 +1224,55 @@ class TestCustomerDashboardTemplateAuthoring(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json().get("attr") == field
 
+    @parameterized.expand(
+        [
+            (
+                f"{method}_{name}",
+                method,
+                body,
+                attr,
+            )
+            for method in ("create", "update")
+            for name, body, attr in [
+                (
+                    "too_many_groups",
+                    {"customization": {"groups": {f"group-{index}": {} for index in range(MAX_GROUPS + 1)}}},
+                    "customization",
+                ),
+                (
+                    "long_group_key",
+                    {"customization": {"groups": {"k" * (MAX_GROUP_KEY_LENGTH + 1): {"title": "Long"}}}},
+                    "customization",
+                ),
+                (
+                    "long_tile_group_key",
+                    {"tiles": [{**variable_template["tiles"][0], "group_key": "k" * (MAX_GROUP_KEY_LENGTH + 1)}]},
+                    "tiles",
+                ),
+                (
+                    "long_legacy_group_title",
+                    {"customization": {"group_titles": {"plans": "t" * (MAX_GROUP_TITLE_LENGTH + 1)}}},
+                    "customization",
+                ),
+            ]
+        ]
+    )
+    def test_rejects_groups_a_dashboard_cannot_hold(self, _name: str, method: str, body: dict, attr: str) -> None:
+        self.user.is_staff = True
+        self.user.save()
+        if method == "create":
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/dashboard_templates", {**variable_template, **body}, format="json"
+            )
+        else:
+            created = self.client.post(f"/api/projects/{self.team.pk}/dashboard_templates", variable_template)
+            response = self.client.patch(
+                f"/api/projects/{self.team.pk}/dashboard_templates/{created.json()['id']}", body, format="json"
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["attr"].split("__")[0] == attr
+
     def test_non_staff_cannot_patch_global_or_feature_flag_template(self) -> None:
         global_tpl = DashboardTemplate.objects.filter(scope=DashboardTemplate.Scope.GLOBAL).first()
         assert global_tpl is not None
@@ -1491,7 +1550,13 @@ class TestDashboardTemplateCopyBetweenProjects(APIBaseTest):
     def test_copy_happy_path_creates_row_on_target_team(self) -> None:
         src = self.client.post(
             f"/api/projects/{self.team.pk}/dashboard_templates",
-            {**variable_template, "template_name": "Copy me inter-project", "scope": "team"},
+            {
+                **variable_template,
+                "template_name": "Copy me inter-project",
+                "scope": "team",
+                "customization": {"groups": {"plans": {"title": "Plans"}}},
+            },
+            format="json",
         )
         assert src.status_code == status.HTTP_201_CREATED, src.content
         src_id = src.json()["id"]
@@ -1505,6 +1570,7 @@ class TestDashboardTemplateCopyBetweenProjects(APIBaseTest):
         assert data["is_featured"] is False
         assert data["image_url"] in (None, "")
         assert len(data["tiles"]) == len(variable_template["tiles"])
+        assert data["customization"] == {"groups": {"plans": {"title": "Plans", "color": None}}}
 
     @patch("products.dashboards.backend.api.dashboard_templates.report_user_action")
     def test_copy_emits_distinct_analytics_event(self, mock_report: Any) -> None:

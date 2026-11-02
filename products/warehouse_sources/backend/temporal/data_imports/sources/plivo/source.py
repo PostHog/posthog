@@ -30,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.plivo.sett
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     PLIVO_BASE_URL,
+    USAGE_SUMMARY,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -60,7 +61,7 @@ class PlivoSource(ResumableSource[PlivoSourceConfig, PlivoResumeConfig]):
             name=ExternalDataSourceType.PLIVO,
             category=DataWarehouseSourceCategory.COMMUNICATION,
             label="Plivo",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["sms", "voice", "cpaas"],
             caption=(
                 "Enter your Plivo Auth ID and Auth Token to sync your SMS message and voice call "
@@ -129,6 +130,8 @@ class PlivoSource(ResumableSource[PlivoSourceConfig, PlivoResumeConfig]):
             INCREMENTAL_FIELDS,
             names,
             descriptions=ENDPOINT_DESCRIPTIONS,
+            # Each sync re-reads the watermark day, which append would write twice.
+            merge_only=(USAGE_SUMMARY,),
         )
 
     def validate_credentials(

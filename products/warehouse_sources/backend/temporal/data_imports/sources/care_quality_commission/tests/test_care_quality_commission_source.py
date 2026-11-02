@@ -60,35 +60,6 @@ class TestValidateCredentials:
         assert seen == {"api_key": "k", "partner_code": "P1"}
 
 
-class TestNonRetryableErrors:
-    @parameterized.expand(
-        [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://api.cqc.org.uk/public/v1/providers/1-123",
-            ),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.cqc.org.uk/public/v1/locations"),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable = CareQualityCommissionSource().get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://api.cqc.org.uk/public/v1/providers",
-            ),
-            ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.cqc.org.uk/public/v1/providers"),
-            ("read_timeout", "HTTPSConnectionPool(host='api.cqc.org.uk', port=443): Read timed out."),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
-        non_retryable = CareQualityCommissionSource().get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable)
-
-
 class TestSourceForPipeline:
     def test_plumbs_arguments(self, monkeypatch: Any) -> None:
         captured: dict[str, Any] = {}

@@ -10,15 +10,16 @@ import { InsightType, RetentionDashboardDisplayType } from '~/types'
 
 import { RetentionEmptyResultsBanner } from './RetentionEmptyResultsBanner'
 import { RetentionGraph } from './RetentionGraph'
+import { RetentionHeatmap } from './RetentionHeatmap/RetentionHeatmap'
 import { retentionLogic } from './retentionLogic'
 import { RetentionModal } from './RetentionModal'
-import { RetentionTable } from './RetentionTable/RetentionTable'
 
 export function RetentionContainer({
     inCardView,
     embedded,
     inSharedMode,
     vizSpecificOptions,
+    context,
 }: {
     inCardView?: boolean
     embedded?: boolean
@@ -42,13 +43,13 @@ export function RetentionContainer({
             {!inCardView && !inSharedMode && <RetentionEmptyResultsBanner />}
             {showLineGraph && (
                 <div className="RetentionContainer__graph">
-                    <RetentionGraph inSharedMode={inSharedMode} />
+                    <RetentionGraph inSharedMode={inSharedMode} resultMenuEnabled={context?.dashboardResultMenu} />
                 </div>
             )}
             {showLineGraph && showTable ? <LemonDivider /> : null}
             {showTable && (
                 <div className="RetentionContainer__table overflow-x-auto">
-                    <RetentionTable inSharedMode={inSharedMode} embedded={embedded} />
+                    <RetentionHeatmap inSharedMode={inSharedMode} embedded={embedded} />
                 </div>
             )}
             {!inSharedMode ? <RetentionModal /> : null}

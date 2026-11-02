@@ -9,6 +9,7 @@ import {
     listeners,
     path,
     props,
+    propsChanged,
     reducers,
     selectors,
 } from 'kea'
@@ -278,6 +279,7 @@ export interface infiniteListLogicValues {
     contextFilteredPinnedItems: TaxonomicDefinitionTypes[]
     contextFilteredRecentItems: TaxonomicDefinitionTypes[]
     dedupedTopMatches: (SkeletonItem | TaxonomicDefinitionTypes)[]
+    excludedOperators: ExcludedOperators | undefined
     excludedProperties: string[] | undefined
     excludedPropertiesWithHiddenEvents: ExcludedProperties | undefined
     expandedCount: number
@@ -501,6 +503,9 @@ export interface infiniteListLogicActions {
     selectSelected: () => {
         value: true
     }
+    setExcludedOperators: (excludedOperators: ExcludedOperators | undefined) => {
+        excludedOperators: ExcludedOperators | undefined
+    }
     setHasMore: (hasMore: boolean) => {
         hasMore: boolean
     }
@@ -576,8 +581,8 @@ export interface infiniteListLogicMeta {
         contextFilteredRecentItems: (
             recentFilterItems: TaxonomicDefinitionTypes[],
             taxonomicGroupTypes: TaxonomicFilterGroupType[],
-            arg: ExcludedOperators | undefined,
-            arg2: SelectingKeyOnly | undefined,
+            excludedOperators: ExcludedOperators | undefined,
+            arg: SelectingKeyOnly | undefined,
             excludedPropertiesWithHiddenEvents:
                 | import('lib/components/TaxonomicFilter/types').TaxonomicFilterGroupValueMap
                 | undefined
@@ -880,6 +885,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         applyInitialPinnedRow: (rowIndex: number) => ({ rowIndex }),
         reconcilePinnedRowState: true,
         setLimit: (limit: number) => ({ limit }),
+        setExcludedOperators: (excludedOperators: ExcludedOperators | undefined) => ({ excludedOperators }),
         onRowsRendered: (rowInfo: RowInfo) => ({ rowInfo }),
         loadRemoteItems: (options: LoaderOptions) => options,
         updateRemoteItem: (item: TaxonomicDefinitionTypes) => ({ item }),
@@ -1139,6 +1145,14 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 setLimit: (_, { limit }) => limit,
             },
         ],
+        // Values are cached per store state, so a new rule passed only as a prop would leave
+        // the Recent list stale until some unrelated action ran.
+        excludedOperators: [
+            props.excludedOperators,
+            {
+                setExcludedOperators: (_, { excludedOperators }) => excludedOperators,
+            },
+        ],
         startIndex: [0, { onRowsRendered: (_, { rowInfo: { startIndex } }) => startIndex }],
         stopIndex: [0, { onRowsRendered: (_, { rowInfo: { stopIndex } }) => stopIndex }],
         isExpanded: [false, { expand: () => true }],
@@ -1211,7 +1225,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             (s) => [
                 s.recentFilterItems,
                 s.taxonomicGroupTypes,
-                (_, props: InfiniteListLogicProps) => props.excludedOperators,
+                s.excludedOperators,
                 (_, props: InfiniteListLogicProps) => props.selectingKeyOnly,
                 s.excludedPropertiesWithHiddenEvents,
             ],
@@ -1859,11 +1873,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 promoteSelectedItemToFirstPosition: boolean | undefined
             ) => {
                 const { group, groupType, value } = selectionPromotionContext
-                // Collapse URL groups to a single "URL contains <query>" shortcut row
-                // (mirrors the rebuild menu's `COLLAPSED_TO_CONTAINS_ROW`). Only once
-                // the remote fetch for the *current* query has returned at least one
-                // match — otherwise the list is empty and the standard empty/loading
-                // states apply.
+                // Collapse URL groups to a single "URL contains <query>" shortcut row.
+                // Only once the remote fetch for the *current* query has returned at
+                // least one match — otherwise the list is empty and the standard
+                // empty/loading states apply.
                 if (collapseUrlsToContainsRow && COLLAPSED_TO_CONTAINS_ROW.has(listGroupType)) {
                     const trimmed = (searchQuery ?? '').trim()
                     // The remote fetch is debounced and lags the typed query, so guard against a
@@ -1883,7 +1896,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 const isSuggested = listGroupType === TaxonomicFilterGroupType.SuggestedFilters
                 const recentPrefix = isSuggested && !searchQuery ? (contextFilteredRecentItems || []).slice(0, 3) : []
                 // An item that is both recent and pinned shows once, under the section that
-                // renders first — recents (mirrors the rebuild Combobox's prefix dedupe).
+                // renders first — recents.
                 const pinnedPrefix =
                     isSuggested && !searchQuery
                         ? withoutPinnedDuplicatesOfRecents(contextFilteredPinnedItems || [], recentPrefix).slice(0, 3)
@@ -1940,8 +1953,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 } else {
                     orderedBase = combinedResults
                 }
-                // Mirrors the rebuild menu's Combobox idle promotion: with no search query,
-                // the committed selection leads the list so the user can see at a glance
+                // With no search query, the committed selection leads the list so the user can see at a glance
                 // what is currently picked — floated in place when the real row is loaded,
                 // otherwise statically inserted as a synthetic row (the selection is known
                 // at open; there's no need to wait for the loader). A leading null-valued
@@ -2224,6 +2236,11 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             (index: number, startIndex: number, stopIndex: number) =>
                 typeof index === 'number' && index >= startIndex && index <= stopIndex,
         ],
+    }),
+    propsChanged(({ actions, props }, oldProps) => {
+        if (props.excludedOperators !== oldProps.excludedOperators) {
+            actions.setExcludedOperators(props.excludedOperators)
+        }
     }),
     listeners(({ values, actions, props, cache }) => ({
         reconcilePinnedRowState: () => {

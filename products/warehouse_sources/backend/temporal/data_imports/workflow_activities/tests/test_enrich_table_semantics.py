@@ -528,6 +528,28 @@ class TestEnrichTableSemanticsSync:
         assert result["reason"] == "ai_data_processing_not_approved"
         assert _annotations(team, table) == {}
 
+    def test_skipped_when_team_was_deleted(self):
+        # Same fire-and-forget race as the schema case below, but for the team itself.
+        team = _team()
+        team_id = team.pk
+        team.delete()
+        with patch.object(enrich, "_generate_descriptions") as mock_llm:
+            result = enrich_table_semantics_sync(team_id, uuid.uuid4())
+        mock_llm.assert_not_called()
+        assert result == {"status": "skipped", "reason": "team_deleted"}
+
+    def test_skipped_when_schema_was_deleted(self):
+        # This activity is a fire-and-forget child workflow started after a sync completes, so the
+        # schema can be deleted by the user before it actually runs. That's a benign race, not a bug.
+        team = _team()
+        schema, table = _make_schema(team, columns=[{"name": "amount", "data_type": "Int64", "is_nullable": False}])
+        schema.soft_delete()
+        with patch.object(enrich, "_generate_descriptions") as mock_llm:
+            result = enrich_table_semantics_sync(team.pk, schema.id)
+        mock_llm.assert_not_called()
+        assert result == {"status": "skipped", "reason": "schema_deleted"}
+        assert _annotations(team, table) == {}
+
     def test_skipped_when_table_has_no_columns(self):
         team = _team()
         schema, table = _make_schema(team, columns=[])

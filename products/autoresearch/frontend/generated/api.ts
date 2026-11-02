@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AgentModelOptionsApi,
     ArtifactContentApi,
     ArtifactDeleteResultApi,
     ArtifactListApi,
@@ -882,6 +883,24 @@ export const autoresearchValidateOnlineCreate = async (
     return apiMutator<AutoresearchRunApi[]>(getAutoresearchValidateOnlineCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getAutoresearchAgentModelsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/autoresearch/agent_models/`
+}
+
+/**
+ * Return the models a pipeline's training agent may run on, with the reasoning efforts each supports and its relative token cost, plus the model and effort a pipeline with blank settings uses. Pass a model id as agent_model and an effort as agent_reasoning_effort on create or update.
+ * @summary List training agent models
+ */
+export const autoresearchAgentModelsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<AgentModelOptionsApi> => {
+    return apiMutator<AgentModelOptionsApi>(getAutoresearchAgentModelsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

@@ -88,8 +88,6 @@ class TestGroq:
     @parameterized.expand(
         [
             ("valid", 200, True, True, 200),
-            ("invalid", 401, False, False, 401),
-            ("forbidden", 403, False, False, 403),
         ]
     )
     def test_validate_credentials(

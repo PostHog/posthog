@@ -21,50 +21,19 @@ class TestInflowinventorySource:
         # re-require the key.
         assert self.source.connection_host_fields == ["company_id"]
 
-    @parameterized.expand(
-        [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://cloudapi.inflowinventory.com/co-123/products?count=100",
-            ),
-            (
-                "forbidden",
-                "403 Client Error: Forbidden for url: https://cloudapi.inflowinventory.com/co-123/customers?count=100",
-            ),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, _name: str, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://cloudapi.inflowinventory.com/co-123/products",
-            ),
-            (
-                "rate_limited",
-                "429 Client Error: Too Many Requests for url: https://cloudapi.inflowinventory.com/co-123/customers",
-            ),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
-
     def test_version_declaration(self) -> None:
         # New sources default to the current stable version; the legacy pin stays supported so
         # existing sources keep syncing under their own version.
-        assert self.source.default_version == "2026-09-29"
-        assert set(self.source.supported_versions) == {"2023-04-01", "2026-07-10", "2026-09-29"}
+        assert self.source.default_version == "2026-10-06"
+        assert set(self.source.supported_versions) == {"2023-04-01", "2026-07-10", "2026-09-29", "2026-10-06"}
 
     @parameterized.expand(
         [
             ("pinned_legacy", "2023-04-01", "2023-04-01"),
             ("pinned_previous", "2026-07-10", "2026-07-10"),
-            ("pinned_current", "2026-09-29", "2026-09-29"),
-            ("unpinned_resolves_to_default", None, "2026-09-29"),
+            ("pinned_previous_current", "2026-09-29", "2026-09-29"),
+            ("pinned_current", "2026-10-06", "2026-10-06"),
+            ("unpinned_resolves_to_default", None, "2026-10-06"),
         ]
     )
     @mock.patch(

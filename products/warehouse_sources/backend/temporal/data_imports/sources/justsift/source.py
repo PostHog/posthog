@@ -55,7 +55,7 @@ class JustSiftSource(ResumableSource[JustSiftSourceConfig, JustSiftResumeConfig]
             name=ExternalDataSourceType.JUSTSIFT,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="JustSift",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter a Sift API token to pull your organization's people directory and field catalog into the PostHog Data warehouse.
 
 Create a token in the [Sift admin dashboard](https://admin.justsift.com) under **API Access → New Application**, granting it access to **full people data**. This read-only token is sent as a bearer token to Sift's REST API.

@@ -54,7 +54,7 @@ class BigMailerSource(ResumableSource[BigMailerSourceConfig, BigMailerResumeConf
             name=ExternalDataSourceType.BIGMAILER,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="BigMailer",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             # Kept hidden from the connector catalog while the source is validated end-to-end; flip this
             # off (delete the line) to make it connectable.
             caption="""Enter your BigMailer API key to sync your BigMailer data into the PostHog Data warehouse.

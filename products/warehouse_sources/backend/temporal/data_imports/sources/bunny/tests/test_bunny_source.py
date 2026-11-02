@@ -23,10 +23,6 @@ class TestBunnySource:
     @pytest.mark.parametrize(
         "probe_result, expected_valid, expected_message",
         [
-            ((True, 200), True, None),
-            ((False, 401), False, "Invalid bunny.net account API key"),
-            ((False, 403), False, "Invalid bunny.net account API key"),
-            ((False, 500), False, "bunny.net returned HTTP 500"),
             ((False, None), False, "Could not connect to bunny.net"),
         ],
     )

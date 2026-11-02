@@ -160,7 +160,7 @@ class SanitySource(ResumableSource[SanitySourceConfig, SanityResumeConfig]):
             label="Sanity",
             iconPath="/static/services/sanity.png",
             docsUrl="https://posthog.com/docs/cdp/sources/sanity",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption=(
                 "Import content and asset metadata from a Sanity dataset. Use a robot API token with read access. "
                 "Drafts and release versions are included. Full refresh removes deleted documents. "

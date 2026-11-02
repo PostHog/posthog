@@ -1,7 +1,7 @@
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 BASE_URL = "https://api.withmono.com"
-# Relative paths follow the pinned API version. Mono serves bank coverage and Direct Debit only on v3.
+# Relative paths follow the pinned API version. Mono serves bank coverage, Direct Debit and Disburse only on v3.
 ENDPOINTS = {
     "customers": "customers",
     "accounts": "accounts",
@@ -10,6 +10,10 @@ ENDPOINTS = {
     "payments": "payments/transactions",
     "mandates": f"{BASE_URL}/v3/payments/mandates",
     "mandate_debits": f"{BASE_URL}/v3/payments/mandates/debits",
+    "payouts": "payments/payouts",
+    "disbursements": f"{BASE_URL}/v3/payments/disburse/disbursements",
+    "disbursement_distributions": f"{BASE_URL}/v3/payments/disburse/disbursements/{{batch_id}}/distributions",
+    "income_records": "accounts/{account_id}/income-records",
 }
 PRIMARY_KEYS = {
     "customers": ["id"],
@@ -19,7 +23,26 @@ PRIMARY_KEYS = {
     "payments": ["id"],
     "mandates": ["id"],
     "mandate_debits": ["mandate", "reference"],
+    "payouts": ["id"],
+    "disbursements": ["id"],
+    "disbursement_distributions": ["batch_id", "id"],
+    # Income records carry no id, so the account and the assessment time identify a record.
+    "income_records": ["account_id", "created_at"],
 }
+# Child endpoint -> (parent endpoint, path placeholder that takes the parent id).
+FANOUT_PARENTS = {
+    "transactions": ("accounts", "account_id"),
+    "income_records": ("accounts", "account_id"),
+    "disbursement_distributions": ("disbursements", "batch_id"),
+}
+DATA_SELECTORS = {
+    "payments": "data.payments",
+    "payouts": "data.payouts",
+    "disbursements": "data.disbursements",
+    "disbursement_distributions": "data.distributions",
+}
+# Mono requires a payout status and documents only "settled".
+PAYOUT_STATUS = "settled"
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     "transactions": [
         {

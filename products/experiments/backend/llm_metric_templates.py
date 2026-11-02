@@ -11,6 +11,8 @@ from posthog.schema import (
     PropertyOperator,
 )
 
+from products.ai_observability.backend.facade.contracts import EVALUATION_GRADED_MARKER, EVALUATION_PASSED_MARKER
+
 LLMMetric = ExperimentMeanMetric | ExperimentRatioMetric
 
 
@@ -49,34 +51,15 @@ def build_latency_metric(prompt_name: str) -> ExperimentMeanMetric:
 
 
 def build_eval_pass_rate_metric(prompt_name: str) -> ExperimentRatioMetric:
-    # Use explicit JSON extraction rather than `properties.X = true`. The latter goes through
-    # HogQL property type inference, which casts the property to Float64 if any event in the
-    # table has stored this key as a number — silently dropping JSON-boolean events. The
-    # JSONExtract* functions bypass the inference and read the JSON value directly.
-    # The applicable guard excludes N/A evaluations (applicable=false) but keeps events
-    # where the property isn't set at all (JSONExtractRaw returns '' for missing keys).
-    applicable_filter = HogQLPropertyFilter(key="JSONExtractRaw(properties, '$ai_evaluation_applicable') != 'false'")
-    boolean_filter = HogQLPropertyFilter(
-        key="JSONExtractString(properties, '$ai_evaluation_result_type') IN ('', 'boolean')"
-    )
     return ExperimentRatioMetric(
         name="Eval pass rate",
         numerator=EventsNode(
             event="$ai_evaluation",
-            properties=[
-                _prompt_filter(prompt_name),
-                HogQLPropertyFilter(key="JSONExtractBool(properties, '$ai_evaluation_result')"),
-                applicable_filter,
-                boolean_filter,
-            ],
+            properties=[_prompt_filter(prompt_name), HogQLPropertyFilter(key=EVALUATION_PASSED_MARKER)],
         ),
         denominator=EventsNode(
             event="$ai_evaluation",
-            properties=[
-                _prompt_filter(prompt_name),
-                applicable_filter,
-                boolean_filter,
-            ],
+            properties=[_prompt_filter(prompt_name), HogQLPropertyFilter(key=EVALUATION_GRADED_MARKER)],
         ),
     )
 
