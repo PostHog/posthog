@@ -3,6 +3,9 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic, Provider } from 'kea'
+import { expectLogic } from 'kea-test-utils'
+
+import { lemonToast } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 
@@ -154,6 +157,25 @@ describe('DeletedFlagBanner', () => {
 
         await waitFor(() => expect(restoreBodies).toEqual([{ id: String(FLAG_ID), body: { deleted: false } }]))
         await waitFor(() => expect(screen.queryByText(/feature flag is deleted/)).not.toBeInTheDocument())
+    })
+
+    it('shows why a restore failed and keeps the banner', async () => {
+        const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+        const detail = 'There is already a feature flag with this key.'
+        useMocks({ patch: { '/api/projects/:team/feature_flags/:id': () => [400, { detail }] } })
+        renderBanner(draftExperiment())
+
+        await screen.findByText(/feature flag is deleted/)
+        await userEvent.click(restoreButtons()[0])
+
+        // The experiment only reloads after a restore that worked.
+        await expectLogic(deletedFlagBannerLogic({ experimentId: EXPERIMENT_ID, flagId: FLAG_ID }))
+            .toDispatchActions(['restoreFlagSuccess'])
+            .toNotHaveDispatchedActions(['loadExperiment'])
+        expect(errorToast).toHaveBeenCalledWith(detail)
+        expect(screen.getByText(/feature flag is deleted/)).toBeInTheDocument()
+        expect(restoreButtons().length).toBeGreaterThan(0)
+        errorToast.mockRestore()
     })
 
     it('still explains the delete when the activity log cannot be read', async () => {
