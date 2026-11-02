@@ -109,7 +109,7 @@ export class CapturedEventsService {
                         properties: event.properties,
                     })
                 }
-                if (!isSourceWebhookResult(result)) {
+                if (events.length <= 1 || !isSourceWebhookResult(result)) {
                     this.queue(events)
                     return
                 }
