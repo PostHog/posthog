@@ -1,12 +1,10 @@
-import { isOperatorNegated } from 'lib/utils/operators'
-
 import {
     ExperimentEventExposureConfig,
     ExperimentExposureConfig,
     ExperimentExposureCriteria,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { Experiment, PropertyFilterType } from '~/types'
+import { Experiment, PropertyFilterType, PropertyOperator } from '~/types'
 
 /**
  * The flag exposure event contract for experiments. Mirrors the backend chokepoint
@@ -68,11 +66,32 @@ export function isDefaultExposureConfig(config: ExperimentExposureConfig): boole
     return isEventConfig(config) && config.event === EXPOSURE_DEFAULT_EVENT
 }
 
+/** Whether the operator matches the values its positive form does not. Keep in sync with
+ * `_NEGATIVE_OPERATOR_COMPLEMENTS` in `posthog/hogql/property.py`. */
+function isOperatorNegated(operator: PropertyOperator): boolean {
+    return [
+        PropertyOperator.IsNot,
+        PropertyOperator.NotIn,
+        PropertyOperator.IsNotSet,
+        PropertyOperator.NotIContains,
+        PropertyOperator.NotIContainsMulti,
+        PropertyOperator.NotRegex,
+        PropertyOperator.NotStartsWith,
+        PropertyOperator.NotEndsWith,
+        PropertyOperator.NotBetween,
+        PropertyOperator.IsCleanedPathNotExact,
+        PropertyOperator.SemverNeq,
+    ].includes(operator)
+}
+
 /**
- * Whether the config leaves out events by an event property. A person property has one value per user
- * at a time, so a filter on it reads as leaving out the user. `$feature_flag` names the flag of a flag
- * call event, not a trait of the user. A group-aggregated experiment counts each group by
- * `$group_<index>`, so a filter on that key leaves out the whole group.
+ * Whether a negated filter in the config leaves out single events while the experiment still counts
+ * the person or group that sent them. Event, session and element properties can change from one event
+ * to the next. A person property has one value per person at a time, so a person or cohort filter
+ * leaves out the whole person. When the flag counts groups, the group still counts through its other
+ * persons. `$feature_flag` names the flag of a flag call event, not a trait of the user. A
+ * group-aggregated experiment counts each group by `$group_<index>`, so a filter on that key leaves
+ * out the whole group.
  */
 export function hasNegatedEventFilter(
     config: ExperimentExposureConfig | undefined,
@@ -82,13 +101,24 @@ export function hasNegatedEventFilter(
         return false
     }
     const groupKey = groupTypeIndex != null ? `$group_${groupTypeIndex}` : null
-    return (config.properties ?? []).some(
-        (property) =>
-            property.type === PropertyFilterType.Event &&
-            property.key !== '$feature_flag' &&
-            property.key !== groupKey &&
-            isOperatorNegated(property.operator)
-    )
+    return (config.properties ?? []).some((property) => {
+        switch (property.type) {
+            case PropertyFilterType.Event:
+                return (
+                    property.key !== '$feature_flag' &&
+                    property.key !== groupKey &&
+                    isOperatorNegated(property.operator)
+                )
+            case PropertyFilterType.Session:
+            case PropertyFilterType.Element:
+                return isOperatorNegated(property.operator)
+            case PropertyFilterType.Person:
+            case PropertyFilterType.Cohort:
+                return groupKey !== null && isOperatorNegated(property.operator)
+            default:
+                return false
+        }
+    })
 }
 
 /**

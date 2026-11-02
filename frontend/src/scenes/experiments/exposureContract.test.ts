@@ -197,6 +197,12 @@ describe('exposureContract', () => {
         operator,
         value: 'x',
     })
+    const negatedPersonFilter: AnyPropertyFilter = {
+        type: PropertyFilterType.Person,
+        key: 'email',
+        operator: PropertyOperator.NotIContains,
+        value: 'x',
+    }
 
     it.each<[string, ExperimentExposureConfig | undefined, boolean, (number | null)?]>([
         ['no config', undefined, false],
@@ -217,15 +223,17 @@ describe('exposureContract', () => {
             true,
             null,
         ],
+        ['a negated person filter', eventConfig(negatedPersonFilter), false],
+        ['a negated person filter in a group experiment', eventConfig(negatedPersonFilter), true, 2],
         [
-            'a negated person filter',
+            'a negated session filter',
             eventConfig({
-                type: PropertyFilterType.Person,
-                key: 'email',
+                type: PropertyFilterType.Session,
+                key: '$entry_current_url',
                 operator: PropertyOperator.NotIContains,
                 value: 'x',
             }),
-            false,
+            true,
         ],
         [
             'an action with a negated event filter',

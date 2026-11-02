@@ -258,7 +258,7 @@ The person's other sessions can still have recordings, when replay is on for the
 Filters on the exposure event remove individual events, not people.
 A person still counts as long as one of their exposure events passes the filters, so their sessions can show the filtered page or value.
 To keep people out of the experiment, exclude them in the flag's release conditions before launch.
-On a running experiment that edit is a mid-run change: people move out of the experiment, not to another variant (A6 in `bias-and-skew.md`, E2 in `mid-run-changes.md`).
+On a running experiment that edit is a mid-run change: new exposures stop and nobody moves to another variant, but earlier exposures stay counted (A6 in `bias-and-skew.md`, E2 in `mid-run-changes.md`).
 
 **Recommend:** use recordings to _qualitatively_ understand variant differences (what users actually
 experienced), not to _audit_ the numbers.
