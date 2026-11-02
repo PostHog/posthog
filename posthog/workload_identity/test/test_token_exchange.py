@@ -288,7 +288,7 @@ class TestCITokenExchange(APIBaseTest):
             ("approve_request", "post", "workload_trust_policy_requests/00000000-0000-0000-0000-000000000001/approve/"),
         ]
     )
-    def test_ci_tokens_cannot_reach_trust_policy_endpoints(self, _name: str, method: str, path: str) -> None:
+    def test_workload_tokens_cannot_reach_trust_policy_endpoints(self, _name: str, method: str, path: str) -> None:
         token = self._access_token()
 
         response = self._call(method, f"/api/projects/{self.team.id}/{path}", token)
@@ -296,7 +296,16 @@ class TestCITokenExchange(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         assert "WWW-Authenticate" not in response
 
-    def test_project_read_hides_secrets_from_ci_tokens_but_not_personal_api_keys(self) -> None:
+    def test_workload_tokens_cannot_use_the_owners_mcp_server_installations(self) -> None:
+        self.policy.scopes = ["project:read"]
+        self.policy.save()
+        token = self._access_token()
+
+        response = self._call("get", f"/api/environments/{self.team.id}/mcp_server_installations/", token)
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    def test_project_read_hides_secrets_from_workload_tokens_but_not_personal_api_keys(self) -> None:
         self.team.secret_api_token = "phs_example_team_secret"
         self.team.save()
         self.policy.scopes = ["project:read"]
@@ -307,14 +316,14 @@ class TestCITokenExchange(APIBaseTest):
             user=self.user, label="pat", secure_value=hash_key_value(personal_key), scopes=["project:read"]
         )
 
-        ci_body = self._call("get", f"/api/projects/{self.team.id}/", token).json()
+        workload_body = self._call("get", f"/api/projects/{self.team.id}/", token).json()
         pat_body = self._call("get", f"/api/projects/{self.team.id}/", personal_key).json()
 
-        assert ci_body["api_token"] == self.team.api_token
+        assert workload_body["api_token"] == self.team.api_token
         assert not {
             "secret_api_token",
             "secret_api_token_backup",
             "heatmaps_screenshot_secret",
             "live_events_token",
-        } & set(ci_body)
+        } & set(workload_body)
         assert pat_body["secret_api_token"] == "phs_example_team_secret"

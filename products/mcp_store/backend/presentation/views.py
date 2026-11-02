@@ -25,13 +25,13 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_
 from rest_framework import mixins, renderers, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import SessionAuthentication
+from posthog.auth import SessionAuthentication, WorkloadAccessTokenAuthentication
 from posthog.cloud_utils import is_dev_mode
 from posthog.event_usage import report_user_action
 from posthog.models import User
@@ -726,6 +726,16 @@ class AvailableToolsResponseSerializer(serializers.Serializer):
     servers = AvailableServerSerializer(many=True, help_text="Connected servers the caller can reach.")
 
 
+class DenyWorkloadAccessToken(BasePermission):
+    """Installations hold a person's own connections to outside accounts. A workload token acts as the
+    organization owner, so it must not reach the owner's connections."""
+
+    message = "Workload tokens can't use MCP server installations."
+
+    def has_permission(self, request: Request, view: Any) -> bool:
+        return not isinstance(request.successful_authenticator, WorkloadAccessTokenAuthentication)
+
+
 class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "project"
     # An action in neither list derives no scope, and APIScopePermission rejects
@@ -748,7 +758,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     queryset = MCPServerInstallation.objects.all()
     serializer_class = MCPServerInstallationSerializer
     lookup_field = "id"
-    permission_classes = [IsAuthenticated, DenyMCPBuiltInAgentOAuth]
+    permission_classes = [IsAuthenticated, DenyMCPBuiltInAgentOAuth, DenyWorkloadAccessToken]
 
     # Installations are user-scoped or shared (safely_get_queryset returns both),
     # so write actions don't need project admin access.
