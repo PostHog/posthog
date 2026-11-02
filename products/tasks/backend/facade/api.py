@@ -84,6 +84,7 @@ from products.tasks.backend.constants import (
     CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG as CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
     DEV_STACK_PREVIEW_PORT,
     DEV_STACK_PREVIEW_STATE_KEY,
+    FINAL_MESSAGE_MAX_CHARS,
     GITHUB_PR_URL_PREFIX as GITHUB_PR_URL_PREFIX,  # re-exported for signals billing
     MAX_CUSTOM_IMAGES_PER_TEAM,
     MAX_CUSTOM_IMAGES_PER_USER,
@@ -104,7 +105,13 @@ from products.tasks.backend.constants import (
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.facade.gateway import mint_private_gateway_token, revoke_private_gateway_token
-from products.tasks.backend.facade.profiles import TaskProfile, TaskRunOptions, TaskSource, resolve_task_origin
+from products.tasks.backend.facade.profiles import (
+    NetworkAccess,
+    TaskProfile,
+    TaskRunOptions,
+    TaskSource,
+    resolve_task_origin,
+)
 from products.tasks.backend.feature_flags import (
     get_model_access_error,
     own_subscription_cloud_enabled as own_subscription_cloud_enabled,
@@ -159,6 +166,7 @@ from products.tasks.backend.models import (
     PRIOR_RUN_SUMMARY_STATE_KEY,
     PRIOR_RUN_TAGS_STATE_KEY,
     TASK_OWNERSHIP_VERSION_STATE_KEY,
+    TASK_RUN_FINISH_REPORT_STATE_KEY,
     TASK_RUN_SUMMARY_STATE_KEY,
     TASK_RUN_TAGS_STATE_KEY,
     Channel,
@@ -3169,6 +3177,9 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "slack_actor_slack_user_id",
         # Names the autoresearch training run this TaskRun finalizes when it ends (training.ingestion).
         "autoresearch_training_run_id",
+        # Set only when the agent's `finish` call saves its report. A forged marker would stop the
+        # relay from saving the run's final message and make readers trust a caller-written one.
+        TASK_RUN_FINISH_REPORT_STATE_KEY,
     }
 )
 
@@ -3200,6 +3211,18 @@ TASK_RUN_FAILURE_ERROR_TYPES = (
 # PR merged, resolve the report, and refund it while keeping the work — so every output writer has to
 # go through `_merge_caller_output`, not merge caller output directly.
 _WEBHOOK_ATTESTED_RUN_OUTPUT_KEYS = frozenset({"pr_merged"})
+
+
+def _carries_final_message(validated_data: dict) -> bool:
+    output = validated_data.get("output")
+    return isinstance(output, dict) and isinstance(output.get("final_message"), str) and bool(output["final_message"])
+
+
+def is_finish_report_output(output: object) -> bool:
+    if not isinstance(output, dict) or set(output) != {"final_message"}:
+        return False
+    report = output["final_message"]
+    return isinstance(report, str) and 0 < len(report) <= FINAL_MESSAGE_MAX_CHARS
 
 
 def _apply_caller_output(stored: object, incoming: dict, merged: dict) -> dict:
@@ -3742,6 +3765,16 @@ def update_task_run(
             run.state = {**(run.state or {}), "cancel_fallback_cleanup_complete": True}
             update_fields.add("state")
         if (
+            caller_is_agent
+            and new_status in {TaskRun.Status.COMPLETED, TaskRun.Status.FAILED}
+            and old_status != new_status
+            and _carries_final_message(validated_data)
+        ):
+            output = run.output if isinstance(run.output, dict) else {}
+            run.output = {**output, "final_message": output["final_message"][:FINAL_MESSAGE_MAX_CHARS]}
+            run.state = {**(run.state or {}), TASK_RUN_FINISH_REPORT_STATE_KEY: True}
+            update_fields.update({"output", "state"})
+        elif (
             caller_is_agent
             and new_status == TaskRun.Status.COMPLETED
             and old_status != new_status
@@ -5217,13 +5250,18 @@ def presign_task_run_artifact_download(
 
 
 def _run_has_open_network(run: TaskRun) -> bool:
-    if not (run.state or {}).get("sandbox_environment_id"):
+    environment = None
+    if (run.state or {}).get("sandbox_environment_id"):
+        environment = run.get_sandbox_environment()
+        if environment is None:
+            return False
+    profile = run.task.stored_profile
+    if profile is not None and (environment is None or environment.internal):
+        return profile.network.levels[0] == NetworkAccess.FULL
+    if environment is None:
         return True
-    environment = run.get_sandbox_environment()
     return (
-        environment is not None
-        and environment.network_access_level == SandboxNetworkAccessLevel.FULL
-        and environment.updated_at <= run.created_at
+        environment.network_access_level == SandboxNetworkAccessLevel.FULL and environment.updated_at <= run.created_at
     )
 
 
@@ -11315,7 +11353,7 @@ def start_space_setup(
     ):
         raise SpaceSetupUnavailableError(
             "Goal setup is not available because the Create AI task workflow action is unavailable. "
-            "Ask an administrator to sync workflow templates and enable the action, then retry setup."
+            "Ask an administrator to sync workflow templates, then retry setup."
         )
     with transaction.atomic():
         channel = _locked_visible_channel(channel_id, team.id, user_id)

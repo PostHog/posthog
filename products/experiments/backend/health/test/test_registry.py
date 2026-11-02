@@ -250,6 +250,11 @@ class TestEvaluate(TestCase):
                 {Key.EARLY_SIGNIFICANCE: Status.NOT_CHECKED},
             ),
             (
+                "metrics_not_matured_needs_the_primary_metric_windows",
+                {"only_count_matured_users": True},
+                {Key.METRICS_NOT_MATURED: Status.NOT_CHECKED},
+            ),
+            (
                 "zero_exposures_finds_a_day_after_launch",
                 {"exposures": replace(NO_EXPOSURES, hours_since_launch=24)},
                 {Key.ZERO_EXPOSURES: Status.FINDING},

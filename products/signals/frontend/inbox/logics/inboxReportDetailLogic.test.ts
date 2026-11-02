@@ -10,13 +10,13 @@ import { ApiConfig } from 'lib/api'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { REPORT_AI_PANEL } from '~/layout/ai/aiPanelIds'
+import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
 import type { MockResolverInfo } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
 import { SidePanelTab } from '~/types'
 
-import { runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
 import { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 import type { SignalReportCheckApi } from 'products/signals/frontend/generated/api.schemas'
 
