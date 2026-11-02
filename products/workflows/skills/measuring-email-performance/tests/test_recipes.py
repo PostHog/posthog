@@ -6,6 +6,7 @@ from typing import Any
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
+    NonAtomicBaseTest,
     _create_event,
     _create_person,
     run_clickhouse_statement_in_parallel,
@@ -18,6 +19,8 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.test.fixtures import create_app_metric2
+
+from products.workflows.backend.facade.testing import create_workflow_for_test
 
 RECIPES = Path(__file__).resolve().parent.parent / "references" / "recipes.md"
 RECIPE_HEADING = re.compile(r"^### (.+)$", re.MULTILINE)
@@ -45,15 +48,17 @@ def _recipes() -> dict[str, str]:
     return recipes
 
 
-def _placeholders() -> dict[str, ast.Expr]:
+def _placeholders(
+    workflow_id: str = WORKFLOW_ID, person_id: str = "00000000-0000-0000-0000-000000000000"
+) -> dict[str, ast.Expr]:
     return {
-        "workflow_id": ast.Constant(value=WORKFLOW_ID),
+        "workflow_id": ast.Constant(value=workflow_id),
         "step_id": ast.Constant(value=STEP_ID),
         "window_start": ast.Constant(value=WINDOW_START),
         "window_end": ast.Constant(value=WINDOW_END),
         "outcome_event": ast.Constant(value=OUTCOME_EVENT),
         "outcome_days": ast.Constant(value=7),
-        "person_id": ast.Constant(value="00000000-0000-0000-0000-000000000000"),
+        "person_id": ast.Constant(value=person_id),
         "run_ids": ast.Tuple(exprs=[ast.Constant(value=RUN_ID), ast.Constant(value=SECOND_RUN_ID)]),
     }
 
@@ -63,15 +68,15 @@ class TestEmailPerformanceRecipes(ClickhouseTestMixin, APIBaseTest):
         super().setUp()
         run_clickhouse_statement_in_parallel([TRUNCATE_APP_METRICS2_TABLE_SQL])
 
-    def _run(self, recipe: str) -> list[dict[str, Any]]:
+    def _run(self, recipe: str, **placeholders: str) -> list[dict[str, Any]]:
         response = execute_hogql_query(
-            query=_recipes()[recipe], team=self.team, user=self.user, placeholders=_placeholders()
+            query=_recipes()[recipe], team=self.team, user=self.user, placeholders=_placeholders(**placeholders)
         )
         assert response.columns is not None
         return [dict(zip(response.columns, row)) for row in response.results]
 
-    def _person(self, name: str) -> None:
-        _create_person(team=self.team, distinct_ids=[name])
+    def _person(self, name: str) -> str:
+        return str(_create_person(team=self.team, distinct_ids=[name]).uuid)
 
     def _email_event(
         self, name: str, event: str, at: datetime, step: str = STEP_ID, properties: dict[str, Any] | None = None
@@ -254,3 +259,51 @@ class TestEmailPerformanceRecipes(ClickhouseTestMixin, APIBaseTest):
         (row,) = self._run("Product outcome after the first send")
 
         assert row == {"recipients": 4, "reached_outcome": 1}
+
+    def test_person_history_lists_one_persons_email_and_outcome_events_in_order(self) -> None:
+        ada = self._person("ada")
+        self._person("bo")
+        at = WINDOW_START + timedelta(days=2)
+        self._sent("ada", at)
+        self._email_event("ada", "link_clicked", at + timedelta(hours=2), properties={"$link_index": 1})
+        self._email_event("ada", "opened", at + timedelta(hours=1))
+        self._product_event("ada", at + timedelta(hours=3))
+        _create_event(team=self.team, distinct_id="ada", event="$pageview", timestamp=at + timedelta(hours=4))
+        self._email_event("ada", "opened", WINDOW_START - timedelta(days=1))
+        self._email_event("bo", "opened", at)
+
+        rows = self._run("One person's email history", person_id=ada)
+
+        assert [(row["event"], row["step"], row["link_index"]) for row in rows] == [
+            ("$workflows_email_sent", STEP_ID, None),
+            ("$workflows_email_opened", STEP_ID, None),
+            ("$workflows_email_link_clicked", STEP_ID, "1"),
+            (OUTCOME_EVENT, None, None),
+        ]
+
+
+class TestEmailStepsRecipe(ClickhouseTestMixin, NonAtomicBaseTest):
+    def test_email_steps_lists_only_the_email_steps_of_one_workflow(self) -> None:
+        # ClickHouse reads system.hog_flows from Postgres over its own connection, so it sees only committed rows.
+        def email(step_id: str, name: str) -> dict[str, Any]:
+            return {"id": step_id, "name": name, "type": "function_email"}
+
+        workflow = create_workflow_for_test(
+            team_id=self.team.pk,
+            actions=[
+                {"id": "trigger_node", "name": "Trigger", "type": "trigger"},
+                email(STEP_ID, "Welcome"),
+                {"id": "delay_node", "name": "Wait a day", "type": "delay"},
+                email(OTHER_STEP_ID, "Reminder"),
+            ],
+        )
+        create_workflow_for_test(team_id=self.team.pk, actions=[email("action_function_email_other", "Newsletter")])
+
+        response = execute_hogql_query(
+            query=_recipes()["Email steps"],
+            team=self.team,
+            user=self.user,
+            placeholders=_placeholders(workflow_id=workflow.id),
+        )
+
+        assert response.results == [(STEP_ID, "Welcome"), (OTHER_STEP_ID, "Reminder")]
