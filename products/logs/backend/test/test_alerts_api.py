@@ -48,7 +48,7 @@ from products.logs.backend.platform_alert_backfill import (
     follow_logs_alert,
     platform_upsert_of,
 )
-from products.logs.backend.platform_cutover import cut_over_team, hand_over
+from products.logs.backend.platform_cutover import cut_over_team, hand_over, roll_back_team
 from products.logs.backend.presentation.views.alerts_api import (
     ALLOWED_WINDOW_MINUTES,
     MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
@@ -2592,6 +2592,7 @@ class TestLogsAlertAPI(APIBaseTest):
             ("first_alert_of_the_team", None, True),
             ("team_the_platform_has_begun_taking_over", "platform", True),
             ("team_whose_alerts_stay_on_logs", "logs", False),
+            ("team_rolled_back", "rolled_back", False),
         ]
     )
     def test_where_a_new_alert_starts(self, _name: str, existing: str | None, on_the_platform: bool) -> None:
@@ -2599,6 +2600,9 @@ class TestLogsAlertAPI(APIBaseTest):
             self._owned_by_the_platform()
         elif existing == "logs":
             self._keep_the_team_on_logs()
+        elif existing == "rolled_back":
+            self._create_via_api(name="Moved, then handed back", enabled=False)
+            assert [result.skipped for result in roll_back_team(self.team.id)] == [None]
 
         created = self._create_via_api(name="New alert")
 
