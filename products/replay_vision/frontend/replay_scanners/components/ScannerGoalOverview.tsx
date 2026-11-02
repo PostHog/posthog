@@ -325,6 +325,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
     } = useValues(logic)
     const { freeCreditsAllowance } = useValues(visionQuotaLogic)
     const { recordingsFirst, stepLabels } = useValues(scannerEditorSceneLogic)
+    const sectionLabels = goalOverviewSectionTitles(recordingsFirst)
     // Names the drafted cohort, which the query carries only by id.
     const { cohortsById } = useValues(cohortsModel)
     const { submitScanner, loadScannerEstimate } = useActions(logic)
@@ -385,7 +386,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
 
     // The recordings-first experiment arm reviews what the scanner watches before what it asks.
     const askSection = (
-        <OverviewSection label="What it will ask" editStep="configure" scannerId={scannerId}>
+        <OverviewSection label={sectionLabels.configure} editStep="configure" scannerId={scannerId}>
             <div className="space-y-3">
                 <LemonTag type={SCANNER_TYPE_TAG_TYPE[scanner.scanner_type]}>
                     {scannerTypeLabel(scanner.scanner_type)}
@@ -423,7 +424,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
 
             {recordingsFirst ? null : askSection}
 
-            <OverviewSection label="Eligible recordings" editStep="triggers" scannerId={scannerId}>
+            <OverviewSection label={sectionLabels.triggers} editStep="triggers" scannerId={scannerId}>
                 {filterGroups.length > 0 ? (
                     <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-1 text-sm">
                         {filterGroups.map((group) => (
@@ -474,7 +475,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
             {recordingsFirst ? askSection : null}
 
             <OverviewSection
-                label={recordingsFirst ? 'Sampling and limits' : 'Sampling and budget'}
+                label={sectionLabels.budget}
                 info="Estimated from your last 7 days of recordings, projected to a month. Your real volume follows your future traffic, so treat this as a guide."
                 editStep="budget"
                 scannerId={scannerId}
@@ -543,7 +544,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                 ) : overBudget ? (
                     <LemonBanner type="warning">
                         Your budget won't last the month at about <span>{monthlyObservations?.toLocaleString()}</span>{' '}
-                        recordings a month. Narrow the eligible recordings above.
+                        recordings a month. Narrow the {sectionLabels.triggers.toLowerCase()} above.
                     </LemonBanner>
                 ) : null}
             </OverviewSection>
@@ -619,11 +620,21 @@ function DraftLoadingBar(): JSX.Element {
     )
 }
 
+/** Each overview section's title. The recordings-first experiment arm uses its wizard step names. */
+export function goalOverviewSectionTitles(
+    recordingsFirst: boolean
+): Record<'configure' | 'triggers' | 'budget', string> {
+    return recordingsFirst
+        ? { triggers: 'Target recordings', configure: 'Prompt & output', budget: 'Sampling & limits' }
+        : { triggers: 'Eligible recordings', configure: 'What it will ask', budget: 'Sampling and budget' }
+}
+
 /** The overview's section titles in render order, which the recordings-first experiment arm changes. */
 export function goalOverviewSectionLabels(recordingsFirst: boolean): string[] {
+    const titles = goalOverviewSectionTitles(recordingsFirst)
     return recordingsFirst
-        ? ['Name', 'Eligible recordings', 'What it will ask', 'Sampling and limits']
-        : ['Name', 'What it will ask', 'Eligible recordings', 'Sampling and budget']
+        ? ['Name', titles.triggers, titles.configure, titles.budget]
+        : ['Name', titles.configure, titles.triggers, titles.budget]
 }
 
 /** The overview's shape while the draft is still generating, so navigating there reads as progress. */

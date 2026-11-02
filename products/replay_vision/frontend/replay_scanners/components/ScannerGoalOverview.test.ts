@@ -195,7 +195,7 @@ describe('eligibleFilterGroups', () => {
 })
 
 describe('goalOverviewSectionLabels', () => {
-    it('reviews the eligible recordings before the prompt in the recordings-first arm', () => {
+    it('reviews the target recordings before the prompt, under the wizard step names, in the recordings-first arm', () => {
         expect(goalOverviewSectionLabels(false)).toEqual([
             'Name',
             'What it will ask',
@@ -204,9 +204,9 @@ describe('goalOverviewSectionLabels', () => {
         ])
         expect(goalOverviewSectionLabels(true)).toEqual([
             'Name',
-            'Eligible recordings',
-            'What it will ask',
-            'Sampling and limits',
+            'Target recordings',
+            'Prompt & output',
+            'Sampling & limits',
         ])
     })
 })
