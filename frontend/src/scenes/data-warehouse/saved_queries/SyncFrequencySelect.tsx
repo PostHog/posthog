@@ -92,7 +92,6 @@ export function SyncFrequencySelect({
     const inherited = inheritedCadence(bounds, value)
     const selectedSpeedUp = value && value !== 'never' ? speedUpWarning(bounds, value) : null
     const options = buildOptions(bounds)
-    // The inherited note already names the downstream view, so the ceiling sentence would repeat it.
     const explanation = buildExplanation(bounds, { omitCeiling: !!inherited })
     const modeReason = modeDisabledReason(bounds)
     const reason =
