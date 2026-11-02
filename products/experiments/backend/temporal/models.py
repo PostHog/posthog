@@ -1,6 +1,8 @@
 import dataclasses
 from typing import Final, Literal
 
+from posthog.schema import PrecomputationMode
+
 from posthog.dataclasses import frozen
 
 # Shared by the workflow definition, the schedule, and the management command.
@@ -128,6 +130,10 @@ class ExperimentMetricToRecalculate:
     metric_uuid: str
     # "primary" or "secondary": the metric's role in the experiment, not its kind.
     role: str
+    # The calc activity's queue and precompute mode, chosen at discovery. The workflow uses them only for a run
+    # that has an activity_task_queue. None keeps the run's activity_task_queue and the AUTO mode.
+    task_queue: str | None = None
+    precomputation_mode: PrecomputationMode | None = None
 
 
 @dataclasses.dataclass
