@@ -319,7 +319,8 @@ def _extract_rows(root: Element, config: QualysVmdrEndpointConfig) -> Iterator[d
         # One row per (host, detection): host scalars prefixed host_* merged with the
         # detection's own fields. `unique_vuln_id` is the subscription-wide detection id.
         host_fields = {
-            f"host_{key}": value for key, value in _element_to_row(item, skip_tags={"DETECTION_LIST"}).items()
+            f"host_{key}": value
+            for key, value in _element_to_row(item, skip_tags={"DETECTION_LIST", *config.drop_tags}).items()
         }
         for detection in item.iter("DETECTION"):
             yield {**host_fields, **_element_to_row(detection)}

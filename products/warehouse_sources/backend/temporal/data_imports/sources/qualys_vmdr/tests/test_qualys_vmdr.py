@@ -90,6 +90,7 @@ DETECTION_PAGE = """<?xml version="1.0" encoding="UTF-8" ?>
       <HOST>
         <ID>1001</ID>
         <IP>10.0.0.1</IP>
+        <AGENT_ACTIVATION_KEY>00000000-0000-0000-0000-000000000000</AGENT_ACTIVATION_KEY>
         <DETECTION_LIST>
           <DETECTION>
             <UNIQUE_VULN_ID>111</UNIQUE_VULN_ID>
@@ -264,6 +265,17 @@ class TestQualysVmdr:
         assert rows[0]["last_update_datetime"] == "2026-07-01T00:00:00Z"
         # The host's DETECTION_LIST must not leak into the flattened row
         assert "host_detection_list" not in rows[0]
+        assert "host_agent_activation_key" not in rows[0]
+
+    def test_extract_host_rows_drop_agent_activation_key(self):
+        root = _parse_xml(
+            "<HOST_LIST_OUTPUT><RESPONSE><HOST_LIST><HOST><ID>1001</ID>"
+            "<AGENT_ACTIVATION_KEY>00000000-0000-0000-0000-000000000000</AGENT_ACTIVATION_KEY>"
+            "</HOST></HOST_LIST></RESPONSE></HOST_LIST_OUTPUT>"
+        )
+        rows = list(_extract_rows(root, QUALYS_VMDR_ENDPOINTS["hosts"]))
+
+        assert rows == [{"id": "1001"}]
 
     def test_get_rows_paginates_and_saves_state_after_yield(self):
         result = _drive("hosts", [_xml(HOST_LIST_PAGE_1), _xml(HOST_LIST_PAGE_2)], api_version="2.0")

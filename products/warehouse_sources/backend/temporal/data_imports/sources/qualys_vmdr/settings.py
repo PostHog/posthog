@@ -78,6 +78,8 @@ QUALYS_VMDR_ENDPOINTS: dict[str, QualysVmdrEndpointConfig] = {
         ],
         primary_keys=["id"],
         truncation_limit=1000,
+        # The 6.0 host DTD adds the cloud agent's registration credential.
+        drop_tags=frozenset({"AGENT_ACTIVATION_KEY"}),
         path_overrides={QUALYS_VMDR_API_VERSION_6_0: "/api/6.0/fo/asset/host/"},
     ),
     # The core VMDR feed: one row per (host, detection). `detection_updated_since` is a
@@ -102,6 +104,7 @@ QUALYS_VMDR_ENDPOINTS: dict[str, QualysVmdrEndpointConfig] = {
         partition_key="first_found_datetime",
         truncation_limit=500,
         flatten_host_detections=True,
+        drop_tags=frozenset({"AGENT_ACTIVATION_KEY"}),
         path_overrides={QUALYS_VMDR_API_VERSION_6_0: "/api/6.0/fo/asset/host/vm/detection/"},
     ),
     # VM scan history. The scan list endpoint has no truncation pagination — it returns every
