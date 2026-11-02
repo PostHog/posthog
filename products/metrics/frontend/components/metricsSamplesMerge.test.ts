@@ -21,21 +21,24 @@ const sample = (metric: string, timestamp: string, attributes: Record<string, st
 const secondsAfter = (seconds: number): string => new Date(Date.UTC(2026, 6, 9, 5, 0, seconds)).toISOString()
 
 describe('mergeSamples', () => {
-    it('lists an emission that two overlapping series return once, tagged with both', () => {
+    it('lists an emission that two overlapping series return once, tagged with both, and keeps other metric types apart', () => {
         const prod = sample('requests', secondsAfter(10), { env: 'prod' })
         const dev = sample('requests', secondsAfter(5), { env: 'dev' })
+        const prodGauge = { ...prod, metric_type: 'gauge' }
 
         const rows = mergeSamples(
             [
                 { clauses: ['a'], samples: [prod, dev] },
                 { clauses: ['b'], samples: [{ ...prod }] },
+                { clauses: ['c'], samples: [prodGauge] },
             ],
             50
         )
 
-        expect(rows.map((row) => [row.attributes.env, row.clauses])).toEqual([
-            ['prod', ['a', 'b']],
-            ['dev', ['a']],
+        expect(rows.map((row) => [row.attributes.env, row.metric_type, row.clauses])).toEqual([
+            ['prod', 'sum', ['a', 'b']],
+            ['prod', 'gauge', ['c']],
+            ['dev', 'sum', ['a']],
         ])
     })
 

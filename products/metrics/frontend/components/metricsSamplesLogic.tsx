@@ -10,7 +10,7 @@ import { metricsErrorSpikesRetrieve, metricsSamplesCreate } from 'products/metri
 import type { _MetricErrorSpikeApi } from 'products/metrics/frontend/generated/api.schemas'
 import { canViewMetrics } from 'products/metrics/frontend/metricsAccess'
 
-import { buildSampleRequests, type MetricsSampleRow, mergeSamples } from './metricsSamplesMerge'
+import { buildSampleRequests, type MetricsSampleRow, mergeSamples, settleSampleRequests } from './metricsSamplesMerge'
 import {
     type SeriesLabel,
     distinctSeriesLabels,
@@ -25,7 +25,7 @@ import {
     resolveDate,
 } from './metricsViewerLogic'
 
-/** What a samples load depends on, with the date range unresolved, so an auto-refresh tick keeps the same key. */
+// Unresolved dates, so an auto-refresh tick keeps the same key.
 const samplesRequestKey = (
     namedClauses: MetricsViewerClause[],
     dateFrom: string | null,
@@ -201,7 +201,6 @@ export const metricsSamplesLogic = kea<metricsSamplesLogicType>([
     reducers({
         activeTab: ['aggregates' as MetricsPanelTab, { setActiveTab: (_, { activeTab }) => activeTab }],
         showErrorSpikes: [false, { toggleShowErrorSpikes: (state) => !state }],
-        // Series whose samples failed to load, while the others loaded.
         failedSampleClauses: [
             [] as string[],
             { setFailedSampleClauses: (_, { failedSampleClauses }) => failedSampleClauses },
@@ -217,9 +216,11 @@ export const metricsSamplesLogic = kea<metricsSamplesLogicType>([
                     }
                     const dateFrom = resolveDate(values.dateFrom, values.timezone)
                     if (!values.namedClauses.length || !dateFrom) {
+                        cache.loadedSamplesKey = undefined
                         actions.setFailedSampleClauses([])
                         return []
                     }
+                    const requestKey = samplesRequestKey(values.namedClauses, values.dateFrom, values.dateTo)
                     await breakpoint(300)
                     const dateTo = resolveDate(values.dateTo, values.timezone) ?? undefined
                     const requests = buildSampleRequests(values.namedClauses)
@@ -231,24 +232,13 @@ export const metricsSamplesLogic = kea<metricsSamplesLogicType>([
                         )
                     )
                     breakpoint()
-                    const failedClauses = requests.flatMap((request, index) =>
-                        responses[index].status === 'rejected' ? request.clauses : []
-                    )
+                    const { loaded, failedClauses, failure } = settleSampleRequests(requests, responses)
                     actions.setFailedSampleClauses(failedClauses)
-                    const failure = responses.find((response) => response.status === 'rejected')
-                    if (failure && failedClauses.length === values.namedClauses.length) {
-                        throw failure.reason
+                    if (!loaded.length) {
+                        throw failure
                     }
-                    cache.loadedSamplesKey = samplesRequestKey(values.namedClauses, values.dateFrom, values.dateTo)
-                    return mergeSamples(
-                        requests.flatMap((request, index) => {
-                            const response = responses[index]
-                            return response.status === 'fulfilled'
-                                ? [{ clauses: request.clauses, samples: response.value.results }]
-                                : []
-                        }),
-                        SAMPLES_LIMIT
-                    )
+                    cache.loadedSamplesKey = requestKey
+                    return mergeSamples(loaded, SAMPLES_LIMIT)
                 },
             },
         ],
@@ -341,8 +331,7 @@ export const metricsSamplesLogic = kea<metricsSamplesLogicType>([
             // overlays stay in sync with the chart's own window. Both dispatches are
             // unconditional — the loaders' own guards are the single gate.
             fetchQueryResultsSuccess: () => {
-                // The chart's trace dots need samples even while the tab is hidden. An auto-refresh
-                // tick leaves the query unchanged, so it reloads them only while the tab is shown.
+                // The trace dots need samples while the tab is hidden, but not again on an auto-refresh tick.
                 const key = samplesRequestKey(values.namedClauses, values.dateFrom, values.dateTo)
                 if (values.activeTab === 'samples' || key !== cache.loadedSamplesKey) {
                     actions.loadSamples({})
@@ -359,9 +348,7 @@ export const metricsSamplesLogic = kea<metricsSamplesLogicType>([
             // The viewer pins the type in its own setMetricName listener, so without
             // this a metric switch can load samples pinned to the previous type.
             setSelectedMetricType: reloadWhenShown,
-            // A removed clause leaves the chart query unchanged when it had no metric yet, so
-            // the chart-refetch trigger does not cover it. The exemplar overlay renders from
-            // these samples, so refresh even while the tab is hidden.
+            // Removing a clause without a metric leaves the chart query, and so its refetch, unchanged.
             removeClause: () => {
                 actions.loadSamples({})
             },

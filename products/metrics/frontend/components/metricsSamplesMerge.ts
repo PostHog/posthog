@@ -5,13 +5,13 @@ import { type MetricsViewerClause, metricFiltersForGroup } from './metricsViewer
 /** A raw emission, with the aliases of the series whose query returned it. */
 export type MetricsSampleRow = _MetricEventSampleApi & { clauses: string[] }
 
-/** One samples request without its date range, and the series that share it. */
+/** A samples query without its date range, and the series that share it. */
 export interface MetricsSampleRequest {
     query: Omit<_MetricSamplesBodyApi, 'dateFrom' | 'dateTo' | 'limit'>
     clauses: string[]
 }
 
-/** One request per distinct series query. Series with the same metric, type and filters share a request. */
+/** Series with the same metric, type and filters share one request. */
 export function buildSampleRequests(namedClauses: MetricsViewerClause[]): MetricsSampleRequest[] {
     const requests = new Map<string, MetricsSampleRequest>()
     for (const clause of namedClauses) {
@@ -38,6 +38,10 @@ const sampleTime = (sample: _MetricEventSampleApi): number => Date.parse(sample.
 const sampleIdentity = (sample: _MetricEventSampleApi): string =>
     JSON.stringify([
         sample.metric_name,
+        sample.metric_type,
+        sample.unit,
+        sample.aggregation_temporality,
+        sample.is_monotonic,
         sampleTime(sample),
         sample.value,
         sample.count,
@@ -48,11 +52,7 @@ const sampleIdentity = (sample: _MetricEventSampleApi): string =>
         sample.resource_attributes,
     ])
 
-/**
- * Merges the samples of each request into at most `limit` rows, newest first.
- * Each request first gets an equal share of the rows, so a busy series cannot push a quiet one out.
- * Rows that a share leaves unused go to the newest remaining samples.
- */
+/** At most `limit` rows, newest first. Each request gets an equal share first, so a busy series cannot push a quiet one out. */
 export function mergeSamples(
     results: { clauses: string[]; samples: _MetricEventSampleApi[] }[],
     limit: number
@@ -100,4 +100,28 @@ export function mergeSamples(
         picked.add(key)
     }
     return newestFirst.filter(([key]) => picked.has(key)).map(([, row]) => row)
+}
+
+/** Splits settled requests into the samples that loaded and the series whose request failed. */
+export function settleSampleRequests(
+    requests: MetricsSampleRequest[],
+    responses: PromiseSettledResult<{ results: _MetricEventSampleApi[] }>[]
+): {
+    loaded: { clauses: string[]; samples: _MetricEventSampleApi[] }[]
+    failedClauses: string[]
+    failure: unknown
+} {
+    const loaded: { clauses: string[]; samples: _MetricEventSampleApi[] }[] = []
+    const failedClauses: string[] = []
+    let failure: unknown = undefined
+    requests.forEach(({ clauses }, index) => {
+        const response = responses[index]
+        if (response.status === 'fulfilled') {
+            loaded.push({ clauses, samples: response.value.results })
+        } else {
+            failedClauses.push(...clauses)
+            failure = response.reason
+        }
+    })
+    return { loaded, failedClauses, failure }
 }

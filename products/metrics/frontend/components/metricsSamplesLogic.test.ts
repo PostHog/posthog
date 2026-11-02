@@ -291,6 +291,28 @@ describe('metricsSamplesLogic', () => {
         expect(mockSamplesCreate).toHaveBeenCalledTimes(3)
     })
 
+    // Regression: a slow request for the old metric stored the new metric's key, so the new chart never got samples.
+    it('loads samples for a metric picked while the previous request was in flight', async () => {
+        let release: () => void = () => undefined
+        mockSamplesCreate.mockImplementationOnce(
+            () => new Promise((resolve) => (release = () => resolve({ results: [SAMPLE] })))
+        )
+        metricsViewerLogic.actions.setMetricName('demo_checkout_duration_ms')
+        metricsViewerLogic.actions.fetchQueryResultsSuccess([])
+        await expectLogic(logic).delay(400)
+
+        metricsViewerLogic.actions.setMetricName('demo_checkout_requests_total')
+        release()
+        await expectLogic(logic).delay(10)
+        metricsViewerLogic.actions.fetchQueryResultsSuccess([])
+        await expectLogic(logic).delay(400)
+
+        expect(mockSamplesCreate.mock.calls.map(([, { query }]) => query.metricName)).toEqual([
+            'demo_checkout_duration_ms',
+            'demo_checkout_requests_total',
+        ])
+    })
+
     it('does not fetch error spikes until the toggle is enabled', async () => {
         metricsViewerLogic.actions.setMetricName('demo_checkout_duration_ms')
 

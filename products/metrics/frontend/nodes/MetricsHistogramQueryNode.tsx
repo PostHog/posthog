@@ -24,7 +24,7 @@ export function MetricsHistogramQueryNode(props: {
     attachTo?: LogicWrapper | BuiltLogic
     /** Set by dashboard tiles and notebooks, which reduce the UI to the data. */
     embedded?: boolean
-    /** Each change after the first render reloads the heatmap, bypassing the cache. */
+    /** Each change after the first render reloads the heatmap, unless a load is already running. */
     refreshCount?: number
 }): JSX.Element | null {
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
@@ -51,9 +51,12 @@ export function MetricsHistogramQueryNode(props: {
     useEffect(() => {
         if (props.refreshCount !== loadedRefreshCount.current) {
             loadedRefreshCount.current = props.refreshCount
-            loadData('force_blocking')
+            // A new load aborts the running one, so a slow heatmap would never finish under auto-refresh.
+            if (!logic.values.responseLoading) {
+                loadData('force_blocking')
+            }
         }
-    }, [props.refreshCount, loadData])
+    }, [props.refreshCount, loadData, logic])
     const histogram = response as MetricsHistogramQueryResponse | undefined
     const unit = props.query.unit
 
