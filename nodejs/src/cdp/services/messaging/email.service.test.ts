@@ -2168,6 +2168,24 @@ describe('EmailService', () => {
             expect(sendEmailSpy).toHaveBeenCalledTimes(1)
         })
 
+        it('leaves out the View email link and the saved copy when the copy fails', async () => {
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+            const messageAssets = new MessageAssetsService({
+                produce: jest.fn().mockResolvedValue(undefined),
+            } as unknown as IngestionOutputs<'message_assets'>)
+            jest.spyOn(messageAssets, 'buildRowForEmail').mockImplementation(() => {
+                throw new Error('Asset row fault')
+            })
+            service['messageAssetsService'] = messageAssets
+
+            const result = await service.executeSendEmail(invocation)
+
+            const sentLine = result.logs.find((log) => log.message.startsWith('Email sent to '))
+            expect(sentLine).toBeDefined()
+            expect(sentLine?.message).not.toContain('[Email:')
+            expect(result.messageAssets).toEqual([])
+        })
+
         it('records a failed send as failed when the engagement setting read also fails', async () => {
             sendEmailSpy.mockRejectedValue(new Error('SES rejected the email'))
             jest.spyOn((service as any).teamWorkflowsConfigService, 'shouldCaptureEngagementEvents').mockRejectedValue(

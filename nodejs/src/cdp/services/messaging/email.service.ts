@@ -840,7 +840,7 @@ export class EmailService {
         }
 
         const distinctId = resolveEmailEngagementDistinctId(invocation)
-        if (distinctId && !isTest && (await this.shouldCaptureEngagementEvents(invocation, addLog))) {
+        if (distinctId && !isTest && (await this.readEngagementCaptureOrWarn(invocation, addLog))) {
             result.capturedPostHogEvents.push({
                 team_id: invocation.teamId,
                 timestamp: new Date().toISOString(),
@@ -878,7 +878,7 @@ export class EmailService {
         }
     }
 
-    private async shouldCaptureEngagementEvents(
+    private async readEngagementCaptureOrWarn(
         invocation: CyclotronJobInvocationHogFunction,
         addLog: ReturnType<typeof createAddLogFunction>
     ): Promise<boolean> {
