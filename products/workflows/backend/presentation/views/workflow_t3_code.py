@@ -241,7 +241,7 @@ def _structured(outcome: ConnectorCallOutcome) -> dict[str, Any]:
 
 
 def _project_list(structured: dict[str, Any]) -> list[dict[str, Any]]:
-    projects = structured.get("projects") or []
+    projects = structured.get("projects")
     if isinstance(projects, list) and all(
         isinstance(project, dict) and isinstance(project.get("id"), str) and isinstance(project.get("title"), str)
         for project in projects

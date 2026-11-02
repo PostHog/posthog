@@ -144,6 +144,9 @@ class TestWorkflowT3Code(APIBaseTest):
     @parameterized.expand(
         [
             ("projects is not a list", {"projects": {"id": "p1", "title": "first"}}),
+            ("projects is an empty object", {"projects": {}}),
+            ("projects is false", {"projects": False}),
+            ("projects is missing", {"nextCursor": None}),
             ("a project is not an object", {"projects": ["p1"]}),
             ("a project has no id", {"projects": [{"title": "first"}]}),
         ]
