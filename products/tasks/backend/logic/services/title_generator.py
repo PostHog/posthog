@@ -123,16 +123,15 @@ def _complete_via_ai_gateway(system_prompt: str, user_prompt: str) -> str:
     from posthog.llm.gateway_client import build_ai_gateway_anthropic_client  # noqa: PLC0415
 
     client = build_ai_gateway_anthropic_client(ai_product="posthog_code", distinct_id=TITLE_DISTINCT_ID)
-    response = client.with_options(
-        timeout=TITLE_GATEWAY_TIMEOUT_SECONDS, max_retries=TITLE_GATEWAY_MAX_RETRIES
-    ).messages.create(
-        model=TITLE_MODEL,
-        system=system_prompt,
-        messages=[{"role": "user", "content": user_prompt}],
-        temperature=TITLE_TEMPERATURE,
-        max_tokens=TITLE_MAX_TOKENS,
-        extra_headers={"X-PostHog-Billable": "false", "X-PostHog-Privacy-Mode": "true"},
-    )
+    with client.with_options(timeout=TITLE_GATEWAY_TIMEOUT_SECONDS, max_retries=TITLE_GATEWAY_MAX_RETRIES) as gateway:
+        response = gateway.messages.create(
+            model=TITLE_MODEL,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_prompt}],
+            temperature=TITLE_TEMPERATURE,
+            max_tokens=TITLE_MAX_TOKENS,
+            extra_headers={"X-PostHog-Billable": "false", "X-PostHog-Privacy-Mode": "true"},
+        )
     return "".join(block.text for block in response.content if block.type == "text")
 
 
