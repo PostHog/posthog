@@ -1,3 +1,4 @@
+import type { PendingApproval, PollOutcome } from '@/core/approval'
 import { HogError } from '@/core/errors'
 import type { Runtime } from '@/core/runtime'
 
@@ -7,24 +8,18 @@ import { sendRequest, type HttpResponse } from './api'
 // can run any command without authorizing again.
 const USE_CASES = 'agent-cli'
 
-const MAX_RETRIES = 3
 const REQUEST_TIMEOUT_MS = 30_000
-// RFC 8628 asks clients to poll this much slower after each `slow_down`.
-const SLOW_DOWN_SECONDS = 5
 
 // A login the person still has to approve in the browser. `deviceCode` retrieves the key once
 // they approve, so it stays in a private file and never reaches the output.
-export interface PendingLogin {
+export interface PendingLogin extends PendingApproval {
     host: string
     deviceCode: string
     userCode: string
-    url: string
-    // Epoch milliseconds after which PostHog forgets the code.
-    expiresAt: number
-    intervalSeconds: number
 }
 
 export interface Approval {
+    host: string
     apiKey: string
     projectId: string
     scopes: string[]
@@ -71,67 +66,39 @@ export async function startDeviceLogin(runtime: Runtime, host: string): Promise<
     }
 }
 
-// A network failure, a 429 or a 5xx can pass, so the poll retries them. When they don't pass,
-// the error is `login_interrupted` and the pending login stays, so `--wait` can resume it.
-export async function waitForApproval(runtime: Runtime, pending: PendingLogin): Promise<Approval> {
-    let failures = 0
-    let intervalSeconds = pending.intervalSeconds
-    while (runtime.now() < pending.expiresAt) {
-        await runtime.sleep(intervalSeconds * 1000)
-        const remaining = pending.expiresAt - runtime.now()
-        if (remaining <= 0) {
-            break
+export async function pollDeviceLogin(
+    runtime: Runtime,
+    pending: PendingLogin,
+    timeoutMs: number
+): Promise<PollOutcome<Approval>> {
+    const response = await post(runtime, pending.host, 'poll', { device_code: pending.deviceCode }, timeoutMs)
+    if (response.status === 429) {
+        return { state: 'slow_down' }
+    }
+    if (response.status >= 500) {
+        return { state: 'retry', reason: `PostHog answered with HTTP ${response.status}.` }
+    }
+    if (response.status === 202) {
+        return { state: 'pending' }
+    }
+    const body = (response.json ?? {}) as PollResponse
+    if (response.ok && body.status === 'authorized' && body.personal_api_key && body.project_id !== undefined) {
+        return {
+            state: 'approved',
+            value: {
+                host: pending.host,
+                apiKey: body.personal_api_key,
+                projectId: String(body.project_id),
+                scopes: body.scopes ?? [],
+            },
         }
-        let response: HttpResponse
-        try {
-            response = await post(
-                runtime,
-                pending.host,
-                'poll',
-                { device_code: pending.deviceCode },
-                Math.min(REQUEST_TIMEOUT_MS, remaining)
-            )
-        } catch (error) {
-            if (++failures > MAX_RETRIES) {
-                throw interrupted(error instanceof Error ? error.message : String(error))
-            }
-            continue
-        }
-        if (response.status === 429 || response.status >= 500) {
-            if (++failures > MAX_RETRIES) {
-                throw interrupted(`PostHog answered with HTTP ${response.status}.`)
-            }
-            intervalSeconds += response.status === 429 ? SLOW_DOWN_SECONDS : 0
-            continue
-        }
-        failures = 0
-        if (response.status === 202) {
-            continue
-        }
-        const body = (response.json ?? {}) as PollResponse
-        if (response.ok && body.status === 'authorized' && body.personal_api_key && body.project_id !== undefined) {
-            return { apiKey: body.personal_api_key, projectId: String(body.project_id), scopes: body.scopes ?? [] }
-        }
-        if (body.status === 'expired') {
-            break
-        }
-        throw new HogError(
-            'login_failed',
-            `PostHog rejected the login with HTTP ${response.status}.`,
-            'Run `hog auth login` to start again.'
-        )
+    }
+    if (body.status === 'expired') {
+        return { state: 'expired' }
     }
     throw new HogError(
-        'login_expired',
-        'The login code expired before it was approved.',
-        'Run `hog auth login` to get a new code.'
-    )
-}
-
-function interrupted(reason: string): HogError {
-    return new HogError(
-        'login_interrupted',
-        `hog lost contact with PostHog while waiting for the login: ${reason}`,
-        'Run `hog auth login --wait` to keep waiting. The link stays the same.'
+        'login_failed',
+        `PostHog rejected the login with HTTP ${response.status}.`,
+        'Run `hog auth login` to start again.'
     )
 }

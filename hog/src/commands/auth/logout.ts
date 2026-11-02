@@ -1,6 +1,7 @@
+import { clearPending } from '@/core/approval'
 import { defineCommand } from '@/core/command'
 import { PERSONAL_API_KEY_ENV_VAR, posthogCliCredentialsPath } from '@/posthog/credentials'
-import { clearPendingLogin } from '@/posthog/login'
+import { LOGIN_COMMAND } from '@/posthog/login'
 import { readLogin, removeLogin } from '@/posthog/logins'
 import { readSettings } from '@/posthog/settings'
 
@@ -32,7 +33,7 @@ export default defineCommand({
         const host = ctx.globals.host ?? configHost ?? settings.host
         const login = host ? await readLogin(runtime, settings, host) : undefined
         const removed = login ? await removeLogin(runtime, login) : false
-        await clearPendingLogin(runtime)
+        await clearPending(runtime, LOGIN_COMMAND)
         const posthogCliFile = posthogCliCredentialsPath(runtime)
         return {
             status: removed ? 'logged_out' : 'not_logged_in',
