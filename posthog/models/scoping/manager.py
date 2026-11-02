@@ -16,7 +16,7 @@ raise on framework code that has no team context. Raw SQL bypasses the
 ORM entirely. Use this alongside explicit team checks at the API layer.
 """
 
-import os
+import sys
 from collections.abc import AsyncIterator, Iterator
 from functools import cache
 from typing import Any, TypeVar, cast
@@ -101,8 +101,8 @@ FETCH_RAISE_ON_PEERS = FetchRaiseOnPeers()
 
 @cache
 def default_fetch_mode() -> FetchMode:
-    # PYTEST_VERSION keeps it out of servers and management commands that CI starts with TEST=1.
-    if settings.TEST and "PYTEST_VERSION" in os.environ:
+    # Test processes load pytest, unlike servers and management commands with TEST=1.
+    if settings.TEST and sys.modules.get("pytest") is not None:
         return FETCH_RAISE_ON_PEERS
     return FETCH_RELATION_PEERS
 

@@ -1,4 +1,4 @@
-import os
+import sys
 from collections.abc import Callable, Iterable
 
 import pytest
@@ -248,12 +248,9 @@ class TestFetchRaiseOnPeers(BaseTest):
         ]
     )
     def test_default_fetch_mode(self, _name: str, under_pytest: bool, expected: object) -> None:
-        environ = {key: value for key, value in os.environ.items() if key != "PYTEST_VERSION"}
-        if under_pytest:
-            environ["PYTEST_VERSION"] = "test"
         default_fetch_mode.cache_clear()
         try:
-            with patch.dict(os.environ, environ, clear=True):
+            with patch.dict(sys.modules, {"pytest": pytest if under_pytest else None}):
                 assert default_fetch_mode() is expected
         finally:
             default_fetch_mode.cache_clear()

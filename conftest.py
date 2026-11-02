@@ -280,8 +280,8 @@ def pytest_runtest_setup(item: pytest.Item) -> Generator[None]:
     peer_lazy_loads.start_test()
     try:
         result = yield
-    except pytest.skip.Exception:
-        # A skip must not hide a blocked load caught before it.
+    except (pytest.skip.Exception, pytest.xfail.Exception):
+        # A skip or xfail must not hide a blocked load caught before it.
         _fail_on_caught_peer_lazy_loads()
         raise
     _fail_on_caught_peer_lazy_loads()
@@ -294,7 +294,7 @@ def pytest_runtest_call(item: pytest.Item) -> Generator[None]:
 
     try:
         result = yield
-    except pytest.skip.Exception:
+    except (pytest.skip.Exception, pytest.xfail.Exception):
         _fail_on_caught_peer_lazy_loads()
         raise
     if problems := authentication_checks.finish_test():
