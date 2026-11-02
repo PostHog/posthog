@@ -10,9 +10,8 @@ use super::cv::Expansion;
 /// The one `cv` version the player decompresses (`decompressEvent`). It leaves an event with any other as it is.
 pub const CV_VERSION: &str = "2024-10";
 
-/// A window ID is a UUID from posthog-js, so a much longer one is not real. Each moment in an index row repeats the ID,
-/// and JSON can write one byte as six, so this value keeps a row under the producer's message limit.
-pub const MAX_WINDOW_ID_BYTES: usize = 128;
+/// A window ID is a UUID from posthog-js, so a much longer one is not real.
+pub const MAX_WINDOW_ID_BYTES: usize = 1024;
 
 /// The timestamps a JavaScript `Date` holds, in milliseconds either side of 1970. A timestamp past them is not a real
 /// time, and the index's integer columns must stay in the range JavaScript reads exactly.
@@ -198,6 +197,14 @@ fn read_inner(inner: Vec<u8>, max_events: usize) -> Result<Message, ReadError> {
     {
         return Err(ReadError::Malformed("$window_id is too long"));
     }
+    // Each moment in an index row repeats the ID, and JSON writes a control character as six bytes. Without them, the
+    // longest ID keeps a row under the producer's message limit.
+    if window_id
+        .as_ref()
+        .is_some_and(|id| id.bytes().any(|byte| byte < b' '))
+    {
+        return Err(ReadError::Malformed("$window_id has a control character"));
+    }
     let mut events = Vec::new();
     for item in scan::array_items(&inner, items)? {
         if events.len() >= max_events {
@@ -374,6 +381,10 @@ mod tests {
         assert_eq!(
             read("w".repeat(MAX_WINDOW_ID_BYTES + 1)).unwrap_err(),
             ReadError::Malformed("$window_id is too long")
+        );
+        assert_eq!(
+            read("w\u{1}".to_owned()).unwrap_err(),
+            ReadError::Malformed("$window_id has a control character")
         );
     }
 

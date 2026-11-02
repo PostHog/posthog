@@ -689,9 +689,9 @@ mod tests {
         let message = IndexMessage::block(&block).unwrap();
         let value = assert_columns(&message.payload, BLOCK_COLUMNS);
 
-        // The longest window ID, in the characters JSON writes longest, keeps the row under the producer's default
-        // limit, so a rejected row cannot make its flush look incomplete.
-        let window = "\u{1}".repeat(MAX_WINDOW_ID_BYTES);
+        // The longest window ID the reader accepts, in the characters JSON writes longest, keeps the row under the
+        // producer's default limit, so a rejected row cannot make its flush look incomplete.
+        let window = "\"".repeat(MAX_WINDOW_ID_BYTES);
         let wide = BlockStats {
             window_ids: vec![window.clone(); MAX_WINDOW_IDS],
             ..BlockStats::default()
