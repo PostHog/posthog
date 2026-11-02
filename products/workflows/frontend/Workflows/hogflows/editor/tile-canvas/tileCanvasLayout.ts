@@ -13,7 +13,7 @@ const PORT_SPREAD = 14
 const PORT_MARGIN = 4
 const ARROW_HALF_WIDTH = 4
 // Arrowheads closer than their width draw as one shape, so many arrows into one step spread past its tile.
-const MIN_PORT_GAP = 2 * ARROW_HALF_WIDTH + 2
+const MIN_ARROWHEAD_GAP = 2 * ARROW_HALF_WIDTH + 2
 // ELK can move a split's targets after the ports are pinned, which changes the order the ports need.
 const MAX_LAYOUT_PASSES = 4
 const FRAME_PADDING = { top: 30, side: 16, bottom: 16 }
@@ -87,13 +87,13 @@ interface PortOrder {
     in: Map<string, number>
 }
 
-function portSpread(size: NodeSize, count: number): number {
+function portSpread(size: NodeSize, count: number, minGap: number): number {
     const room = (size.anchor?.width ?? size.width) - 2 * PORT_MARGIN
-    return count > 1 ? Math.min(PORT_SPREAD, Math.max(MIN_PORT_GAP, room / (count - 1))) : PORT_SPREAD
+    return count > 1 ? Math.min(PORT_SPREAD, Math.max(minGap, room / (count - 1))) : PORT_SPREAD
 }
 
-function portX(size: NodeSize, slot: number, count: number): number {
-    return tileEntry({ x: 0, y: 0 }, size).x + (slot - (count - 1) / 2) * portSpread(size, count)
+function portX(size: NodeSize, slot: number, count: number, minGap: number): number {
+    return tileEntry({ x: 0, y: 0 }, size).x + (slot - (count - 1) / 2) * portSpread(size, count, minGap)
 }
 
 const LAYOUT_OPTIONS: Record<string, string> = {
@@ -125,10 +125,7 @@ const ROW_ALIGNMENT = { 'elk.alignment': 'TOP' }
 const IN = ':in'
 const OUT = ':out'
 
-/**
- * Each arrow has a port of its own at both ends, so ELK never merges two arrows into one run.
- * ELK picks the order of the ports to keep arrows from crossing, and places them anywhere on their side.
- */
+/** Each arrow has a port of its own at both ends, so ELK never merges two arrows into one run. */
 function leafNode(id: string, size: NodeSize, edgesIn: VisibleEdge[], edgesOut: VisibleEdge[]): ElkNode {
     const port = (portId: string, side: 'NORTH' | 'SOUTH'): ElkPort => ({
         id: portId,
@@ -161,7 +158,8 @@ function pinPorts(node: ElkNode, sizes: Record<string, NodeSize>, order: PortOrd
         const edgeId = port.id.slice(0, -(isIn ? IN : OUT).length)
         const slot = (isIn ? order.in : order.out).get(edgeId) ?? 0
         const count = isIn ? into : node.ports!.length - into
-        return { ...port, x: portX(size, slot, count), y: isIn ? 0 : size.height }
+        const x = portX(size, slot, count, isIn ? MIN_ARROWHEAD_GAP : 0)
+        return { ...port, x, y: isIn ? 0 : size.height }
     })
     return {
         ...node,
@@ -285,10 +283,7 @@ function buildElkGraph(sizes: Record<string, NodeSize>, edges: VisibleEdge[], fr
     return root
 }
 
-/**
- * Gives each edge a slot, left to right, in the order ELK placed them. ELK can put the arrows from one split into one step
- * in any order, so the edges of a group stay together in `rank` order.
- */
+/** Slots edges left to right. ELK can order the arrows from one split into one step freely, so they keep `rank` order. */
 function slotsBy(
     edges: VisibleEdge[],
     place: (edge: VisibleEdge) => number,
@@ -304,30 +299,40 @@ function slotsBy(
     return new Map(ordered.map((edge, slot) => [edge.id, slot]))
 }
 
-// An arrow leaves its step, turns once, and runs down its lane. Ports in the order of those lanes keep the arrows at one
-// step side by side without crossing.
+function xAt(points: Point[], y: number): number {
+    const down = points.findIndex((start, index) => {
+        const end = points[index + 1]
+        return !!end && end.x === start.x && y >= Math.min(start.y, end.y) && y <= Math.max(start.y, end.y)
+    })
+    return down >= 0 ? points[down].x : (points.at(-1)?.x ?? 0)
+}
+
+/**
+ * Arrows that do not cross keep their left-to-right order at every height. So the ports of one step take the order of
+ * the arrows just above the nearest target, and the ports into one step the order just below the nearest source.
+ */
 function portOrderOf(layout: CanvasLayout, edges: VisibleEdge[]): PortOrder {
     const out = new Map<string, number>()
     const into = new Map<string, number>()
     const pointsOf = (edge: VisibleEdge): Point[] => layout.edges[edge.id]?.points ?? []
-    const laneOut = (edge: VisibleEdge): number => pointsOf(edge)[2]?.x ?? pointsOf(edge).at(-1)?.x ?? 0
-    const laneIn = (edge: VisibleEdge): number => pointsOf(edge).at(-3)?.x ?? pointsOf(edge)[0]?.x ?? 0
-    Object.values(groupBy(edges, (edge) => edge.source)).forEach((fromOneStep) =>
+    Object.values(groupBy(edges, (edge) => edge.source)).forEach((fromOneStep) => {
+        const nearestEnd = Math.min(...fromOneStep.map((edge) => pointsOf(edge).at(-1)?.y ?? Infinity))
         slotsBy(
             fromOneStep,
-            laneOut,
+            (edge) => xAt(pointsOf(edge), nearestEnd - 1),
             (edge) => edge.target,
             (edge) => edge.portIndex
         ).forEach((slot, id) => out.set(id, slot))
-    )
-    Object.values(groupBy(edges, (edge) => edge.target)).forEach((intoOneStep) =>
+    })
+    Object.values(groupBy(edges, (edge) => edge.target)).forEach((intoOneStep) => {
+        const nearestStart = Math.max(...intoOneStep.map((edge) => pointsOf(edge)[0]?.y ?? -Infinity))
         slotsBy(
             intoOneStep,
-            laneIn,
+            (edge) => xAt(pointsOf(edge), nearestStart + 1),
             (edge) => edge.source,
             (edge) => out.get(edge.id) ?? 0
         ).forEach((slot, id) => into.set(id, slot))
-    )
+    })
     return { out, in: into }
 }
 
@@ -404,8 +409,7 @@ export async function layoutTileCanvas(
     const frameIds = new Set(frames.map((frame) => frame.id))
     const shown = edges.filter((edge) => sizes[edge.source] && sizes[edge.target])
     const graph = (): ElkNode => buildElkGraph(sizes, shown, frames)
-    // The first pass only finds where each arrow goes. The next ones pin the ports under the tiles in that order, until
-    // the order holds.
+    // The first pass only finds where each arrow goes. Later passes pin the ports in that order until it holds.
     let layout = readLayout(await elk.layout(graph()), frameIds)
     let order: PortOrder | null = null
     for (let pass = 1; pass < MAX_LAYOUT_PASSES; pass++) {

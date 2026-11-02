@@ -55,7 +55,6 @@ const groups = computePathGroups(workflow)
 const outerArms = groups.filter((group) => group.branchActionId === 'split')
 const innerArms = groups.filter((group) => group.branchActionId === 'c1')
 
-// A step is its tile with the caption to the right, as the canvas measures it.
 const STEP: NodeSize = { width: 260, height: 64, anchor: { x: 32, y: 32, width: 64, height: 64 } }
 const STACK: NodeSize = { width: 180, height: 90, anchor: { x: 40, y: 40, width: 80, height: 80 } }
 
@@ -88,7 +87,6 @@ async function leftToRight(arms: PathGroup[], openIds: string[]): Promise<string
     return [...arms].sort((one, other) => placeOf(one).x - placeOf(other).x).map((group) => group.memberIds[0])
 }
 
-// trigger -> split with five paths: three lead straight into `shared`, and two hold three steps each and rejoin at `join`
 const sharedTarget: FlowGraph = {
     actions: ['trigger', 'split', 'b1', 'b2', 'b3', 'shared', 'd1', 'd2', 'd3', 'after', 'join', 'exit'].map((id) =>
         step(id, id === 'trigger' ? 'trigger' : id === 'split' ? 'conditional_branch' : 'function')
@@ -133,7 +131,22 @@ const nestedSplits: FlowGraph = {
 }
 const nestedSplitsGroups = computePathGroups(nestedSplits)
 
-// trigger -> split with ten paths, each one step long, that all rejoin at `exit`
+const longDrop: FlowGraph = {
+    actions: ['n0', 'n1', 'n2', 'n3', 'n4', 'n5', 'n6'].map((id) =>
+        step(id, id === 'n0' ? 'trigger' : id === 'n6' ? 'function' : 'conditional_branch')
+    ),
+    edges: [
+        { from: 'n0', to: 'n1', type: 'continue' },
+        ...splits([
+            ['n1', ['n2', 'n2', 'n5']],
+            ['n2', ['n3', 'n3', 'n4', 'n3']],
+            ['n3', ['n4', 'n5', 'n6']],
+            ['n4', ['n5', 'n5']],
+            ['n5', ['n6']],
+        ]),
+    ],
+}
+
 const TEN = Array.from({ length: 10 }, (_, index) => `p${index}`)
 const busyJoin: FlowGraph = {
     actions: [
@@ -218,6 +231,7 @@ describe('layoutTileCanvas', () => {
             nestedSplitsGroups,
             ['path:n2:branch:0'],
         ],
+        ['an arrow that turns only near its target', longDrop, computePathGroups(longDrop), [] as string[]],
     ])(
         'gives each arrow of a split its own line, with its label on it, for %s',
         async (_, flow, flowGroups, openIds) => {
@@ -275,17 +289,25 @@ describe('layoutTileCanvas', () => {
         }
     )
 
-    it('keeps the arrowheads into a step with many arrows apart', async () => {
-        const { layout, edges } = await layOut(busyJoin, computePathGroups(busyJoin), [])
-        const ends = edges
-            .filter((edge) => edge.target === 'exit')
-            .map(({ id }) => layout.edges[id].points.at(-1)?.x ?? 0)
-            .sort((a, b) => a - b)
+    it('keeps the arrowheads into a step with many arrows apart, and the arrows out of a wide split on its tile', async () => {
+        const { layout, sizes, edges } = await layOut(busyJoin, computePathGroups(busyJoin), [])
+        const xs = (from: VisibleEdge[], end: 0 | -1): number[] =>
+            from.map(({ id }) => layout.edges[id].points.at(end)?.x ?? 0).sort((a, b) => a - b)
+        const ends = xs(
+            edges.filter((edge) => edge.target === 'exit'),
+            -1
+        )
         const gaps = ends.slice(1).map((x, index) => x - ends[index])
+        const tile = sizes.split.anchor as Box
+        const tileLeft = layout.positions.split.x + tile.x - tile.width / 2
+        const starts = xs(
+            edges.filter((edge) => edge.source === 'split'),
+            0
+        )
 
         expect(ends).toHaveLength(10)
-        // An arrowhead is 8px wide, so two heads closer than that draw as one shape
         expect(Math.min(...gaps)).toBeGreaterThanOrEqual(8)
+        expect(starts.filter((x) => x < tileLeft || x > tileLeft + tile.width)).toEqual([])
     })
 
     it('gives a path no more room for a name longer than its label shows', () => {
