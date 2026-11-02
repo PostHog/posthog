@@ -190,6 +190,7 @@ class TestEmailPerformanceRecipes(ClickhouseTestMixin, APIBaseTest):
         self._counter(f"{WORKFLOW_ID}/2", f"{STEP_ID}|1|https://example.com/a|b", clicks, 1)
         self._counter(f"{WORKFLOW_ID}/2", f"{STEP_ID}|2|https://example.com/invite/ada", clicks, 1)
         self._counter(f"{WORKFLOW_ID}/2", f"{STEP_ID}|2|https://example.com/invite/bo", clicks, 1)
+        self._counter(f"{WORKFLOW_ID}/2", f"{STEP_ID}||https://example.com/unnumbered", clicks, 1)
         self._counter(WORKFLOW_ID, f"{STEP_ID}|0|https://example.com/pricing", clicks, 3, app_source="hog_flow")
         self._counter(f"{WORKFLOW_ID}/2", f"{OTHER_STEP_ID}|0|https://example.com/other", clicks, 4)
         self._counter(f"{OTHER_WORKFLOW_ID}/1", f"{STEP_ID}|0|https://example.com/pricing", clicks, 6)
@@ -201,6 +202,7 @@ class TestEmailPerformanceRecipes(ClickhouseTestMixin, APIBaseTest):
             {"version": "2", "link_index": "0", "clicks": 1},
             {"version": "2", "link_index": "1", "clicks": 1},
             {"version": "2", "link_index": "2", "clicks": 2},
+            {"version": "2", "link_index": "", "clicks": 1},
         ]
 
     def test_outcome_counts_each_recipient_once_within_their_own_window(self) -> None:
