@@ -133,7 +133,7 @@ function MetricsQueryTextEditor({
 
 export interface MetricsQueryControlsProps {
     /** Prefix of the `data-attr` of each control, so each surface keeps its own analytics names. */
-    dataAttrPrefix: 'metrics-viewer' | 'metrics-query-editor'
+    dataAttrPrefix: 'metrics-viewer' | 'metrics-query-editor' | 'metrics-widget-editor'
     /** The query a language switch converts while the builder has no metric yet. */
     fallbackQuery?: MetricsQuery
     /** Shows the builder / PromQL / SQL switch. Gets the query as it is now, including an unrun draft. */
@@ -144,6 +144,8 @@ export interface MetricsQueryControlsProps {
     resultIsGrouped?: boolean
     /** Offers the heatmap display, which saves a histogram query instead of a time series. */
     heatmap?: { eligible: boolean }
+    /** Offers the stat, gauge, bar gauge and table panels without the panels flag, as metric widgets need them. */
+    allPanels?: boolean
     /** Controls after the date range and interval. */
     toolbarExtras?: ReactNode
     /** Controls after the display settings. */
@@ -160,6 +162,7 @@ export function MetricsQueryControls({
     onRerun,
     resultIsGrouped: resultIsGroupedProp,
     heatmap,
+    allPanels,
     toolbarExtras,
     displayExtras,
     actions,
@@ -170,7 +173,7 @@ export function MetricsQueryControls({
     const { addClause, setDateFrom, setDateTo, setInterval, setDisplayType, runQueryText } =
         useActions(metricsViewerLogic)
     const logic = useMountedLogic(metricsViewerLogic)
-    const dashboardPanelsEnabled = useFeatureFlag('METRICS_DASHBOARD_PANELS')
+    const dashboardPanelsEnabled = useFeatureFlag('METRICS_DASHBOARD_PANELS') || !!allPanels
     const disabledReason = getAccessControlDisabledReason(AccessControlResourceType.Metrics, AccessControlLevel.Viewer)
 
     // A changed query runs through the query node. An unchanged one (after a failure) runs again in place.

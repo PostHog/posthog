@@ -4,7 +4,6 @@ import { isCloudApi, isLocalApi, MCP_GATEWAY_FLAG } from '@/lib/constants'
 import { env } from '@/lib/env'
 import { McpSessionResetRequiredError } from '@/lib/errors'
 import { EVENT_SOURCE, resolveEventSource } from '@/lib/event-source'
-import { MCP_NO_DATA_INSTALL_NOTICE_FLAG, type NoDataAction } from '@/lib/no-data-guard'
 import { buildMCPAnalyticsGroups, type MCPAnalyticsContext } from '@/lib/posthog/analytics'
 import {
     type EvaluatedFlags,
@@ -63,15 +62,12 @@ export interface ResolvedState {
     apiKeyScopes: string[]
     isImpersonated?: boolean
     suppressAnalytics?: boolean
-    projectHasData?: boolean | undefined
     /**
-     * The workspace context that the flags and `projectHasData` were resolved against.
+     * The workspace context that the flags were resolved against.
      * A handler such as `switch-project` changes the live context, so tool-call analytics
      * read this snapshot to keep the project group consistent with the variant.
      */
     analyticsContext?: MCPAnalyticsContext | undefined
-    /** Set on the per-call state when the no-data notice blocked or warned this call. */
-    noDataAction?: NoDataAction | undefined
     /** Set on the per-call state: whether the client sent a session or conversation handle. */
     carriedContextHandle?: boolean | undefined
     /** The organization's AI data processing consent; undefined when the org could not be read. */
@@ -213,7 +209,6 @@ export class RequestStateResolver {
                 MCP_EXEC_SKILLS_FEATURE_FLAG,
                 MCP_INTERVIEW_RECRUITMENT_FLAG,
                 MCP_INTENT_PROMPT_FLAG,
-                MCP_NO_DATA_INSTALL_NOTICE_FLAG,
                 ...GUIDANCE_RULE_FLAGS,
             ]),
         ]
@@ -364,7 +359,6 @@ export class RequestStateResolver {
             apiKeyScopes,
             isImpersonated: _apiKey?.is_impersonated === true,
             suppressAnalytics: props.suppressAnalytics,
-            projectHasData: flagAnalyticsContext?.projectHasData,
             analyticsContext: flagAnalyticsContext,
             aiConsentGiven: aiConsentGiven ?? undefined,
             businessKnowledgeContent,

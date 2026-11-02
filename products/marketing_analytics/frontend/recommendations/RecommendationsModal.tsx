@@ -20,6 +20,8 @@ import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { Reload } from '~/queries/nodes/DataNode/Reload'
 import { MarketingAnalyticsRecommendation } from '~/queries/schema/schema-general'
 
+import { RecommendationDataGapButton } from './RecommendationDataGapButton'
+import { RecommendationDataGapDescription } from './RecommendationDataGapDescription'
 import {
     IMPACT_DIRECTION_DESCRIPTIONS,
     IMPACT_DIRECTION_LABELS,
@@ -165,6 +167,12 @@ export function RecommendationsModal({
                     <span>Recommendations</span>
                     <BindLogic logic={dataNodeLogic} props={dataNodeProps}>
                         <span className="flex items-center gap-2 text-sm font-normal">
+                            {dataGaps.length > 0 && (
+                                <RecommendationDataGapButton
+                                    gaps={dataGaps}
+                                    dataAttr="marketing-recommendations-modal-data-gaps"
+                                />
+                            )}
                             <ElapsedTime />
                             <Reload />
                         </span>
@@ -248,7 +256,9 @@ export function RecommendationsModal({
                                         }}
                                     >
                                         <div className="font-semibold">{gap.sourceName}</div>
-                                        <div>{gap.description}</div>
+                                        <div>
+                                            <RecommendationDataGapDescription gap={gap} />
+                                        </div>
                                     </LemonBanner>
                                 ))}
                             <RecommendationRows rows={selectedGroup.recommendations} />
