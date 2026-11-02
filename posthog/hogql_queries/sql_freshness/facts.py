@@ -197,12 +197,6 @@ def _shifted(at: datetime, unit: str, amount: int) -> datetime:
     return at + _period(unit, amount)
 
 
-def _whole_days(delta: Union[timedelta, relativedelta]) -> bool:
-    if isinstance(delta, timedelta):
-        return delta.seconds == 0 and delta.microseconds == 0
-    return not (delta.hours or delta.minutes or delta.seconds or delta.microseconds)
-
-
 class _TimestampFinder(TraversingVisitor):
     def __init__(self) -> None:
         super().__init__()
@@ -271,10 +265,10 @@ class _Evaluator:
             if base is None or step is None:
                 return None
             unit, amount = step
+            if base.is_date and unit in _SUB_DAY_UNITS:
+                return None
             if expr.op == ast.ArithmeticOperationOp.Sub:
                 amount = -amount
-            if base.utc_day and not _whole_days(_period(unit, amount)):
-                return None
             return dataclasses.replace(base, at=_shifted(base.at, unit, amount))
         return None
 
@@ -355,7 +349,7 @@ class _Evaluator:
         sign, unit = _SHIFT_FUNCTIONS[call.name]
         inner = self.evaluate(call.args[0]) if len(call.args) == 2 else None
         amount = _int_constant(call.args[1]) if len(call.args) == 2 else None
-        if inner is None or amount is None or (inner.utc_day and unit in _SUB_DAY_UNITS):
+        if inner is None or amount is None or (inner.is_date and unit in _SUB_DAY_UNITS):
             return None
         return dataclasses.replace(inner, at=_shifted(inner.at, unit, sign * amount))
 
@@ -388,7 +382,7 @@ def _bound(
     if not is_column:
         return None
     value = evaluator.evaluate(value_expr)
-    if value is None:
+    if value is None or (truncation in _DATE_RESULT_FUNCTIONS and value.timezone is not None):
         raise _UnsupportedBound()
     at = evaluator.anchor(value)
     if truncation is None:

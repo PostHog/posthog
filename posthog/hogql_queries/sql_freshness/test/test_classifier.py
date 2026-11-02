@@ -286,7 +286,7 @@ class TestClassify(BaseTest):
         self, _name: str, sql: str, _expected_window: SqlWindowClass, options: dict[str, Any] | None = None
     ) -> None:
         options = {key: value for key, value in (options or {}).items() if key not in ("now", "fresh_until")}
-        freshness = self._classify(sql, now=NEXT_MIDNIGHT - timedelta(minutes=5), **options)
+        freshness = self._classify(sql, now=NEXT_MIDNIGHT - timedelta(minutes=2), **options)
         assert isinstance(freshness, SqlFreshness)
         assert freshness.fresh_until <= NEXT_MIDNIGHT
 
@@ -318,6 +318,18 @@ class TestClassify(BaseTest):
             (
                 "today_plus_hours",
                 "select count() from events where timestamp < today() + interval 12 hour and timestamp >= '2026-10-01'",
+                FreshnessReason.UNSUPPORTED_BOUND,
+            ),
+            (
+                "date_plus_whole_days_in_hours",
+                "select count() from events where timestamp >= '2026-10-20' "
+                "and timestamp < toDate('2026-10-27') + interval 24 hour",
+                FreshnessReason.UNSUPPORTED_BOUND,
+            ),
+            (
+                "date_truncation_against_a_zoned_value",
+                "select count() from events where timestamp >= '2026-10-01' "
+                "and toDate(timestamp) < toDateTime('2026-10-29 03:00:00', 'Asia/Tokyo')",
                 FreshnessReason.UNSUPPORTED_BOUND,
             ),
             (

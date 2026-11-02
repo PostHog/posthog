@@ -63,9 +63,12 @@ def freshness_record(freshness: SqlFreshness) -> dict[str, str]:
 
 def freshness_from_record(record: Any) -> Optional[SqlFreshness]:
     try:
+        fresh_until = isoparse(record["fresh_until"])
+        if fresh_until.tzinfo is None:
+            return None
         return SqlFreshness(
             window=SqlWindowClass(record["window"]),
-            fresh_until=isoparse(record["fresh_until"]),
+            fresh_until=fresh_until,
             reason=FreshnessReason(record["reason"]),
         )
     except (KeyError, TypeError, ValueError):
