@@ -161,6 +161,20 @@ function pickThrottleRetryDelayMs(): number {
     return 500 + Math.floor(Math.random() * 500)
 }
 
+/** The provider that delivers a sender's email. Throws for a provider this worker cannot send through. */
+function sendingProviderOf(integration: IntegrationType): 'ses' | 'maildev' {
+    const provider = integration.config.provider ?? 'ses'
+    if (provider === 'unsupported') {
+        throw new Error('Email delivery mode not supported')
+    }
+    if (provider !== 'ses' && provider !== 'maildev') {
+        throw new Error(
+            "The sender's email provider is not recognized. Select a different sender in the workflow's email step."
+        )
+    }
+    return provider
+}
+
 const workflowEmailRateLimitedTotal = new Counter({
     name: 'cdp_workflow_email_rate_limited_total',
     help: 'Email sends delayed by a user-configured per-workflow sending rate limit.',
@@ -635,15 +649,7 @@ export class EmailService {
             // (workflow action or email destination hog function) resolves it the same way.
             trackingEnabled = await this.resolveTrackingEnabled(result.invocation, deliverableParams)
 
-            const provider = integration.config.provider ?? 'ses'
-            if (provider === 'unsupported') {
-                throw new Error('Email delivery mode not supported')
-            }
-            if (provider !== 'ses' && provider !== 'maildev') {
-                throw new Error(
-                    "The sender's email provider is not recognized. Select a different sender in the workflow's email step."
-                )
-            }
+            const provider = sendingProviderOf(integration)
 
             // User-configured per-workflow pacing. Claimed last, after every skip gate, so a
             // suspended or suppressed send never spends a token. Test sends bypass it. When the

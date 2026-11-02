@@ -317,8 +317,9 @@ describe('EmailService', () => {
 
                 expect(result.error).toBe(error)
                 expect(result.metrics.map((metric) => metric.metric_name)).toEqual(['email_failed'])
+                expect(sendEmailSpy).not.toHaveBeenCalled()
             })
-            it('fails an unrecognized provider without spending the workflow sending budget', async () => {
+            it('fails an unrecognized provider without spending the workflow or team sending budget', async () => {
                 await insertIntegration(hub.postgres, team.id, {
                     id: getIntegrationId(4),
                     kind: 'email',
@@ -340,6 +341,7 @@ describe('EmailService', () => {
                     poolMinSize: hub.REDIS_POOL_MIN_SIZE,
                     poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
                 })
+                const limiter = new RateLimiterService(redis, { name: 'unknown-provider-budget-test' })
                 const limitedService = new EmailService(
                     {
                         sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
@@ -348,6 +350,9 @@ describe('EmailService', () => {
                         sesEndpoint: hub.SES_ENDPOINT,
                         sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
                         sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
+                        teamEmailCapMode: 'enforce',
+                        teamEmailTierHourlyCaps: [1],
+                        teamEmailTierDailyCaps: [1],
                     },
                     hub.integrationManager,
                     new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
@@ -358,7 +363,8 @@ describe('EmailService', () => {
                     new RecipientsManagerService(hub.postgres),
                     null,
                     undefined,
-                    new RateLimiterService(redis, { name: 'unknown-provider-budget-test' })
+                    limiter,
+                    limiter
                 )
                 jest.spyOn(limitedService.sesV2Client!, 'send').mockResolvedValue({
                     MessageId: 'test-message-id',
