@@ -9,6 +9,7 @@ from requests.exceptions import HTTPError
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
@@ -169,7 +170,11 @@ def _fan_out(
     manager: ResumableSourceManager[RetellAIResumeConfig],
     settings: RetellAIEndpoint,
 ) -> Iterator[list[dict[str, Any]]]:
-    client = _client_config(api_key)
+    # One session for every parent and child request, so the fan-out reuses its connections.
+    client: ClientConfig = {
+        **_client_config(api_key),
+        "session": make_tracked_session(redact_values=(api_key,), allow_redirects=False),
+    }
     for parent in settings.parents:
         # Parent listings can return one row per version of the same parent.
         seen: set[str] = set()
