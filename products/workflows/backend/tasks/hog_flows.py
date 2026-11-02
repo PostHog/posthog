@@ -66,7 +66,16 @@ def refresh_affected_hog_flows(team_id: Optional[int] = None, action_id: Optiona
     return updates
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.DEFAULT.value,
+    autoretry_for=(Exception,),
+    dont_autoretry_for=(Team.DoesNotExist,),
+    max_retries=5,
+    retry_backoff=60,
+    retry_backoff_max=600,
+    retry_jitter=True,
+)
 @skip_team_scope_audit
 def report_workflow_created(
     team_id: int, hog_flow_id: str, created_at: str, origin_product: str | None, actions_count: int

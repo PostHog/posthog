@@ -1,8 +1,10 @@
-import pytest
 from unittest.mock import MagicMock, patch
 
 from django.test import TestCase, override_settings
 
+from celery.result import EagerResult
+
+from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.workflows.backend.tasks.hog_flows import report_workflow_created
@@ -66,9 +68,53 @@ class TestReportWorkflowCreated(TestCase):
         assert first == replay
         assert first != other
 
+    def report_kwargs(self, team_id: int | None = None) -> dict:
+        return {
+            "team_id": self.team.id if team_id is None else team_id,
+            "hog_flow_id": HOG_FLOW_ID,
+            "created_at": CREATED_AT,
+            "origin_product": None,
+            "actions_count": 0,
+        }
+
+    def run_with_eager_retries(self, team_id: int | None = None) -> EagerResult:
+        conf = report_workflow_created.app.conf
+        propagates = conf.task_eager_propagates
+        conf.task_eager_propagates = False
+        try:
+            return report_workflow_created.apply(kwargs=self.report_kwargs(team_id=team_id))
+        finally:
+            conf.task_eager_propagates = propagates
+
     @patch("posthog.ph_client.is_cloud", return_value=True)
     @patch("posthog.ph_client.get_client")
-    def test_failed_upload_fails_the_task(self, get_client: MagicMock, _is_cloud: MagicMock) -> None:
+    def test_failed_upload_is_retried_and_delivers_the_same_event(
+        self, get_client: MagicMock, _is_cloud: MagicMock
+    ) -> None:
+        clients: list[MagicMock] = []
+
+        def client_whose_first_upload_fails(region: str, on_error=None, **kwargs) -> MagicMock:
+            client = MagicMock(super_properties={})
+            if on_error is not None and not clients:
+                client.shutdown.side_effect = lambda: on_error(RuntimeError("Upload failed"), [])
+            clients.append(client)
+            return client
+
+        get_client.side_effect = client_whose_first_upload_fails
+
+        result = self.run_with_eager_retries()
+
+        assert result.state == "SUCCESS"
+        assert len(clients) == 2
+        first, retry = (client.capture.call_args.kwargs for client in clients)
+        assert retry["uuid"] == first["uuid"]
+        assert retry["timestamp"] == CREATED_AT
+
+    @patch("posthog.ph_client.is_cloud", return_value=True)
+    @patch("posthog.ph_client.get_client")
+    def test_upload_that_keeps_failing_stops_after_five_retries(
+        self, get_client: MagicMock, _is_cloud: MagicMock
+    ) -> None:
         def client_whose_upload_fails(region: str, on_error=None, **kwargs) -> MagicMock:
             client = MagicMock(super_properties={})
             if on_error is not None:
@@ -77,11 +123,18 @@ class TestReportWorkflowCreated(TestCase):
 
         get_client.side_effect = client_whose_upload_fails
 
-        with pytest.raises(RuntimeError, match="Upload failed"):
-            report_workflow_created(
-                team_id=self.team.id,
-                hog_flow_id=HOG_FLOW_ID,
-                created_at=CREATED_AT,
-                origin_product=None,
-                actions_count=0,
-            )
+        result = self.run_with_eager_retries()
+
+        assert result.state == "FAILURE"
+        assert str(result.result) == "Upload failed"
+        assert get_client.call_count == 6
+
+    @patch(SCOPED_CAPTURE)
+    def test_missing_team_fails_without_a_retry(self, scoped_capture: MagicMock) -> None:
+        with patch.object(Team.objects, "only", wraps=Team.objects.only) as team_lookup:
+            result = self.run_with_eager_retries(team_id=-1)
+
+        assert result.state == "FAILURE"
+        assert isinstance(result.result, Team.DoesNotExist)
+        assert team_lookup.call_count == 1
+        scoped_capture.assert_not_called()
