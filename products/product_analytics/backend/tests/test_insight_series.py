@@ -27,11 +27,33 @@ from products.product_analytics.backend.models.insight import Insight
 
 
 class TestBoundedInsightQuery(SimpleTestCase):
+    @parameterized.expand([(False, False), (True, False), (True, True)])
+    def test_query_status_is_scoped_and_does_not_prepare_the_query(self, complete: bool, error: bool) -> None:
+        with (
+            patch.object(
+                insight_series,
+                "get_query_status",
+                return_value=QueryStatus(id="q", team_id=7, complete=complete, error=error),
+            ) as status,
+            patch("posthog.api.services.query.process_query_dict") as prepare,
+        ):
+            if error:
+                with self.assertRaises(ValueError):
+                    insight_series.query_complete(team=cast(Team, SimpleNamespace(pk=7)), query_id="q")
+            else:
+                self.assertEqual(
+                    insight_series.query_complete(team=cast(Team, SimpleNamespace(pk=7)), query_id="q"), complete
+                )
+        status.assert_called_once_with(team_id=7, query_id="q")
+        prepare.assert_not_called()
+
     @parameterized.expand(
         [
             ("pending", {"query_status": {"id": "q", "complete": False}}, InsightSeriesNotReady),
             ("error", {"query_status": {"id": "q", "error": True}}, ValueError),
             ("empty", {"results": []}, None),
+            ("top_level_error", {"results": None, "error": "Invalid query"}, ValueError),
+            ("missing_status", {"results": None}, ValueError),
         ]
     )
     def test_pending_is_distinct_from_empty_and_error(

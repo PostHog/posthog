@@ -542,6 +542,49 @@ class TestProgressiveHighlights(BaseTest):
         row.refresh_from_db()
         self.assertEqual(row.content, before)
 
+    @parameterized.expand([5, 6])
+    def test_progress_keeps_source_ranking_limit_and_dates_after_failure(self, routine_count: int) -> None:
+        row = TodayHighlights.objects.for_team(self.team.id).create(
+            team_id=self.team.id, user_id=self.user.id, local_day=DAY, key="ranked"
+        )
+        inputs = HighlightSourceInputs(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            local_day=DAY.isoformat(),
+            scopes=None,
+            source_name="key_metrics",
+            highlights_id=str(row.id),
+        )
+        configured = [replace(metric(f"key:{i}"), reason=HighlightMetricReason.KEY_METRIC) for i in range(4)]
+        routine = [replace(metric(f"insight:{i}"), reason=HighlightMetricReason.ROUTINE) for i in range(routine_count)]
+        popular = replace(metric("popular"), reason=HighlightMetricReason.POPULAR)
+        highlights.publish_pulse(inputs, HighlightFindings(pulse=tuple(configured)), [])
+        routine_inputs = replace(inputs, source_name="routine")
+        slots = [contracts.PulseSlot(key=m.key, name=m.name, reason=m.reason) for m in [*routine, popular]]
+        highlights.publish_pulse(routine_inputs, HighlightFindings(), slots)
+        row.refresh_from_db()
+        self.assertEqual(
+            [slot.key for slot in HIGHLIGHTS.validate_python(row.content).pulse_slots or []][:routine_count],
+            [m.key for m in routine],
+        )
+        highlights.publish_pulse(routine_inputs, HighlightFindings(pulse=(*routine, popular)), slots)
+        highlights.finalize(
+            FinalizeHighlightsInputs(
+                team_id=self.team.id,
+                highlights_id=str(row.id),
+                results=[
+                    HighlightSourceResult(source_name="routine", found=None, failed=True),
+                    HighlightSourceResult(source_name="key_metrics", found=None, failed=True),
+                ],
+            )
+        )
+        row.refresh_from_db()
+        final = HIGHLIGHTS.validate_python(row.content)
+        expected = [m.key for m in [*routine, *configured]][:6]
+        self.assertEqual([m.key for m in final.pulse], expected)
+        self.assertEqual([slot.key for slot in final.pulse_slots or []], expected)
+        self.assertTrue(all(m.period_starts == [DAY - timedelta(days=1)] for m in final.pulse))
+
     def test_retry_reuses_active_workflow_and_keeps_ready_numbers(self) -> None:
         connect = MagicMock()
         connect.return_value.start_workflow = AsyncMock()

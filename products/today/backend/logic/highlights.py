@@ -196,26 +196,42 @@ def _pulse_content(
     *,
     complete: bool = False,
 ) -> contracts.Highlights:
-    metrics = {metric.key: metric for source in progress.values() for metric in source.found.pulse}
-    metrics.update({metric.key: metric for metric in content.pulse})
+    metrics = {metric.key: metric for metric in content.pulse}
+    offered = {metric.key for source in progress.values() for metric in source.found.pulse}
     slots = {slot.key: slot for slot in previous}
-    for source in progress.values():
+    owners: dict[str, int] = {}
+    order = {source.name: source.pulse_order for source in load_sources()}
+    for name, source in progress.items():
+        for metric in source.found.pulse:
+            owners[metric.key] = order.get(name, 0)
         for slot in source.slots:
             slots[slot.key] = slot
-    for metric in metrics.values():
+            owners[slot.key] = order.get(name, 0)
+    for metric in content.pulse:
         slots[metric.key] = contracts.PulseSlot(
-            key=metric.key, name=metric.name, url=metric.url, interval=metric.interval, status=PulseSlotStatus.READY
+            key=metric.key,
+            name=metric.name,
+            url=metric.url,
+            interval=metric.interval,
+            reason=metric.reason,
+            status=PulseSlotStatus.READY,
         )
-    if complete:
-        slots = {
-            key: replace(slot, status=PulseSlotStatus.ERROR) if slot.status == PulseSlotStatus.PENDING else slot
-            for key, slot in slots.items()
-        }
-    return replace(
-        content,
-        pulse=[metrics[key] for key in slots if key in metrics],
-        pulse_slots=list(slots.values()),
+    pin_order = {pin.key: index for index, pin in enumerate(content.pins)}
+    selected = [slot for slot in slots.values() if slot.key not in offered or slot.key in metrics]
+    selected.sort(
+        key=lambda slot: (
+            slot.key not in pin_order,
+            pin_order.get(slot.key, 0),
+            slot.reason == HighlightMetricReason.POPULAR,
+            owners.get(slot.key, 0),
+        )
     )
+    if complete:
+        selected = [
+            replace(slot, status=PulseSlotStatus.ERROR) if slot.status == PulseSlotStatus.PENDING else slot
+            for slot in selected
+        ]
+    return replace(content, pulse_slots=selected)
 
 
 def publish_pulse(inputs: HighlightSourceInputs, found: HighlightFindings, slots: list[contracts.PulseSlot]) -> None:
@@ -277,6 +293,12 @@ def finalize(inputs: FinalizeHighlightsInputs) -> None:
     if row is None:
         return
     found = {result.source_name: _FINDINGS.validate_json(result.found) for result in inputs.results if result.found}
+    progress = _PROGRESS.validate_python(row.content.get("_pulse_sources", {}))
+    for name, source in progress.items():
+        final = found.get(name, source.found)
+        metrics = {metric.key: metric for metric in source.found.pulse}
+        metrics.update({metric.key: metric for metric in final.pulse})
+        found[name] = replace(final, pulse=tuple(metrics.values()))
     highlights = build_highlights(
         load_sources(),
         found,
@@ -286,7 +308,6 @@ def finalize(inputs: FinalizeHighlightsInputs) -> None:
         pinned={metric.key: metric for metric in PINNED_METRICS.validate_json(inputs.pinned)},
     )
     if "_pulse_sources" in row.content:
-        progress = _PROGRESS.validate_python(row.content["_pulse_sources"])
         highlights = _pulse_content(
             highlights, progress, _HIGHLIGHTS.validate_python(row.content).pulse_slots or [], complete=True
         )

@@ -310,6 +310,18 @@ def viewable_insight_definitions(
     }
 
 
+def insight_query_complete(*, team: Team, query_id: str) -> bool:
+    from products.product_analytics.backend import insight_series
+
+    return insight_series.query_complete(team=team, query_id=query_id)
+
+
+def insight_series_supported(*, query: dict[str, Any], dashboard: InsightDashboardContext | None = None) -> bool:
+    from products.product_analytics.backend import insight_series
+
+    return insight_series.supports_series(query=query, dashboard=dashboard)
+
+
 def get_insight_series(
     *,
     team: Team,

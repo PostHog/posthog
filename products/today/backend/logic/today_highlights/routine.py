@@ -18,7 +18,12 @@ from products.dashboards.backend.facade.api import (
     dashboard_insight_tile,
     dashboard_insights,
 )
-from products.product_analytics.backend.facade.api import get_insight_series, viewable_insight_definitions
+from products.product_analytics.backend.facade.api import (
+    get_insight_series,
+    insight_query_complete,
+    insight_series_supported,
+    viewable_insight_definitions,
+)
 from products.product_analytics.backend.facade.contracts import InsightDashboardContext, InsightSeriesNotReady
 
 from ...facade import contracts
@@ -63,6 +68,16 @@ def find(context: Context) -> Found:
     return Found(pulse=tuple(_frecent_metrics(context, pinned, PULSE_CANDIDATES - len(pinned))))
 
 
+def _dashboard_context(candidate: PulseCandidate) -> InsightDashboardContext | None:
+    if candidate.dashboard is None:
+        return None
+    return InsightDashboardContext(
+        filters=candidate.dashboard.filters,
+        tile_filters=candidate.tile.filters_overrides if candidate.tile else None,
+        variables=candidate.dashboard.variables,
+    )
+
+
 def _progressive_metrics(context: Context, excluded: Collection[str], budget: int) -> list[contracts.HighlightMetric]:
     if budget <= 0 or context.publish_pulse is None:
         return []
@@ -92,7 +107,11 @@ def _progressive_metrics(context: Context, excluded: Collection[str], budget: in
         if key in excluded or key in selected or definition is None:
             continue
         source = definition.query.get("source", definition.query)
-        if source.get("kind") not in ("TrendsQuery", "HogQLQuery"):
+        if not context.guard(
+            f"eligible insight {candidate.short_id}",
+            partial(insight_series_supported, query=definition.query, dashboard=_dashboard_context(candidate)),
+            False,
+        ):
             continue
         dashboard = candidate.dashboard
         if dashboard is not None and dashboard.dashboard_id in dashboards:
@@ -102,6 +121,7 @@ def _progressive_metrics(context: Context, excluded: Collection[str], budget: in
         slots[key] = contracts.PulseSlot(
             key=key,
             name=definition.name or "Untitled insight",
+            reason=HighlightMetricReason.POPULAR if candidate.viewed.popular else HighlightMetricReason.ROUTINE,
             url=f"/dashboard/{dashboard.dashboard_id}" if dashboard else f"/insights/{candidate.short_id}",
             interval=HighlightInterval(interval)
             if source.get("kind") == "TrendsQuery" and interval in HighlightInterval.values
@@ -114,30 +134,30 @@ def _progressive_metrics(context: Context, excluded: Collection[str], budget: in
     metrics: dict[str, contracts.HighlightMetric] = {}
     context.publish_pulse(Found(), list(slots.values()))
     pending = dict(selected)
+    query_ids: dict[str, str] = {}
     while pending and monotonic() < deadline:
         for key, candidate in list(pending.items()):
             if monotonic() >= deadline:
                 break
             dashboard = candidate.dashboard
             try:
+                if key in query_ids and not insight_query_complete(team=context.team, query_id=query_ids[key]):
+                    continue
                 metric = insight_metric(
                     context,
                     candidate.short_id,
                     viewed=None if candidate.viewed.popular else candidate.viewed,
-                    dashboard=InsightDashboardContext(
-                        filters=dashboard.filters,
-                        tile_filters=candidate.tile.filters_overrides if candidate.tile else None,
-                        variables=dashboard.variables,
-                    )
-                    if dashboard
-                    else None,
+                    dashboard=_dashboard_context(candidate),
                     url=slots[key].url,
                     dashboard_name=dashboard.name if dashboard else None,
                     dashboard_id=dashboard.dashboard_id if dashboard else None,
                     reason=HighlightMetricReason.POPULAR if candidate.viewed.popular else None,
                     raise_on_pending=True,
                 )
-            except InsightSeriesNotReady:
+            except InsightSeriesNotReady as error:
+                if error.query_id is None:
+                    raise ValueError("Pending insight has no query ID") from error
+                query_ids[key] = error.query_id
                 continue
             except Exception as error:
                 context.failures.append(key)

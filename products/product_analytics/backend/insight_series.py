@@ -51,6 +51,37 @@ EXECUTION_MODE = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
 BLOCKING_EXECUTION_MODE = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
 
 
+def query_complete(*, team: Team, query_id: str) -> bool:
+    status = get_query_status(team_id=team.pk, query_id=query_id)
+    if status.error:
+        raise ValueError("Insight query failed")
+    return bool(status.complete)
+
+
+def _supports_series(query: dict[str, Any], filters: dict[str, Any]) -> bool:
+    source = query.get("source", query)
+    if query.get("kind") == "DataVisualizationNode" and source.get("kind") == "HogQLQuery":
+        settings = query.get("chartSettings") or {}
+        return bool(
+            query.get("display") in CHARTED_SQL_DISPLAYS
+            and (settings.get("xAxis") or {}).get("column")
+            and any(axis.get("column") for axis in settings.get("yAxis") or [])
+        )
+    if source.get("kind") != "TrendsQuery" or (source.get("trendsFilter") or {}).get("display") in UNCHARTED_DISPLAYS:
+        return False
+    interval = filters.get("interval") or source.get("interval") or "day"
+    if interval not in LOOKBACK:
+        interval = "day"
+    return interval != "day" or not (source.get("dateRange") or {}).get("daysOfWeek")
+
+
+def supports_series(*, query: dict[str, Any], dashboard: InsightDashboardContext | None = None) -> bool:
+    if dashboard is None:
+        return _supports_series(query, {})
+    effective = resolve_effective_dashboard_filters(query, dashboard.filters, dashboard.tile_filters)
+    return _supports_series(effective.query, effective.filters or {})
+
+
 def _run(
     team: Team,
     user: User,
@@ -72,10 +103,13 @@ def _run(
         user=user,
     )
     result = response.model_dump() if isinstance(response, BaseModel) else response
+    status = result.get("query_status") or {}
+    if raise_on_pending and (result.get("error") or status.get("error")):
+        raise ValueError("Insight query failed")
     if raise_on_pending and result.get("results") is None:
-        if (result.get("query_status") or {}).get("error"):
-            raise ValueError("Insight query failed")
-        raise InsightSeriesNotReady
+        if not status.get("id"):
+            raise ValueError("Insight query returned no results or query status")
+        raise InsightSeriesNotReady(status["id"])
     if blocking and wait_until is not None and result.get("results") is None:
         status = result.get("query_status") or {}
         while status and not status.get("complete") and not status.get("error"):
@@ -157,8 +191,6 @@ def _sql_series(
     settings = query.get("chartSettings") or {}
     x_column = (settings.get("xAxis") or {}).get("column")
     y_axes = [axis for axis in settings.get("yAxis") or [] if axis.get("column")]
-    if query.get("display") not in CHARTED_SQL_DISPLAYS or not x_column or not y_axes:
-        return None
     response = _run(team, user, query["source"], filters, variables, blocking, wait_until, raise_on_pending)
     if response.get("hasMore"):
         return None
@@ -239,6 +271,8 @@ def insight_series(
         dashboard_filters = effective.filters or {}
         variables = dashboard.variables
     filters = {key: value for key, value in dashboard_filters.items() if key not in DATE_FILTERS}
+    if not _supports_series(query, dashboard_filters):
+        return None
     source = query.get("source", query)
     if query.get("kind") == "DataVisualizationNode" and source.get("kind") == "HogQLQuery":
         return _sql_series(
@@ -254,14 +288,10 @@ def insight_series(
             raise_on_pending=raise_on_pending,
         )
     trends = source.get("trendsFilter") or {}
-    if source.get("kind") != "TrendsQuery" or trends.get("display") in UNCHARTED_DISPLAYS:
-        return None
     interval = dashboard_filters.get("interval") or source.get("interval") or "day"
     if interval not in LOOKBACK:
         interval = "day"
     date_range = source.get("dateRange") or {}
-    if interval == "day" and date_range.get("daysOfWeek"):
-        return None
     kept = {key: value for key, value in date_range.items() if key not in DATE_FILTERS}
     bounded = {key: value for key, value in source.items() if key != "compareFilter"}
     bounded.update(

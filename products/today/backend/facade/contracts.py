@@ -232,6 +232,7 @@ class HighlightPin:
 class PulseSlot:
     key: str
     name: str
+    reason: HighlightMetricReason | None = None
     status: PulseSlotStatus = PulseSlotStatus.PENDING
     url: str | None = None
     interval: HighlightInterval | None = None

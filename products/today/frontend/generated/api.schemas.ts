@@ -207,6 +207,13 @@ export const PulseSlotStatusEnumApi = {
 } as const
 
 export interface PulseSlotApi {
+    /** Why this number is selected, when known before its value arrives.
+     *
+     * * `routine` - You open this often
+     * * `dashboard` - On a dashboard you open often
+     * * `key_metric` - Project key metric
+     * * `popular` - Opened often in this project */
+    reason?: HighlightMetricReasonEnumApi | null
     /** Stable key of the selected number. */
     key: string
     /** Title available before the number is computed. */

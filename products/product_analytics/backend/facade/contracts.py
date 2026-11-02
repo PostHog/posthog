@@ -74,7 +74,9 @@ class SavedInsightDefinition:
 
 
 class InsightSeriesNotReady(Exception):
-    pass
+    def __init__(self, query_id: str | None = None) -> None:
+        super().__init__(query_id)
+        self.query_id = query_id
 
 
 @dataclass(frozen=True)

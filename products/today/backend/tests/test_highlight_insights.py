@@ -1,4 +1,5 @@
 import re
+from collections import Counter
 from datetime import UTC, date, datetime, time, timedelta
 from types import SimpleNamespace
 from typing import Any, cast
@@ -499,7 +500,7 @@ class TestProgressiveInsights(SimpleTestCase):
             self.assertFalse(kwargs["blocking"])
             self.assertTrue(kwargs["raise_on_pending"])
             if clock[0] < ready_at[ref]:
-                raise InsightSeriesNotReady
+                raise InsightSeriesNotReady(ref)
             return insight({"opened": days([10.0] * 56)}, short_id=ref, name=ref) if ref != "empty" else None
 
         context = cast(
@@ -509,6 +510,7 @@ class TestProgressiveInsights(SimpleTestCase):
                 user=None,
                 today=TODAY,
                 failures=[],
+                guard=lambda name, compute, fallback: compute(),
                 publish_pulse=lambda found, slots: published.append((clock[0], found, slots)),
             ),
         )
@@ -517,6 +519,9 @@ class TestProgressiveInsights(SimpleTestCase):
             patch.object(routine, "_candidates", side_effect=lambda context, own: iter(own)),
             patch.object(routine, "viewable_insight_definitions", return_value=definitions),
             patch.object(routine, "get_insight_series", side_effect=series),
+            patch.object(
+                routine, "insight_query_complete", side_effect=lambda **kwargs: clock[0] >= ready_at[kwargs["query_id"]]
+            ),
             patch.object(routine, "monotonic", side_effect=lambda: clock[0]),
             patch.object(routine, "sleep", side_effect=advance),
         ):
@@ -535,6 +540,62 @@ class TestProgressiveInsights(SimpleTestCase):
             [PulseSlotStatus.READY, PulseSlotStatus.READY, PulseSlotStatus.EMPTY, PulseSlotStatus.ERROR],
         )
         self.assertEqual(context.failures, ["insight:timeout"])
+        self.assertEqual(Counter(ref for ref, _ in queried), {"slow": 2, "fast": 2, "empty": 1, "timeout": 1})
         self.assertTrue(
             all([slot.key for slot in slots] == [slot.key for slot in published[0][2]] for _, _, slots in published)
         )
+
+    def test_a_dashboard_skips_an_unsupported_tile_before_selecting_a_loading_card(self) -> None:
+        viewed = routine.ViewedItem(kind="dashboard", ref="7", days=frozenset({TODAY}))
+        dashboard = DashboardInsights(
+            dashboard_id=7,
+            name="Growth",
+            filters={},
+            variables=None,
+            tiles=(
+                DashboardInsightTile(insight_short_id="number", filters_overrides=None),
+                DashboardInsightTile(insight_short_id="chart", filters_overrides=None),
+            ),
+        )
+        definitions = {
+            ref: SavedInsightDefinition(
+                id=i,
+                short_id=ref,
+                name=ref,
+                query={
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "series": [{"kind": "EventsNode", "event": "opened"}],
+                        "trendsFilter": {"display": display},
+                    },
+                },
+            )
+            for i, (ref, display) in enumerate([("number", "BoldNumber"), ("chart", "ActionsLineGraph")])
+        }
+        published: list[list[PulseSlot]] = []
+        context = cast(
+            Context,
+            SimpleNamespace(
+                team=None,
+                user=None,
+                today=TODAY,
+                failures=[],
+                guard=lambda name, compute, fallback: compute(),
+                publish_pulse=lambda found, slots: published.append(slots),
+            ),
+        )
+        with (
+            patch.object(routine, "_frecent_views", return_value=[viewed]),
+            patch.object(routine, "_candidates", side_effect=lambda context, own: iter(own)),
+            patch.object(routine, "dashboard_insights", return_value=dashboard),
+            patch.object(routine, "viewable_insight_definitions", return_value=definitions),
+            patch.object(
+                routine, "get_insight_series", return_value=insight({"opened": days([10.0] * 56)}, short_id="chart")
+            ) as query,
+        ):
+            found = routine._progressive_metrics(context, frozenset(), 6)
+        self.assertEqual([slot.key for slot in published[0]], ["insight:chart"])
+        self.assertEqual([metric.key for metric in found], ["insight:chart"])
+        query.assert_called_once()
+        self.assertEqual(query.call_args.kwargs["short_id"], "chart")

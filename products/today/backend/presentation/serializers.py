@@ -442,6 +442,12 @@ class HighlightPinSerializer(DataclassSerializer):
 
 
 class PulseSlotSerializer(DataclassSerializer):
+    reason = serializers.ChoiceField(
+        choices=HighlightMetricReason.choices,
+        allow_null=True,
+        required=False,
+        help_text="Why this number is selected, when known before its value arrives.",
+    )
     key = serializers.CharField(help_text="Stable key of the selected number.")
     name = serializers.CharField(help_text="Title available before the number is computed.")
     status = serializers.ChoiceField(choices=PulseSlotStatus.choices, help_text="Loading state of this number.")
