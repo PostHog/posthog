@@ -103,12 +103,12 @@ export interface messageTemplateTestSendLogicMeta {
             emailIntegrations: IntegrationType[],
             template: MessageTemplate
         ) => number | null
+        testSendSkipReason: (testSendResult: HogflowTestResult | null) => string | undefined
         sendDisabledReason: (
             template: MessageTemplate,
             recipientEmail: string,
             senderIntegrationId: number | null
         ) => string | undefined
-        testSendSkipReason: (testSendResult: HogflowTestResult | null) => string | undefined
     }
 }
 
