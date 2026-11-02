@@ -1,4 +1,5 @@
 import type { Meta, StoryFn } from '@storybook/react'
+import { within } from '@testing-library/dom'
 import { ReactFlowProvider } from '@xyflow/react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
@@ -6,6 +7,8 @@ import { useEffect } from 'react'
 import { mswDecorator } from '~/mocks/browser'
 import _hogFunctionTemplatesDestinations from '~/mocks/fixtures/_hogFunctionTemplatesDestinations.json'
 import { HogFunctionTemplateType } from '~/types'
+
+import { expect, userEvent } from 'storybook/test'
 
 import { NEW_WORKFLOW, WorkflowLogicProps, workflowLogic } from '../../workflowLogic'
 import { hogFlowEditorLogic, HogFlowEditorMode } from '../hogFlowEditorLogic'
@@ -263,6 +266,19 @@ function PanelStory({ mode, selectedNodeId, layout = 'floating', viewOnly = fals
 
 const Template: StoryFn<PanelStoryProps> = (args) => <PanelStory {...args} />
 
+// jsdom computes no hit testing, so these plays check in a real browser which element takes the mouse.
+// The preview must stay inside the viewport without scrolling, because a scroll changes the snapshot.
+function elementAtCenterOf(element: Element): Element | null {
+    const { left, top, width, height } = element.getBoundingClientRect()
+    return document.elementFromPoint(left + width / 2, top + height / 2)
+}
+
+// The overlay buttons sit at the center of the preview, so this samples a point above them
+function elementOverPreviewText(preview: Element): Element | null {
+    const { left, top, width, height } = preview.getBoundingClientRect()
+    return document.elementFromPoint(left + width / 2, top + height / 4)
+}
+
 export const Build: StoryFn<PanelStoryProps> = Template.bind({})
 Build.args = { mode: 'build', selectedNodeId: 'delay' }
 
@@ -281,6 +297,20 @@ Email.args = { mode: 'build', selectedNodeId: 'email' }
 export const EmailInSidePanel: StoryFn<PanelStoryProps> = Template.bind({})
 EmailInSidePanel.args = { mode: 'build', selectedNodeId: 'email', layout: 'panel' }
 
+export const EmailOpensContentEditor: StoryFn<PanelStoryProps> = Template.bind({})
+EmailOpensContentEditor.args = { mode: 'build', selectedNodeId: 'email' }
+// The play opens the editor modal, which has no baseline of its own
+EmailOpensContentEditor.parameters = { testOptions: { snapshotBrowsers: [] } }
+EmailOpensContentEditor.play = async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
+    const preview = await within(canvasElement).findByTitle('Email template preview')
+    await expect(elementOverPreviewText(preview)).toBe(preview)
+
+    const editButton = within(canvasElement).getByText('Click to modify content')
+    await expect(editButton.contains(elementAtCenterOf(editButton))).toBe(true)
+    await userEvent.click(editButton)
+    await expect(within(document.body).findByText('Editing email template')).resolves.toBeVisible()
+}
+
 export const ConditionalBranch: StoryFn<PanelStoryProps> = Template.bind({})
 ConditionalBranch.args = { mode: 'build', selectedNodeId: 'conditional' }
 
@@ -289,6 +319,14 @@ CohortBranch.args = { mode: 'build', selectedNodeId: 'cohort' }
 
 export const EmailViewOnly: StoryFn<PanelStoryProps> = Template.bind({})
 EmailViewOnly.args = { mode: 'build', selectedNodeId: 'email', viewOnly: true }
+EmailViewOnly.play = async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
+    const preview = await within(canvasElement).findByTitle('Email template preview')
+    await expect(elementOverPreviewText(preview)).toBe(preview)
+
+    const editButton = within(canvasElement).getByText('Click to modify content')
+    await expect(editButton).not.toBeVisible()
+    await expect(editButton.contains(elementAtCenterOf(editButton))).toBe(false)
+}
 
 export const Variables: StoryFn<PanelStoryProps> = Template.bind({})
 Variables.args = { mode: 'variables', selectedNodeId: null }
