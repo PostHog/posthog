@@ -509,13 +509,6 @@ class ErrorTrackingIssueDetailSerializer(ErrorTrackingIssueListItemSerializer):
             "be shown or written, and summary_reason says why. This read never waits for a summary."
         ),
     )
-    summary_stale = serializers.BooleanField(
-        required=False,
-        help_text=(
-            "Present when summary is present. True when a newer summary may be due, because the summary is older "
-            "than a day or an older prompt wrote it. This read then starts a newer one in the background when it is due."
-        ),
-    )
     summary_reason = serializers.ChoiceField(
         choices=contracts.IssueSummaryUnavailableReason.choices,
         required=False,

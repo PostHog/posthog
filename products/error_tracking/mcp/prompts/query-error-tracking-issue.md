@@ -16,7 +16,7 @@ Defaults are intentionally useful: last 7 days, test accounts filtered out, aggr
 
 - `summary`: an AI-written summary with `what_happened`, `likely_cause`, `who_is_affected`, `suggested_next_step` and `category`. Use it to answer quickly, and check it against the facts in the same response. When you use it, tell the user it is AI-written. `likely_cause` is a hypothesis. Report it as a possible cause, never as a fact, and check it against a stack trace from `query-error-tracking-issue-events` before you act on it.
 - `summary_status`: this tool never waits for a summary.
-  - `ready`: `summary` is present. When `summary_stale` is true, a newer one may be written in the background, so a later read can return a different summary.
+  - `ready`: `summary` is present.
   - `generating`: a summary is being written in the background. When `summary` is present, it is the previous summary: use it, and say a newer one is being written. Otherwise answer from the facts now. When the user wants the new summary, call this tool again in about 10 seconds, or pass `summary_hint` to the user.
   - `not_generated`: no summary exists yet. You may pass `summary_hint` to the user.
   - `unavailable`: `summary_reason` says why. When the user asks for a summary, tell them the reason in plain words: AI data processing is not approved for the organization, the plan does not include summaries, they may not read the data the summary is written from, summaries are off for the project, or generation failed and a later read can try again.

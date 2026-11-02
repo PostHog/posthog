@@ -618,17 +618,15 @@ class TestErrorTracking(APIBaseTest):
     @parameterized.expand(
         [
             *[
-                (f"read_{name}", "", True, status, stored, stale, reason, hint)
-                for name, status, stored, stale, reason, hint in [
-                    ("ready", contracts.IssueSummaryStatus.READY, True, False, None, None),
-                    ("ready_stale", contracts.IssueSummaryStatus.READY, True, True, None, None),
-                    ("generating", contracts.IssueSummaryStatus.GENERATING, False, False, None, "Read again."),
-                    ("not_generated", contracts.IssueSummaryStatus.NOT_GENERATED, False, False, None, "Open it."),
+                (f"read_{name}", "", True, status, stored, reason, hint)
+                for name, status, stored, reason, hint in [
+                    ("ready", contracts.IssueSummaryStatus.READY, True, None, None),
+                    ("generating", contracts.IssueSummaryStatus.GENERATING, False, None, "Read again."),
+                    ("not_generated", contracts.IssueSummaryStatus.NOT_GENERATED, False, None, "Open it."),
                     *[
                         (
                             f"unavailable_{reason.value}",
                             contracts.IssueSummaryStatus.UNAVAILABLE,
-                            False,
                             False,
                             reason,
                             None,
@@ -643,7 +641,6 @@ class TestErrorTracking(APIBaseTest):
                 False,
                 contracts.IssueSummaryStatus.NOT_GENERATED,
                 False,
-                False,
                 None,
                 "Open it.",
             ),
@@ -656,7 +653,6 @@ class TestErrorTracking(APIBaseTest):
         start: bool,
         status: contracts.IssueSummaryStatus,
         stored: bool,
-        stale: bool,
         reason: contracts.IssueSummaryUnavailableReason | None,
         hint: str | None,
     ) -> None:
@@ -672,9 +668,7 @@ class TestErrorTracking(APIBaseTest):
             generated_at=datetime(2026, 10, 20, 12, 0, tzinfo=UTC),
             checked_at=datetime(2026, 10, 21, 12, 0, tzinfo=UTC),
         )
-        read = contracts.IssueSummaryRead(
-            status=status, summary=summary if stored else None, stale=stale, reason=reason, hint=hint
-        )
+        read = contracts.IssueSummaryRead(status=status, summary=summary if stored else None, reason=reason, hint=hint)
         with patch.object(summaries_facade, "read_issue_summary", return_value=read) as read_summary:
             response = self.client.get(f"/api/projects/{self.team.id}/error_tracking/issues/{issue.id}/summary{query}")
 
@@ -697,7 +691,6 @@ class TestErrorTracking(APIBaseTest):
         assert response.json() == {
             "status": status.value,
             "summary": expected_summary,
-            "stale": stale,
             "reason": reason.value if reason is not None else None,
             "hint": hint,
         }

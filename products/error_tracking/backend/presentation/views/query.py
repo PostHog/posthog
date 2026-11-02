@@ -307,7 +307,6 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         summary_finished_at = time.monotonic()
         if summary_read.summary is not None:
             payload["summary"] = summary_payload(summary_read.summary)
-            payload["summary_stale"] = summary_read.stale
         payload["summary_status"] = summary_read.status.value
         if summary_read.reason is not None:
             payload["summary_reason"] = summary_read.reason.value

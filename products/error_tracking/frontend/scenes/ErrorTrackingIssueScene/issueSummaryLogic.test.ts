@@ -25,21 +25,18 @@ const SUMMARY: ErrorTrackingStoredIssueSummaryApi = {
 const GENERATING: ErrorTrackingIssueSummaryResponseApi = {
     status: 'generating',
     summary: null,
-    stale: false,
     reason: null,
     hint: 'A new summary of this issue is being written.',
 }
 const READY: ErrorTrackingIssueSummaryResponseApi = {
     status: 'ready',
     summary: SUMMARY,
-    stale: false,
     reason: null,
     hint: null,
 }
 const UNAVAILABLE: ErrorTrackingIssueSummaryResponseApi = {
     status: 'unavailable',
     summary: null,
-    stale: false,
     reason: 'error',
     hint: null,
 }

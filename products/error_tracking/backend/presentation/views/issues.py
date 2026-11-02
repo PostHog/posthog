@@ -301,12 +301,6 @@ class ErrorTrackingIssueSummaryResponseSerializer(serializers.Serializer):
     summary = ErrorTrackingStoredIssueSummarySerializer(
         allow_null=True, help_text="The stored summary, or null when none exists yet."
     )
-    stale = serializers.BooleanField(
-        help_text=(
-            "True when a newer summary may be due: the stored one is older than the regenerate interval, "
-            "or an older prompt wrote it. False when there is no summary."
-        )
-    )
     reason = serializers.ChoiceField(
         choices=contracts.IssueSummaryUnavailableReason.choices,
         allow_null=True,
@@ -328,7 +322,6 @@ def issue_summary_response(team_id: int, issue_id: UUID, *, user: User, start: b
     return {
         "status": read.status,
         "summary": ErrorTrackingStoredIssueSummarySerializer(read.summary).data if read.summary is not None else None,
-        "stale": read.stale,
         "reason": read.reason,
         "hint": read.hint,
     }

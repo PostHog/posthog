@@ -57,14 +57,12 @@ def read_issue_summary(team_id: int, issue_id: UUID | str, *, user: User, start:
         return contracts.IssueSummaryRead(
             status=contracts.IssueSummaryStatus.UNAVAILABLE,
             summary=None,
-            stale=False,
             reason=contracts.IssueSummaryUnavailableReason.ERROR,
             hint=None,
         )
     return contracts.IssueSummaryRead(
         status=state.status,
         summary=_to_summary(state.summary) if state.summary is not None else None,
-        stale=state.stale,
         reason=state.reason,
         hint=state.hint,
     )

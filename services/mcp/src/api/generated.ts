@@ -44302,8 +44302,6 @@ export namespace Schemas {
        * * `not_generated` - Not Generated
        * * `unavailable` - Unavailable */
       summary_status: IssueSummaryStatusEnum;
-      /** Present when summary is present. True when a newer summary may be due, because the summary is older than a day or an older prompt wrote it. This read then starts a newer one in the background when it is due. */
-      summary_stale?: boolean;
       /** Present when summary_status is 'unavailable'. 'ai_not_approved': the organization has not approved AI data processing. 'not_on_plan': the plan does not include summaries. 'restricted': the user may not read a property that the summary is written from. 'disabled': summaries are off for the project. 'error': generation failed, and a later read can try again.
        *
        * * `ai_not_approved` - Ai Not Approved
@@ -44733,8 +44731,6 @@ export namespace Schemas {
       status: IssueSummaryStatusEnum;
       /** The stored summary, or null when none exists yet. */
       summary: ErrorTrackingStoredIssueSummary | null;
-      /** True when a newer summary may be due: the stored one is older than the regenerate interval, or an older prompt wrote it. False when there is no summary. */
-      stale: boolean;
       /** Why the status is unavailable, else null. ai_not_approved: the organization has not approved AI data processing. not_on_plan: the plan does not include summaries. restricted: the user may not read a property that the summary is written from. disabled: summaries are off for the project. error: generation failed, and a later read can try again.
        *
        * * `ai_not_approved` - Ai Not Approved

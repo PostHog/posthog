@@ -313,24 +313,10 @@ def generation_blocked(
     return None
 
 
-def summary_is_stale(summary: ErrorTrackingIssueSummary, now: datetime) -> bool:
-    """True when a newer summary may be due.
-
-    A read calls this, so it must not run the input queries. A summary written by an older prompt is stale.
-    A summary older than the regenerate interval is stale too, because the inputs may have moved since then.
-    A summary saved before rows stored the prompt version is stale only by age.
-    """
-    prompt_version = summary.content.get("prompt_version")
-    return regeneration_due(summary, now) or (
-        prompt_version is not None and prompt_version != ISSUE_SUMMARY_PROMPT_VERSION
-    )
-
-
 @frozen
 class IssueSummaryState:
     status: IssueSummaryStatus
     summary: ErrorTrackingIssueSummary | None = None
-    stale: bool = False
     reason: IssueSummaryUnavailableReason | None = None
     hint: str | None = None
 
@@ -366,15 +352,10 @@ def read_issue_summary(team_id: int, issue_id: UUID | str, user: User, *, start:
         return IssueSummaryState(
             status=IssueSummaryStatus.GENERATING,
             summary=stored,
-            stale=stored is not None and summary_is_stale(stored, timezone.now()),
             hint=_generating_hint(team_id, issue_id),
         )
     if stored is not None:
-        return IssueSummaryState(
-            status=IssueSummaryStatus.READY,
-            summary=stored,
-            stale=summary_is_stale(stored, timezone.now()),
-        )
+        return IssueSummaryState(status=IssueSummaryStatus.READY, summary=stored)
     match generation:
         case None | IssueSummaryOutcome.FRESH:
             return IssueSummaryState(
@@ -771,7 +752,7 @@ def _generate_claimed(
                 "content": {
                     **response.model_dump(),
                     "category": category.value if category else None,
-                    # Lets a read tell that a summary is stale without running the input queries.
+                    # Lets a later read tell which prompt wrote a summary without running the input queries.
                     "prompt_version": ISSUE_SUMMARY_PROMPT_VERSION,
                 },
                 "input_hash": inputs.input_hash,

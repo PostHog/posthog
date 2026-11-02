@@ -512,6 +512,5 @@ class IssueSummaryRead:
     status: IssueSummaryStatus
     # The stored summary. Also set while a newer one generates.
     summary: ErrorTrackingIssueSummary | None
-    stale: bool
     reason: IssueSummaryUnavailableReason | None
     hint: str | None

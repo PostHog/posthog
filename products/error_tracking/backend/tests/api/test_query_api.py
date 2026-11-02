@@ -290,11 +290,10 @@ def summary_read(
     status: IssueSummaryStatus,
     *,
     summary: ErrorTrackingIssueSummary | None = None,
-    stale: bool = False,
     reason: IssueSummaryUnavailableReason | None = None,
     hint: str | None = None,
 ) -> IssueSummaryRead:
-    return IssueSummaryRead(status=status, summary=summary, stale=stale, reason=reason, hint=hint)
+    return IssueSummaryRead(status=status, summary=summary, reason=reason, hint=hint)
 
 
 STORED_SUMMARY_PAYLOAD = {
@@ -1043,15 +1042,14 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             (
                 "ready",
                 summary_read(IssueSummaryStatus.READY, summary=STORED_SUMMARY),
-                {"summary": STORED_SUMMARY_PAYLOAD, "summary_status": "ready", "summary_stale": False},
+                {"summary": STORED_SUMMARY_PAYLOAD, "summary_status": "ready"},
             ),
             (
-                "ready_stale_without_category",
-                summary_read(IssueSummaryStatus.READY, summary=replace(STORED_SUMMARY, category=None), stale=True),
+                "ready_without_category",
+                summary_read(IssueSummaryStatus.READY, summary=replace(STORED_SUMMARY, category=None)),
                 {
                     "summary": {key: value for key, value in STORED_SUMMARY_PAYLOAD.items() if key != "category"},
                     "summary_status": "ready",
-                    "summary_stale": True,
                 },
             ),
             (

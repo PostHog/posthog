@@ -703,20 +703,16 @@ class TestIssueSummaryGeneration(BaseTest):
         if queued:
             assert self.publish_call.kwargs["kwargs"] == {"queued_at": NOW.timestamp()}
 
-    def _store_summary(self, prompt_version: str | None) -> None:
+    def _store_summary(self) -> None:
         with time_machine.travel(NOW, tick=False):
             get_or_generate_issue_summary(self.team.id, self.issue.id)
-        if prompt_version is not None:
-            stored = ErrorTrackingIssueSummary.objects.for_team(self.team.id).get(issue_id=self.issue.id)
-            stored.content = {**stored.content, "prompt_version": prompt_version}
-            stored.save()
 
     def _hold_lock(self, value: str) -> None:
         issue_summaries.get_client().set(self._lock_key, value, ex=60)
 
     @parameterized.expand(
         [
-            # name, arrange, start, read after, status, reason, has summary, stale, queued, hint contains
+            # name, arrange, start, read after, status, reason, has summary, queued, hint contains
             (
                 "flag_off",
                 lambda test: test.enterContext(
@@ -726,7 +722,6 @@ class TestIssueSummaryGeneration(BaseTest):
                 timedelta(0),
                 IssueSummaryStatus.UNAVAILABLE,
                 IssueSummaryUnavailableReason.DISABLED,
-                False,
                 False,
                 False,
                 None,
@@ -741,7 +736,6 @@ class TestIssueSummaryGeneration(BaseTest):
                     IssueSummaryUnavailableReason.AI_NOT_APPROVED,
                     False,
                     False,
-                    False,
                     None,
                 )
                 for start in (True, False)
@@ -753,7 +747,6 @@ class TestIssueSummaryGeneration(BaseTest):
                 timedelta(0),
                 IssueSummaryStatus.GENERATING,
                 None,
-                False,
                 False,
                 True,
                 "{url}",
@@ -767,7 +760,6 @@ class TestIssueSummaryGeneration(BaseTest):
                 None,
                 False,
                 False,
-                False,
                 "{url}",
             ),
             (
@@ -777,7 +769,6 @@ class TestIssueSummaryGeneration(BaseTest):
                 timedelta(0),
                 IssueSummaryStatus.GENERATING,
                 None,
-                False,
                 False,
                 False,
                 "{url}",
@@ -791,37 +782,34 @@ class TestIssueSummaryGeneration(BaseTest):
                 IssueSummaryUnavailableReason.ERROR,
                 False,
                 False,
-                False,
                 None,
             ),
             (
                 "stored_fresh",
-                lambda test: test._store_summary(None),
+                lambda test: test._store_summary(),
                 True,
                 timedelta(hours=1),
                 IssueSummaryStatus.READY,
                 None,
                 True,
                 False,
-                False,
                 None,
             ),
             (
                 "stored_peek_after_the_run_settles",
-                lambda test: test._store_summary(None),
+                lambda test: test._store_summary(),
                 False,
                 timedelta(minutes=1),
                 IssueSummaryStatus.READY,
                 None,
                 True,
                 False,
-                False,
                 None,
             ),
             (
                 "stored_peek_while_a_worker_runs",
                 lambda test: (
-                    test._store_summary(None),
+                    test._store_summary(),
                     test._hold_lock(f"{issue_summaries.LOCK_CLAIM_PREFIX}other"),
                 ),
                 False,
@@ -829,14 +817,13 @@ class TestIssueSummaryGeneration(BaseTest):
                 IssueSummaryStatus.GENERATING,
                 None,
                 True,
-                False,
                 False,
                 "{url}",
             ),
             (
                 "stored_start_while_a_worker_runs",
                 lambda test: (
-                    test._store_summary(None),
+                    test._store_summary(),
                     test._hold_lock(f"{issue_summaries.LOCK_CLAIM_PREFIX}other"),
                 ),
                 True,
@@ -844,7 +831,6 @@ class TestIssueSummaryGeneration(BaseTest):
                 IssueSummaryStatus.GENERATING,
                 None,
                 True,
-                False,
                 False,
                 "{url}",
             ),
@@ -859,13 +845,12 @@ class TestIssueSummaryGeneration(BaseTest):
                 IssueSummaryUnavailableReason.ERROR,
                 False,
                 False,
-                False,
                 None,
             ),
             (
                 "stored_start_fails",
                 lambda test: (
-                    test._store_summary(None),
+                    test._store_summary(),
                     test.enterContext(
                         patch.object(issue_summaries, "generation_blocked", side_effect=RedisError("down"))
                     ),
@@ -875,33 +860,19 @@ class TestIssueSummaryGeneration(BaseTest):
                 IssueSummaryStatus.READY,
                 None,
                 True,
-                True,
                 False,
                 None,
             ),
             (
                 "stored_past_the_interval",
-                lambda test: test._store_summary(None),
+                lambda test: test._store_summary(),
                 True,
                 timedelta(hours=25),
                 IssueSummaryStatus.GENERATING,
                 None,
                 True,
                 True,
-                True,
                 "{url}",
-            ),
-            (
-                "stored_by_an_older_prompt",
-                lambda test: test._store_summary("v0"),
-                True,
-                timedelta(hours=1),
-                IssueSummaryStatus.READY,
-                None,
-                True,
-                True,
-                False,
-                None,
             ),
         ]
     )
@@ -914,7 +885,6 @@ class TestIssueSummaryGeneration(BaseTest):
         status: IssueSummaryStatus,
         reason: IssueSummaryUnavailableReason | None,
         has_summary: bool,
-        stale: bool,
         queued: bool,
         hint_contains: str | None,
     ) -> None:
@@ -927,7 +897,7 @@ class TestIssueSummaryGeneration(BaseTest):
         ):
             read = summaries_facade.read_issue_summary(self.team.id, self.issue.id, user=self.user, start=start)
 
-        assert (read.status, read.reason, read.summary is not None, read.stale) == (status, reason, has_summary, stale)
+        assert (read.status, read.reason, read.summary is not None) == (status, reason, has_summary)
         assert apply_async.called == queued
         if hint_contains is None:
             assert read.hint is None
