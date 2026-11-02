@@ -601,7 +601,8 @@ class SendEmailSerializer(SendTransactionalEmailSerializer):
         required=False,
         help_text="Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email are "
         "captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement "
-        "capture off captures nothing, whatever the send says.",
+        "capture off captures nothing, whatever the send says. A send by `template.id` takes it only in the beta "
+        "for sending email from code.",
     )
 
     def get_fields(self) -> dict[str, serializers.Field]:
@@ -1592,6 +1593,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             return self._send_template_by_key(request)
         with transactional_email_stage("feature_flag"):
             self._require_transactional_email_flag()
+            self._refuse_engagement_capture_outside_the_beta(request.validated_data)
         with transactional_email_stage("template_lookup"):
             try:
                 template = get_template(self.team_id, request.validated_data["template"]["id"])
@@ -1599,12 +1601,12 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
                 raise NotFound()
             self.check_object_permissions(request, template)
         return self._queue_transactional_email(
-            request, template, route="send_email", options=self._id_send_options(request)
+            request, template, route="send_email", options=_template_send_options(request.data, request.validated_data)
         )
 
-    def _id_send_options(self, request: Any) -> TemplateSendOptions | None:
-        options = _template_send_options(request.data, request.validated_data)
-        return options if options and _flag_enabled(self.team, EMAIL_FROM_CODE_FLAG) else None
+    def _refuse_engagement_capture_outside_the_beta(self, data: Mapping[str, Any]) -> None:
+        if "capture_engagement" in data and not _flag_enabled(self.team, EMAIL_FROM_CODE_FLAG):
+            raise serializers.ValidationError({"capture_engagement": ENGAGEMENT_CAPTURE_OUTSIDE_THE_BETA})
 
     def _send_template_by_key(self, request: Any) -> Response:
         with transactional_email_stage("feature_flag"):
@@ -1692,6 +1694,10 @@ TEMPLATE_OUTDATED_DETAIL = (
     "again."
 )
 TEMPLATE_SEND_OPTION_FIELDS = ("from", "reply_to", "capture_engagement")
+ENGAGEMENT_CAPTURE_OUTSIDE_THE_BETA = (
+    "A send by `template.id` takes this field only in the beta for sending email from code. Remove it to send the "
+    "email."
+)
 
 
 def _template_send_options(sent: Any, data: Mapping[str, Any]) -> TemplateSendOptions | None:
