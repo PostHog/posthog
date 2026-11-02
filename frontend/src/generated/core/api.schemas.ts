@@ -502,7 +502,11 @@ export interface OrganizationInviteApi {
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly updated_at: string
-    /** @nullable */
+    /**
+     * Optional personal message in the invite email.
+     * @maxLength 1000
+     * @nullable
+     */
     message?: string | null
     /** List of team IDs and corresponding access levels to private projects. */
     private_project_access?: unknown
