@@ -394,10 +394,7 @@ export interface PostHogPermissionErrorOptions {
 export class PostHogPermissionError extends Error {
     public readonly detail: string
     public readonly missingScope: string | undefined
-    /**
-     * Every scope the endpoint requires, from the API's `insufficient_scope` challenge. The API
-     * sends the challenge only for a token whose OAuth app supports step-up.
-     */
+    /** From the API's `insufficient_scope` challenge, which it sends only for a step-up token. */
     public readonly challengeScopes: string[] | undefined
     public readonly url: string
     public readonly method: string
@@ -415,7 +412,6 @@ export class PostHogPermissionError extends Error {
         this.method = options.method
     }
 
-    /** The scopes to name in a challenge: every scope the API's challenge lists, or else the one missing scope. */
     get requiredScopes(): string[] | undefined {
         if (this.challengeScopes?.length) {
             return this.challengeScopes

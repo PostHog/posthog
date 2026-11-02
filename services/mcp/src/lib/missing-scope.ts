@@ -1,15 +1,7 @@
-// The one place that decides how a missing OAuth scope reaches the client.
-//
-// A token whose OAuth app supports step-up gets HTTP 403 with an RFC 6750 §3.1
-// `insufficient_scope` challenge, but only from a check that runs before the tool does
-// anything. The MCP spec's step-up flow has the client union the challenge's `scope` with
-// the scopes it holds, ask the user for that union, and replay the request. A replay after
-// the tool already wrote something would write it twice, so a missing scope that the API
-// reports while the tool runs becomes the tool error for every token.
-//
-// Every other case gets the tool error over HTTP 200, because a client that does not handle
-// the challenge treats a 403 as a dead connection. The tool error carries the challenge in
-// `_meta`, which ChatGPT reads and other clients ignore.
+// Decides how a missing OAuth scope reaches the client. A step-up token gets HTTP 403 with an
+// RFC 6750 §3.1 challenge, but only from a check that runs before a tool does anything, because
+// the client replays the request after re-consent. Everything else gets the tool error over
+// HTTP 200, since other clients treat a 403 as a dead connection, with the challenge in `_meta`.
 
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 
@@ -57,10 +49,6 @@ export function parseInsufficientScopeChallenge(header: string | null | undefine
     return scope ? scope.split(' ').filter(Boolean) : []
 }
 
-/**
- * Called before a tool call does anything, including bookkeeping such as analytics or guidance.
- * Throws `InsufficientScopeError` for a step-up token, which the transport answers with HTTP 403.
- */
 export function challengeStepUpBeforeRun(requiredScopes: readonly string[], supportsStepUp: boolean): void {
     if (supportsStepUp) {
         throw new InsufficientScopeError(requiredScopes)
