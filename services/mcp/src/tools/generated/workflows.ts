@@ -98,24 +98,6 @@ const workflowsConvertToBroadcast = (): ToolBase<
     },
 })
 
-const WorkflowsEmailSendingSuspensionSchema = () => z.object({})
-
-const workflowsEmailSendingSuspension = (): ToolBase<
-    ReturnType<typeof WorkflowsEmailSendingSuspensionSchema>,
-    Schemas.EmailSendingSuspensionStatus
-> => ({
-    name: 'workflows-email-sending-suspension',
-    schema: WorkflowsEmailSendingSuspensionSchema(),
-    handler: async (context: Context, _params: z.infer<ReturnType<typeof WorkflowsEmailSendingSuspensionSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.EmailSendingSuspensionStatus>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/email_sending_suspension/`,
-        })
-        return result
-    },
-})
-
 const WorkflowsCreateSchema = () => {
     const HogFlowsCreateBody = orvalSchemas.HogFlowsCreateBody()
     return HogFlowsCreateBody
@@ -336,6 +318,24 @@ const workflowsEmailDraftsCreate = (): ToolBase<
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/workflow_data_suggestions/build_for_events/`,
             body,
+        })
+        return result
+    },
+})
+
+const WorkflowsEmailSendingSuspensionSchema = () => z.object({})
+
+const workflowsEmailSendingSuspension = (): ToolBase<
+    ReturnType<typeof WorkflowsEmailSendingSuspensionSchema>,
+    Schemas.EmailSendingSuspensionStatus
+> => ({
+    name: 'workflows-email-sending-suspension',
+    schema: WorkflowsEmailSendingSuspensionSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof WorkflowsEmailSendingSuspensionSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.EmailSendingSuspensionStatus>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/email_sending_suspension/`,
         })
         return result
     },
@@ -1176,13 +1176,13 @@ const workflowsVersionStats = (): ToolBase<
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'broadcasts-create': broadcastsCreate,
     'workflows-convert-to-broadcast': workflowsConvertToBroadcast,
-    'workflows-email-sending-suspension': workflowsEmailSendingSuspension,
     'workflows-create': workflowsCreate,
     'workflows-data-suggestions-create': workflowsDataSuggestionsCreate,
     'workflows-data-suggestions-get': workflowsDataSuggestionsGet,
     'workflows-data-suggestions-list': workflowsDataSuggestionsList,
     'workflows-discard-draft': workflowsDiscardDraft,
     'workflows-email-drafts-create': workflowsEmailDraftsCreate,
+    'workflows-email-sending-suspension': workflowsEmailSendingSuspension,
     'workflows-get': workflowsGet,
     'workflows-get-invocation': workflowsGetInvocation,
     'workflows-get-revision': workflowsGetRevision,
