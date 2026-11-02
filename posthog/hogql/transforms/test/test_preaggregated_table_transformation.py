@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 
 import unittest
+import time_machine
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, QueryMatchingTest, snapshot_clickhouse_queries
 
 from django.test import override_settings
@@ -797,6 +798,7 @@ GROUP BY date
         assert PREAGGREGATED_TABLE_NAME in query
         self.assertQueryMatchesSnapshot(query)
 
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_integer_timezones(self):
         assert is_integer_timezone("UTC")
         assert is_integer_timezone("Europe/London")
