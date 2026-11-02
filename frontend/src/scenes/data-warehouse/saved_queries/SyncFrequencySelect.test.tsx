@@ -1,3 +1,5 @@
+import { act, cleanup, fireEvent, render, within } from '@testing-library/react'
+
 import { SyncFrequencyBoundsApi } from 'products/data_warehouse/frontend/generated/api.schemas'
 
 import {
@@ -8,11 +10,14 @@ import {
     modeDisabledReason,
     SyncFrequencyValue,
     speedUpWarning,
+    SyncFrequencySelect,
     unsatisfiableReason,
 } from './SyncFrequencySelect'
 
+type Blocker = { id: string; name: string }
+
 describe('SyncFrequencySelect', () => {
-    const blocker = (name: string): { id: string; name: string } => ({ id: `id-${name}`, name })
+    const blocker = (name: string): Blocker => ({ id: `id-${name}`, name })
 
     const bounds = (overrides: Partial<SyncFrequencyBoundsApi> = {}): SyncFrequencyBoundsApi =>
         ({
@@ -295,6 +300,56 @@ describe('SyncFrequencySelect', () => {
             ],
         ])('when %s', (_case, input, value, expected) => {
             expect(inheritedCadence(input, value as SyncFrequencyValue)).toEqual(expected)
+        })
+    })
+
+    describe('pending confirmation', () => {
+        const speedsUp = bounds({
+            options: ['1hour', '6hour', '24hour'].map((cadence) => ({
+                cadence,
+                allowed: true,
+                blocked_by: null,
+                blocker: null,
+                speeds_up: cadence === '24hour' ? [] : [blocker('org_universe')],
+                speeds_up_withheld: false,
+            })),
+            ceiling: null,
+        } as Partial<SyncFrequencyBoundsApi>)
+
+        afterEach(cleanup)
+
+        it('closes when the value changes underneath it, as discarding the draft does', () => {
+            const { container, rerender } = render(
+                <SyncFrequencySelect bounds={speedsUp} value="24hour" onChange={jest.fn()} />
+            )
+            fireEvent.click(within(container).getByText('6h'))
+            expect(within(container).queryByRole('alert')).not.toBeNull()
+
+            rerender(<SyncFrequencySelect bounds={speedsUp} value="12hour" onChange={jest.fn()} />)
+
+            expect(within(container).queryByRole('alert')).toBeNull()
+        })
+
+        it('keeps naming the picked cadence on a translated page', () => {
+            const { container } = render(<SyncFrequencySelect bounds={speedsUp} value="24hour" onChange={jest.fn()} />)
+            fireEvent.click(within(container).getByText('6h'))
+            // Chrome's page translation swaps each text node for a <font> element React no longer owns.
+            container.querySelectorAll('[role="alert"] span').forEach((span) => {
+                const text = span.firstChild
+                if (text?.nodeType === Node.TEXT_NODE) {
+                    const translated = document.createElement('font')
+                    translated.textContent = text.textContent
+                    span.replaceChild(translated, text)
+                }
+            })
+
+            act(() => {
+                fireEvent.click(within(container).getByText('1h'))
+            })
+
+            const alert = within(container).getByRole('alert').textContent
+            expect(alert).toContain('Refresh every 1 hour')
+            expect(alert).not.toContain('6 hours')
         })
     })
 })
