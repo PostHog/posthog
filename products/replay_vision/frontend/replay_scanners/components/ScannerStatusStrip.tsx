@@ -161,34 +161,6 @@ export function ScannerStatusStrip({ scannerId }: { scannerId: string }): JSX.El
                             </>
                         )}
                     </div>
-                    {pausedByFreeCredits && (
-                        <div className="pl-4 pt-1 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                            <span className="text-xs text-muted">
-                                Turn it off to keep scanning now. Scans past your free credits are billed.
-                            </span>
-                            <LemonSwitch
-                                checked
-                                onChange={() =>
-                                    LemonDialog.open({
-                                        title: 'Turn off free credits only?',
-                                        description:
-                                            scanner.credit_limit != null
-                                                ? `This scanner will keep scanning after your free credits run out. Scans past them are billed, up to its limit of ${scanner.credit_limit.toLocaleString('en-US')} credits a month.`
-                                                : "This scanner will keep scanning after your free credits run out. Scans past them are billed, up to your organization's spend limit.",
-                                        primaryButton: { children: 'Turn off', onClick: () => turnOffFreeOnly() },
-                                        secondaryButton: { children: 'Cancel' },
-                                    })
-                                }
-                                loading={turningOffFreeOnly}
-                                disabledReason={editDisabledReason}
-                                label="Free credits only"
-                                size="small"
-                                bordered
-                                data-attr="vision-scanner-status-turn-off-free-only"
-                                data-ph-capture-attribute-scanner-type={scanner.scanner_type}
-                            />
-                        </div>
-                    )}
                 </div>
                 <div className="min-w-0 flex flex-col gap-1">
                     <div className="flex items-center justify-between gap-2 text-sm">
@@ -221,6 +193,35 @@ export function ScannerStatusStrip({ scannerId }: { scannerId: string }): JSX.El
                                 </Link>
                             )}
                         </span>
+                    )}
+                    {pausedByFreeCredits && (
+                        <div className="pt-1">
+                            <LemonSwitch
+                                checked
+                                onChange={() =>
+                                    LemonDialog.open({
+                                        title: 'Turn off free credits only?',
+                                        description:
+                                            scanner.credit_limit != null
+                                                ? `This scanner will keep scanning after your free credits run out. Scans past them are billed, up to its limit of ${scanner.credit_limit.toLocaleString('en-US')} credits a month.`
+                                                : "This scanner will keep scanning after your free credits run out. Scans past them are billed, up to your organization's spend limit.",
+                                        primaryButton: {
+                                            children: 'Turn off',
+                                            onClick: () => turnOffFreeOnly(),
+                                        },
+                                        secondaryButton: { children: 'Cancel' },
+                                    })
+                                }
+                                loading={turningOffFreeOnly}
+                                disabledReason={editDisabledReason}
+                                label="Free credits only"
+                                tooltip="Turn it off to keep scanning now. Scans past your free credits are billed."
+                                size="small"
+                                bordered
+                                data-attr="vision-scanner-status-turn-off-free-only"
+                                data-ph-capture-attribute-scanner-type={scanner.scanner_type}
+                            />
+                        </div>
                     )}
                 </div>
             </div>
