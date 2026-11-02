@@ -915,6 +915,20 @@ mod tests {
             "{lines}"
         );
         assert!(!stored_lines(&event, &[public]).is_empty());
+        // So is a copy that a selector spells with other CSS escapes than the rewrite replaces, beside a plain copy.
+        for selector in [
+            r".a-\[https\3a \2f \2f bucket\.s3\.amazonaws\.com\2f avatar\.png\3f X-Amz-Signature\3d abc123\]",
+            r".a-\[https://bucket\.s3\.amazonaws\.com/avatar\.png\?X-Amz-Signature\=abc123\]",
+        ] {
+            let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 8, "id": 3,
+                "replaceSync": format!("{selector}{{background:url({signed})}}")}}])
+            .to_string();
+            let lines = stored_lines(&events, &[]);
+            assert!(
+                !lines.is_empty() && !lines.contains("X-Amz-Signature"),
+                "{selector}: {lines}"
+            );
+        }
         // A declined URL that a longer URL also holds is overwritten there too, and the block is kept.
         let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
             "attributes": [{"id": 99, "attributes": {"src": signed, "alt": format!("{signed}&size=2")}}]}}])

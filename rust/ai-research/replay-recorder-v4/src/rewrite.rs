@@ -10,7 +10,7 @@
 
 use std::borrow::Cow;
 use std::cell::Cell;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use aho_corasick::{AhoCorasick, AhoCorasickKind, MatchKind};
 use metrics::counter;
@@ -22,7 +22,7 @@ use replay_core_v4::scan::tokens::{Token, Tokens};
 use replay_core_v4::seal::{image_content_key, image_url_key};
 use replay_core_v4::url_policy::is_remote;
 
-use crate::scrub::{Scrub, Scrubber};
+use crate::scrub::{escaped_matches, Scrub, Scrubber};
 use crate::urls::url_reference;
 
 /// The bytes with each JSON string that holds an escape `write_json_string` does not write, such as `\/` or `\u0041`,
@@ -183,6 +183,48 @@ impl EscapedMatchers {
     }
 }
 
+/// The declined URLs in any spelling, so that a copy the rewrite cannot replace, such as one a selector writes with CSS
+/// hex escapes, still fails the block.
+struct DeclinedSpellings {
+    urls: AhoCorasick,
+    targets: Vec<usize>,
+    /// The two spellings each URL has where `replace_urls` and `replace_escaped_urls` look for it.
+    replaced: Vec<[Vec<u8>; 2]>,
+}
+
+impl DeclinedSpellings {
+    fn new(targets: &[Target]) -> Option<Self> {
+        let declined: Vec<usize> = (0..targets.len())
+            .filter(|&index| targets[index].declined.is_some())
+            .collect();
+        let urls = (!declined.is_empty())
+            .then(|| {
+                AhoCorasick::builder()
+                    .kind(Some(AhoCorasickKind::ContiguousNFA))
+                    .ascii_case_insensitive(true)
+                    .match_kind(MatchKind::LeftmostLongest)
+                    .build(declined.iter().map(|&index| &targets[index].url))
+                    .ok()
+            })
+            .flatten()?;
+        let replaced = declined
+            .iter()
+            .map(|&index| {
+                let url = &targets[index].url;
+                [
+                    json_string_contents(url),
+                    json_string_contents(&escape_in_identifier(url)),
+                ]
+            })
+            .collect();
+        Some(Self {
+            urls,
+            targets: declined,
+            replaced,
+        })
+    }
+}
+
 fn json_string_contents(text: &str) -> Vec<u8> {
     let mut escaped = Vec::with_capacity(text.len() + 2);
     write_json_string(text, &mut escaped);
@@ -291,6 +333,9 @@ pub struct UrlRewrite {
     srcset_key: AhoCorasick,
     escaped_url_starts: AhoCorasick,
     escaped: Option<EscapedMatchers>,
+    css_escape: AhoCorasick,
+    declined_spellings: Option<DeclinedSpellings>,
+    declined_respelled: BTreeSet<usize>,
     css_matcher: Option<AhoCorasick>,
     css_targets: Vec<CssTarget>,
     css_texts: HashMap<String, usize>,
@@ -365,8 +410,8 @@ pub struct RewriteReport {
     pub safe: bool,
     /// A declined URL stayed, as a second copy that the rewrite passed over.
     pub declined_kept: bool,
-    /// The hosts of declined URLs the inspector named but the stored bytes do not hold as it read them. `None` when
-    /// one of them has no host to look for.
+    /// The hosts of declined URLs the inspector named but the stored bytes do not hold as it read them, or also hold in
+    /// another spelling. `None` when one of them has no host to look for.
     pub unfound_hosts: Option<Vec<String>>,
     pub scrubbed: u64,
     pub kept_in: Option<String>,
@@ -518,6 +563,7 @@ impl UrlRewrite {
                     .ok()
             })
             .flatten();
+        let declined_spellings = DeclinedSpellings::new(&targets);
         Self {
             matcher,
             declined,
@@ -527,6 +573,9 @@ impl UrlRewrite {
             escaped_url_starts: AhoCorasick::new(ESCAPED_URL_STARTS)
                 .expect("two literal patterns build"),
             escaped: None,
+            css_escape: AhoCorasick::new([br"\\"]).expect("one literal pattern builds"),
+            declined_spellings,
+            declined_respelled: BTreeSet::new(),
             css_matcher,
             css_targets,
             css_texts: css_rewrites
@@ -666,11 +715,31 @@ impl UrlRewrite {
             replaced
         };
         let (scrubbed, count) = self.scrubber.apply(&replaced);
-        if count == 0 {
-            return replaced;
+        let out = if count == 0 {
+            replaced
+        } else {
+            self.scrubbed += count;
+            Cow::Owned(scrubbed.into_owned())
+        };
+        self.note_respelled_declined(&out);
+        out
+    }
+
+    fn note_respelled_declined(&mut self, bytes: &[u8]) {
+        let Some(spellings) = &self.declined_spellings else {
+            return;
+        };
+        if !self.css_escape.is_match(bytes) {
+            return;
         }
-        self.scrubbed += count;
-        Cow::Owned(scrubbed.into_owned())
+        for (pattern, (start, end)) in escaped_matches(&spellings.urls, bytes) {
+            if !spellings.replaced[pattern]
+                .iter()
+                .any(|spelling| bytes[start..end] == spelling[..])
+            {
+                self.declined_respelled.insert(spellings.targets[pattern]);
+            }
+        }
     }
 
     fn replace_escaped_urls<'b>(&mut self, bytes: &'b [u8]) -> Cow<'b, [u8]> {
@@ -726,7 +795,8 @@ impl UrlRewrite {
 
     /// Counts the block's URLs. One the block does not hold as the inspector read it, for example with a CSS escape,
     /// stays as it arrived. The block is unsafe when a URL the policy declines can stay, unreplaced or as a second copy
-    /// that `apply` passed over, unless the fallback scrubbed every token that could hold it.
+    /// that `apply` passed over, unless the fallback scrubbed every token that could hold it. A copy in another
+    /// spelling, such as with CSS hex escapes, always leaves it unsafe, because `apply` looks for one after the scrub.
     pub fn finish(self) -> RewriteReport {
         let covered = |url: &str| match &self.fallback.scrub {
             Scrub::AllRemote => true,
@@ -737,13 +807,18 @@ impl UrlRewrite {
         };
         let mut unfound_hosts = Some(Vec::new());
         let mut safe = !self.declined_kept;
-        for target in &self.targets {
-            if !target.found.get() && target.declined.is_some() && !covered(&target.url) {
-                safe = false;
-                match (url_host(&target.url), &mut unfound_hosts) {
-                    (Some(host), Some(hosts)) => hosts.push(host),
-                    _ => unfound_hosts = None,
-                }
+        let unfound = self.targets.iter().filter(|target| {
+            !target.found.get() && target.declined.is_some() && !covered(&target.url)
+        });
+        let respelled = self
+            .declined_respelled
+            .iter()
+            .map(|&index| &self.targets[index]);
+        for target in unfound.chain(respelled) {
+            safe = false;
+            match (url_host(&target.url), &mut unfound_hosts) {
+                (Some(host), Some(hosts)) => hosts.push(host),
+                _ => unfound_hosts = None,
             }
         }
         // Many declined URLs share a host. The second pass binary-searches this list for every target, so it is sorted.

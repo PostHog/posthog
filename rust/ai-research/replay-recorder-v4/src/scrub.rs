@@ -302,6 +302,46 @@ fn decoded(bytes: &[u8], (start, end): (usize, usize)) -> String {
     text
 }
 
+/// Each match of `patterns` in a JSON string read through its escapes, with the span of the bytes that spell it. Only a
+/// string that holds a CSS escape is read, because a match in any other string has no other spelling.
+pub fn escaped_matches(patterns: &AhoCorasick, bytes: &[u8]) -> Vec<(usize, (usize, usize))> {
+    let mut matches = Vec::new();
+    let mut at = 0;
+    while let Some(open) = bytes[at..].iter().position(|&b| b == b'"').map(|i| at + i) {
+        let mut end = open + 1;
+        let mut css_escape = false;
+        while end < bytes.len() && bytes[end] != b'"' {
+            if bytes[end] == b'\\' {
+                css_escape |= bytes.get(end + 1) == Some(&b'\\');
+                end += 1;
+            }
+            end += 1;
+        }
+        if css_escape {
+            let mut text = String::new();
+            let mut spans: Vec<(usize, usize)> = Vec::new();
+            let mut position = open + 1;
+            while position < end {
+                let next = unit(bytes, position);
+                text.push(char::from_u32(next.ch).unwrap_or(char::REPLACEMENT_CHARACTER));
+                spans.resize(text.len(), (position, position + next.len));
+                position += next.len;
+            }
+            for found in patterns.find_iter(&text) {
+                matches.push((
+                    found.pattern().as_usize(),
+                    (spans[found.start()].0, spans[found.end() - 1].1),
+                ));
+            }
+        }
+        at = end + 1;
+        if at >= bytes.len() {
+            break;
+        }
+    }
+    matches
+}
+
 /// Whether the byte before `at` closes a JSON escape that ends a token, such as `\n`, rather than an escaped backslash.
 fn escape_ends_at(bytes: &[u8], at: usize) -> bool {
     at >= 2
