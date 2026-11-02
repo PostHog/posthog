@@ -9,7 +9,13 @@ vi.mock("../signed-commit-artefacts", async (importOriginal) => ({
 
 import { enabledLocalTools } from "../index";
 import type { LocalToolCtx, LocalToolGateMeta } from "../registry";
-import { FINISH_TOOL_NAME, finishSchema, finishTool } from "./finish";
+import {
+  buildFinishRunUpdate,
+  FINISH_REPORT_MAX_CHARS,
+  FINISH_TOOL_NAME,
+  finishSchema,
+  finishTool,
+} from "./finish";
 
 describe("finish tool", () => {
   const requestFinish = async (): Promise<void> => {};
@@ -174,9 +180,17 @@ describe("finish tool", () => {
     const spy = vi.fn(async () => {});
     const result = await finishTool.handler(
       { cwd: "/repo", requestFinish: spy },
-      { status: "failed", reason: "ran out of quota" },
+      {
+        status: "failed",
+        reason: "ran out of quota",
+        report: "Partial report",
+      },
     );
-    expect(spy).toHaveBeenCalledWith("failed", "ran out of quota");
+    expect(spy).toHaveBeenCalledWith(
+      "failed",
+      "ran out of quota",
+      "Partial report",
+    );
     expect(result.isError).toBeUndefined();
   });
 
@@ -197,6 +211,57 @@ describe("finish tool", () => {
       expect.any(AbortSignal),
     );
     expect(result.isError).toBeUndefined();
+  });
+
+  it.each(["", "   "])(
+    "keeps a report-required run open when the report is %j",
+    async (report) => {
+      const spy = vi.fn(async () => {});
+      const result = await finishTool.handler(
+        { cwd: "/repo", requestFinish: spy, finishReportRequired: true },
+        { status: "completed", report },
+      );
+      expect(spy).not.toHaveBeenCalled();
+      expect(result.isError).toBe(true);
+    },
+  );
+
+  const rejectOnce = (status: number) =>
+    vi
+      .fn<NonNullable<LocalToolCtx["requestFinish"]>>()
+      .mockRejectedValueOnce(Object.assign(new Error("rejected"), { status }))
+      .mockResolvedValue(undefined);
+
+  it.each([400, 403])(
+    "ends the run without the report when the backend rejects it (%i)",
+    async (status) => {
+      const spy = rejectOnce(status);
+      const result = await finishTool.handler(
+        { cwd: "/repo", requestFinish: spy },
+        { status: "completed", report: "Full report" },
+      );
+      expect(result.isError).toBeUndefined();
+      expect(spy).toHaveBeenLastCalledWith("completed", undefined);
+    },
+  );
+
+  it("keeps the report when the finish fails for another reason", async () => {
+    const spy = rejectOnce(500);
+    await expect(
+      finishTool.handler(
+        { cwd: "/repo", requestFinish: spy },
+        { status: "completed", report: "Full report" },
+      ),
+    ).rejects.toThrow("rejected");
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it("cuts a long report without splitting a surrogate pair", () => {
+    const report = `${"a".repeat(FINISH_REPORT_MAX_CHARS - 1)}😀😀`;
+    const finalMessage = buildFinishRunUpdate("completed", undefined, report)
+      .output?.final_message as string;
+    expect(finalMessage).toBe(`${"a".repeat(FINISH_REPORT_MAX_CHARS - 1)}😀`);
+    expect(finalMessage.isWellFormed()).toBe(true);
   });
 
   it("errors when requestFinish is unavailable", async () => {
