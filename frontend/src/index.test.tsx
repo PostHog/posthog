@@ -59,6 +59,7 @@ describe('app entry boot', () => {
         await act(async () => window.__posthogAppRoot?.unmount())
         delete window.__posthogAppRoot
         delete window.ESBUILD_CSS_READY
+        delete window.POSTHOG_APP_CONTEXT_REQUEST
         document.body.innerHTML = ''
         jest.clearAllTimers()
         jest.useRealTimers()
@@ -97,6 +98,21 @@ describe('app entry boot', () => {
             expect(bootApp).toHaveBeenCalledTimes(1)
         }
     )
+
+    it('loads modules while the user data is pending and boots once it arrives', async () => {
+        const userData = deferred<{ app_context: object; feature_flags: null }>()
+        window.POSTHOG_APP_CONTEXT_REQUEST = userData.promise
+        await loadEntry()
+        await act(async () => stylesheet.resolve(true))
+
+        expect(modulesLoaded).toEqual(['App', 'bootApp'])
+        expect(bootApp).not.toHaveBeenCalled()
+
+        await act(async () => userData.resolve({ app_context: {}, feature_flags: null }))
+
+        expect(document.querySelector('[data-attr="boot-test-app"]')).toBeInTheDocument()
+        expect(bootApp).toHaveBeenCalledTimes(1)
+    })
 
     it.each(['loaded', 'absent'] as const)('boots when the stylesheet is %s', async (stylesheetState) => {
         if (stylesheetState === 'absent') {

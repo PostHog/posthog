@@ -11,6 +11,7 @@ anyhow = { workspace = true }
 arc-swap = { workspace = true }
 axum = { workspace = true }
 common-alloc = { path = "../common/alloc" }
+common-cohort-team-access = { path = "../common/cohort-team-access" }
 common-database = { path = "../common/database" }
 common-kafka = { path = "../common/kafka" }
 common-liveness = { path = "../common/liveness" }
@@ -32,5 +33,6 @@ tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 uuid = { workspace = true }
 
 [dev-dependencies]
+common-cohort-team-access = { path = "../common/cohort-team-access", features = ["test-util"] }
 proptest = "1"
 tokio-util = { workspace = true }
