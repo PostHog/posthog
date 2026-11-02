@@ -34,18 +34,23 @@ export const DELIVERY_WEBHOOK_LIST_FILTER_GROUPS: CyclotronJobFiltersType[] = [
     { properties: [TRANSACTIONAL_EMAIL_PROPERTY] },
 ]
 
-// Resend's webhook body, so a receiver written for Resend needs only a new secret. Resend calls a spam
-// complaint "complained" and a link click "clicked"; every other event keeps its own suffix.
+// Resend's event names and body fields, so a receiver written for Resend reads it. The body has no `from`,
+// because the delivery events do not carry the sender. Resend calls a spam complaint "complained" and a link
+// click "clicked"; every other event keeps its own suffix. A bounce type uses the provider's names, as in Resend.
 const DELIVERY_WEBHOOK_BODY = {
     type: "{event.event == '$workflows_email_blocked' ? 'email.complained' : event.event == '$workflows_email_link_clicked' ? 'email.clicked' : replaceOne(event.event, '$workflows_email_', 'email.')}",
     created_at: '{event.timestamp}',
     data: {
+        created_at: '{event.timestamp}',
         email_id: '{event.properties.$email_message_id}',
         to: ['{event.properties.$email_to}'],
         subject: '{event.properties.$email_subject}',
         template_id: '{event.properties.$workflow_id}',
         distinct_id: '{event.distinct_id}',
-        bounce: { type: '{event.properties.$bounce_type}', subType: '{event.properties.$bounce_sub_type}' },
+        bounce: {
+            type: "{event.properties.$bounce_type == 'hard' ? 'Permanent' : event.properties.$bounce_type == 'soft' ? 'Transient' : event.properties.$bounce_type == 'unknown' ? 'Undetermined' : null}",
+            subType: '{event.properties.$bounce_sub_type}',
+        },
         click: { link: '{event.properties.$link_url}' },
     },
 }

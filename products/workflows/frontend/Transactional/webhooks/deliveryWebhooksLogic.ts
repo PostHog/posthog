@@ -200,12 +200,8 @@ export const deliveryWebhooksLogic = kea<deliveryWebhooksLogicType>([
         enableEngagementEvents: () => {
             // pinned: analytics event name
             posthog.capture('transactional_webhook_engagement_events_enabled')
-            actions.updateCurrentTeam({
-                workflows_config: {
-                    ...values.currentTeam?.workflows_config,
-                    capture_workflows_engagement_events: true,
-                },
-            })
+            // The API merges a partial config, so sending one key cannot overwrite a setting changed in another tab.
+            actions.updateCurrentTeam({ workflows_config: { capture_workflows_engagement_events: true } })
         },
     })),
 ])
