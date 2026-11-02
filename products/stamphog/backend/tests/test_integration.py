@@ -31,6 +31,7 @@ from products.stamphog.backend.facade.enums import (
     ReviewRunStatus,
     ReviewVerdict,
 )
+from products.stamphog.backend.facade.finished_review_hooks import FinishedReviewRun
 from products.stamphog.backend.facade.review_evidence import ReviewEvidence, ReviewEvidenceProvider, ReviewEvidenceState
 from products.stamphog.backend.logic.channel_resolution import (
     RoutingContext,
@@ -201,8 +202,21 @@ def _make_pr_with_review(
     return pull_request
 
 
+@pytest.fixture
+def handoff():
+    hook = MagicMock()
+    with patch(FINISHED_REVIEW_HOOKS, return_value=(hook,)):
+        yield hook
+
+
+def _external_review_requests(hook: MagicMock) -> list[FinishedReviewRun]:
+    return [c.args[0] for c in hook.call_args_list if c.args[0].request_external_review]
+
+
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_signed_webhook_drives_review_and_posts_approval(team, stamphog_chain: StamphogChain) -> None:
+def test_signed_webhook_drives_review_and_posts_approval(
+    team, stamphog_chain: StamphogChain, handoff: MagicMock
+) -> None:
     # Regression guard: the webhook -> capture -> review -> post chain wiring. A signed opened
     # delivery must create the PR + ReviewRun, run the review activities, and post an APPROVE
     # review to GitHub pinned to the reviewed head SHA.
@@ -293,8 +307,8 @@ def test_signed_webhook_drives_review_and_posts_approval(team, stamphog_chain: S
     assert len(additions) == 1
     assert [r["reaction_id"] for r in removals] == [additions[0]["id"]]
 
-    # An APPROVED verdict never hands off to ReviewHog — the posthog-review label is a refusal-only signal.
-    assert [w for w in recorder.github_writes if w["kind"] == "add_label"] == []
+    # An APPROVED verdict never hands off to ReviewHog — the handoff is a refusal-only signal.
+    assert _external_review_requests(handoff) == []
 
 
 def _api_file(filename: str) -> dict:
@@ -2181,7 +2195,7 @@ def _refused_engine_output() -> str:
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_refused_verdict_strips_trigger_label_only_in_label_mode(
-    team, stamphog_chain: StamphogChain, review_mode: ReviewMode, expect_strip: bool
+    team, stamphog_chain: StamphogChain, handoff: MagicMock, review_mode: ReviewMode, expect_strip: bool
 ) -> None:
     # Action parity: in label-triggered mode a refusal removes the trigger label so the author
     # explicitly re-requests the next review; in ALL mode labels are never touched.
@@ -2214,7 +2228,7 @@ def test_refused_verdict_strips_trigger_label_only_in_label_mode(
     # Neither mode hands off to ReviewHog: this PR has a human author who reads the refusal, so a
     # second unrequested bot review is not stamphog's call to make. Only self-driving runs hand off
     # (test_refused_verdict_hands_off_to_reviewhog_only_when_self_driving).
-    assert [w for w in stamphog_chain.recorder.github_writes if w["kind"] == "add_label"] == []
+    assert _external_review_requests(handoff) == []
 
 
 @pytest.mark.parametrize(
@@ -2236,6 +2250,7 @@ def test_refused_verdict_strips_trigger_label_only_in_label_mode(
 def test_refused_verdict_hands_off_to_reviewhog_only_when_self_driving(
     team,
     stamphog_chain: StamphogChain,
+    handoff: MagicMock,
     review_mode: ReviewMode,
     inbox_review: dict | None,
     expect_handoff: bool,
@@ -2267,46 +2282,23 @@ def test_refused_verdict_hands_off_to_reviewhog_only_when_self_driving(
 
     run.refresh_from_db()
     assert run.verdict == ReviewVerdict.REFUSED
-    label_adds = [w for w in stamphog_chain.recorder.github_writes if w["kind"] == "add_label"]
-    expected = [{"kind": "add_label", "repo": REPO, "number": 101, "labels": ["posthog-review"]}]
-    assert label_adds == (expected if expect_handoff else [])
+    requests = [(r.repository, r.pr_number, r.head_sha) for r in _external_review_requests(handoff)]
+    assert requests == ([(REPO, 101, head_sha)] if expect_handoff else [])
 
 
-@pytest.mark.parametrize(
-    "fault",
-    [
-        # The client swallows a 422 (label missing on the repo) itself; a 500 raises StamphogGitHubError.
-        pytest.param(422, id="swallows_missing_label"),
-        pytest.param(500, id="client_raises_on_500"),
-        # The egress layer raises these directly — not subclasses of StamphogGitHubError, so a narrow
-        # except would let them escape post_verdict and skip the durable verdict save below.
-        pytest.param(GitHubRateLimitError("secondary rate limit"), id="rate_limit_does_not_escape"),
-        pytest.param(requests.ConnectionError("network blip"), id="network_error_does_not_escape"),
-    ],
-)
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_refused_verdict_lands_even_when_reviewhog_handoff_fails(
-    team,
-    stamphog_chain: StamphogChain,
-    fault: int | Exception,
+    team, stamphog_chain: StamphogChain, handoff: MagicMock
 ) -> None:
     # The ReviewHog handoff is a secondary, cross-product notification that runs AFTER the durable
-    # terminal save, so the refusal itself is never at risk — it's already committed by the time the
-    # handoff fires. Left uncaught, though, the exception would fail the activity and trigger a retry,
-    # re-running already-succeeded side effects (posting the sticky comment, stripping the trigger
-    # label) even though the verdict is saved; catching it keeps the handoff single-shot best-effort.
-    # A 422 is swallowed inside the client; a 500 raises StamphogGitHubError; a rate limit raises
-    # GitHubRateLimitError and a network blip raises requests.RequestException from the egress layer.
-    # All four must leave the run COMPLETED + REFUSED, not FAILED. The latter two are the regression:
-    # they are not subclasses of StamphogGitHubError, so only a broad catch at the call site contains
-    # them. The run carries inbox provenance because only a self-driving refusal reaches the handoff.
+    # terminal save, so the refusal itself is never at risk. Left uncaught, though, the hook's exception
+    # would fail the activity and trigger a retry, re-running already-succeeded side effects (posting
+    # the sticky comment, stripping the trigger label). The run carries inbox provenance because only a
+    # self-driving refusal reaches the handoff.
     repo_config = _repo_config(team.id)
     head_sha = "sha-refused-handoff"
     stamphog_chain.recorder.register_pr(REPO, 101, _pr_object(101, "devex-dev", head_sha))
-    if isinstance(fault, Exception):
-        stamphog_chain.recorder.add_label_side_effect = fault
-    else:
-        stamphog_chain.recorder.add_label_response_override = fakes.FakeResponse(fault, text="handoff failure")
+    handoff.side_effect = RuntimeError("handoff failure")
     pull_request = PullRequest.objects.for_team(team.id).create(
         team_id=team.id, repo_config=repo_config, pr_number=101, author_login="devex-dev"
     )
@@ -2326,11 +2318,13 @@ def test_refused_verdict_lands_even_when_reviewhog_handoff_fails(
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_superseded_refusal_does_not_hand_off_to_reviewhog(team, stamphog_chain: StamphogChain) -> None:
+def test_superseded_refusal_does_not_hand_off_to_reviewhog(
+    team, stamphog_chain: StamphogChain, handoff: MagicMock
+) -> None:
     # The ReviewHog handoff runs AFTER the conditional terminal save, so a refusal that loses the save
     # to a supersession (a synchronize/re-review delivery landing between the head guard and the save)
     # must not trigger ReviewHog for the stale refusal — a newer run may approve the same head. The run
-    # returns skipped_superseded and the posthog-review label is never added. The run carries inbox
+    # returns skipped_superseded and the handoff never runs. The run carries inbox
     # provenance so the supersession is what blocks the handoff, not the self-driving-only condition.
     repo_config = _repo_config(team.id)
     head_sha = "sha-refused-superseded"
@@ -2359,7 +2353,7 @@ def test_superseded_refusal_does_not_hand_off_to_reviewhog(team, stamphog_chain:
         result = _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
 
     assert result == {"verdict": "skipped_superseded"}
-    assert [w for w in stamphog_chain.recorder.github_writes if w["kind"] == "add_label"] == []
+    handoff.assert_not_called()
 
 
 @pytest.mark.parametrize(

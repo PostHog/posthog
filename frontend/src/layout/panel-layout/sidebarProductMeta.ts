@@ -74,6 +74,7 @@ export const SIDEBAR_PRODUCTS_WITHOUT_DOCS = new Set<string>([
     'Code review',
     'Engineering analytics',
     'Identity matching',
+    'Platform alerts',
     'Product tours',
     'Pulse',
     'Transactional',

@@ -83,6 +83,8 @@ export interface PropertyFiltersProps {
     addFilterSuffix?: ((addFilter: (property: AnyPropertyFilter) => void) => JSX.Element) | null
     addFilterDivider?: boolean
     framedRows?: boolean
+    filterHeader?: React.ReactNode
+    onFilterOpen?: () => void
     renderControls?: (controls: {
         addFilter: React.ReactNode
         activeFilters: JSX.Element[]
@@ -138,6 +140,8 @@ export function PropertyFilters({
     addFilterDivider = false,
     framedRows = false,
     renderControls,
+    onFilterOpen,
+    filterHeader,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
     const { filters, filtersWithNew, filterIds, filterIdsWithNew } = useValues(propertyFilterLogic(logicProps))
@@ -175,6 +179,8 @@ export function PropertyFilters({
                     index === displayedFilters.length - 1 &&
                     filters.length > 0 && <LemonDivider className="my-1 w-full" />}
                 <FilterRow
+                    onOpen={onFilterOpen}
+                    header={filterHeader}
                     item={item}
                     index={index}
                     totalCount={displayedFilters.length - 1} // empty state

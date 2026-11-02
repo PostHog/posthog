@@ -1,5 +1,6 @@
 import {
     comparableRecordingFilters,
+    splitOngoingRecordings,
     stripSessionIds,
     summarizePlaylistFilters,
 } from 'scenes/session-recordings/playlist/playlistUtils'
@@ -203,12 +204,11 @@ describe('stripSessionIds()', () => {
         },
     }
 
-    it('strips session ids, leaves other filter fields untouched', () => {
-        const result = stripSessionIds({
-            ...baseFilters,
-            session_ids: ['019d68e1-1165-7cf9-b87b-759fe1604d99'],
-        })
-        expect(result).toEqual(baseFilters)
+    it.each([
+        ['session ids', { session_ids: ['019d68e1-1165-7cf9-b87b-759fe1604d99'] }],
+        ['the person picked from the player', { person_uuid: '019d68e1-1165-7cf9-b87b-759fe1604d99' }],
+    ])('strips %s, leaves other filter fields untouched', (_name, extra) => {
+        expect(stripSessionIds({ ...baseFilters, ...extra })).toEqual(baseFilters)
     })
 
     it('returns the same reference when session_ids is absent', () => {
@@ -240,5 +240,19 @@ describe('comparableRecordingFilters()', () => {
         ['drops session ids', { session_ids: ['a'], date_from: '-7d' }, { date_from: '-7d' }],
     ])('%s', (_, filters, expected) => {
         expect(comparableRecordingFilters(filters as any)).toEqual(expected)
+    })
+})
+
+describe('splitOngoingRecordings()', () => {
+    const live = { id: 'live', ongoing: true }
+    const done = { id: 'done', ongoing: false }
+
+    it.each([
+        ['folds ongoing recordings away from finished ones', [live, done], true, [live], [done]],
+        ['folds every row when all of them are still recording', [live, live], true, [live, live], []],
+        ['keeps every row when none are still recording', [done], true, [], [done]],
+        ['keeps every row outside the watch layout', [live, done], false, [], [live, done]],
+    ])('%s', (_, recordings, enabled, ongoing, finished) => {
+        expect(splitOngoingRecordings(recordings, enabled)).toEqual({ ongoing, finished })
     })
 })

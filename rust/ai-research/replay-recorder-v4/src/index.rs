@@ -16,6 +16,7 @@
 //! flush is whole when that many distinct `flush_row_index` values are present. Check this before any filter on
 //! sessions or teams.
 
+use replay_core_v4::inspect::features::{SurfacingFeatures, PATH_TOKENS};
 use replay_core_v4::inspect::session::Moment;
 use replay_core_v4::inspect::stats::BlockStats;
 use serde::ser::{SerializeMap, Serializer};
@@ -37,6 +38,10 @@ fn serialize_safe<S: Serializer>(value: &i64, serializer: S) -> Result<S::Ok, S:
 }
 
 fn int32(value: u32) -> i32 {
+    i32::try_from(value).unwrap_or(i32::MAX)
+}
+
+fn int32_count(value: u64) -> i32 {
     i32::try_from(value).unwrap_or(i32::MAX)
 }
 
@@ -102,6 +107,7 @@ fn serialize_stats<S: Serializer>(stats: &&BlockStats, serializer: S) -> Result<
         touch_moves,
         url_fingerprints,
         window_ids,
+        surfacing,
     } = *stats;
     let mut map = serializer.serialize_map(None)?;
     macro_rules! columns {
@@ -158,7 +164,132 @@ fn serialize_stats<S: Serializer>(stats: &&BlockStats, serializer: S) -> Result<
         image_urls
     );
     map.serialize_entry("host", host)?;
+    serialize_surfacing(&mut map, surfacing)?;
     map.end()
+}
+
+/// The surfacing feature columns, each named for its field after the `surfacing_` prefix.
+fn serialize_surfacing<M: SerializeMap>(
+    map: &mut M,
+    surfacing: &SurfacingFeatures,
+) -> Result<(), M::Error> {
+    // Destructured in full, so a new field does not compile until it has a column here.
+    let SurfacingFeatures {
+        event_count,
+        click_count,
+        keypress_count,
+        mouse_activity_count,
+        rage_click_count,
+        dead_click_count,
+        quick_back_count,
+        page_visit_count,
+        text_selection_count,
+        scroll_event_count,
+        console_error_count,
+        console_error_after_click_count,
+        console_warn_count,
+        network_request_count,
+        network_failed_request_count,
+        network_4xx_count,
+        network_5xx_count,
+        network_request_duration_count,
+        mouse_position_count,
+        mouse_direction_change_count,
+        mouse_velocity_count,
+        scroll_direction_reversal_count,
+        rapid_scroll_reversal_count,
+        scroll_to_top_count,
+        inter_action_gap_count,
+        long_idle_gap_count,
+        backspace_count,
+        mutation_count,
+        viewport_resize_count,
+        touch_event_count,
+        selection_copy_count,
+        path_visit_counts,
+        mouse_sum_x_millipx,
+        mouse_sum_x_squared_px2,
+        mouse_sum_y_millipx,
+        mouse_sum_y_squared_px2,
+        mouse_distance_traveled_millipx,
+        mouse_velocity_sum_px_per_s,
+        mouse_velocity_sum_of_squares_px2_per_s2,
+        total_scroll_magnitude_millipx,
+        inter_action_gap_sum_ms,
+        inter_action_gap_sum_of_squares_ms2,
+        network_request_duration_sum_us,
+        network_request_duration_sum_of_squares_ms2,
+        max_scroll_y_millipx,
+        max_idle_gap_ms,
+        visited_url_fingerprints,
+        click_target_ids,
+        form_field_ids,
+    } = surfacing;
+    macro_rules! columns {
+        ($convert:expr => $($field:ident),*) => {
+            $( map.serialize_entry(concat!("surfacing_", stringify!($field)), &$convert($field))?; )*
+        };
+    }
+    columns!(
+        |v: &u64| int32_count(*v) =>
+        event_count,
+        click_count,
+        keypress_count,
+        mouse_activity_count,
+        rage_click_count,
+        dead_click_count,
+        quick_back_count,
+        page_visit_count,
+        text_selection_count,
+        scroll_event_count,
+        console_error_count,
+        console_error_after_click_count,
+        console_warn_count,
+        network_request_count,
+        network_failed_request_count,
+        network_4xx_count,
+        network_5xx_count,
+        network_request_duration_count,
+        mouse_position_count,
+        mouse_direction_change_count,
+        mouse_velocity_count,
+        scroll_direction_reversal_count,
+        rapid_scroll_reversal_count,
+        scroll_to_top_count,
+        inter_action_gap_count,
+        long_idle_gap_count,
+        backspace_count,
+        mutation_count,
+        viewport_resize_count,
+        touch_event_count,
+        selection_copy_count
+    );
+    for ((_, name), count) in PATH_TOKENS.iter().zip(path_visit_counts) {
+        map.serialize_entry(
+            &format!("surfacing_{name}_path_visit_count"),
+            &int32_count(*count),
+        )?;
+    }
+    columns!(
+        |v: &i64| safe(*v) =>
+        mouse_sum_x_millipx,
+        mouse_sum_x_squared_px2,
+        mouse_sum_y_millipx,
+        mouse_sum_y_squared_px2,
+        mouse_distance_traveled_millipx,
+        mouse_velocity_sum_px_per_s,
+        mouse_velocity_sum_of_squares_px2_per_s2,
+        total_scroll_magnitude_millipx,
+        inter_action_gap_sum_ms,
+        inter_action_gap_sum_of_squares_ms2,
+        network_request_duration_sum_us,
+        network_request_duration_sum_of_squares_ms2,
+        max_scroll_y_millipx,
+        max_idle_gap_ms
+    );
+    columns!(|v: &Vec<String>| v.clone() => visited_url_fingerprints);
+    columns!(|v: &Vec<i64>| v.iter().copied().map(safe).collect::<Vec<_>>() => click_target_ids, form_field_ids);
+    Ok(())
 }
 
 fn serialize_moments<S: Serializer>(moments: &&[Moment], serializer: S) -> Result<S::Ok, S::Error> {
@@ -367,6 +498,80 @@ mod tests {
         ("window_ids", "LIST<UTF8>", false),
         ("urls", "UTF8", true),
         ("urls_truncated", "BOOLEAN", false),
+        ("surfacing_event_count", "INT32", true),
+        ("surfacing_click_count", "INT32", true),
+        ("surfacing_keypress_count", "INT32", true),
+        ("surfacing_mouse_activity_count", "INT32", true),
+        ("surfacing_rage_click_count", "INT32", true),
+        ("surfacing_dead_click_count", "INT32", true),
+        ("surfacing_quick_back_count", "INT32", true),
+        ("surfacing_page_visit_count", "INT32", true),
+        ("surfacing_text_selection_count", "INT32", true),
+        ("surfacing_scroll_event_count", "INT32", true),
+        ("surfacing_console_error_count", "INT32", true),
+        ("surfacing_console_error_after_click_count", "INT32", true),
+        ("surfacing_console_warn_count", "INT32", true),
+        ("surfacing_network_request_count", "INT32", true),
+        ("surfacing_network_failed_request_count", "INT32", true),
+        ("surfacing_network_4xx_count", "INT32", true),
+        ("surfacing_network_5xx_count", "INT32", true),
+        ("surfacing_network_request_duration_count", "INT32", true),
+        ("surfacing_mouse_position_count", "INT32", true),
+        ("surfacing_mouse_direction_change_count", "INT32", true),
+        ("surfacing_mouse_velocity_count", "INT32", true),
+        ("surfacing_scroll_direction_reversal_count", "INT32", true),
+        ("surfacing_rapid_scroll_reversal_count", "INT32", true),
+        ("surfacing_scroll_to_top_count", "INT32", true),
+        ("surfacing_inter_action_gap_count", "INT32", true),
+        ("surfacing_long_idle_gap_count", "INT32", true),
+        ("surfacing_backspace_count", "INT32", true),
+        ("surfacing_mutation_count", "INT32", true),
+        ("surfacing_viewport_resize_count", "INT32", true),
+        ("surfacing_touch_event_count", "INT32", true),
+        ("surfacing_selection_copy_count", "INT32", true),
+        ("surfacing_login_path_visit_count", "INT32", true),
+        ("surfacing_signup_path_visit_count", "INT32", true),
+        ("surfacing_checkout_path_visit_count", "INT32", true),
+        ("surfacing_cart_path_visit_count", "INT32", true),
+        ("surfacing_billing_path_visit_count", "INT32", true),
+        ("surfacing_settings_path_visit_count", "INT32", true),
+        ("surfacing_account_path_visit_count", "INT32", true),
+        ("surfacing_error_path_visit_count", "INT32", true),
+        ("surfacing_not_found_path_visit_count", "INT32", true),
+        ("surfacing_admin_path_visit_count", "INT32", true),
+        ("surfacing_dashboard_path_visit_count", "INT32", true),
+        ("surfacing_onboarding_path_visit_count", "INT32", true),
+        ("surfacing_cancel_path_visit_count", "INT32", true),
+        ("surfacing_refund_path_visit_count", "INT32", true),
+        ("surfacing_mouse_sum_x_millipx", "INT64", true),
+        ("surfacing_mouse_sum_x_squared_px2", "INT64", true),
+        ("surfacing_mouse_sum_y_millipx", "INT64", true),
+        ("surfacing_mouse_sum_y_squared_px2", "INT64", true),
+        ("surfacing_mouse_distance_traveled_millipx", "INT64", true),
+        ("surfacing_mouse_velocity_sum_px_per_s", "INT64", true),
+        (
+            "surfacing_mouse_velocity_sum_of_squares_px2_per_s2",
+            "INT64",
+            true,
+        ),
+        ("surfacing_total_scroll_magnitude_millipx", "INT64", true),
+        ("surfacing_inter_action_gap_sum_ms", "INT64", true),
+        (
+            "surfacing_inter_action_gap_sum_of_squares_ms2",
+            "INT64",
+            true,
+        ),
+        ("surfacing_network_request_duration_sum_us", "INT64", true),
+        (
+            "surfacing_network_request_duration_sum_of_squares_ms2",
+            "INT64",
+            true,
+        ),
+        ("surfacing_max_scroll_y_millipx", "INT64", true),
+        ("surfacing_max_idle_gap_ms", "INT64", true),
+        ("surfacing_visited_url_fingerprints", "LIST<UTF8>", true),
+        ("surfacing_click_target_ids", "LIST<INT64>", true),
+        ("surfacing_form_field_ids", "LIST<INT64>", true),
     ];
 
     const IMAGE_COLUMNS: &[(&str, &str, bool)] = &[
@@ -389,6 +594,9 @@ mod tests {
             "LIST<UTF8>" => value
                 .as_array()
                 .is_some_and(|items| items.iter().all(|item| fits(item, "UTF8"))),
+            "LIST<INT64>" => value
+                .as_array()
+                .is_some_and(|items| items.iter().all(|item| fits(item, "INT64"))),
             "MOMENTS" => value.as_array().is_some_and(|moments| {
                 moments.iter().all(|moment| {
                     let moment = moment.as_object().unwrap();
@@ -434,6 +642,15 @@ mod tests {
             written_jsonl_bytes: u64::MAX,
             url_fingerprints: vec!["b08517cee3ff5ecc".to_owned()],
             window_ids: vec!["w1".to_owned(), "w2".to_owned()],
+            surfacing: SurfacingFeatures {
+                event_count: u64::MAX,
+                path_visit_counts: std::array::from_fn(|token| token as u64),
+                mouse_sum_x_millipx: i64::MIN,
+                max_idle_gap_ms: 30_001,
+                visited_url_fingerprints: vec!["0f1e2d3c4b5a6978".to_owned()],
+                click_target_ids: vec![-1, 7],
+                ..SurfacingFeatures::default()
+            },
             ..BlockStats::default()
         };
         let moments = [Moment {
@@ -498,6 +715,30 @@ mod tests {
                 &json!(i32::MAX),
                 &json!(["b08517cee3ff5ecc"]),
                 &json!(["w1", "w2"]),
+            ]
+        );
+        assert_eq!(
+            [
+                &value["surfacing_event_count"],
+                &value["surfacing_login_path_visit_count"],
+                &value["surfacing_not_found_path_visit_count"],
+                &value["surfacing_refund_path_visit_count"],
+                &value["surfacing_mouse_sum_x_millipx"],
+                &value["surfacing_max_idle_gap_ms"],
+                &value["surfacing_visited_url_fingerprints"],
+                &value["surfacing_click_target_ids"],
+                &value["surfacing_form_field_ids"],
+            ],
+            [
+                &json!(i32::MAX),
+                &json!(0),
+                &json!(8),
+                &json!(13),
+                &json!(-MAX_SAFE_INTEGER),
+                &json!(30_001),
+                &json!(["0f1e2d3c4b5a6978"]),
+                &json!([-1, 7]),
+                &json!([]),
             ]
         );
         assert_eq!(

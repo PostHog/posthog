@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     UnsupportedCsvColumnError,
     clickhouse_base_type,
     csv_column_types_from_columns,
+    json_column_types_from_columns,
     stored_clickhouse_types,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.discovery import (
@@ -65,8 +66,6 @@ _FORMATS: dict[str, FileFormatChoice] = {
 }
 # Column types the import pipeline writes as JSON strings, which breaks queries that read their parts.
 _NESTED_TYPES = frozenset({"Array", "Map", "Tuple", "Nested", "JSON", "Object", "Variant", "Dynamic"})
-# Types ClickHouse reads from JSON strings, which the JSON import keeps as strings.
-_JSON_TEXT_TYPES = frozenset({"Date", "Date32", "DateTime", "DateTime64"})
 # Columns the import adds to every row. A stored column of the same name would lose its values to them.
 _FILE_COLUMNS = frozenset({FILE_PATH_COLUMN, FILE_MODIFIED_AT_COLUMN, FILE_ROW_NUMBER_COLUMN})
 
@@ -195,24 +194,12 @@ def _refuse_padded_header_names(columns: Mapping[str, Any] | None) -> None:
             )
 
 
-def _refuse_json_text_types(columns: Mapping[str, Any] | None) -> None:
-    # A JSON file holds dates and times as strings, and the JSON import keeps them as strings.
-    for name, clickhouse_type in stored_clickhouse_types(columns).items():
-        base = clickhouse_base_type(clickhouse_type)
-        if base in _JSON_TEXT_TYPES:
-            raise UnmappableTableError(
-                f"the column '{name}' is a {base}, and the JSON import would store it as text, not as a {base}"
-            )
-
-
 def refuse_columns_an_import_changes(columns: Mapping[str, Any] | None, file_format: FileFormatChoice) -> None:
     """Refuse a file whose import would change the columns a table read in place exposes."""
     _refuse_nested_columns(columns)
     _refuse_file_column_names(columns)
     if file_format == "csv":
         _refuse_padded_header_names(columns)
-    if file_format == "jsonl":
-        _refuse_json_text_types(columns)
 
 
 def table_definition_for(
@@ -250,13 +237,16 @@ def table_definition_for(
     except ObjectStorageError as e:
         raise UnmappableTableError(str(e)) from e
     try:
-        column_types = csv_column_types_from_columns(columns) if file_format in ("csv", "csv_no_header") else ()
+        if file_format == "jsonl":
+            column_types = json_column_types_from_columns(columns)
+        elif file_format in ("csv", "csv_no_header"):
+            column_types = csv_column_types_from_columns(columns)
+        else:
+            column_types = ()
     except UnsupportedCsvColumnError as e:
         raise UnmappableTableError(str(e)) from e
     if file_format == "csv":
         _refuse_padded_header_names(columns)
-    if file_format == "jsonl":
-        _refuse_json_text_types(columns)
     return TableDefinition(
         name=name,
         kind="files",
