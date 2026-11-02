@@ -21,12 +21,6 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import SessionAuthentication
-from posthog.ci_providers import (
-    get_ci_provider_by_issuer,
-    get_supported_ci_providers,
-    get_unsupported_ci_providers,
-    normalize_issuer,
-)
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.ci_trust_policy import (
@@ -34,7 +28,13 @@ from posthog.models.ci_trust_policy import (
     ci_trust_policy_grantable_scopes,
     ci_trust_policy_scopes_not_grantable,
 )
-from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
+from posthog.oidc.ci_providers import (
+    get_ci_provider_by_issuer,
+    get_supported_ci_providers,
+    get_unsupported_ci_providers,
+    normalize_issuer,
+)
+from posthog.permissions import OrganizationAdminReadPermissions, TimeSensitiveActionPermission
 from posthog.scopes import RISKY_SCOPE_WARNINGS
 from posthog.tasks.email import CITrustPolicyChange, send_ci_trust_policy_changed
 
@@ -262,7 +262,7 @@ class CITrustPolicyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         BrowserSessionWritePermission,
         NotImpersonatedWritePermission,
         TimeSensitiveActionPermission,
-        OrganizationAdminWritePermissions,
+        OrganizationAdminReadPermissions,
     ]
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:

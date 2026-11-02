@@ -98,15 +98,18 @@ class TestCITrustPolicyAPI(APIBaseTest):
         assert "organization_member:write" in providers["risky_scopes"]
         assert "task:write" not in providers["grantable_scopes"]
 
-    def test_members_can_read_but_not_change_or_delete(self) -> None:
+    def test_members_can_neither_read_nor_change_policies(self) -> None:
         policy = self._create_policy()
 
         list_response = self.client.get(self.url)
+        retrieve_response = self.client.get(f"{self.url}{policy.id}/")
+        providers_response = self.client.get(f"{self.url}providers/")
         patch_response = self.client.patch(f"{self.url}{policy.id}/", {"enabled": False}, format="json")
         delete_response = self.client.delete(f"{self.url}{policy.id}/")
 
-        assert list_response.status_code == status.HTTP_200_OK
-        assert [row["id"] for row in list_response.json()["results"]] == [str(policy.id)]
+        assert list_response.status_code == status.HTTP_403_FORBIDDEN
+        assert retrieve_response.status_code == status.HTTP_403_FORBIDDEN
+        assert providers_response.status_code == status.HTTP_403_FORBIDDEN
         assert patch_response.status_code == status.HTTP_403_FORBIDDEN
         assert delete_response.status_code == status.HTTP_403_FORBIDDEN
         policy.refresh_from_db()
@@ -158,7 +161,7 @@ class TestCITrustPolicyAPI(APIBaseTest):
         self._set_level(OrganizationMembership.Level.OWNER)
         policy = self._create_policy()
 
-        with patch("posthog.api.oauth.ci_trust_policy.is_impersonated", return_value=True):
+        with patch("posthog.oidc.ci_trust_policy.is_impersonated", return_value=True):
             list_response = self.client.get(self.url)
             create_response = self.client.post(self.url, _payload(ref="refs/heads/other"), format="json")
             patch_response = self.client.patch(f"{self.url}{policy.id}/", {"enabled": False}, format="json")
@@ -181,12 +184,13 @@ class TestCITrustPolicyAPI(APIBaseTest):
     def test_policies_of_other_projects_are_not_listed(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other project")
         self._create_policy(team=other_team)
+        self._set_level(OrganizationMembership.Level.ADMIN)
 
         response = self.client.get(self.url)
 
         assert response.json()["results"] == []
 
-    @patch("posthog.api.oauth.ci_trust_policy.send_ci_trust_policy_changed")
+    @patch("posthog.oidc.ci_trust_policy.send_ci_trust_policy_changed")
     def test_every_change_is_logged_and_emailed_to_admins(self, mock_send: MagicMock) -> None:
         self._set_level(OrganizationMembership.Level.ADMIN)
 
