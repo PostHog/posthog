@@ -14,6 +14,8 @@ from django.utils import timezone
 from asgiref.sync import async_to_sync
 from pytest_mock import MockerFixture
 
+from posthog.test.waiting import wait_until
+
 from products.tasks.backend.exceptions import SandboxNotFoundError
 from products.tasks.backend.facade.billing import get_task_run_cost
 from products.tasks.backend.logic.services.gateway_usage import record_gateway_routing
@@ -431,10 +433,12 @@ class TestCleanupSandboxActivity:
         long_task = threading.Thread(target=run_long_command)
         long_task.start()
 
-        deadline = time.monotonic() + 30
-        while sandbox.execute("test -f /tmp/long-command-started", timeout_seconds=10).exit_code != 0:
-            assert time.monotonic() < deadline, "the long command never started"
-            time.sleep(0.5)
+        wait_until(
+            lambda: sandbox.execute("test -f /tmp/long-command-started", timeout_seconds=10).exit_code == 0,
+            timeout=30,
+            interval=0.5,
+            message="the long command never started",
+        )
 
         assert Sandbox.get_by_id(sandbox_id).is_running()
 

@@ -1,4 +1,3 @@
-import time
 import threading
 from datetime import UTC, datetime, timedelta
 from typing import Optional
@@ -9,6 +8,7 @@ from unittest.mock import Mock
 from django.test import SimpleTestCase
 
 from posthog.cache_utils import cache_for
+from posthog.test.waiting import wait_until
 
 mocked_dependency = Mock()
 mocked_dependency.return_value = 1
@@ -88,10 +88,10 @@ class TestCacheUtils(SimpleTestCase):
             assert 1 == fn_background(use_cache=True)
 
             refresh_released.set()
-            deadline = time.monotonic() + 5
-            while fn_background(use_cache=True) != 2:
-                assert time.monotonic() < deadline, "the background refresh never stored the new value"
-                time.sleep(0.01)
+            wait_until(
+                lambda: fn_background(use_cache=True) == 2,
+                message="the background refresh never stored the new value",
+            )
             order_of_events("Post refresh call 1")
             assert 2 == fn_background(use_cache=True)
 

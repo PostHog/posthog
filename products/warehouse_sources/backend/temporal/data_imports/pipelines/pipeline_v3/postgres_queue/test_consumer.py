@@ -16,6 +16,8 @@ from django.test import override_settings
 import psycopg
 import structlog
 
+from posthog.test.waiting import wait_until
+
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     SCHEMA_DELETED_JOB_ERROR,
@@ -4174,13 +4176,14 @@ class TestHeartbeatLoop:
 
         task = asyncio.create_task(consumer._heartbeat_loop())
         await asyncio.sleep(0.03)
-        # Polls synchronously, so the event loop and the heartbeat stay blocked until the dump arrives.
-        stderr = ""
-        deadline = time.monotonic() + 5
-        while "most recent call first" not in stderr:
-            assert time.monotonic() < deadline, "the stalled heartbeat never dumped stacks"
-            stderr += capfd.readouterr().err
-            time.sleep(0.01)
+        stderr: list[str] = []
+
+        def stacks_dumped() -> bool:
+            stderr.append(capfd.readouterr().err)
+            return "most recent call first" in "".join(stderr)
+
+        # A synchronous wait keeps the event loop, and so the heartbeat, blocked until the dump arrives.
+        wait_until(stacks_dumped, message="the stalled heartbeat never dumped stacks")
 
         await asyncio.sleep(0.03)  # the heartbeat resumes and arms the timer again
         consumer._shutdown.set()
