@@ -66,7 +66,7 @@ import {
 import type { ExternalDataDestinationApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { DirectQuerySchemasTab } from './DirectQuerySchemasTab'
-import { replaceFileLogic, replaceFileTarget } from './replaceFileLogic'
+import { replaceFileDisabledReason, replaceFileLogic, replaceFileTarget } from './replaceFileLogic'
 import { ReplaceFileModal } from './ReplaceFileModal'
 import { BulkSyncMethod, bulkSyncMethodDisabledReason, sourceSettingsLogic } from './sourceSettingsLogic'
 
@@ -85,6 +85,9 @@ const schemaEditDisabledReason = (schema: ExternalDataSourceSchema): string | nu
 const dimWhenNotSyncing = (_: unknown, schema: ExternalDataSourceSchema): string =>
     schema.should_sync ? '' : 'opacity-60'
 
+const PENDING_SELF_MANAGED_TABLE_NOTE =
+    'This table reads your bucket until you turn on syncing. The first sync imports it into PostHog.'
+
 type SchemaColumn = LemonTableColumn<ExternalDataSourceSchema, keyof ExternalDataSourceSchema | undefined>
 
 // A file upload schema has no schedule or sync method to choose, and never syncs on its own, so it isn't dimmed.
@@ -97,15 +100,6 @@ function fileUploadColumns(isFileUpload: boolean, columns: SchemaColumn[]): Sche
     return columns
         .filter((column) => !FILE_UPLOAD_HIDDEN_COLUMN_KEYS.includes(column.key ?? ''))
         .map((column) => (column.className === dimWhenNotSyncing ? { ...column, className: undefined } : column))
-}
-
-function replaceFileDisabledReason(schema: ExternalDataSourceSchema | undefined): string | undefined {
-    if (!schema) {
-        return 'This source has no table'
-    }
-    return schema.status === ExternalDataSchemaStatus.Running
-        ? 'An import is running. Replace the file once it finishes.'
-        : undefined
 }
 
 interface SchemaStatusDisplay {
@@ -243,7 +237,10 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
             <div className="flex items-start justify-between gap-2 mb-2">
                 {isFileUpload ? (
                     <div className="text-secondary text-sm">
-                        This table comes from a file you uploaded. To update its data, replace the file.
+                        {source?.file_name
+                            ? `This table comes from the file ${source.file_name}. `
+                            : 'This table comes from a file you uploaded. '}
+                        To update its data, replace the file.
                     </div>
                 ) : (
                     <div className="flex flex-wrap items-center gap-3 min-w-0">
@@ -549,6 +546,9 @@ function ManagedSchemaTable({
                                 }
                                 description={((): JSX.Element | undefined => {
                                     const tableName = schema.table?.hogql_name ?? schema.table?.name
+                                    if (!tableName && schema.pending_self_managed_table && !schema.should_sync) {
+                                        return <span>{PENDING_SELF_MANAGED_TABLE_NOTE}</span>
+                                    }
                                     return tableName ? (
                                         <CopyToClipboardInline
                                             explicitValue={tableName}
@@ -1125,8 +1125,6 @@ function SchemaRowMore({
                                         fullWidth
                                         status="danger"
                                         onClick={() => {
-                                            const hasCdcTable =
-                                                schema.cdc_table_mode === 'cdc_only' || schema.cdc_table_mode === 'both'
                                             LemonDialog.open({
                                                 title: 'Full resync — all existing data will be replaced',
                                                 content: (
@@ -1137,15 +1135,12 @@ function SchemaRowMore({
                                                             <strong>{schema.table?.name ?? schema.name}</strong> table
                                                             will be replaced with the new snapshot.
                                                         </p>
-                                                        {hasCdcTable && (
+                                                        {schema.history_table_name && (
                                                             <p>
-                                                                The{' '}
-                                                                <strong>
-                                                                    {(schema.table?.name ?? schema.name) + '_cdc'}
-                                                                </strong>{' '}
-                                                                history table will also be reset — all change history
-                                                                will be lost and replaced with the new snapshot as the
-                                                                starting point.
+                                                                The <strong>{schema.history_table_name}</strong> history
+                                                                table will also be reset — all change history will be
+                                                                lost and replaced with the new snapshot as the starting
+                                                                point.
                                                             </p>
                                                         )}
                                                     </div>

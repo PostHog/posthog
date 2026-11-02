@@ -6,7 +6,7 @@ import { DEFAULT_MARGINS, FunnelChart, ValueLabels } from '@posthog/quill-charts
 import type { FunnelChartConfig, FunnelStepClickData, TooltipContext } from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { ScrollableShadows } from 'lib/lemon-ui/ScrollableShadows/ScrollableShadows'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -116,6 +116,7 @@ export function FunnelStepsBarChart({
             <FunnelStepsBarTooltip
                 context={ctx}
                 steps={steps}
+                querySource={querySource}
                 breakdownFilter={breakdownFilter}
                 groupTypeLabel={groupTypeLabel}
                 showPersonsModal={showPersonsModal}

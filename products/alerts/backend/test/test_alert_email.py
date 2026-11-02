@@ -1,20 +1,12 @@
-import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
-
-from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.alerts.backend.facade.destinations import (
-    list_alert_destination_groups,
-    list_delivery_destination_groups,
-    register_email_recipient_resolver,
-)
-from products.alerts.backend.logic import alert_email
+from products.alerts.backend.facade.destinations import list_alert_destination_groups, list_delivery_destination_groups
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription
 from products.alerts.backend.test.insight_alerts import create_insight_alert
@@ -87,30 +79,3 @@ class TestInsightAlertEmailDestination(APIBaseTest):
         )
 
         assert groups == []
-
-
-class TestEmailRecipientRegistration(SimpleTestCase):
-    @staticmethod
-    def _nobody(*, team_id: int, alert_id: str) -> list[str]:
-        return []
-
-    @staticmethod
-    def _somebody(*, team_id: int, alert_id: str) -> list[str]:
-        return ["someone@example.com"]
-
-    @parameterized.expand(
-        [
-            ("an_event_another_source_registered", "$registered_firing", "already registered"),
-            ("an_insight_subscriber_event", LEGACY_INSIGHT_ALERT_EVENT, "subscribers of an insight alert"),
-        ]
-    )
-    def test_a_second_owner_for_an_event_is_refused(self, _name: str, event_id: str, message: str) -> None:
-        with patch.dict(alert_email._recipient_resolvers, clear=True):
-            register_email_recipient_resolver(event_ids=["$registered_firing"], resolver=self._nobody)
-            # Registering the same resolver again, as a second `ready()` does, is not a conflict.
-            register_email_recipient_resolver(event_ids=["$registered_firing"], resolver=self._nobody)
-
-            with pytest.raises(RuntimeError, match=message):
-                register_email_recipient_resolver(event_ids=["$unclaimed", event_id], resolver=self._somebody)
-
-            assert alert_email._recipient_resolvers == {"$registered_firing": self._nobody}

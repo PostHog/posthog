@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
-import { billingLogic } from 'scenes/billing/billingLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, BillingProductV2AddonType, BillingProductV2Type } from '~/types'

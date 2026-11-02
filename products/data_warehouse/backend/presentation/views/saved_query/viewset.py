@@ -79,6 +79,19 @@ class DataWarehouseSavedQueryPagination(PageNumberPagination):
     page_size = 1000
 
 
+class SavedQueryResumeRequestSerializer(serializers.Serializer):
+    """Body of the `resume` action."""
+
+    engine = serializers.ChoiceField(
+        choices=MaterializationEngine.choices,
+        required=False,
+        help_text=(
+            "Resume only this engine's materialization: 'clickhouse' or 'trino' (the managed warehouse). "
+            "Omit it to resume every engine the query is suspended on."
+        ),
+    )
+
+
 class SavedQueryResumeSerializer(serializers.Serializer):
     resumed = serializers.BooleanField(help_text="False when the query's materialization was not suspended.")
 
@@ -444,7 +457,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             status=status.HTTP_200_OK,
         )
 
-    @extend_schema(request=None, responses={200: SavedQueryResumeSerializer})
+    @extend_schema(request=SavedQueryResumeRequestSerializer, responses={200: SavedQueryResumeSerializer})
     @action(methods=["POST"], detail=True, required_scopes=["warehouse_view:write"])
     def resume(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Resume materialization suspended after repeated failures.
@@ -454,7 +467,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         """
         from products.data_modeling.backend.facade.api import unsuspend_saved_query
 
-        resumed = unsuspend_saved_query(self.get_object())
+        body = SavedQueryResumeRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        resumed = unsuspend_saved_query(self.get_object(), engine=body.validated_data.get("engine"))
 
         return response.Response({"resumed": bool(resumed)}, status=status.HTTP_200_OK)
 

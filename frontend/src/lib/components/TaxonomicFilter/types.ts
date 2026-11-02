@@ -4,7 +4,7 @@ import { ReactNode } from 'react'
 
 import type { SeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 // eslint-disable-next-line import/no-cycle
-import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
+import type { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 
 import { AnyDataNode, DatabaseSchemaField, DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 import {

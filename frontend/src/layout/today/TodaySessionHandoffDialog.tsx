@@ -24,8 +24,9 @@ import {
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { fullName } from 'lib/utils/strings'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { userLogic } from 'scenes/userLogic'
+
+import { membersLogic } from '~/models/membersLogic'
 
 import { todaySessionMenuLogic } from './todaySessionMenuLogic'
 

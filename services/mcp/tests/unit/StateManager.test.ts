@@ -7,7 +7,7 @@ import { PostHogApiError, PostHogTransportError } from '@/lib/errors'
 import { getPostHogClient } from '@/lib/posthog'
 import { StateManager } from '@/lib/StateManager'
 import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
-import type { PinnedActiveContext, SessionScopedState, State } from '@/tools/types'
+import type { BusinessKnowledgeContent, PinnedActiveContext, SessionScopedState, State } from '@/tools/types'
 
 describe('StateManager', () => {
     let stateManager: StateManager
@@ -1323,6 +1323,24 @@ describe('StateManager', () => {
 
             expect(await stateManager.getOrFetchHasWarehouseData(projectId)).toBe(expected)
             expect(request).toHaveBeenCalledTimes(responses.length)
+        })
+    })
+
+    // A false field removes search guidance, so only a successful read may produce it.
+    describe('getOrFetchBusinessKnowledgeContent', () => {
+        it.each<[string, unknown, BusinessKnowledgeContent | undefined]>([
+            ['content', { has_sources: true, has_repositories: false }, { hasSources: true, hasRepositories: false }],
+            ['a malformed body as unknown', {}, { hasSources: undefined, hasRepositories: undefined }],
+            ['a failed read as unknown', new Error('Synthetic availability failure'), undefined],
+        ])('reads %s', async (_name, response, expected) => {
+            vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
+            const request = vi.fn(() =>
+                response instanceof Error ? Promise.reject(response) : Promise.resolve(response)
+            )
+            ;(stateManager as any)._api = { config: { apiToken: 'phx_test' }, request }
+
+            expect(await stateManager.getOrFetchBusinessKnowledgeContent('42')).toEqual(expected)
+            expect(request).toHaveBeenCalledWith(expect.objectContaining({ signal: expect.any(AbortSignal) }))
         })
     })
 

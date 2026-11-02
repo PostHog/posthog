@@ -30,11 +30,7 @@ from posthog.temporal.utils import CDPProducerWorkflowInputs, ExternalDataWorkfl
 from posthog.usage_ingestion.client import UsageRecord, areport_usage
 from posthog.utils import get_machine_id
 
-from products.data_warehouse.backend.facade.api import (
-    a_unpause_external_data_schedule,
-    create_warehouse_templates_for_source,
-    update_external_job_status,
-)
+from products.data_warehouse.backend.facade.api import create_warehouse_templates_for_source, update_external_job_status
 from products.managed_warehouse.backend.facade.temporal import (
     DataImportsDuckLakeCopyInputs,
     DuckLakeCopyDataImportsWorkflow,
@@ -42,6 +38,7 @@ from products.managed_warehouse.backend.facade.temporal import (
     DuckLakeRegisterDataImportsWorkflow,
     build_register_data_imports_workflow_id,
 )
+from products.warehouse_sources.backend.ad_hoc_sync import resume_schedule_after_ad_hoc_run
 from products.warehouse_sources.backend.billing import billed_usage_for_job
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
@@ -758,29 +755,15 @@ async def _update_job_status(inputs: UpdateExternalDataJobStatusInputs, logger: 
     # non-COMPLETED outcome (FAILED, BILLING_LIMIT_REACHED, …) the flag stays
     # set and the schedule stays paused — a human looks at it before resuming.
     if inputs.status == ExternalDataJob.Status.COMPLETED:
-        await _maybe_unpause_schedule_after_admin_run(inputs.schema_id, logger)
-
-
-async def _maybe_unpause_schedule_after_admin_run(schema_id: str, logger) -> None:
-    try:
-        schema = await database_sync_to_async_pool(ExternalDataSchema.objects.get)(id=schema_id)
-    except ExternalDataSchema.DoesNotExist:
-        return
-
-    sync_type_config = schema.sync_type_config or {}
-    if not sync_type_config.get("admin_unpause_schedule_after_run"):
-        return
-
-    try:
-        await a_unpause_external_data_schedule(schema_id)
-    except Exception:
-        logger.exception(f"Failed to auto-unpause schedule for schema {schema_id} after admin run")
-        return
-
-    sync_type_config.pop("admin_unpause_schedule_after_run", None)
-    schema.sync_type_config = sync_type_config
-    await database_sync_to_async_pool(schema.save)(update_fields=["sync_type_config"])
-    logger.info(f"Auto-unpaused schedule for schema {schema_id} after successful admin-triggered run")
+        try:
+            if await database_sync_to_async_pool(resume_schedule_after_ad_hoc_run)(
+                inputs.schema_id, inputs.team_id, job_id
+            ):
+                logger.info(
+                    f"Auto-unpaused schedule for schema {inputs.schema_id} after successful admin-triggered run"
+                )
+        except Exception:
+            logger.exception(f"Failed to auto-unpause schedule for schema {inputs.schema_id} after admin run")
 
 
 @dataclasses.dataclass

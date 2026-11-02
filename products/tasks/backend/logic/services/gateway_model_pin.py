@@ -73,6 +73,7 @@ PRODUCT_ALLOWED_MODELS: dict[str, list[str]] = {
     "posthog_ai": _first_party_pin("posthog_ai"),
     "account_audit": _first_party_pin("account_audit"),
     "onboarding": ["claude-sonnet-5", "claude-opus-4-8"],
+    "background_agents": _first_party_pin("background_agents"),
     "posthog_code": DESKTOP_AGENT_MODELS,
     FREE_TIER_PIN_KEY: FREE_TIER_MODELS,
     "review_hog": _first_party_pin("review_hog"),

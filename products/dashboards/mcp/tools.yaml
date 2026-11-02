@@ -95,6 +95,7 @@ tools:
                 - tiles.*.insight.last_viewed_at
                 - tiles.*.insight.timezone
                 - tiles.*.insight.resolved_date_range
+                - tiles.*.insight.resolved_compare_date_range
                 - tiles.*.insight.filter_override_context
                 - created_by.uuid
                 - created_by.distinct_id
@@ -253,6 +254,7 @@ tools:
                 - tiles.*.insight.alerts
                 - tiles.*.insight.timezone
                 - tiles.*.insight.resolved_date_range
+                - tiles.*.insight.resolved_compare_date_range
                 - tiles.*.insight.filter_override_context
                 - created_by.uuid
                 - created_by.distinct_id
@@ -518,6 +520,7 @@ tools:
                 - tiles.*.insight.alerts
                 - tiles.*.insight.timezone
                 - tiles.*.insight.resolved_date_range
+                - tiles.*.insight.resolved_compare_date_range
                 - tiles.*.insight.filter_override_context
                 - created_by.uuid
                 - created_by.distinct_id
