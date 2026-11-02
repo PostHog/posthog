@@ -6748,7 +6748,13 @@ export namespace Schemas {
         widget: DashboardPatchWidgetOpenApi;
     }>;
     export type DashboardTileBasic = {
+        /**
+         * ID of the dashboard tile.
+         */
         id: number;
+        /**
+         * ID of the dashboard the tile sits on.
+         */
         dashboard_id: number;
         deleted?: (boolean | null) | undefined;
     };
@@ -9961,9 +9967,9 @@ export namespace Schemas {
      * * `metric_event_not_ingested` - Metric Event Not Ingested
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
+     * * `metric_all_zero` - Metric All Zero
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `exposure_filter_on_dynamic_cohort` - Exposure Filter On Dynamic Cohort
-     * * `exposure_filter_excludes_events` - Exposure Filter Excludes Events
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
@@ -9987,9 +9993,9 @@ export namespace Schemas {
         | "metric_event_not_ingested"
         | "metric_cannot_compile"
         | "metric_calculation_failed"
+        | "metric_all_zero"
         | "exposure_criteria_cannot_match"
         | "exposure_filter_on_dynamic_cohort"
-        | "exposure_filter_excludes_events"
         | "srm"
         | "zero_exposures"
         | "test_account_filter_removes_exposures"
@@ -10043,9 +10049,9 @@ export namespace Schemas {
          * * `metric_event_not_ingested` - Metric Event Not Ingested
          * * `metric_cannot_compile` - Metric Cannot Compile
          * * `metric_calculation_failed` - Metric Calculation Failed
+         * * `metric_all_zero` - Metric All Zero
          * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
          * * `exposure_filter_on_dynamic_cohort` - Exposure Filter On Dynamic Cohort
-         * * `exposure_filter_excludes_events` - Exposure Filter Excludes Events
          * * `srm` - Sample Ratio Mismatch
          * * `zero_exposures` - Zero Exposures
          * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
@@ -10109,6 +10115,7 @@ export namespace Schemas {
      * * `metric_event_not_ingested` - Metric Event Not Ingested
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
+     * * `metric_all_zero` - Metric All Zero
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `exposure_filters` - Exposure Filters
      * * `early_significance` - Early Significance
@@ -10132,6 +10139,7 @@ export namespace Schemas {
         | "metric_event_not_ingested"
         | "metric_cannot_compile"
         | "metric_calculation_failed"
+        | "metric_all_zero"
         | "exposure_criteria_cannot_match"
         | "exposure_filters"
         | "early_significance"
@@ -10168,6 +10176,7 @@ export namespace Schemas {
          * * `metric_event_not_ingested` - Metric Event Not Ingested
          * * `metric_cannot_compile` - Metric Cannot Compile
          * * `metric_calculation_failed` - Metric Calculation Failed
+         * * `metric_all_zero` - Metric All Zero
          * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
          * * `exposure_filters` - Exposure Filters
          * * `early_significance` - Early Significance
@@ -10954,6 +10963,10 @@ export namespace Schemas {
         label: string | null;
         table: Record<string, unknown> | null;
         /**
+         * The id of the warehouse table this schema syncs into. Set before the first sync for a table the schema already names, such as a migrated one. Null when there is none.
+         */
+        table_id: string | null;
+        /**
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
          */
         should_sync?: boolean | undefined;
@@ -11077,6 +11090,7 @@ export namespace Schemas {
             user_access_level: string | null;
             api_version: string | null;
             supported_api_versions: Array<string>;
+            file_name: string | null;
         }> | null;
         /**
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
@@ -12548,6 +12562,7 @@ export namespace Schemas {
      * * `Soniox` - Soniox
      * * `Nango` - Nango
      * * `Fathom` - Fathom
+     * * `Stamped` - Stamped
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -13963,7 +13978,8 @@ export namespace Schemas {
         | "WooPayments"
         | "Soniox"
         | "Nango"
-        | "Fathom";
+        | "Fathom"
+        | "Stamped";
     /**
      * * `web` - web
      * * `api` - api
@@ -15388,6 +15404,7 @@ export namespace Schemas {
          * * `Soniox` - Soniox
          * * `Nango` - Nango
          * * `Fathom` - Fathom
+         * * `Stamped` - Stamped
          */
         source_type: ExternalDataSourceTypeEnum;
         /**
@@ -15495,6 +15512,10 @@ export namespace Schemas {
          * Whether this source supports per-column sync selection via `enabled_columns`.
          */
         supports_column_selection: boolean;
+        /**
+         * The name of the file a file upload source imports. Null for other sources or when it is unknown.
+         */
+        file_name: string | null;
         /**
          * Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time.
          */
@@ -18595,6 +18616,7 @@ export namespace Schemas {
         locked_value: boolean;
     };
     export type PaginatedCommentList = {
+        count: number;
         next?: (string | null) | undefined;
         previous?: (string | null) | undefined;
         results: Array<Comment>;
@@ -19627,6 +19649,7 @@ export namespace Schemas {
         user_access_level: string | null;
         supports_webhooks: boolean;
         supports_column_selection: boolean;
+        file_name: string | null;
         api_version: string | null;
         api_version_deprecation: ExternalDataSourceApiVersionDeprecation | null;
         connection_warning: string | null;
@@ -20059,6 +20082,7 @@ export namespace Schemas {
      * * `business_knowledge` - Business Knowledge
      * * `metrics_import` - Metrics Import
      * * `knowledge_writer` - Knowledge Writer
+     * * `context_layer` - Context Layer
      */
     export type TaskOriginProductEnum =
         | "onboarding"
@@ -20087,7 +20111,8 @@ export namespace Schemas {
         | "space_setup"
         | "business_knowledge"
         | "metrics_import"
-        | "knowledge_writer";
+        | "knowledge_writer"
+        | "context_layer";
     /**
      * * `default` - default
      * * `acceptEdits` - acceptEdits
@@ -23321,7 +23346,8 @@ export namespace Endpoints {
                     | "space_setup"
                     | "business_knowledge"
                     | "metrics_import"
-                    | "knowledge_writer";
+                    | "knowledge_writer"
+                    | "context_layer";
                 hog_flow_id: string;
                 internal: "true" | "false" | "all";
                 limit: number;
@@ -23336,6 +23362,7 @@ export namespace Endpoints {
                 search: string;
                 sources: Array<
                     | "autoresearch"
+                    | "context_layer"
                     | "error_tracking"
                     | "eval_clusters"
                     | "experiments"

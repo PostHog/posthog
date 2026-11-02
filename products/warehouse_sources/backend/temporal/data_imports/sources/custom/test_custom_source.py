@@ -1979,6 +1979,27 @@ class TestCustomSourceNonRetryableErrors(SimpleTestCase):
         non_retryable = CustomSource().get_non_retryable_errors()
         assert any(key in err for key in non_retryable)
 
+    def test_temporary_dns_resolution_failure_message_is_classified_retryable(self):
+        # `_is_host_safe` raises this message when the resolver itself fails to answer (a DNS
+        # blip), distinct from the permanent "Couldn't resolve the host" case above. It must stay
+        # out of get_non_retryable_errors and be matched by get_retryable_errors, so the caller
+        # treats it as transient and re-raises for Temporal to retry instead of reporting it.
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source._is_host_safe",
+            return_value=(
+                False,
+                "Temporary failure resolving the host 'api.example.com'. Try again in a moment.",
+            ),
+        ):
+            ok, err = validate_manifest_urls(_minimal_manifest(), team_id=999)
+
+        assert not ok
+        assert err is not None
+        non_retryable = CustomSource().get_non_retryable_errors()
+        assert not any(key in err for key in non_retryable)
+        retryable = CustomSource().get_retryable_errors()
+        assert any(key in err for key in retryable)
+
     @parameterized.expand(["invalid_client", "invalid_grant"])
     def test_oauth2_permanent_errors_are_classified_non_retryable(self, error_code):
         # A permanent OAuth2 token rejection (invalid_client / invalid_grant) surfaces the
