@@ -1,5 +1,10 @@
+import '@testing-library/jest-dom'
+
+import { cleanup, render, screen } from '@testing-library/react'
+import { Suspense, createElement } from 'react'
+
 import { isChunkLoadError } from './isChunkLoadError'
-import { retryBootImport, retryImport } from './retryImport'
+import { lazyWithPreload, retryBootImport, retryImport } from './retryImport'
 
 describe('retryImport', () => {
     beforeEach(() => {
@@ -83,5 +88,55 @@ describe('retryImport', () => {
         await expect(promise).rejects.toBe(error)
         expect(factory).toHaveBeenCalledTimes(3)
         expect(isChunkLoadError(error)).toBe(true)
+    })
+
+    describe('lazyWithPreload', () => {
+        beforeEach(() => {
+            jest.useRealTimers()
+        })
+
+        afterEach(() => {
+            cleanup()
+        })
+
+        const Greeting = ({ name }: { name: string }): JSX.Element => createElement('span', null, `hello ${name}`)
+
+        const renderInSuspense = (Component: (props: { name: string }) => JSX.Element): void => {
+            render(
+                createElement(
+                    Suspense,
+                    { fallback: createElement('span', null, 'loading') },
+                    createElement(Component, { name: 'max' })
+                )
+            )
+        }
+
+        it.each([
+            { preloaded: true, firstPaint: 'hello max' },
+            { preloaded: false, firstPaint: 'loading' },
+        ])('preloaded=$preloaded shows "$firstPaint" on first paint', async ({ preloaded, firstPaint }) => {
+            const factory = jest.fn().mockResolvedValue({ default: Greeting })
+            const { Component, preload } = lazyWithPreload(factory)
+            if (preloaded) {
+                await preload()
+            }
+
+            renderInSuspense(Component)
+
+            expect(screen.getByText(firstPaint)).toBeInTheDocument()
+            expect(await screen.findByText('hello max')).toBeInTheDocument()
+            expect(factory).toHaveBeenCalledTimes(1)
+        })
+
+        it('loads again on render after a failed preload', async () => {
+            const factory = jest.fn().mockRejectedValueOnce(new Error('boom')).mockResolvedValue({ default: Greeting })
+            const { Component, preload } = lazyWithPreload(factory)
+            await preload()
+
+            renderInSuspense(Component)
+
+            expect(await screen.findByText('hello max')).toBeInTheDocument()
+            expect(factory).toHaveBeenCalledTimes(2)
+        })
     })
 })

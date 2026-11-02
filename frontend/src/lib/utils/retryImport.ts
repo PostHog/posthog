@@ -1,4 +1,4 @@
-import { ComponentType, LazyExoticComponent, lazy } from 'react'
+import { ComponentProps, ComponentType, LazyExoticComponent, createElement, lazy, useState } from 'react'
 
 import { isChunkLoadError, isGenericNetworkTypeError, markAsChunkLoadError } from 'lib/utils/isChunkLoadError'
 
@@ -76,4 +76,51 @@ export function lazyWithRetry<T extends ComponentType<any>>(
     factory: () => Promise<{ default: T }>
 ): LazyExoticComponent<T> {
     return lazy(() => retryImport(factory))
+}
+
+export interface PreloadableComponent<T extends ComponentType<any>> {
+    Component: (props: ComponentProps<T>) => JSX.Element
+    /** Starts the chunk download. Resolves when it ends, also on a failure, which the render path reports. */
+    preload: () => Promise<void>
+}
+
+/**
+ * `lazyWithRetry` plus a `preload()` that a logic can call as soon as it knows the component will render,
+ * so the chunk downloads in parallel with the data. A component that mounts after the chunk has loaded
+ * renders at once and never shows its Suspense fallback.
+ */
+export function lazyWithPreload<T extends ComponentType<any>>(
+    factory: () => Promise<{ default: T }>
+): PreloadableComponent<T> {
+    let loaded: T | null = null
+    let pending: Promise<{ default: T }> | null = null
+    const load = (): Promise<{ default: T }> => {
+        pending ??= retryImport(factory).then(
+            (module) => {
+                loaded = module.default
+                return module
+            },
+            (error) => {
+                pending = null
+                throw error
+            }
+        )
+        return pending
+    }
+    const Lazy = lazy(load)
+
+    function Component(props: ComponentProps<T>): JSX.Element {
+        // Decided once per mount: switching from the lazy wrapper to the loaded component would remount it.
+        const [Loaded] = useState(() => loaded)
+        return createElement((Loaded ?? Lazy) as ComponentType<ComponentProps<T>>, props)
+    }
+
+    return {
+        Component,
+        preload: () =>
+            load().then(
+                () => undefined,
+                () => undefined
+            ),
+    }
 }
