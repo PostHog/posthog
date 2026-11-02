@@ -1772,7 +1772,6 @@ class TestAlertSimulate(TrendsInsightAPITest):
                     "days": [f"2024-01-{i:02d}" for i in range(1, 36)],
                     "labels": [f"2024-01-{i:02d}" for i in range(1, 36)],
                     "label": "pageview",
-                    "action": {"name": "pageview"},
                     "actions": [],
                     "count": 35,
                     "breakdown_value": "",
@@ -1781,7 +1780,6 @@ class TestAlertSimulate(TrendsInsightAPITest):
                     "compare": False,
                     "persons_urls": [],
                     "persons": {},
-                    "filter": {},
                 }
             ]
         )
@@ -1941,7 +1939,6 @@ class TestAlertSimulate(TrendsInsightAPITest):
                     "days": [f"2024-01-{i:02d}" for i in range(1, 36)],
                     "labels": [f"2024-01-{i:02d}" for i in range(1, 36)],
                     "label": "pageview",
-                    "action": {"name": "pageview"},
                     "actions": [],
                     "count": 35,
                     "breakdown_value": "",
@@ -1950,7 +1947,6 @@ class TestAlertSimulate(TrendsInsightAPITest):
                     "compare": False,
                     "persons_urls": [],
                     "persons": {},
-                    "filter": {},
                 }
             ]
         )
@@ -3329,7 +3325,6 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
                     "days": dates,
                     "labels": dates,
                     "label": "pageview",
-                    "action": {"name": "pageview"},
                     "actions": [],
                     "count": 7,
                 }

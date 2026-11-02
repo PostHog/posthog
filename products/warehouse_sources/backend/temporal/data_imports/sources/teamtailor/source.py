@@ -68,7 +68,7 @@ class TeamtailorSource(ResumableSource[TeamtailorSourceConfig, TeamtailorResumeC
             releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Teamtailor API key to pull your recruiting data into the PostHog Data warehouse.
 
-You can create an API key under **Settings → API keys** in Teamtailor. Use a key with the **Admin** scope and **read** access. It lets PostHog read your candidates, jobs, job applications, stages, stage movements, reject reasons, users, departments, and locations.
+You can create an API key under **Settings → API keys** in Teamtailor. Use a key with the **Admin** scope and **read** access. It lets PostHog read your candidates, jobs, job applications, stages, stage movements, reject reasons, users, departments, locations, and interview kits.
 """,
             iconPath="/static/services/teamtailor.png",
             docsUrl="https://posthog.com/docs/cdp/sources/teamtailor",

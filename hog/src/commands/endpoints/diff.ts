@@ -53,4 +53,10 @@ export default defineCommand({
     },
 
     exitCode: (result) => (result.problems.length > 0 || !result.plan.every(inSync) ? 1 : 0),
+
+    telemetry: ({ result }) => ({
+        file_count: result.plan.length,
+        changed: result.plan.filter((item) => !inSync(item)).length,
+        invalid_count: result.problems.length,
+    }),
 })

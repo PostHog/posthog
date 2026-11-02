@@ -6,5 +6,5 @@ export const LEGACY_COMMANDS: CommandTree = {
         use: 'posthog-cli exp logs',
     }),
     tasks: defineLegacy({ description: 'List, track and update PostHog tasks', use: 'posthog-cli exp task' }),
-    update: defineLegacy({ description: 'Update hog to the latest version', use: 'posthog-cli update' }),
+    upgrade: defineLegacy({ description: 'Upgrade hog to the latest version', use: 'posthog-cli update' }),
 }

@@ -4,6 +4,12 @@ on:
     # Dispatched by desktop-ci.yml, the single PR/merge_group run for the whole
     # desktop suite; merge_group gating and PR concurrency live there.
     workflow_call:
+        inputs:
+            run-suite:
+                description: Whether this suite needs to run; an empty value uses local change detection.
+                type: string
+                required: false
+                default: ''
         secrets:
             GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY:
                 required: false
@@ -22,7 +28,7 @@ jobs:
     changes:
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
-        if: github.event_name != 'merge_group'
+        if: github.event_name != 'merge_group' && inputs.run-suite == ''
         permissions:
             pull-requests: read
         outputs:
@@ -69,7 +75,7 @@ jobs:
     quality:
         needs: changes
         # Fail closed: if change detection itself failed, run instead of skipping.
-        if: ${{ !cancelled() && github.event_name != 'merge_group' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true') }}
+        if: ${{ !cancelled() && github.event_name != 'merge_group' && (inputs.run-suite == 'true' || (inputs.run-suite == '' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true'))) }}
         runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 15
         permissions:

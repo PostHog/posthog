@@ -16,6 +16,9 @@ export interface ArgumentSpec {
 interface OptionSource {
     env?: readonly string[]
     config?: string
+    // The posthog.json key means the opposite of the option, as `cli.telemetry: false` for --no-telemetry.
+    negate?: boolean
+    lenient?: boolean
 }
 
 export type OptionSpec =
@@ -79,6 +82,9 @@ interface CommandDefinition<Args, Options, Result> {
     human?(input: RenderInput<Args, Options, Result>): void
     // What agents, pipes and `-o json` see. Defaults to the result as one line of JSON.
     agent?(input: RenderInput<Args, Options, Result>): void
+    // Extra properties for the anonymous usage event: counts and names from the result, never
+    // values, paths or text the caller typed.
+    telemetry?(input: CommandInput<Args, Options> & { result: Result }): Record<string, unknown>
     // The exit code for a result. Defaults to 0. Failures throw a HogError instead.
     exitCode?(result: Result): number
 }

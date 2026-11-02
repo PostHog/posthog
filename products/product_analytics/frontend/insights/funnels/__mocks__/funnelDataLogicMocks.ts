@@ -4,13 +4,11 @@ import { FunnelAPIResponse } from '~/types'
 export const funnelResult: FunnelAPIResponse = {
     result: [
         {
-            action_id: '$pageview',
             name: '$pageview',
             custom_name: null,
             order: 0,
             people: [],
             count: 291,
-            type: 'events',
             average_conversion_time: null,
             median_conversion_time: null,
             converted_people_url:
@@ -18,13 +16,11 @@ export const funnelResult: FunnelAPIResponse = {
             dropped_people_url: null,
         },
         {
-            action_id: '$pageview',
             name: '$pageview',
             custom_name: null,
             order: 1,
             people: [],
             count: 134,
-            type: 'events',
             average_conversion_time: 87098.67529697785,
             median_conversion_time: 208.75,
             converted_people_url:
@@ -44,13 +40,11 @@ export const funnelResultWithBreakdown: FunnelAPIResponse = {
     result: [
         [
             {
-                action_id: '$pageview',
                 name: '$pageview',
                 custom_name: null,
                 order: 0,
                 people: [],
                 count: 136,
-                type: 'events',
                 average_conversion_time: null,
                 median_conversion_time: null,
                 breakdown_value: ['Chrome'],
@@ -60,13 +54,11 @@ export const funnelResultWithBreakdown: FunnelAPIResponse = {
                 breakdowns: ['Chrome'],
             },
             {
-                action_id: '$pageview',
                 name: '$pageview',
                 custom_name: null,
                 order: 1,
                 people: [],
                 count: 66,
-                type: 'events',
                 average_conversion_time: 73028.08440653938,
                 median_conversion_time: 112.0,
                 breakdown_value: ['Chrome'],
@@ -79,13 +71,11 @@ export const funnelResultWithBreakdown: FunnelAPIResponse = {
         ],
         [
             {
-                action_id: '$pageview',
                 name: '$pageview',
                 custom_name: null,
                 order: 0,
                 people: [],
                 count: 12,
-                type: 'events',
                 average_conversion_time: null,
                 median_conversion_time: null,
                 breakdown_value: ['Safari'],
@@ -95,13 +85,11 @@ export const funnelResultWithBreakdown: FunnelAPIResponse = {
                 breakdowns: ['Safari'],
             },
             {
-                action_id: '$pageview',
                 name: '$pageview',
                 custom_name: null,
                 order: 1,
                 people: [],
                 count: 6,
-                type: 'events',
                 average_conversion_time: 132776.4872685185,
                 median_conversion_time: 62513.5,
                 breakdown_value: ['Safari'],
@@ -114,13 +102,11 @@ export const funnelResultWithBreakdown: FunnelAPIResponse = {
         ],
         [
             {
-                action_id: '$pageview',
                 name: '$pageview',
                 custom_name: null,
                 order: 0,
                 people: [],
                 count: 53,
-                type: 'events',
                 average_conversion_time: null,
                 median_conversion_time: null,
                 breakdown_value: ['Firefox'],
@@ -130,13 +116,11 @@ export const funnelResultWithBreakdown: FunnelAPIResponse = {
                 breakdowns: ['Firefox'],
             },
             {
-                action_id: '$pageview',
                 name: '$pageview',
                 custom_name: null,
                 order: 1,
                 people: [],
                 count: 27,
-                type: 'events',
                 average_conversion_time: 68104.22259380294,
                 median_conversion_time: 112.0,
                 breakdown_value: ['Firefox'],
@@ -160,13 +144,11 @@ export const funnelResultWithMultiBreakdown: FunnelAPIResponse = {
     result: [
         [
             {
-                action_id: '$pageview',
                 name: '$pageview',
                 custom_name: null,
                 order: 0,
                 people: [],
                 count: 15,
-                type: 'events',
                 average_conversion_time: null,
                 median_conversion_time: null,
                 breakdown_value: ['Chrome', 'Linux'],
@@ -176,13 +158,11 @@ export const funnelResultWithMultiBreakdown: FunnelAPIResponse = {
                 breakdowns: ['Chrome', 'Linux'],
             },
             {
-                action_id: '$pageview',
                 name: '$pageview',
                 custom_name: null,
                 order: 1,
                 people: [],
                 count: 8,
-                type: 'events',
                 average_conversion_time: 74799.17588141025,
                 median_conversion_time: 18617.0,
                 breakdown_value: ['Chrome', 'Linux'],
@@ -195,13 +175,11 @@ export const funnelResultWithMultiBreakdown: FunnelAPIResponse = {
         ],
         [
             {
-                action_id: '$pageview',
                 name: '$pageview',
                 custom_name: null,
                 order: 0,
                 people: [],
                 count: 49,
-                type: 'events',
                 average_conversion_time: null,
                 median_conversion_time: null,
                 breakdown_value: ['Chrome', 'Mac OS X'],
@@ -211,13 +189,11 @@ export const funnelResultWithMultiBreakdown: FunnelAPIResponse = {
                 breakdowns: ['Chrome', 'Mac OS X'],
             },
             {
-                action_id: '$pageview',
                 name: '$pageview',
                 custom_name: null,
                 order: 1,
                 people: [],
                 count: 26,
-                type: 'events',
                 average_conversion_time: 81295.60927113237,
                 median_conversion_time: 145.5,
                 breakdown_value: ['Chrome', 'Mac OS X'],
@@ -230,13 +206,11 @@ export const funnelResultWithMultiBreakdown: FunnelAPIResponse = {
         ],
         [
             {
-                action_id: '$pageview',
                 name: '$pageview',
                 custom_name: null,
                 order: 0,
                 people: [],
                 count: 5,
-                type: 'events',
                 average_conversion_time: null,
                 median_conversion_time: null,
                 breakdown_value: ['Internet Explorer', 'Windows'],
@@ -246,13 +220,11 @@ export const funnelResultWithMultiBreakdown: FunnelAPIResponse = {
                 breakdowns: ['Internet Explorer', 'Windows'],
             },
             {
-                action_id: '$pageview',
                 name: '$pageview',
                 custom_name: null,
                 order: 1,
                 people: [],
                 count: 3,
-                type: 'events',
                 average_conversion_time: 105313.06349206349,
                 median_conversion_time: 130763.0,
                 breakdown_value: ['Internet Explorer', 'Windows'],
@@ -459,13 +431,11 @@ export const funnelResultTrendsCompareWithBreakdown = {
 export const funnelResultStepsCompare: FunnelAPIResponse = {
     result: [
         {
-            action_id: 'sign up',
             name: 'sign up',
             custom_name: null,
             order: 0,
             people: [],
             count: 200,
-            type: 'events',
             average_conversion_time: null,
             median_conversion_time: null,
             converted_people_url: '',
@@ -473,13 +443,11 @@ export const funnelResultStepsCompare: FunnelAPIResponse = {
             compare_label: 'current',
         },
         {
-            action_id: 'buy',
             name: 'buy',
             custom_name: null,
             order: 1,
             people: [],
             count: 100,
-            type: 'events',
             average_conversion_time: 3600,
             median_conversion_time: 1800,
             converted_people_url: '',
@@ -487,13 +455,11 @@ export const funnelResultStepsCompare: FunnelAPIResponse = {
             compare_label: 'current',
         },
         {
-            action_id: 'sign up',
             name: 'sign up',
             custom_name: null,
             order: 0,
             people: [],
             count: 150,
-            type: 'events',
             average_conversion_time: null,
             median_conversion_time: null,
             converted_people_url: '',
@@ -501,13 +467,11 @@ export const funnelResultStepsCompare: FunnelAPIResponse = {
             compare_label: 'previous',
         },
         {
-            action_id: 'buy',
             name: 'buy',
             custom_name: null,
             order: 1,
             people: [],
             count: 60,
-            type: 'events',
             average_conversion_time: 4200,
             median_conversion_time: 2100,
             converted_people_url: '',
@@ -526,11 +490,9 @@ export const funnelResultStepsBreakdownCompare: FunnelAPIResponse = {
     result: [
         [
             {
-                action_id: 'sign up',
                 name: 'sign up',
                 order: 0,
                 count: 100,
-                type: 'events',
                 average_conversion_time: null,
                 median_conversion_time: null,
                 people: [],
@@ -541,11 +503,9 @@ export const funnelResultStepsBreakdownCompare: FunnelAPIResponse = {
                 compare_label: 'current',
             },
             {
-                action_id: 'buy',
                 name: 'buy',
                 order: 1,
                 count: 50,
-                type: 'events',
                 average_conversion_time: 3600,
                 median_conversion_time: 1800,
                 people: [],
@@ -558,11 +518,9 @@ export const funnelResultStepsBreakdownCompare: FunnelAPIResponse = {
         ],
         [
             {
-                action_id: 'sign up',
                 name: 'sign up',
                 order: 0,
                 count: 40,
-                type: 'events',
                 average_conversion_time: null,
                 median_conversion_time: null,
                 people: [],
@@ -573,11 +531,9 @@ export const funnelResultStepsBreakdownCompare: FunnelAPIResponse = {
                 compare_label: 'current',
             },
             {
-                action_id: 'buy',
                 name: 'buy',
                 order: 1,
                 count: 20,
-                type: 'events',
                 average_conversion_time: 3600,
                 median_conversion_time: 1800,
                 people: [],
@@ -590,11 +546,9 @@ export const funnelResultStepsBreakdownCompare: FunnelAPIResponse = {
         ],
         [
             {
-                action_id: 'sign up',
                 name: 'sign up',
                 order: 0,
                 count: 80,
-                type: 'events',
                 average_conversion_time: null,
                 median_conversion_time: null,
                 people: [],
@@ -605,11 +559,9 @@ export const funnelResultStepsBreakdownCompare: FunnelAPIResponse = {
                 compare_label: 'previous',
             },
             {
-                action_id: 'buy',
                 name: 'buy',
                 order: 1,
                 count: 30,
-                type: 'events',
                 average_conversion_time: 4200,
                 median_conversion_time: 2100,
                 people: [],
@@ -622,11 +574,9 @@ export const funnelResultStepsBreakdownCompare: FunnelAPIResponse = {
         ],
         [
             {
-                action_id: 'sign up',
                 name: 'sign up',
                 order: 0,
                 count: 25,
-                type: 'events',
                 average_conversion_time: null,
                 median_conversion_time: null,
                 people: [],
@@ -637,11 +587,9 @@ export const funnelResultStepsBreakdownCompare: FunnelAPIResponse = {
                 compare_label: 'previous',
             },
             {
-                action_id: 'buy',
                 name: 'buy',
                 order: 1,
                 count: 10,
-                type: 'events',
                 average_conversion_time: 4200,
                 median_conversion_time: 2100,
                 people: [],
