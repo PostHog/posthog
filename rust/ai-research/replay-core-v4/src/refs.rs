@@ -5,10 +5,13 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use hmac::{Hmac, Mac};
 use posthog_replay_anonymizer::v4_image_refs::{
-    font_url_declined_marker, font_url_ref, image_url_ref, url_declined_marker, HASH_CHARS,
+    font_url_declined_marker, font_url_ref, image_url_ref, public_font_ref, url_declined_marker,
+    HASH_CHARS,
 };
 use posthog_replay_anonymizer::Decline;
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
+
+use crate::url_policy::CanonicalUrl;
 
 /// 64 bits of the HMAC: enough to tell the pages of one session apart.
 const FINGERPRINT_BYTES: usize = 8;
@@ -21,6 +24,26 @@ pub fn reference_hash(key: &[u8; 32], bytes: &[u8]) -> String {
     let mut encoded = URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes());
     encoded.truncate(HASH_CHARS);
     encoded
+}
+
+/// Google serves each file under `/s/` at a versioned path whose bytes never change. A `/l/` file is a subset that a
+/// page's `text=` parameter picked, so its glyphs can hold page text, and it stays with its team.
+const PUBLIC_FONT_HOST: &str = "fonts.gstatic.com";
+const PUBLIC_FONT_PATH_PREFIX: &str = "/s/";
+
+/// The hash has no key because the URL holds no personal data, so anyone can test a reference against a Google Fonts URL.
+pub fn public_font_url_ref(url: &CanonicalUrl) -> Option<String> {
+    let parsed = url::Url::parse(&url.fetch).ok()?;
+    let shared = parsed.scheme() == "https"
+        && parsed.host_str() == Some(PUBLIC_FONT_HOST)
+        && parsed.port().is_none()
+        && parsed.path().starts_with(PUBLIC_FONT_PATH_PREFIX)
+        && parsed.query().is_none();
+    shared.then(|| {
+        let mut encoded = URL_SAFE_NO_PAD.encode(Sha256::digest(url.fetch.as_bytes()));
+        encoded.truncate(HASH_CHARS);
+        public_font_ref(&encoded)
+    })
 }
 
 /// The asset that a URL reference names, which tells the fetcher what to check the response for and where to store it.

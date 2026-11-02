@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use metrics::counter;
 use replay_core_v4::keys::batch::{FlushKeys, SessionId};
-use replay_core_v4::refs::{reference_hash, url_ref, UrlAsset};
+use replay_core_v4::refs::{public_font_url_ref, reference_hash, url_ref, UrlAsset};
 use replay_core_v4::seal::image_url_key;
 use replay_core_v4::url_policy::{
     is_public_host, is_tracking_beacon, try_canonicalize, CanonicalUrl, Decline,
@@ -98,12 +98,18 @@ pub fn url_reference(
     if is_tracking_beacon(&url.host, &path) {
         return Err(Decline::TrackingBeacon);
     }
-    let reference = url_ref(
-        asset,
-        team_id,
-        key_month,
-        &reference_hash(url_key, url.dedup.as_bytes()),
-    );
+    let public = match asset {
+        UrlAsset::Font => public_font_url_ref(&url),
+        UrlAsset::Image => None,
+    };
+    let reference = public.unwrap_or_else(|| {
+        url_ref(
+            asset,
+            team_id,
+            key_month,
+            &reference_hash(url_key, url.dedup.as_bytes()),
+        )
+    });
     Ok((url, reference))
 }
 

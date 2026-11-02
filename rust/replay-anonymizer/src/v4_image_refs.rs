@@ -24,6 +24,7 @@ pub const IMAGE_DECLINED_PREFIX: &str = "image:v4:declined:";
 
 const DECLINED: &str = "declined:";
 const BUNDLED: &str = "bundled:";
+const PUBLIC: &str = "public:";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ImageDecline {
@@ -109,6 +110,9 @@ pub enum Parsed<'a> {
     /// A font family that the renderer ships, by its slug: the family name in lowercase, with `-`
     /// for each space. No bytes stand behind it.
     BundledFont(&'a str),
+    /// A font file that the same public URL serves to every team, by an unkeyed hash of that URL.
+    /// The image fetcher stores the bytes once, for all teams.
+    PublicFont(&'a str),
 }
 
 impl fmt::Display for Ref<'_> {
@@ -142,6 +146,7 @@ impl fmt::Display for Parsed<'_> {
             Parsed::Ref(reference) => reference.fmt(f),
             Parsed::Declined(declined) => declined.fmt(f),
             Parsed::BundledFont(slug) => write!(f, "{FONT_URL_PREFIX}{BUNDLED}{slug}"),
+            Parsed::PublicFont(hash) => write!(f, "{FONT_URL_PREFIX}{PUBLIC}{hash}"),
         }
     }
 }
@@ -188,17 +193,23 @@ pub fn bundled_font_ref(slug: &str) -> String {
     Parsed::BundledFont(slug).to_string()
 }
 
+pub fn public_font_ref(hash: &str) -> String {
+    Parsed::PublicFont(hash).to_string()
+}
+
 /// Reads a reference or a marker. Any other string is `None`, also one that differs from a string
 /// the recorder writes only in letter case, a leading zero, whitespace or a trailing byte.
 pub fn parse(s: &str) -> Option<Parsed<'_>> {
     if let Some(declined) = parse_declined(s) {
         return Some(Parsed::Declined(declined));
     }
-    if let Some(slug) = s
-        .strip_prefix(FONT_URL_PREFIX)
-        .and_then(|rest| rest.strip_prefix(BUNDLED))
-    {
-        return is_slug(slug).then_some(Parsed::BundledFont(slug));
+    if let Some(rest) = s.strip_prefix(FONT_URL_PREFIX) {
+        if let Some(slug) = rest.strip_prefix(BUNDLED) {
+            return is_slug(slug).then_some(Parsed::BundledFont(slug));
+        }
+        if let Some(hash) = rest.strip_prefix(PUBLIC) {
+            return is_hash(hash).then_some(Parsed::PublicFont(hash));
+        }
     }
     let (kind, rest) = RefKind::ALL
         .into_iter()
@@ -357,6 +368,10 @@ mod tests {
                 "fonturl:v4:bundled:source-sans-3",
                 Parsed::BundledFont("source-sans-3"),
             ),
+            (
+                "fonturl:v4:public:AbCdEfGhIjKlMnOpQr-_09",
+                Parsed::PublicFont(HASH),
+            ),
         ];
         for (written, parsed) in vectors {
             assert_eq!(parse(written), Some(parsed), "{written}");
@@ -372,6 +387,7 @@ mod tests {
             bundled_font_ref("source-sans-3"),
             "fonturl:v4:bundled:source-sans-3"
         );
+        assert_eq!(public_font_ref(HASH), format!("fonturl:v4:public:{HASH}"));
         for reason in Decline::ALL {
             assert_eq!(
                 parse(&font_url_declined_marker(reason)),
@@ -457,6 +473,11 @@ mod tests {
             "fonturl:v4:bundled:roboto-".to_owned(),
             "fonturl:v4:bundled:roboto:x".to_owned(),
             "imageurl:v4:bundled:roboto".to_owned(),
+            "fonturl:v4:public:".to_owned(),
+            format!("fonturl:v4:public:{}", &HASH[1..]),
+            format!("fonturl:v4:public:{HASH}:x"),
+            format!("fonturl:v4:Public:{HASH}"),
+            format!("imageurl:v4:public:{HASH}"),
         ];
         for near_miss in near_misses {
             assert_eq!(parse(&near_miss), None, "{near_miss:?}");

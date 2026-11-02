@@ -404,6 +404,7 @@ UpdateItem  SET deleted = :true, expires_at = if_not_exists(expires_at, :expiry)
 | Session, and person through its sessions | The session row                                                                                                                               | The session's blocks and its sealed index values. Its `url_fingerprints` can no longer be linked to a URL |
 | Team                                     | The team month rows of the previous, current and next UTC month, then every `month:` row of the team, then every session row in the 32 shards | Everything of the team: blocks, inline images, fetched images and sealed index values                     |
 
+- A public font file (see [Web fonts](#web-fonts)) belongs to no team, so no deletion reaches it. It is a file that Google serves to anyone, and the blocks that say where a session used it are sealed.
 - A session tombstone does not reach inline or fetched images. Both are sealed under the team month key, and other sessions of the team can refer to the same image. They stay readable with that key until they expire (see [Lifecycle](#lifecycle)), but the deleted session's blocks, which say where the session used them, cannot be read.
 - A tombstone the worker creates for a row that does not exist yet gets an `expires_at` by the key rule, from the row's month for a team month row and from the current month for a session row. A tombstone that replaces a key keeps the key's expiry.
 - The worker reads only `pk` and `sk` and has no KMS access. Its role has Query and UpdateItem on the v4 key table.
@@ -416,20 +417,20 @@ UpdateItem  SET deleted = :true, expires_at = if_not_exists(expires_at, :expiry)
 
 Nothing in v4 is kept for good. Each kind of data has a fixed lifetime, and a deletion only makes data unreadable sooner.
 
-| Data                           | Where                                                            | Lifetime                                                                                                                           | Removed by                    |
-| ------------------------------ | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
-| Session blocks                 | `rrweb-v4` `blocks/`                                             | 30 days after the write                                                                                                            | S3 expiration                 |
-| Block and image index          | `rrweb-v4` `index/`                                              | 30 days after the write                                                                                                            | S3 expiration                 |
-| Inline image packs             | `images-v4` `images/packs/`                                      | 38 days after the write                                                                                                            | S3 expiration                 |
-| Fetched images                 | `images-v4` `images/url/`                                        | 38 days after the last write. The fetcher copies an image onto itself when a job refers to it and the copy is more than 7 days old | S3 expiration                 |
-| Fetched fonts                  | `images-v4` `fonts/url/`                                         | The same as fetched images                                                                                                         | S3 expiration                 |
-| Team month and session keys    | `ai-research-replay-v4-keys`                                     | Until the start of the fifth month after `key_month`                                                                               | DynamoDB TTL                  |
-| Tombstones                     | `ai-research-replay-v4-keys`                                     | The same expiry as the row they replace                                                                                            | DynamoDB TTL                  |
-| Fetch history and robots cache | `ai-research-v4-image-fetch-history`                             | URL history: 8 days after the end of its month. Robots and tdmrep cache: at least 30 days                                          | DynamoDB TTL                  |
-| Index records                  | Kafka `ai_research_v4_index`                                     | 7 days                                                                                                                             | Topic retention               |
-| Fetch jobs, with raw URLs      | Kafka `ai_research_v4_image_fetch`, its retry topics and its DLQ | 24 hours                                                                                                                           | Topic retention               |
-| Seen and blocked sessions      | `ai-research-v4` Redis, `@posthog/ai-research-v4/`               | The main lane's expiry, or earlier under memory pressure                                                                           | Redis expiry and LRU eviction |
-| Held keys                      | Recorder and fetcher memory                                      | 5 minutes for a session row, one hour for a team month row                                                                         | Cache expiry                  |
+| Data                           | Where                                                            | Lifetime                                                                                                                                    | Removed by                    |
+| ------------------------------ | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| Session blocks                 | `rrweb-v4` `blocks/`                                             | 30 days after the write                                                                                                                     | S3 expiration                 |
+| Block and image index          | `rrweb-v4` `index/`                                              | 30 days after the write                                                                                                                     | S3 expiration                 |
+| Inline image packs             | `images-v4` `images/packs/`                                      | 38 days after the write                                                                                                                     | S3 expiration                 |
+| Fetched images                 | `images-v4` `images/url/`                                        | 38 days after the last write. The fetcher copies an image onto itself when a job refers to it and the copy is more than 7 days old          | S3 expiration                 |
+| Fetched fonts                  | `images-v4` `fonts/url/`                                         | The same as fetched images                                                                                                                  | S3 expiration                 |
+| Team month and session keys    | `ai-research-replay-v4-keys`                                     | Until the start of the fifth month after `key_month`                                                                                        | DynamoDB TTL                  |
+| Tombstones                     | `ai-research-replay-v4-keys`                                     | The same expiry as the row they replace                                                                                                     | DynamoDB TTL                  |
+| Fetch history and robots cache | `ai-research-v4-image-fetch-history`                             | URL history: 8 days after the end of its month, and a public font's history until its next fetch. Robots and tdmrep cache: at least 30 days | DynamoDB TTL                  |
+| Index records                  | Kafka `ai_research_v4_index`                                     | 7 days                                                                                                                                      | Topic retention               |
+| Fetch jobs, with raw URLs      | Kafka `ai_research_v4_image_fetch`, its retry topics and its DLQ | 24 hours                                                                                                                                    | Topic retention               |
+| Seen and blocked sessions      | `ai-research-v4` Redis, `@posthog/ai-research-v4/`               | The main lane's expiry, or earlier under memory pressure                                                                                    | Redis expiry and LRU eviction |
+| Held keys                      | Recorder and fetcher memory                                      | 5 minutes for a session row, one hour for a team month row                                                                                  | Cache expiry                  |
 
 - S3 expiration counts from the time an object was written, rounds up to the next midnight UTC and can run late, so plan for objects to stay for up to 2 days more.
 - Blocks expire by write time, not by session start, so a session whose blocks span several write days loses its first blocks first. Nothing marks the rest as partial, and `cold_start` does not cover it. Readers that need whole sessions follow the rule in [Block index](#block-index).
@@ -494,7 +495,7 @@ The recorder streams each block into the encoder. Read a block as a stream: a Br
 ### Layout
 
 Every prefix that the recorder writes is partitioned by the UTC day of the write.
-Fetched images and fonts are partitioned by the key month of their reference.
+Fetched images and fonts are partitioned by the key month of their reference. A public font file has no month.
 
 | Bucket      | Prefix                                        | Contents                                                                        |
 | ----------- | --------------------------------------------- | ------------------------------------------------------------------------------- |
@@ -506,6 +507,7 @@ Fetched images and fonts are partitioned by the key month of their reference.
 | `images-v4` | `images/packs/dt={day}/{team_id}/`            | One object per recorder flush and team: sealed images, each found by byte range |
 | `images-v4` | `images/url/month={YYYY-MM}/{team_id}/{hash}` | One sealed fetched image per URL reference                                      |
 | `images-v4` | `fonts/url/month={YYYY-MM}/{team_id}/{hash}`  | One sealed fetched font per font URL reference                                  |
+| `images-v4` | `fonts/url/public/{hash}`                     | One unsealed font file per public font reference, for every team                |
 
 S3 expires every object a fixed time after it was written: 30 days in `rrweb-v4` and 38 days in `images-v4`. [Lifecycle](#lifecycle) lists every lifetime and why they fit together.
 
@@ -680,9 +682,9 @@ The fetcher keeps a crawl history per URL reference, so per team and month, in i
 - The history holds no URL in plaintext. It binds the stored validators to an HMAC of the response URL under the team month URL key, and sends them only when the job's URL has the same HMAC.
 
 A URL is therefore fetched from its origin about once per team and month, as v3 fetches it about once in 30 days.
-Unlike v3, the history is per team: a sealed image is readable only with its team's key, so two teams that refer to one URL each fetch it. A font file from `fonts.gstatic.com` is the exception, as "Web fonts" below says.
+Unlike v3, the history is per team: a sealed image is readable only with its team's key, so two teams that refer to one URL each fetch it. A public font file is the exception, as [Web fonts](#web-fonts) says.
 The recorder sends a job for each referenced URL at least once per day, so the fetcher sees a reference in every 7-day refresh interval.
-The fetcher drops a job whose team month row is missing, expired or deleted.
+The fetcher drops a job whose team month row is missing, expired or deleted. A public font job needs no row.
 
 ### Web fonts
 
@@ -693,6 +695,7 @@ The recorder reads the `src` URLs of `@font-face` rules in `<style>` text, `_css
 | The rule's family                                       | In the block                            | Fetch job |
 | ------------------------------------------------------- | --------------------------------------- | --------- |
 | A family in `replay-core-v4/src/bundled_fonts.txt`      | `fonturl:v4:bundled:{slug}`             | None      |
+| Any other family, for a public font file                | `fonturl:v4:public:{hash}`              | Yes       |
 | Any other family                                        | `fonturl:v4:{team_id}:{YYYY-MM}:{hash}` | Yes       |
 | Any other family, for a URL that the URL policy refuses | `fonturl:v4:declined:{reason}`          | None      |
 | Any other family, for a URL the recorder did not check  | `fonturl:v4:declined:unchecked`         | None      |
@@ -702,7 +705,7 @@ The recorder reads the `src` URLs of `@font-face` rules in `<style>` text, `_css
 - The list holds Google's icon families, Material Icons and Material Symbols, because Google never moves an icon to another code point or ligature. It holds no site's own icon font. Many sites share a generated name such as `icomoon`, and an icon font generator can number the glyphs again on each build, so the fetcher fetches those.
 - A page can ask Google for one fixed fill or grade of Material Symbols, such as `FILL@1`. The bundled font has every fill and grade, and shows the default unless the page's CSS sets `font-variation-settings`. So such a page shows outlined icons where it showed filled ones. The `font-weight` and `font-size` of the page still set the weight and optical size.
 - The recorder compares family names without case, and reads a run of spaces as one space. A family it does not know, for example a name that a build tool made, is fetched.
-- A font reference uses the same hash, image URL key and URL policy as an image URL reference. A font job goes to the `ai_research_v4_image_fetch` topic in the same shape, keyed by registrable domain, so fonts share the image jobs' partitions, politeness limits and crawl history rules. A record holds only font jobs or only image jobs.
+- A team font reference uses the same hash, image URL key and URL policy as an image URL reference. A public font reference uses the same URL policy. A font job goes to the `ai_research_v4_image_fetch` topic in the same shape, keyed by registrable domain, so fonts share the image jobs' partitions, politeness limits and crawl history rules. A record holds only font jobs or only image jobs.
 - An Embedded OpenType or SVG font file gets a reference but no fetch job, because Chromium loads neither format.
 - A root-relative font URL, such as `src:url(/fonts/a.woff2)`, resolves as a root-relative image URL does, and gets the font reference of the absolute URL. A path-relative font URL stays as the page wrote it.
 - The recorder reads CSS escapes as a browser does, in the `@font-face` keyword, the `src` and `font-family` descriptors, the `url()` name and the URL itself. So `@\66 ont-face`, `\73 rc` and `url(https://cdn.example.com/a\2e woff2)` count, and an escaped protocol-relative URL reads as `https`. A quoted URL drops a backslash before a newline, as a line continuation. Comments around a descriptor name, as in `src/**/:`, do not hide it. A font URL that holds an escape gets a rewrite of its whole `url()` to its font reference, as a root-relative font URL does.
@@ -711,11 +714,11 @@ The recorder reads the `src` URLs of `@font-face` rules in `<style>` text, `_css
 
 The fetcher reads the asset from the reference prefix. For a font it sends `Accept: font/woff2, font/woff, font/ttf, font/otf, */*;q=0.1`. It takes a response whose media type is a `font/*` type, a legacy font type such as `application/x-font-woff`, or `application/octet-stream`, because many servers label fonts with a generic type. The decoded bytes must start with a WOFF2, WOFF, OpenType, TrueType or font collection signature. It stores the font as fetched under `fonts/url/`, sealed under the team month key with `kind: "font-url"`.
 
-Google serves each font file on `fonts.gstatic.com` at a versioned path whose bytes never change, so the fetcher sends Google one request per file for all teams:
+Google serves each file under `https://fonts.gstatic.com/s/` at a versioned path whose bytes never change, and it serves the same file to every page. Such a public font file belongs to no team:
 
-- After the first fetch of such a file, the fetcher keeps one unsealed copy at `fonts/url/public/{sha256 of the URL}`. The bytes are public, so the copy belongs to no team.
-- A later job for the URL, from any team or month, reads the copy instead of sending a request. It seals its own copy under its team month key, as before.
-- The robots.txt and tdmrep checks still run for each job. A job under a TDM reservation, a redirected response and a body that is not a font never use the copy.
-- When the copy expires, the next job fetches the file again. The fetcher counts these as `ai_research_v4_image_fetch_public_font_copies_total{outcome}`.
+- Its reference is `fonturl:v4:public:{hash}`, where `hash` is the first 22 characters of the base64url SHA-256 of the canonical URL. The hash has no key, because the URL holds no personal data. A person who holds a reference can test it against a Google Fonts URL, which tells them only which public font file a page used.
+- The fetcher stores the file once, unsealed, at `fonts/url/public/{hash}`, and reads no team month key for it. All teams share one crawl history entry, so Google gets one request per file, and a later job from any team only refreshes the stored file.
+- The fetcher stores the file only when the response came from the URL that the reference names, so a redirect target never becomes the shared file. It counts a refused one as `ai_research_v4_image_fetch_stored_images_total{asset="font",outcome="not_public"}`.
+- A URL with a query, a port or a path outside `/s/` gets a team reference. Google serves a `text=` subset under `/l/`, and such a file holds the glyphs of the text that the page asked for.
 
 An older fetcher sends a whole record to its dead letter topic when one job in it has a `fonturl` reference. Records never mix the two kinds of job, so while a recorder runs ahead of the fetcher, only font jobs are lost. The fetcher's role must also be allowed to write `fonts/url/` (`v4-staging.hcl` in posthog-cloud-infra). Until then, each font write fails and the fetcher tries the job again after a minute.

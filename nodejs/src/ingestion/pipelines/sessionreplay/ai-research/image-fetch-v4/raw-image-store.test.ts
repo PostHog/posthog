@@ -12,6 +12,8 @@ const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a
 const WOFF2 = Buffer.from('wOF2 body')
 const REF = 'imageurl:v4:7:2026-10:abcdefghijklmnopqrstuv'
 const FONT_REF = 'fonturl:v4:7:2026-10:abcdefghijklmnopqrstuv'
+const PUBLIC_FONT_URL = 'https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Mu4mxK.woff2'
+const PUBLIC_FONT_REF = 'fonturl:v4:public:I6bjVBXgjPcaYLPITibNM4'
 const KEY = Buffer.alloc(32, 9)
 const STORED: TeamMonthKey = { status: 'ok', key: KEY }
 
@@ -102,6 +104,24 @@ describe('RawImageStore', () => {
         }
     )
 
+    it('stores a public font once and unsealed, with no team key, and refreshes that one object', async () => {
+        const keyReads = jest.fn(() => Promise.resolve(STORED))
+        const puts: (PutObjectCommand | CopyObjectCommand)[] = []
+        const s3 = { send: jest.fn((command: PutObjectCommand | CopyObjectCommand) => puts.push(command)) }
+        const sink = new RawImageStore({ get: keyReads }, s3 as any, 'images-v4', 10)
+        const job = { ...candidate(PUBLIC_FONT_REF), currentUrl: PUBLIC_FONT_URL }
+
+        await sink.publishImage(job, fetched(WOFF2, 'font/woff2'))
+        await expect(sink.refreshImage(job)).resolves.toBe(true)
+
+        expect(keyReads).not.toHaveBeenCalled()
+        expect(puts.map((command) => [command.constructor.name, command.input.Key])).toEqual([
+            ['PutObjectCommand', 'fonts/url/public/I6bjVBXgjPcaYLPITibNM4'],
+            ['CopyObjectCommand', 'fonts/url/public/I6bjVBXgjPcaYLPITibNM4'],
+        ])
+        expect((puts[0] as PutObjectCommand).input.Body).toEqual(WOFF2)
+    })
+
     it('resolves to false when it refreshes a reference that has no object', async () => {
         const { sink, puts } = store(STORED, NOT_FOUND)
         await expect(sink.refreshImage(candidate())).resolves.toBe(false)
@@ -117,6 +137,12 @@ describe('RawImageStore', () => {
             STORED,
             candidate('imageurl:v3:7:2026-10:abcdefghijklmnopqrstuv'),
             fetched(),
+        ],
+        [
+            'a public font reference whose job ended on another URL, such as a redirect target',
+            STORED,
+            candidate(PUBLIC_FONT_REF),
+            fetched(WOFF2, 'font/woff2'),
         ],
     ] as const)('resolves without a new object for %s', async (_name, key, job, result) => {
         const { sink, puts } = store(key)

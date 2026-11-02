@@ -1332,15 +1332,16 @@ mod tests {
             "https://cdn.example.com/a.png",
             "https://cdn.example.com/a.png?token=secret",
         );
-        let (font, bundled) = (
+        let (font, bundled, public) = (
             "https://fonts.example.com/brand.woff2",
             "https://fonts.example.com/inter.woff2",
+            "https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Mu4mxK.woff2",
         );
-        let css = format!("@font-face{{font-family:Brand;src:url({font})}}@font-face{{font-family:Inter;src:url({bundled})}}");
+        let css = format!("@font-face{{font-family:Brand;src:url({font})}}@font-face{{font-family:Inter;src:url({bundled})}}@font-face{{font-family:Brand Display;src:url({public})}}");
         let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"attributes": {"src": fetched, "srcset": format!("{declined} 2x"), "_cssText": css}}}}]);
         let mut block = block("kept", events);
         block.image_urls = vec![fetched.to_owned()];
-        block.font_urls = vec![font.to_owned()];
+        block.font_urls = vec![font.to_owned(), public.to_owned()];
         let remote = |url: &str, kind| RemoteUrl {
             url: url.to_owned(),
             kind,
@@ -1350,6 +1351,7 @@ mod tests {
             remote(declined, RemoteKind::Image),
             remote(font, RemoteKind::Font),
             remote(bundled, RemoteKind::BundledFont("inter")),
+            remote(public, RemoteKind::Font),
         ];
         let mut keys = FlushKeys::default();
         let (id, key) = session_key("kept");
@@ -1366,21 +1368,27 @@ mod tests {
                     .map(move |job| (*asset, job["originalRef"].as_str().unwrap()))
             })
             .collect();
-        let [(UrlAsset::Image, image_reference), (UrlAsset::Font, font_reference)] =
+        let [(UrlAsset::Image, image_reference), (UrlAsset::Font, font_reference), (UrlAsset::Font, public_reference)] =
             references.as_slice()
         else {
-            panic!("a job each for the image and the fetched font, none for the bundled font: {references:?}");
+            panic!("a job each for the image and the fetched fonts, none for the bundled font: {references:?}");
         };
         assert!(font_reference.starts_with("fonturl:v4:7:2026-10:"));
+        assert_eq!(
+            *public_reference,
+            "fonturl:v4:public:I6bjVBXgjPcaYLPITibNM4"
+        );
         for expected in [
             format!(r#""src":"{image_reference}""#),
             r#""srcset":"imageurl:v4:declined:credential 2x""#.to_owned(),
             format!("src:url({font_reference})"),
             "src:url(fonturl:v4:bundled:inter)".to_owned(),
+            format!("src:url({public_reference})"),
         ] {
             assert!(lines.contains(&expected), "{expected} in {lines}");
         }
         assert!(!lines.contains("example.com/"), "{lines}");
+        assert!(!lines.contains("gstatic.com/"), "{lines}");
     }
 
     fn session_key(session: &str) -> (SessionId, Key) {

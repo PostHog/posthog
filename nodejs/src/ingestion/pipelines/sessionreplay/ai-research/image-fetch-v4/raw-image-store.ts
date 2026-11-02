@@ -11,7 +11,7 @@ import type { RefreshingImageSink } from './image-sink'
 import { InvalidImageTransportError } from './image-transport'
 import { ImageFetchProcessingMetrics } from './processing-metrics'
 import { URL_ASSET_RULES } from './url-asset-rules'
-import { V4UrlAsset, parseV4UrlRef } from './v4-url-ref'
+import { V4UrlAsset, V4UrlRef, parseV4UrlRef, publicFontRefOf } from './v4-url-ref'
 
 const S3_WRITE_TIMEOUT_MS = 30_000
 /** The `images-v4` lifecycle is 98 days: the 90-day raw window plus this interval and one day. */
@@ -27,6 +27,7 @@ const storedImages = new Counter({
 /**
  * Stores each fetched image sealed and unscrubbed in `images-v4`, under the team month key of its reference. The v4
  * dataset is anonymized downstream, so unlike the v3 lane this sink never sends an image to the scrub lane.
+ * A public font is the same public file for every team, so it is stored once and unsealed.
  *
  * S3 expires an object by its creation time, and blocks that reference an image are written all month. So a new fetch
  * overwrites the object of its reference, and `refreshImage` copies it onto itself to reset its age.
@@ -104,9 +105,14 @@ export class RawImageStore implements RefreshingImageSink {
             storedImages.labels('unknown', 'foreign_ref').inc()
             return
         }
-        const { asset, teamId, keyMonth } = ref
+        const { asset } = ref
         if (!result.bytes) {
             storedImages.labels(asset, 'invalid').inc()
+            return
+        }
+        // Every team reads this one object, so it must hold the file its reference names and not a redirect target.
+        if (ref.scope === 'public' && publicFontRefOf(candidate.currentUrl) !== candidate.originalRef) {
+            storedImages.labels(asset, 'not_public').inc()
             return
         }
         const rules = URL_ASSET_RULES[asset]
@@ -121,21 +127,25 @@ export class RawImageStore implements RefreshingImageSink {
             }
             throw error
         }
-        const key = await this.keys.get(teamId, keyMonth)
-        if (key.status !== 'ok') {
-            storedImages.labels(asset, key.status === 'deleted' ? 'deleted' : 'missing_key').inc()
-            return
+        let stored = body
+        if (ref.scope === 'team') {
+            const { teamId, keyMonth } = ref
+            const key = await this.keys.get(teamId, keyMonth)
+            if (key.status !== 'ok') {
+                storedImages.labels(asset, key.status === 'deleted' ? 'deleted' : 'missing_key').inc()
+                return
+            }
+            stored = sealV4Frame(
+                key.key,
+                { teamId, keyMonth, kind: rules.frameKind, codec: 'none', ref: candidate.originalRef },
+                body
+            )
         }
-        const frame = sealV4Frame(
-            key.key,
-            { teamId, keyMonth, kind: rules.frameKind, codec: 'none', ref: candidate.originalRef },
-            body
-        )
         await this.s3.send(
             new PutObjectCommand({
                 Bucket: this.bucket,
                 Key: objectKey(ref),
-                Body: frame,
+                Body: stored,
                 ContentType: CONTENT_TYPE,
             }),
             { abortSignal: AbortSignal.timeout(S3_WRITE_TIMEOUT_MS) }
@@ -145,6 +155,9 @@ export class RawImageStore implements RefreshingImageSink {
 }
 
 /** One object per reference. The month is the reference's key month, not the day it was fetched. */
-function objectKey(ref: { asset: V4UrlAsset; teamId: number; keyMonth: string; hash: string }): string {
-    return `${URL_ASSET_RULES[ref.asset].objectKeyPrefix}/month=${ref.keyMonth}/${ref.teamId}/${ref.hash}`
+function objectKey(ref: V4UrlRef): string {
+    const prefix = URL_ASSET_RULES[ref.asset].objectKeyPrefix
+    return ref.scope === 'public'
+        ? `${prefix}/public/${ref.hash}`
+        : `${prefix}/month=${ref.keyMonth}/${ref.teamId}/${ref.hash}`
 }
