@@ -36,6 +36,7 @@ from products.data_modeling.backend.facade.models import (
     NodeType,
 )
 from products.data_modeling.backend.logic.cohort_scheduling import is_tier_schedule_id
+from products.data_modeling.backend.logic.freshness import UnsupportedFrequencyTargetError
 from products.data_modeling.backend.logic.node_frequency import get_declared_target
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
@@ -317,7 +318,7 @@ class TestManagedViewSetProviders(BaseTest):
         self.assertEqual(self._views(viewset), [])
 
     def test_a_provider_cannot_declare_an_unschedulable_cadence(self):
-        with self.assertRaisesRegex(ValueError, "not a schedulable cadence"):
+        with self.assertRaisesRegex(UnsupportedFrequencyTargetError, "Can.t refresh every 45 minutes"):
             _fake_view(sync_frequency=timedelta(minutes=45))
 
     def test_sync_views_raises_for_unregistered_kind(self):

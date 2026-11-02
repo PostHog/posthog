@@ -515,6 +515,15 @@ def _nothing_satisfiable_message(bounds: TargetBounds, names: Mapping[str, str] 
     return "No cadence works here."
 
 
+def ensure_schedulable(target: timedelta) -> None:
+    """Raise if `target` is not one of the cadences a person may pick."""
+    if target not in SCHEDULABLE_BUCKETS:
+        supported = ", ".join(format_cadence(interval) for interval in sorted(SCHEDULABLE_BUCKETS))
+        raise UnsupportedFrequencyTargetError(
+            f"Can't refresh every {humanize_cadence(target)}. Pick one of: {supported}."
+        )
+
+
 def validate_declared_target(
     *,
     node_id: str,
@@ -529,11 +538,7 @@ def validate_declared_target(
     `names` maps node ids to display names; supply it to have refusals name the source or view
     that blocks the target, which is the thing a person has to change to unblock it.
     """
-    if target not in SCHEDULABLE_BUCKETS:
-        supported = ", ".join(format_cadence(interval) for interval in sorted(SCHEDULABLE_BUCKETS))
-        raise UnsupportedFrequencyTargetError(
-            f"Can't refresh every {humanize_cadence(target)}. Pick one of: {supported}."
-        )
+    ensure_schedulable(target)
 
     bounds = compute_target_bounds(
         node_id=node_id, edges=edges, declared_targets=declared_targets, source_intervals=source_intervals

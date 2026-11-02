@@ -152,7 +152,6 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
 
         views_created = 0
         views_updated = 0
-        saved_queries_to_schedule: list[DataWarehouseSavedQuery] = []
         saved_queries_to_sync: list[DataWarehouseSavedQuery] = []
         frequency_targets: dict[str, timedelta | None] = {}
         orphaned_views_to_revert: list[DataWarehouseSavedQuery] = []
@@ -218,8 +217,6 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 saved_queries_to_sync.append(saved_query)
                 # A non-materialized view is computed at query time, so it has no cadence and no schedule.
                 frequency_targets[str(saved_query.id)] = view.sync_frequency if view.materialized else None
-                if view.materialized:
-                    saved_queries_to_schedule.append(saved_query)
 
                 if created:
                     views_created += 1
@@ -262,7 +259,9 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 capture_exception(e, {"managed_viewset_id": self.id})
                 logger.warning("failed_to_apply_managed_view_cadences", team_id=self.team_id, error=str(e))
 
-        for saved_query in saved_queries_to_schedule:
+        for saved_query in saved_queries_to_sync:
+            if not saved_query.is_materialized:
+                continue
             try:
                 # Carries no interval, so this only puts a brand-new DAG onto cadence tiers.
                 saved_query.schedule_materialization(reconcile=False)
