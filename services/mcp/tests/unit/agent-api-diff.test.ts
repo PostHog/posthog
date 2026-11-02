@@ -24,11 +24,14 @@ function surface(
 }
 
 describe('agent API diff', () => {
-    it('runs the CLI with native Node.js without a TypeScript loader', () => {
+    it.each(['directory', 'git ref'])('runs the CLI with native Node.js using a base %s', (baseSource) => {
         const root = path.resolve(import.meta.dirname, '../../../..')
         const result = spawnSync(
             process.execPath,
-            [path.join(root, 'services/mcp/scripts/agent-api-diff.ts'), '--base-dir', root],
+            [
+                path.join(root, 'services/mcp/scripts/agent-api-diff.ts'),
+                ...(baseSource === 'directory' ? ['--base-dir', root] : ['--base-ref', 'HEAD']),
+            ],
             { encoding: 'utf-8' }
         )
 
