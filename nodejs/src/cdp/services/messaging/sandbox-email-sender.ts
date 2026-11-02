@@ -82,9 +82,10 @@ const BLOCKED_EVENT_WINDOW_SECONDS = 3600
 // The send is already decided when this runs, and the worker's batch waits for it, so a stalled
 // store must not hold the invocation open.
 const EVENT_CAPTURE_TIMEOUT_MS = 1000
-// A capture that outlives its deadline keeps its Redis connection or pending acquisition, so while the
-// store stalls only this many may wait at once; the rest are dropped.
-const MAX_PENDING_EVENT_CAPTURES = 10
+// A blocked-event capture that outlives its deadline keeps its Redis connection or pending acquisition.
+// Once this many are stuck, new blocked-event captures are dropped until some settle; captures still
+// inside their deadline never count, so a burst against a healthy store keeps every event.
+const MAX_STALLED_STORE_CAPTURES = 10
 
 function htmlBody(document: DefaultTreeAdapterMap['document']): DefaultTreeAdapterMap['element'] | undefined {
     const root = document.childNodes.find(defaultTreeAdapter.isElementNode)
@@ -219,7 +220,7 @@ function appendHtmlFooter(html: string, footer: string, preheader?: string): str
 
 export class SandboxEmailSender {
     public readonly canSend: boolean
-    private pendingEventCaptures = 0
+    private stalledStoreCaptures = 0
 
     constructor(
         public readonly config: SandboxEmailSenderConfig,
@@ -329,22 +330,28 @@ export class SandboxEmailSender {
         teamId: number,
         event: string,
         properties: Record<string, string | number | boolean>,
-        shouldCapture: () => Promise<boolean> = () => Promise.resolve(true)
+        storeCheck?: () => Promise<boolean>
     ): Promise<void> {
-        if (this.pendingEventCaptures >= MAX_PENDING_EVENT_CAPTURES) {
-            logger.warn('Dropped a sandbox email event: too many captures are waiting on the event store', {
+        if (storeCheck && this.stalledStoreCaptures >= MAX_STALLED_STORE_CAPTURES) {
+            logger.warn('Dropped a sandbox email event: too many captures are stuck on the event store', {
                 teamId,
                 event,
             })
             return
         }
-        this.pendingEventCaptures++
-        const capture = this.captureEventNow(teamId, event, properties, shouldCapture).finally(() => {
-            this.pendingEventCaptures--
+        let stalled = false
+        const capture = this.captureEventNow(teamId, event, properties, storeCheck).finally(() => {
+            if (stalled) {
+                this.stalledStoreCaptures--
+            }
         })
         let timer: NodeJS.Timeout | undefined
         const deadline = new Promise<void>((resolve) => {
             timer = setTimeout(() => {
+                if (storeCheck) {
+                    stalled = true
+                    this.stalledStoreCaptures++
+                }
                 logger.warn('Gave up capturing a sandbox email event: the event store did not answer', {
                     teamId,
                     event,
@@ -363,10 +370,10 @@ export class SandboxEmailSender {
         teamId: number,
         event: string,
         properties: Record<string, string | number | boolean>,
-        shouldCapture: () => Promise<boolean>
+        storeCheck?: () => Promise<boolean>
     ): Promise<void> {
         try {
-            if (!(await shouldCapture())) {
+            if (storeCheck && !(await storeCheck())) {
                 return
             }
             const team = await this.teamManager.getTeam(teamId)
