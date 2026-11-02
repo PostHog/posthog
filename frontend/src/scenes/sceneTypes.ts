@@ -31,6 +31,7 @@ export enum Scene {
     BusinessIntelligence = 'BusinessIntelligence',
     Canvas = 'Canvas',
     CLIAuthorize = 'CLIAuthorize',
+    OAuthDeviceAuthorize = 'OAuthDeviceAuthorize',
     CLILive = 'CLILive',
     Cohort = 'Cohort',
     CohortCalculationHistory = 'CohortCalculationHistory',

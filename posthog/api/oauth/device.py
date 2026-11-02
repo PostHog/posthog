@@ -45,7 +45,7 @@ from posthog.accessible_teams import AccessibleTeams, CredentialScopeDenied
 from posthog.api.oauth.client_assertion import resolve_client_assertion
 from posthog.auth import SessionAuthentication
 from posthog.models import Team, User
-from posthog.models.oauth import OAuthApplication, OAuthDeviceGrant
+from posthog.models.oauth import OAuthApplication, OAuthDeviceGrant, live_oauth_access_tokens, live_oauth_refresh_tokens
 from posthog.rate_limit import IPThrottle
 from posthog.scopes import clamp_scopes_to_ceiling, resolve_requested_scopes
 
@@ -312,6 +312,11 @@ class DeviceGrantDetailsSerializer(serializers.Serializer):
     scopes = serializers.ListField(
         child=serializers.CharField(), help_text="The scopes the token will carry if the person approves."
     )
+    granted_scopes = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="The scopes the person already gave this client. A step-up asks for these plus new ones, and "
+        "the page lists only the new ones.",
+    )
     expires_at = serializers.DateTimeField(help_text="When the code expires.")
 
 
@@ -328,9 +333,22 @@ class DeviceDecisionSerializer(serializers.Serializer):
 
 def _invalid_code() -> Response:
     return Response(
-        {"error": "invalid_code", "error_description": "This code is wrong, expired or already used."},
+        {
+            "error": "invalid_code",
+            "error_description": "This code is wrong, expired or already used. Check the code your terminal shows, or start the login again.",
+        },
         status=status.HTTP_400_BAD_REQUEST,
     )
+
+
+def _granted_scopes(user: User, application: OAuthApplication) -> list[str]:
+    """Every scope the user's standing connections to this client carry, counted the way the
+    Connected applications page counts them."""
+    values = [
+        *live_oauth_access_tokens(user).filter(application=application).values_list("scope", flat=True),
+        *live_oauth_refresh_tokens(user).filter(application=application).values_list("access_token__scope", flat=True),
+    ]
+    return sorted({scope for value in values for scope in (value or "").split()})
 
 
 def _capture(request: Request, event: str, grant: OAuthDeviceGrant, **properties: object) -> None:
@@ -390,6 +408,7 @@ class OAuthDeviceViewSet(viewsets.ViewSet):
                     "logo_uri": application.logo_uri or None,
                     "is_verified": application.is_verified,
                     "scopes": (grant.scope or "").split(),
+                    "granted_scopes": _granted_scopes(cast(User, request.user), application),
                     "expires_at": grant.expires,
                 }
             ).data

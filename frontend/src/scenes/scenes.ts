@@ -106,6 +106,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         organizationBased: false,
         layout: 'plain',
     },
+    [Scene.OAuthDeviceAuthorize]: {
+        name: 'Approve a login',
+        projectBased: false,
+        organizationBased: false,
+        layout: 'plain',
+    },
     [Scene.CLILive]: {
         name: 'Authorize Live',
         projectBased: false,
@@ -897,6 +903,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.accountConnected(':kind')]: [Scene.AccountConnected, 'accountConnected'],
     [urls.credentialReview()]: [Scene.CredentialReview, 'credentialReview'],
     [urls.cliAuthorize()]: [Scene.CLIAuthorize, 'cliAuthorize'],
+    [urls.oauthDeviceAuthorize()]: [Scene.OAuthDeviceAuthorize, 'oauthDeviceAuthorize'],
     [urls.cliLive()]: [Scene.CLILive, 'cliLive'],
     [urls.preflight()]: [Scene.PreflightCheck, 'preflight'],
     [urls.signup()]: [Scene.Signup, 'signup'],

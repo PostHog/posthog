@@ -38836,6 +38836,8 @@ export namespace Schemas {
       is_verified: boolean;
       /** The scopes the token will carry if the person approves. */
       scopes: string[];
+      /** The scopes the person already gave this client. A step-up asks for these plus new ones, and the page lists only the new ones. */
+      granted_scopes: string[];
       /** When the code expires. */
       expires_at: string;
     }
