@@ -4,6 +4,7 @@ import { LemonBanner, Link } from '@posthog/lemon-ui'
 
 import { PROVIDER_SETTINGS_URL } from './ModelPicker'
 import { modelPickerLogic } from './modelPickerLogic'
+import { LLMProviderKeysSettings } from './settings/LLMProviderKeysSettings'
 import { providerLabel } from './settings/providerKeyStateUtils'
 
 /** Explains an empty or short model picker on the surfaces that only run on the team's own provider keys. */
@@ -49,14 +50,11 @@ export function ByokModelPickerNotice({ forEvaluation = false }: { forEvaluation
             )
         }
         case 'no-keys':
-            // The evaluation model panel shows its own banner, which adds a key without leaving the page.
-            if (forEvaluation) {
-                return null
-            }
+            // The settings view adds a key in place, so a draft such as a new evaluation stays.
             return (
-                <p className="text-xs text-secondary mt-1">
-                    No models available. <Link to={PROVIDER_SETTINGS_URL}>Add your own API keys</Link> to choose one.
-                </p>
+                <div className="mt-2">
+                    <LLMProviderKeysSettings />
+                </div>
             )
         case 'no-usable-keys':
             return (

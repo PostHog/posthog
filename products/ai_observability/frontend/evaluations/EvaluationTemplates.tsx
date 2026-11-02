@@ -41,10 +41,6 @@ const NO_KEY_RECOMMENDED_TEMPLATE_KEYS = [
     'hallucination',
 ]
 
-export function recommendedTemplateKeys(requiresProviderKey: boolean): string[] {
-    return requiresProviderKey ? NO_KEY_RECOMMENDED_TEMPLATE_KEYS : RECOMMENDED_TEMPLATE_KEYS
-}
-
 type TemplateTab = 'recommended' | 'all' | EvaluationTemplateCategory
 
 const CATEGORY_TABS: { key: EvaluationTemplateCategory; label: string }[] = [
@@ -58,6 +54,10 @@ const CATEGORY_TABS: { key: EvaluationTemplateCategory; label: string }[] = [
 const byKeys = (keys: string[]): EvaluationTemplate[] =>
     keys.flatMap((key) => defaultEvaluationTemplates.filter((template) => template.key === key))
 
+export function recommendedTemplates(requiresProviderKey: boolean): EvaluationTemplate[] {
+    return byKeys(requiresProviderKey ? NO_KEY_RECOMMENDED_TEMPLATE_KEYS : RECOMMENDED_TEMPLATE_KEYS)
+}
+
 const ALL_TEMPLATES_POPULAR_FIRST = [
     ...byKeys(POPULAR_TEMPLATE_KEYS),
     ...defaultEvaluationTemplates.filter((template) => !POPULAR_TEMPLATE_KEYS.includes(template.key)),
@@ -65,7 +65,7 @@ const ALL_TEMPLATES_POPULAR_FIRST = [
 
 function templatesForTab(tab: TemplateTab, requiresProviderKey: boolean): EvaluationTemplate[] {
     if (tab === 'recommended') {
-        return byKeys(recommendedTemplateKeys(requiresProviderKey))
+        return recommendedTemplates(requiresProviderKey)
     }
     if (tab === 'all') {
         return ALL_TEMPLATES_POPULAR_FIRST

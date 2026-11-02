@@ -16,8 +16,8 @@ import { llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { ScratchTemplateCard } from './components/ScratchTemplateCard'
 import { TemplateCard } from './components/TemplateCard'
 import { getEvaluationTemplateSelectionUrl } from './evaluationNavigation'
-import { recommendedTemplateKeys } from './EvaluationTemplates'
-import { type EvaluationTemplate, defaultEvaluationTemplates } from './templates'
+import { recommendedTemplates } from './EvaluationTemplates'
+import type { EvaluationTemplate } from './templates'
 
 export function EvaluationQuickStart({
     mode,
@@ -28,9 +28,7 @@ export function EvaluationQuickStart({
 }): JSX.Element | null {
     const { reportSetupInteraction } = useActions(productSetupStatusLogic({ productKey: ProductKey.LLM_EVALUATIONS }))
     const { requiresProviderKey } = useValues(llmProviderKeysLogic)
-    const quickStartTemplates = recommendedTemplateKeys(requiresProviderKey)
-        .slice(0, 3)
-        .flatMap((key) => defaultEvaluationTemplates.filter((template) => template.key === key))
+    const quickStartTemplates = recommendedTemplates(requiresProviderKey).slice(0, 3)
 
     const selectTemplate = (template: EvaluationTemplate, placement: 'card' | 'example'): void => {
         // pinned: same analytics event as the template picker, so template funnels count both entry points
