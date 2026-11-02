@@ -93,11 +93,13 @@ describe('flagSelectionLogic bulk restore', () => {
     })
 
     it('leaves a flag the API refused out of the retry, and keeps its reason on show', async () => {
-        useRestoreMocks((id) =>
-            id === 1
-                ? [400, { type: 'validation_error', code: 'unsupported_config_version', detail: 'Not supported.' }]
-                : [500, { detail: 'Server error' }]
-        )
+        let secondFlagFails = true
+        useRestoreMocks((id) => {
+            if (id === 1) {
+                return [400, { type: 'validation_error', code: 'unsupported_config_version', detail: 'Not supported.' }]
+            }
+            return secondFlagFails ? [500, { detail: 'Server error' }] : [200, {}]
+        })
         logic = flagSelectionLogic()
         logic.mount()
         logic.actions.showResultsModal({ deleted: [deletedFlag(1), deletedFlag(2)], errors: [] })
@@ -107,15 +109,18 @@ describe('flagSelectionLogic bulk restore', () => {
         // Trying flag 1 again would fail the same way, so the retry only offers flag 2.
         expect(logic.values.restorableFlags).toEqual([deletedFlag(2)])
 
+        secondFlagFails = false
         logic.actions.bulkRestoreFlags(logic.values.restorableFlags)
         await expectLogic(logic).toDispatchActions(['bulkRestoreFlagsFinished'])
 
         expect(restoreRequests.map(({ id }) => id)).toEqual([1, 2, 2])
         expect(logic.values.bulkRestoreFailures).toEqual([
             { id: 1, key: 'flag-1', errorMessage: 'Restoring is not available for this flag yet.', retryable: false },
-            { id: 2, key: 'flag-2', errorMessage: 'Server error', retryable: true },
         ])
-        expect(logic.values.stillDeletedFlags).toEqual([deletedFlag(1), deletedFlag(2)])
+        expect(logic.values.stillDeletedFlags).toEqual([deletedFlag(1)])
+        expect(logic.values.restorableFlags).toEqual([])
+        // The retry had no failures of its own, but flag 1 is still deleted, so the results stay open.
+        expect(logic.values.resultsModalVisible).toBe(true)
     })
 
     it('drops each flag from the still deleted list as soon as it is restored', async () => {

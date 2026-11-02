@@ -825,8 +825,9 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
             actions.bulkRestoreFlagsFinished(failed)
             actions.loadFeatureFlags()
             actions.reportFeatureFlagsBulkRestored(restoredCount, failed.length)
-            // Keep the results open when something failed, so the person can see which flags are still deleted.
-            if (failed.length === 0) {
+            // Keep the results open while any flag is still deleted, so the person can see which ones. That
+            // includes a flag an earlier run found the API won't restore, which this run left out.
+            if (values.stillDeletedFlags.length === 0) {
                 actions.hideResultsModal()
             }
 
