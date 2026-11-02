@@ -200,6 +200,8 @@ MIDDLEWARE = [
     "posthog.middleware.AllowIPMiddleware",
     *_UNVERSIONED_STATIC_MIDDLEWARE,  # Must precede WhiteNoise — it reads the path this rewrites
     "whitenoise.middleware.WhiteNoiseMiddleware",
+    # Must precede SessionMiddleware, so it runs on the response after SessionMiddleware adds Vary: Cookie.
+    "posthog.middleware.VaryCookieExemptMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "posthog.middleware.OAuthCorsPreflightMiddleware",  # Must precede CorsMiddleware — echoes custom headers on OAuth preflights
     "corsheaders.middleware.CorsMiddleware",

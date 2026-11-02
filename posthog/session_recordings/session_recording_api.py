@@ -5,6 +5,7 @@ import json
 import time
 import struct
 import asyncio
+import hashlib
 import builtins
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -16,7 +17,7 @@ from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
 from django.db.models import Q
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpResponse, HttpResponseNotModified, JsonResponse
 from django.utils import timezone
 
 import requests
@@ -78,6 +79,7 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
+from posthog.middleware import exempt_from_vary_cookie
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.comment import Comment
@@ -111,7 +113,7 @@ from posthog.session_recordings.queries.session_replay_events import (
 from posthog.session_recordings.recordings.errors import BlockFetchError, RecordingDeletedError
 from posthog.session_recordings.recordings.recording_api_client import RecordingApiClient, recording_api_client
 from posthog.session_recordings.recordings.replay_proxy_jwt import mint_replay_proxy_token
-from posthog.session_recordings.session_recording_v2_service import list_blocks, list_blocks_async
+from posthog.session_recordings.session_recording_v2_service import RecordingBlock, list_blocks, list_blocks_async
 from posthog.session_recordings.utils import (
     clean_prompt_whitespace,
     filter_from_params_to_query,
@@ -901,6 +903,21 @@ class SharingTokenReplayThrottle(SimpleRateThrottle):
         return False
 
 
+def _blob_range_etag(blocks: list[RecordingBlock], decompress: bool) -> str:
+    # A block index can point at different bytes over time, because a late block of an ongoing recording sorts
+    # into the middle of the listing. So the tag names the storage objects behind the range, not the indices.
+    identity = ";".join(f"{block.key}:{block.start_byte}-{block.end_byte}" for block in blocks)
+    digest = hashlib.sha256(f"{int(decompress)}|{identity}".encode()).hexdigest()
+    return f'"{digest}"'
+
+
+def _if_none_match_includes(header: str | None, etag: str) -> bool:
+    if not header:
+        return False
+    candidates = [candidate.strip().removeprefix("W/") for candidate in header.split(",")]
+    return "*" in candidates or etag in candidates
+
+
 def _length_prefix_blocks(blocks: list[bytes]) -> bytes:
     chunks = []
     for block in blocks:
@@ -1570,6 +1587,7 @@ class SessionRecordingViewSet(
             response: Response | HttpResponse
             if source == "blob_v2" and "min_blob_key" in validated_data:
                 response = self._stream_blob_v2_to_client(
+                    request,
                     recording,
                     timer,
                     min_blob_key=validated_data["min_blob_key"],
@@ -1831,22 +1849,29 @@ class SessionRecordingViewSet(
     @tracer.start_as_current_span("_stream_blob_v2_to_client")
     def _stream_blob_v2_to_client(
         self,
+        request: request.Request,
         recording: SessionRecording,
         timer: ServerTimingsGathered,
         min_blob_key: int,
         max_blob_key: int,
         decompress: bool = True,
     ) -> HttpResponse:
-        async def _run() -> HttpResponse:
-            with _OTEL_PLAYBACK.timed_histogram_twin(
-                STREAM_RESPONSE_TO_CLIENT_HISTOGRAM, {"blob_version": "v2", "decompress": str(decompress)}
-            ):
-                blocks = await self._fetch_and_validate_blocks(recording, timer, min_blob_key, max_blob_key)
+        with _OTEL_PLAYBACK.timed_histogram_twin(
+            STREAM_RESPONSE_TO_CLIENT_HISTOGRAM, {"blob_version": "v2", "decompress": str(decompress)}
+        ):
+            blocks = asyncio.run(self._fetch_and_validate_blocks(recording, timer, min_blob_key, max_blob_key))
+            etag = _blob_range_etag(blocks[min_blob_key : max_blob_key + 1], decompress)
 
-                blocks_data = await self._fetch_blocks_with_storage(
-                    blocks, min_blob_key, max_blob_key, recording, timer, decompress=decompress
+            response: HttpResponse
+            if _if_none_match_includes(request.headers.get("If-None-Match"), etag):
+                # The browser already holds these bytes, so skip the storage fetch.
+                response = HttpResponseNotModified()
+            else:
+                blocks_data = asyncio.run(
+                    self._fetch_blocks_with_storage(
+                        blocks, min_blob_key, max_blob_key, recording, timer, decompress=decompress
+                    )
                 )
-
                 if decompress:
                     response = HttpResponse(
                         content=b"".join(blocks_data).rstrip(b"\n"),
@@ -1857,12 +1882,15 @@ class SessionRecordingViewSet(
                         content=_length_prefix_blocks(blocks_data),
                         content_type="application/octet-stream",
                     )
-
-                response["Cache-Control"] = "max-age=3600"
                 response["Content-Disposition"] = "inline"
-                return response
 
-        return asyncio.run(_run())
+            # no-cache makes the browser revalidate every reuse, so each reuse is authorized again on this request.
+            # That makes it safe to drop Vary: Cookie, which otherwise defeats the cache, because posthog-js
+            # rewrites its persistence cookie on every captured event and so no two fetches send the same Cookie.
+            response["Cache-Control"] = "private, no-cache"
+            response["ETag"] = etag
+            exempt_from_vary_cookie(response)
+            return response
 
     @extend_schema(
         exclude=True,

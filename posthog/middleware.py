@@ -367,6 +367,40 @@ class CsrfOrKeyViewMiddleware(CsrfViewMiddleware):
         return None
 
 
+_VARY_COOKIE_EXEMPT_ATTR = "_posthog_vary_cookie_exempt"
+
+
+def exempt_from_vary_cookie(response: HttpResponse) -> None:
+    """Drop Cookie from this response's Vary header.
+
+    Only for a response that forces revalidation (no-cache) and authorizes every revalidation request,
+    because without Vary: Cookie a browser can offer a copy fetched under a different login.
+    """
+    setattr(response, _VARY_COOKIE_EXEMPT_ATTR, True)
+
+
+class VaryCookieExemptMiddleware:
+    """Strips Cookie from Vary on responses marked by `exempt_from_vary_cookie`.
+
+    SessionMiddleware adds Vary: Cookie whenever any middleware reads the session, and several do on the
+    response path, so a view cannot prevent it. This middleware must sit above SessionMiddleware so that it
+    processes the response after SessionMiddleware has patched it.
+    """
+
+    def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        response = self.get_response(request)
+        if getattr(response, _VARY_COOKIE_EXEMPT_ATTR, False) and response.has_header("Vary"):
+            kept = [value.strip() for value in response["Vary"].split(",") if value.strip().lower() != "cookie"]
+            if kept:
+                response["Vary"] = ", ".join(kept)
+            else:
+                del response["Vary"]
+        return response
+
+
 # Work around cloudflare by default caching csv files
 class CsvNeverCacheMiddleware:
     def __init__(self, get_response):

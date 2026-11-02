@@ -931,3 +931,52 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         assert response.status_code == status.HTTP_410_GONE
         assert response.json()["error"] == "recording_deleted"
         assert response.json()["deleted_at"] == 1700000000
+
+    def _block(self, key: str, start_byte: int) -> RecordingBlock:
+        return RecordingBlock(
+            key=key,
+            start_byte=start_byte,
+            end_byte=start_byte + 99,
+            start_timestamp="2024-01-01T00:00:00Z",
+            end_timestamp="2024-01-01T00:01:00Z",
+        )
+
+    @patch("posthog.session_recordings.session_recording_api.recording_api_client")
+    @patch("posthog.session_recordings.session_recording_api.list_blocks_async", new_callable=AsyncMock)
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
+    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
+    def test_blob_v2_revalidates_by_etag_of_the_blocks_behind_the_range(
+        self,
+        mock_get_session_recording,
+        _mock_exists,
+        mock_list_blocks,
+        mock_recording_api_client,
+    ):
+        session_id = str(uuid7())
+        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
+        mock_list_blocks.return_value = [self._block("key0", 0), self._block("key1", 100)]
+        mock_storage = MagicMock()
+        mock_storage.fetch_block = AsyncMock(return_value=b'{"timestamp": 1}')
+        mock_recording_api_client.return_value.__aenter__.return_value = mock_storage
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key=1&end_blob_key=1"
+
+        first = self.client.get(url)
+        assert first.status_code == status.HTTP_200_OK
+        assert first.headers["Cache-Control"] == "private, no-cache"
+        assert "cookie" not in first.headers.get("Vary", "").lower()
+        etag = first.headers["ETag"]
+
+        revalidated = self.client.get(url, headers={"If-None-Match": etag})
+        assert revalidated.status_code == status.HTTP_304_NOT_MODIFIED
+        assert revalidated.headers["ETag"] == etag
+        assert mock_storage.fetch_block.await_count == 1
+
+        # A late block sorting into the middle shifts index 1 onto different bytes, so the old tag must not match.
+        mock_list_blocks.return_value = [self._block("key0", 0), self._block("late", 0), self._block("key1", 100)]
+        shifted = self.client.get(url, headers={"If-None-Match": etag})
+        assert shifted.status_code == status.HTTP_200_OK
+        assert shifted.headers["ETag"] != etag
+        assert mock_storage.fetch_block.await_count == 2
