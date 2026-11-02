@@ -82,7 +82,8 @@ from ee.clickhouse.materialized_columns.columns import (
 )
 
 # The property-group key guard as printed: a `has()` ANDed after the comparison. The value read's own `has()` follows
-# `if(` instead, so this substring only matches the guard.
+# `if(` instead, so in these queries this substring only matches the guard. It names the `events` table, not a key, so
+# a case with two guarded comparisons counts the guards.
 _KEY_GUARD_SQL = ", has(events.properties_group_custom, "
 
 
@@ -1874,7 +1875,12 @@ class TestPrinter(BaseTest):
             ("match(properties.key, 'a')", f"match({value_read}, %(hogql_val_2)s)"),
         ):
             with self.subTest(expression):
-                self._test_property_group_comparison(expression, f"and({comparison}, {has_key})", in_where=True)
+                self._test_property_group_comparison(
+                    expression,
+                    f"and({comparison}, {has_key})",
+                    expected_skip_indexes_used={"properties_group_custom_keys_bf"},
+                    in_where=True,
+                )
 
         self._test_property_group_comparison(
             "toDateTime(properties.key) > '2024-01-01'",
@@ -1899,6 +1905,7 @@ class TestPrinter(BaseTest):
             "properties.key !~ 'a'",
             "properties.key !~* 'a'",
             "ifNull(not(match(toString(properties.key), 'a')), 1)",
+            "ifNull(match(toString(properties.key), 'a'), 1)",
             "ifNull(match(toString(properties.key), properties.other), 0)",
             "properties.key NOT IN ('a', 'b', '')",
             "properties.key LIKE NULL",
@@ -1914,7 +1921,6 @@ class TestPrinter(BaseTest):
             self._test_property_group_comparison("toString(properties.key) ILIKE '%a%'", None, in_where=True)
 
     def test_property_groups_key_guard_only_in_where_and_or_chains(self) -> None:
-
         def optimized_sql(query: str) -> str:
             modifiers = HogQLQueryModifiers(
                 materializationMode=MaterializationMode.AUTO, propertyGroupsMode=PropertyGroupsMode.OPTIMIZED
@@ -1946,13 +1952,15 @@ class TestPrinter(BaseTest):
             "select 1 from events where toDateTime(properties.key) > timestamp = 0",
             "select 1 from events order by properties.key < 'b'",
             "select 1 from events group by properties.key having properties.key < 'b'",
-            "select 1 from events as a join events as b on a.properties.key < 'b'",
             "select 1 from events where arrayExists(x -> properties.key < 'b', [1])",
             "select 1 from events where event in (select properties.key < 'b' from events)",
             "select 1 from events where not(less(properties.key, 'b'))",
             "select 1 from events limit 1 by properties.key < 'b'",
             "select 1 from events window w as (partition by properties.key < 'b')",
             "select 1 from events array join [properties.key < 'b'] as x",
+            "select ifNull(match(toString(properties.key), 'a'), 0) from events",
+            "select 1 from events order by ifNull(match(toString(properties.key), 'a'), 0)",
+            "select 1 from events where not(ifNull(match(toString(properties.key), 'a'), 0))",
         )
         for query in guarded:
             with self.subTest(query):
@@ -1962,6 +1970,20 @@ class TestPrinter(BaseTest):
         for query in unguarded:
             with self.subTest(query):
                 self.assertNotIn(_KEY_GUARD_SQL, optimized_sql(query))
+        if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            two_keys_sql = optimized_sql(
+                "select 1 from events where properties.key < 'b' or properties.other like 'a%'"
+            )
+            self.assertEqual(two_keys_sql.count(_KEY_GUARD_SQL), 2)
+        # A JOIN ON comparison is not a filter chain. The guard prints the table alias, so check it by that alias, and
+        # prove the marker by the same comparison in a WHERE, where it is guarded.
+        if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            alias_guard_sql = _KEY_GUARD_SQL.replace("events.", "a.")
+            self.assertIn(alias_guard_sql, optimized_sql("select 1 from events as a where a.properties.key < 'b'"))
+            self.assertNotIn(
+                alias_guard_sql,
+                optimized_sql("select 1 from events as a join events as b on a.properties.key < 'b'"),
+            )
         # A guarded WHERE comparison next to the same comparison in another clause: only the WHERE one is guarded.
         select_sql = optimized_sql("select less(properties.key, 'b') from events where less(properties.other, 'c')")
         select_part, _, where_part = select_sql.partition("WHERE")
@@ -2047,6 +2069,14 @@ class TestPrinter(BaseTest):
 
         # `transform`'s default makes an absent key match, so skipping granules without the key would drop rows.
         expr = "toBool(transform(toString(properties.value), ['apple'], [0], 1)) > 0"
+        disabled_results, _ = query_results(shapes["where"], expr, PropertyGroupsMode.DISABLED)
+        optimized_results, optimized_sql = query_results(shapes["where"], expr, PropertyGroupsMode.OPTIMIZED)
+        self.assertEqual(optimized_results, disabled_results)
+        self.assertIn(("absent",), optimized_results)
+        self.assertNotIn(_KEY_GUARD_SQL, optimized_sql)
+
+        # The same goes for a `match` whose NULL falls back to 1 instead of the `regex` filter's 0.
+        expr = "ifNull(match(toString(properties.value), '^app'), 1)"
         disabled_results, _ = query_results(shapes["where"], expr, PropertyGroupsMode.DISABLED)
         optimized_results, optimized_sql = query_results(shapes["where"], expr, PropertyGroupsMode.OPTIMIZED)
         self.assertEqual(optimized_results, disabled_results)

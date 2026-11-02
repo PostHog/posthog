@@ -1476,7 +1476,7 @@ class ClickHousePropertyResolver(CloningVisitor):
             comparison = ast.CompareOperation(
                 left=node.args[0], right=node.args[1], op=HOGQL_COMPARISON_MAPPING[node.name]
             )
-            return self._visit_compare_operation(comparison, in_filter_chain=id(node) in self._key_guard_nodes)
+            return self._visit_compare_operation(comparison, in_filter_chain=self._in_filter_chain(node))
 
         return super().visit_call(node)
 
@@ -1959,7 +1959,12 @@ class ClickHousePropertyResolver(CloningVisitor):
     def visit_compare_operation(self, node: ast.CompareOperation) -> ast.Expr:
         if self._in_grouped_clause:
             return super().visit_compare_operation(node)
-        return self._visit_compare_operation(node, in_filter_chain=id(node) in self._key_guard_nodes)
+        return self._visit_compare_operation(node, in_filter_chain=self._in_filter_chain(node))
+
+    def _in_filter_chain(self, node: ast.Expr) -> bool:
+        # `_collect_key_guard_nodes` records these by id: the comparisons and calls reached from a WHERE or PREWHERE through
+        # `and`/`or` alone.
+        return id(node) in self._key_guard_nodes
 
     def _visit_compare_operation(self, node: ast.CompareOperation, in_filter_chain: bool) -> ast.Expr:
         # Try each skip-index comparison rewrite in order. Each one consumes the property operand and returns the
@@ -2376,7 +2381,7 @@ class ClickHousePropertyResolver(CloningVisitor):
         `match` has no comparison operator in call form, so it never reaches `visit_compare_operation`; judge it as the
         `=~` comparison it is. Both forms are NULL or false for an absent key.
         """
-        if id(node) not in self._key_guard_nodes:
+        if not self._in_filter_chain(node):
             return None
         match node:
             case (
