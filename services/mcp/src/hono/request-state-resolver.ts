@@ -201,8 +201,7 @@ export class RequestStateResolver {
 
         // MCP_GATEWAY_FLAG gates no tool of its own — it gates the third-party tools `exec`
         // resolves — so the tool-definition scan can't discover it; join it in explicitly.
-        // MCP_EXEC_SKILLS_FEATURE_FLAG gates the `learn` skill commands the same way, and
-        // MCP_INBOX_FIRST_FLAG gates a prompt section.
+        // MCP_EXEC_SKILLS_FEATURE_FLAG gates the `learn` skill commands, and MCP_INBOX_FIRST_FLAG a prompt section.
         const allFlagKeys = [
             ...new Set([
                 ...getRequiredFeatureFlags(),
