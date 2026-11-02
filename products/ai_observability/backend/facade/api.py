@@ -1,9 +1,34 @@
-from collections.abc import Sequence
-from datetime import date, datetime
+from collections.abc import Mapping, Sequence
+from datetime import date, datetime, timedelta
+from itertools import batched
+from typing import IO
+
+from django.utils.timezone import now
 
 from posthog.schema import HogQLPropertyFilter
 
+from posthog.clickhouse.client.connection import Workload
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.engineering_analytics.backend.facade import api as engineering_analytics_api
+from products.engineering_analytics.backend.facade.contracts import BranchPRMatch, GitHubSourceNotConnectedError
+from products.exports.backend.facade.api import (
+    EXPORT_WORKFLOW_TIMEOUT,
+    ExportedAsset,
+    create_export_asset_async,
+    get_export_asset,
+    is_export_failure_final,
+)
+from products.surveys.backend.facade.api import (
+    LinkedSurveyAnswer,
+    LinkedSurveyResponse,
+    LinkedSurveyResponses,
+    SurveyRef,
+    get_survey_responses_linked_to,
+)
 
 from ..logic.evaluations.evaluation_metas import load_evaluation_meta, load_evaluation_metas
 from ..logic.evaluations.overview import evaluation_result, group_by_evaluation, overview_totals, pass_rate_overview
@@ -25,6 +50,7 @@ from ..logic.traces.events_fallback import fallback_window
 from ..logic.traces.feedback import FeedbackText, Score, TraceFeedback
 from ..logic.traces.git import GitRef
 from ..logic.traces.node import NodeEvent
+from ..logic.traces.node_contents_queries import load_trace_nodes
 from ..logic.traces.summary import (
     AIDataProcessingNotApprovedError as AIDataProcessingNotApprovedError,
     FailedSummary,
@@ -37,11 +63,25 @@ from ..logic.traces.summary import (
 )
 from ..logic.traces.summary_generation import generate_summary
 from ..logic.traces.summary_store import fail_abandoned_summary, request_summary, viewer_summary
+from ..logic.traces.survey_feedback import THUMBS_UP, answer_kind, count_thumbs, survey_window
 from ..logic.traces.timeline import TimelineRow
 from ..logic.traces.trace import Trace
+from ..logic.traces.trace_export import (
+    MAX_TRACE_EXPORT_BYTES,
+    TRACE_EXPORT_FORMAT,
+    TRACE_EXPORT_KIND,
+    TRACE_EXPORT_NODE_BATCH_SIZE,
+    TRACE_EXPORT_TTL,
+    InvalidTraceExportRequestError,
+    TraceExportRequest,
+    TraceExportState,
+    TraceExportWriter,
+)
 from ..logic.traces.trace_queries import (
+    TraceNodeRow,
     load_trace,
     load_trace_feedback_rows,
+    load_trace_git_rows,
     load_trace_node,
     load_trace_root,
     load_trace_search,
@@ -96,9 +136,7 @@ def get_trace_node(
         root = load_trace_root(team, user, trace_id, timestamp_hint)
         if not root.trace_found:
             raise TraceNodeNotFoundError(node_id)
-        if root.trace_event is None:
-            return contracts.TraceNodeDetail(id=trace_id, kind="trace", error=None, metadata=_NO_METADATA, event=None)
-        return _to_node_detail(trace_id, NodeEvent(row=root.trace_event))
+        return _to_root_detail(trace_id, root.trace_event)
     row = load_trace_node(team, user, trace_id, node_id, timestamp_hint)
     if row is None:
         raise TraceNodeNotFoundError(node_id)
@@ -173,6 +211,12 @@ def _to_trace(trace: Trace) -> contracts.Trace:
         node_ids_by_alias=trace.node_ids_by_alias,
         git=_to_git(trace.git) if trace.git is not None else None,
     )
+
+
+def _to_root_detail(trace_id: str, trace_event: TraceNodeRow | None) -> contracts.TraceNodeDetail:
+    if trace_event is None:
+        return contracts.TraceNodeDetail(id=trace_id, kind="trace", error=None, metadata=_NO_METADATA, event=None)
+    return _to_node_detail(trace_id, NodeEvent(row=trace_event))
 
 
 def _to_git(ref: GitRef) -> contracts.TraceGit:
@@ -297,17 +341,49 @@ def _to_trace_cluster(cluster: TraceCluster) -> contracts.TraceCluster:
     )
 
 
+NO_LINKED_SURVEYS = LinkedSurveyResponses(responses=(), unanswered=())
+
+
 def get_trace_feedback(
-    team: Team, user: User | None, trace_id: str, timestamp_hint: datetime | None
+    team: Team, user: User | None, trace_id: str, timestamp_hint: datetime | None, *, include_surveys: bool
 ) -> contracts.TraceFeedback:
-    """End-user feedback on a trace. An unknown trace has none."""
-    feedback = TraceFeedback(trace_id, load_trace_feedback_rows(team, user, trace_id, timestamp_hint))
+    """End-user feedback on a trace, from its feedback events and the survey responses linked to it. An unknown trace
+    has none. Survey responses are read only with `include_surveys`, and a failed survey read leaves them out."""
+    rows = load_trace_feedback_rows(team, user, trace_id, timestamp_hint)
+    feedback = TraceFeedback(trace_id, rows)
+    survey_responses_status: contracts.TraceSurveyResponsesStatus = "ok" if include_surveys else "not_permitted"
+    linked = NO_LINKED_SURVEYS
+    window = survey_window(rows, timestamp_hint)
+    if include_surveys and window is not None:
+        try:
+            linked = get_survey_responses_linked_to(
+                team, user, property_name="$ai_trace_id", property_value=trace_id, since=window.start, until=window.end
+            )
+        except Exception as error:
+            # Survey responses are one feedback source among several, so their failure must not hide the others.
+            capture_exception(error)
+            survey_responses_status = "failed"
+    survey_responses = linked.responses
+    thumbs = count_thumbs(survey_responses)
     scores = [_to_feedback_score(score) for score in feedback.scores]
-    responses = [_to_feedback_text(text) for text in feedback.texts]
+    responses: list[contracts.TraceFeedbackText | contracts.TraceSurveyResponse] = sorted(
+        [
+            *(_to_feedback_text(text) for text in feedback.texts),
+            *(_to_survey_response(response, trace_id) for response in survey_responses),
+        ],
+        key=lambda response: response.timestamp,
+    )
     return contracts.TraceFeedback(
         scores=scores,
         responses=responses,
-        summary=contracts.TraceFeedbackSummary(total=len(scores) + len(responses)),
+        unanswered=[
+            contracts.TraceUnansweredSurvey(survey=_to_survey(survey.survey), timestamp=survey.shown_at)
+            for survey in linked.unanswered
+        ],
+        survey_responses_status=survey_responses_status,
+        summary=contracts.TraceFeedbackSummary(
+            total=len(scores) + len(responses), thumbs_up=thumbs.up, thumbs_down=thumbs.down
+        ),
     )
 
 
@@ -323,6 +399,45 @@ def _to_feedback_text(text: FeedbackText) -> contracts.TraceFeedbackText:
     )
 
 
+def _to_survey(survey: SurveyRef) -> contracts.TraceSurvey:
+    return contracts.TraceSurvey(id=survey.id, name=survey.name)
+
+
+def _to_survey_response(response: LinkedSurveyResponse, trace_id: str) -> contracts.TraceSurveyResponse:
+    return contracts.TraceSurveyResponse(
+        kind="survey",
+        id=response.submission_id,
+        node_id=trace_id,
+        timestamp=response.submitted_at,
+        survey=_to_survey(response.survey),
+        answers=[_to_survey_answer(answer) for answer in response.answers],
+        complete=response.complete,
+        unavailable=response.unavailable,
+    )
+
+
+def _to_survey_answer(answer: LinkedSurveyAnswer) -> contracts.TraceSurveyAnswer:
+    question = answer.question_text
+    values = list(answer.value) if isinstance(answer.value, tuple) else [answer.value]
+    match answer_kind(answer):
+        case "thumbs":
+            return contracts.TraceThumbsAnswer(kind="thumbs", question=question, up=answer.value == THUMBS_UP)
+        case "rating":
+            rating = answer.rating
+            return contracts.TraceRatingAnswer(
+                kind="rating",
+                question=question,
+                value=", ".join(values),
+                scale=rating.scale if rating else None,
+                lower_label=rating.lower_bound_label if rating else None,
+                upper_label=rating.upper_bound_label if rating else None,
+            )
+        case "choice":
+            return contracts.TraceChoiceAnswer(kind="choice", question=question, choices=values)
+        case "text":
+            return contracts.TraceTextAnswer(kind="text", question=question, text=", ".join(values))
+
+
 def _to_evaluation_summary(summary: EvaluationSummary) -> contracts.TraceEvaluationSummary:
     return contracts.TraceEvaluationSummary(
         passed=summary.passed,
@@ -332,6 +447,36 @@ def _to_evaluation_summary(summary: EvaluationSummary) -> contracts.TraceEvaluat
             contracts.TraceNodeEvaluationRollup(node_id=node.node_id, outcome=node.outcome) for node in summary.nodes
         ],
     )
+
+
+def get_trace_pull_request(
+    team: Team,
+    user: User | None,
+    user_access_control: "UserAccessControl | None",
+    trace_id: str,
+    timestamp_hint: datetime | None,
+) -> contracts.TracePullRequestLookup:
+    ref = GitRef.from_rows(load_trace_git_rows(team, user, trace_id, timestamp_hint))
+    # A default branch is the head of unrelated pull requests, such as fork and release ones, so it links to none.
+    if ref is None or ref.is_default_branch:
+        return contracts.TracePullRequestLookup(pull_request=None)
+    try:
+        matches = engineering_analytics_api.resolve_branch(
+            team=team,
+            branch=ref.branch,
+            repo=ref.repo,
+            timestamp=ref.seen_at,
+            user_access_control=user_access_control,
+        )
+    # The repo stamp comes from an SDK, so a value that is not owner/name reads as no match, not a failure.
+    except (GitHubSourceNotConnectedError, ValueError):
+        return contracts.TracePullRequestLookup(pull_request=None)
+    return contracts.TracePullRequestLookup(pull_request=_to_pull_request(matches[0]) if matches else None)
+
+
+def _to_pull_request(match: BranchPRMatch) -> contracts.TracePullRequest:
+    owner, _, name = match.repo.partition("/")
+    return contracts.TracePullRequest(repo_owner=owner, repo_name=name, number=match.number, title=match.title)
 
 
 def evaluations_period(team: Team, date_from: date | datetime | None, date_to: date | datetime | None) -> PeriodBounds:
@@ -445,3 +590,114 @@ def _to_trace_summary(entry: SummaryEntry) -> contracts.TraceSummary:
         case FailedSummary():
             failure = contracts.TraceSummaryFailure(reason=entry.reason, message=entry.message)
             return contracts.TraceSummary(status="failed", content=None, failure=failure)
+
+
+class TraceExportNotFoundError(Exception):
+    pass
+
+
+class TraceExportForbiddenError(Exception):
+    pass
+
+
+# Allows for the workflow's own timeout plus the time it takes to record a failure.
+_TRACE_EXPORT_STUCK_AFTER = EXPORT_WORKFLOW_TIMEOUT + timedelta(seconds=30)
+
+
+def create_trace_export(
+    team: Team, user: User, trace_id: str, timestamp_hint: datetime | None, *, was_impersonated: bool
+) -> contracts.TraceExport:
+    """Starts writing the trace and every node with its input and output to a JSON file the user downloads."""
+    request = TraceExportRequest(trace_id=trace_id, timestamp_hint=timestamp_hint)
+    asset = create_export_asset_async(
+        team=team,
+        created_by=user,
+        export_format=TRACE_EXPORT_FORMAT,
+        export_context=request.to_context(),
+        expires_after=now() + TRACE_EXPORT_TTL,
+    )
+    log_activity(
+        organization_id=team.organization_id,
+        team_id=team.id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=asset.id,
+        scope="ExportedAsset",
+        activity="exported",
+        detail=Detail(
+            name=asset.filename,
+            type=TRACE_EXPORT_KIND,
+            changes=[Change(type="ExportedAsset", action="exported", field="export_format", after=TRACE_EXPORT_FORMAT)],
+        ),
+    )
+    return _to_trace_export(asset)
+
+
+def get_trace_export(team: Team, user: User, trace_id: str, export_id: int) -> contracts.TraceExport:
+    """Raises `TraceExportNotFoundError` unless the user created this export of this trace."""
+    asset = get_export_asset(team_id=team.pk, asset_id=export_id)
+    if (
+        asset is None
+        or asset.created_by_id != user.id
+        or asset.export_format != TRACE_EXPORT_FORMAT
+        or exported_trace_id(asset.export_context or {}) != trace_id
+    ):
+        raise TraceExportNotFoundError(export_id)
+    return _to_trace_export(asset)
+
+
+def exported_trace_id(export_context: Mapping[str, object]) -> str | None:
+    try:
+        return TraceExportRequest.from_context(export_context).trace_id
+    except InvalidTraceExportRequestError:
+        return None
+
+
+def write_trace_export(team: Team, user: User, export_context: Mapping[str, object], stream: IO[bytes]) -> None:
+    """Writes `contracts.TraceExportFile` as JSON to the stream, reading as the user who requested the export.
+
+    Raises `TraceExportForbiddenError` or `TraceNotFoundError`, and the logic's `InvalidTraceExportRequestError` or
+    `TraceExportTooLargeError`.
+    """
+    request = TraceExportRequest.from_context(export_context)
+    # The export runs later without a request, so the view's permission check has to be repeated here.
+    access = UserAccessControl(user=user, team=team)
+    if not access.check_access_level_for_object(team, "member") or not access.check_access_level_for_resource(
+        "llm_analytics", "viewer"
+    ):
+        raise TraceExportForbiddenError(request.trace_id)
+    loaded = load_trace(team, user, request.trace_id, request.timestamp_hint, workload=Workload.OFFLINE)
+    if not loaded.rows:
+        raise TraceNotFoundError(request.trace_id)
+    trace = Trace(request.trace_id, loaded.rows, loaded.person)
+    writer = TraceExportWriter(
+        stream,
+        _to_trace(trace).model_dump_json(by_alias=True),
+        truncated=loaded.truncated,
+        max_bytes=MAX_TRACE_EXPORT_BYTES,
+    )
+    root = load_trace_root(team, user, trace.id, trace.created_at, workload=Workload.OFFLINE)
+    writer.add_node(_to_root_detail(trace.id, root.trace_event).model_dump_json(by_alias=True))
+    for node_ids in batched([row.event.id for row in trace.timeline.rows], TRACE_EXPORT_NODE_BATCH_SIZE, strict=False):
+        for row in load_trace_nodes(team, user, trace.id, node_ids, trace.created_at, workload=Workload.OFFLINE):
+            writer.add_node(_to_node_detail(row.uuid, NodeEvent(row=row)).model_dump_json(by_alias=True))
+    writer.close()
+
+
+def _to_trace_export(asset: ExportedAsset) -> contracts.TraceExport:
+    state = TraceExportState.of(
+        has_content=asset.has_content,
+        exception=asset.exception,
+        failure_is_final=is_export_failure_final(exception_type=asset.exception_type, failure_type=asset.failure_type),
+        created_at=asset.created_at,
+        now=now(),
+        stuck_after=_TRACE_EXPORT_STUCK_AFTER,
+    )
+    return contracts.TraceExport(
+        id=asset.id,
+        status=state.status,
+        filename=asset.filename,
+        created_at=asset.created_at,
+        expires_after=asset.expires_after,
+        exception=state.exception,
+    )

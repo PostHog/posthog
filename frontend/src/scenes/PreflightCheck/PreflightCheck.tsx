@@ -11,12 +11,11 @@ import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
+import { PreflightCheckStatus, PreflightItem, preflightLogic } from 'lib/logic/preflightLogic'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { AUTH_NOTES } from 'scenes/authentication/shared/authScene/authNotes'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { SceneExport } from 'scenes/sceneTypes'
-
-import { PreflightCheckStatus, PreflightItem, preflightLogic } from './preflightLogic'
 
 export const scene: SceneExport = {
     component: PreflightCheck,

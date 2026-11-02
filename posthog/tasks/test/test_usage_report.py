@@ -65,7 +65,7 @@ from posthog.tasks.usage_report import (
     _get_team_report,
     _get_teams_for_usage_reports,
     _get_teams_with_ai_credits_for_products,
-    apply_usage_counter_metadata,
+    _UsageRecordRow,
     capture_event,
     capture_report,
     get_all_event_metrics_in_period,
@@ -76,11 +76,13 @@ from posthog.tasks.usage_report import (
     get_teams_with_event_count_with_groups_in_period,
     get_teams_with_logs_distinct_patterns_in_period,
     get_teams_with_logs_retention_byte_days_in_period,
+    get_teams_with_mcp_event_count_in_period,
     get_teams_with_posthog_code_credits_used_in_period,
     get_teams_with_query_metric,
     get_teams_with_sdk_logs_records_in_period,
     has_non_zero_usage,
     iter_billable_teams,
+    iter_reports_with_usage_counter_metadata,
     send_all_org_usage_reports,
 )
 from posthog.temporal.usage_report.queries import QUERY_INDEX
@@ -100,6 +102,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
+from products.signals.backend.facade.billing import TeamSignalsCredits
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataJob,
@@ -316,6 +319,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                 scanner_type=ScannerType.MONITOR,
                 model=ScannerModel.GEMINI_3_8_FLASH,
                 enabled=True,
+                estimated_monthly_observations=100,
             )
             ReplayScanner.objects.create(
                 team=self.org_1_team_1,
@@ -323,6 +327,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                 scanner_type=ScannerType.MONITOR,
                 model=ScannerModel.GEMINI_3_8_FLASH,
                 enabled=False,
+                estimated_monthly_observations=100,
             )
 
             ErrorTrackingIssue.objects.create(team=self.org_1_team_1)
@@ -760,6 +765,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "replay_vision_observation_count_in_period": 0,
                     "replay_vision_scanner_count": 2,
                     "replay_vision_scanner_active_count": 1,
+                    "replay_vision_scanner_projected_credits": 1100,
+                    "replay_vision_backfill_committed_credits": 0,
                     "group_types_total": 2,
                     "dashboard_count": 2,
                     "dashboard_template_count": 0,
@@ -790,6 +797,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "rows_synced_in_period": 0,
                     "exceptions_captured_in_period": 0,
                     "ai_event_count_in_period": 7,
+                    "mcp_event_count_in_period": 0,
                     "hog_function_calls_in_period": 0,
                     "hog_function_fetch_calls_in_period": 0,
                     "cdp_billable_invocations_in_period": 0,
@@ -860,6 +868,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "replay_vision_observation_count_in_period": 0,
                             "replay_vision_scanner_count": 2,
                             "replay_vision_scanner_active_count": 1,
+                            "replay_vision_scanner_projected_credits": 1100,
+                            "replay_vision_backfill_committed_credits": 0,
                             "group_types_total": 2,
                             "dashboard_count": 2,
                             "dashboard_template_count": 0,
@@ -894,6 +904,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "cdp_billable_invocations_in_period": 0,
                             "rows_exported_in_period": 0,
                             "ai_event_count_in_period": 7,
+                            "mcp_event_count_in_period": 0,
                         },
                         str(self.org_1_team_2.id): {
                             "event_count_in_period": 11,
@@ -954,6 +965,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "replay_vision_observation_count_in_period": 0,
                             "replay_vision_scanner_count": 0,
                             "replay_vision_scanner_active_count": 0,
+                            "replay_vision_scanner_projected_credits": 0,
+                            "replay_vision_backfill_committed_credits": 0,
                             "group_types_total": 0,
                             "dashboard_count": 0,
                             "dashboard_template_count": 0,
@@ -988,6 +1001,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "cdp_billable_invocations_in_period": 0,
                             "rows_exported_in_period": 0,
                             "ai_event_count_in_period": 0,
+                            "mcp_event_count_in_period": 0,
                         },
                     },
                 },
@@ -1071,6 +1085,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "replay_vision_observation_count_in_period": 0,
                     "replay_vision_scanner_count": 0,
                     "replay_vision_scanner_active_count": 0,
+                    "replay_vision_scanner_projected_credits": 0,
+                    "replay_vision_backfill_committed_credits": 0,
                     "group_types_total": 0,
                     "dashboard_count": 0,
                     "dashboard_template_count": 0,
@@ -1105,6 +1121,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "cdp_billable_invocations_in_period": 0,
                     "rows_exported_in_period": 0,
                     "ai_event_count_in_period": 0,
+                    "mcp_event_count_in_period": 0,
                     "date": "2022-01-09",
                     "organization_id": str(self.org_2.id),
                     "organization_name": "Org 2",
@@ -1171,6 +1188,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "replay_vision_observation_count_in_period": 0,
                             "replay_vision_scanner_count": 0,
                             "replay_vision_scanner_active_count": 0,
+                            "replay_vision_scanner_projected_credits": 0,
+                            "replay_vision_backfill_committed_credits": 0,
                             "group_types_total": 0,
                             "dashboard_count": 0,
                             "dashboard_template_count": 0,
@@ -1207,6 +1226,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "cdp_billable_invocations_in_period": 0,
                             "rows_exported_in_period": 0,
                             "ai_event_count_in_period": 0,
+                            "mcp_event_count_in_period": 0,
                         }
                     },
                 },
@@ -2467,6 +2487,7 @@ class TestHasNonZeroUsage(SimpleTestCase):
         [
             ("empty", None),
             ("events", "event_count_in_period"),
+            ("mcp_events", "mcp_event_count_in_period"),
             ("logs_bytes", "logs_bytes_in_period"),
             ("logs_retention_mb_days", "logs_retention_mb_days_in_period"),
             ("signals_credits", "signals_credits_used_in_period"),
@@ -3498,15 +3519,17 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
             records,
         )
         with self.settings(USAGE_COUNTER_REALTIME_MODES="cdp-invocations:both"):
-            plan = UsageCounterService().resolve_plan(period, caller="daily_report", complete=True)
+            plan = UsageCounterService().resolve_plan(period, complete=True)
         counter_report = UsageCounterService().fetch_report(period, plan=plan)
         assert counter_report.counter_comparisons is not None
         assert counter_report.counter_comparisons["cdp_billable_invocations_in_period"].realtime_by_team == {
             3: {str(self.org_1.id): 7},
             4: {str(self.org_1.id): 3},
         }
-        apply_usage_counter_metadata(
-            all_reports, counter_report, caller="daily_report", date=period.start.date().isoformat()
+        list(
+            iter_reports_with_usage_counter_metadata(
+                all_reports.values(), counter_report, caller="usage_reports_v2", date=period.start.date().isoformat()
+            )
         )
         with_shadow = _get_full_org_usage_report_as_dict(
             _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
@@ -5178,8 +5201,12 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         org_ids = [str(org_a.id), str(org_b.id)]
 
         with patch(
-            "posthog.tasks.usage_report.get_signals_billing_credits_by_team",
-            return_value=[(team_a1.id, 1500), (team_a2.id, 1500), (team_b.id, 1500)],
+            "posthog.tasks.usage_report.signals_billing_credits_by_team",
+            return_value=[
+                TeamSignalsCredits(team_id=team_a1.id, credits=1500),
+                TeamSignalsCredits(team_id=team_a2.id, credits=1500),
+                TeamSignalsCredits(team_id=team_b.id, credits=1500),
+            ],
         ) as signals_credits:
             totals = get_self_driving_credits_used_in_period_for_orgs(org_ids, period.start, period.end)
 
@@ -5685,6 +5712,47 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         #     groups={"instance": ANY},
         #     timestamp=None,
         # )
+
+    @parameterized.expand([("both",), ("realtime",)])
+    @time_machine.travel("2021-10-10T23:01:00Z", tick=False)
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("ee.sqs.SQSProducer.get_sqs_producer")
+    def test_send_usage_ignores_usage_counter_modes(
+        self, mode: str, mock_get_sqs_producer: MagicMock, mock_client: MagicMock
+    ) -> None:
+        mock_producer = MagicMock()
+        mock_get_sqs_producer.return_value = mock_producer
+        usage_records = MagicMock(
+            return_value=[
+                _UsageRecordRow(
+                    team_id=self.team.id,
+                    organization_id=str(self.organization.id),
+                    usage_key="workflow_emails_sent",
+                    unit="invocations",
+                    quantity=16,
+                )
+            ]
+        )
+
+        with (
+            self.settings(USAGE_COUNTER_REALTIME_MODES=f"workflow-emails:{mode}"),
+            patch(
+                "posthog.tasks.usage_report.get_teams_with_workflow_emails_sent_in_period",
+                return_value=[(self.team.id, 24)],
+            ),
+            patch("posthog.tasks.usage_report._query_usage_records", usage_records),
+        ):
+            send_all_org_usage_reports(dry_run=False)
+
+        mock_producer.send_message.assert_called_once()
+        message = json.loads(
+            gzip.decompress(base64.b64decode(mock_producer.send_message.call_args.kwargs["message_body"]))
+        )
+        report = message["usage_report"]
+        assert report["workflow_emails_sent_in_period"] == 24
+        assert "usage_sources" not in report
+        assert "counter_comparisons" not in report
+        usage_records.assert_not_called()
 
     @time_machine.travel("2021-10-10T23:01:00Z", tick=False)
     @patch("posthog.tasks.usage_report.get_ph_client")
@@ -6411,9 +6479,39 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         event_metrics = get_all_event_metrics_in_period(self.begin, reporting_end)
 
         self.assertEqual(billable_result_after, [(self.team.id, baseline_count + 3)])
+        self.assertEqual(
+            get_teams_with_mcp_event_count_in_period(self.begin, reporting_end),
+            [(self.team.id, 3)],
+        )
         self.assertEqual(dict(event_metrics[metric_name]).get(self.team.id), 3)
         self.assertEqual(dict(event_metrics["mcp_tool_call_events"]).get(self.team.id), 2)
         self.assertIsNone(dict(event_metrics[parent_metric]).get(self.team.id))
+
+    def test_mcp_event_count_deduplicates_copies_hours_apart_on_the_same_day(self) -> None:
+        # make sure we don't collapse duplicate rows
+        sync_execute("SYSTEM STOP MERGES")
+        self.addCleanup(sync_execute, "SYSTEM START MERGES")
+
+        tool_call_event_uuid = create_event(
+            event_uuid=uuid4(),
+            event="$mcp_tool_call",
+            team=self.team,
+            distinct_id="mcp_user",
+            timestamp=self.begin + relativedelta(hours=1),
+        )
+        _create_event(
+            event="$mcp_tool_call",
+            team=self.team,
+            distinct_id="mcp_user",
+            event_uuid=tool_call_event_uuid,
+            timestamp=self.begin + relativedelta(hours=5),
+        )
+        flush_persons_and_events()
+
+        self.assertEqual(
+            get_teams_with_mcp_event_count_in_period(self.begin, self.end),
+            [(self.team.id, 1)],
+        )
 
     @parameterized.expand(
         [

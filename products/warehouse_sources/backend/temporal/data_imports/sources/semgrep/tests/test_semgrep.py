@@ -175,6 +175,6 @@ class TestSemgrepSourceResponse:
 class TestValidateCredentials:
     def test_ok(self) -> None:
         with scripted_network(always(ScriptedResponse(status=200, json={"deployments": []}))) as network:
-            assert validate_credentials("token") is True
+            assert validate_credentials("token") == (True, 200)
 
         assert network.requests_log[0].headers["authorization"] == "Bearer token"

@@ -227,14 +227,21 @@ class TestPrinter(BaseTest):
         )
         return printed
 
-    @parameterized.expand([(12,), (84,)])
+    @parameterized.expand(
+        [
+            (12, "events", "events"),
+            (84, "events", "events"),
+            (12, "posthog.flag_evaluations", "flag_evaluations"),
+        ]
+    )
     @override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
-    def test_events_retention_floor_applied(self, months: int):
+    def test_events_retention_floor_applied(self, months: int, table: str, printed_table: str):
         self.team.event_retention_months = months
         context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
-        sql = self._select("select count() from events", context=context)
+        with patch("products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled", return_value=True):
+            sql = self._select(f"select count() from {table}", context=context)
         assert f"toIntervalMonth({months})" in sql
-        assert "greater(events.timestamp, minus(now" in sql
+        assert f"greater({printed_table}.timestamp, minus(now" in sql
 
     @override_settings(EVENTS_DATA_RETENTION_ENFORCED=False)
     def test_events_retention_floor_not_applied_when_disabled(self):
@@ -3776,6 +3783,22 @@ class TestPrinter(BaseTest):
         assert trace2_param_key is not None, "Expected 'trace2' to be recorded as a parameter value"
         self.assertIn(f"notIn({expected_expr}, tuple(%({trace1_param_key})s, %({trace2_param_key})s))", sql)
         self.assertNotIn("ifNull(notIn", sql)
+
+        # IS [NOT] NULL must print a null check, because equals(x, NULL) is always NULL in ClickHouse
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        sql = self._select(
+            "SELECT countIf(properties.$ai_trace_id IS NOT NULL), countIf(properties.$ai_trace_id IS NULL) "
+            "FROM events WHERE properties.$ai_trace_id IS NOT NULL",
+            context,
+        )
+        read_expr = (
+            self._json_dynamic_property_expr("$ai_trace_id")
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+            else expected_expr
+        )
+        self.assertIn(f"countIf(isNotNull({read_expr}))", sql)
+        self.assertIn(f"countIf(isNull({read_expr}))", sql)
+        self.assertIn(f"isNotNull({read_expr})) LIMIT", sql)
 
         # Dynamic properties use JSON subcolumns under the new schema and JSON extraction under legacy.
         # `other_prop` is not in the materialized-column registry, so it stays on the JSON path.

@@ -58,7 +58,7 @@ class PrefectCloudSource(ResumableSource[PrefectCloudSourceConfig, PrefectCloudR
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Prefect Cloud",
             releaseStatus=ReleaseStatus.BETA,
-            caption="""Enter your Prefect Cloud account ID, workspace ID, and an API key to pull your flow and task run history into the PostHog Data warehouse.
+            caption="""Enter your Prefect Cloud account ID, workspace ID, and an API key to pull your flows, runs, logs, artifacts, and events into the PostHog Data warehouse.
 
 Both IDs are in your workspace URL: `https://app.prefect.cloud/account/<account ID>/workspace/<workspace ID>`.
 
@@ -127,11 +127,18 @@ Create an API key under [API keys in your profile settings](https://app.prefect.
                     "Incremental syncs re-read a 24-hour trailing window so recently started runs pick up "
                     "state changes; runs that change state later than that are only refreshed by a full refresh"
                 )
+            if endpoint in ("flow_run_states", "task_run_states"):
+                return (
+                    "Makes one request per run. Incremental syncs only read runs expected to start within 24 hours "
+                    "of the latest synced state, so a run that changes state later than that is only refreshed by a full refresh"
+                )
+            if endpoint == "events":
+                return "Prefect Cloud keeps events for your plan's retention period, so a sync can only read events still retained"
             return None
 
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = PREFECT_CLOUD_ENDPOINTS[endpoint]
-            has_incremental = bool(endpoint_config.incremental_sorts)
+            has_incremental = bool(endpoint_config.incremental_fields)
             return SourceSchema(
                 name=endpoint,
                 supports_incremental=has_incremental,
