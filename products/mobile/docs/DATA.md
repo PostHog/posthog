@@ -31,9 +31,14 @@ Query keys (`reportKeys` in `src/api/reports.ts`) carry the host and project id,
 
 ## Connectivity
 
-`src/lib/connectivity.ts` shares the device link state (`unknown`, `connected` or `offline`) from Expo Network. Unknown connection states permit reads. TanStack Query pauses reads when the link is offline and resumes on reconnect. Report task streams use the same signal, retain their cursor, and resume interrupted viewing when the link returns. Fatal and terminal streams stay stopped. The monitor refreshes the native state once when the app returns to the foreground and removes its listeners when disposed. The monitor uses native connection state without sending external probes; a connected link does not establish backend reachability. Without cached data, Inbox, reports, Chats and Views show a waiting-for-connection message instead of a loading spinner. Returning online resumes their reads automatically; loaded content remains visible offline. Views queue reads use their existing enabled gate while offline. On reconnect, an interrupted item read is allowed one retry if it failed, including when its failure arrives after connectivity returns. This retry bypasses the automatic minute floor, while successful reads retain their floor and server refresh windows still apply. A handoff or pin waiting on a prerequisite read fails when the link drops; reconnecting may finish the shared read, but does not resume that write. No network names, addresses or other connection details are stored.
+`src/lib/connectivity.ts` maps Expo Network events to `unknown`, `connected` or `offline`. Unknown states permit reads. The monitor checks state on foreground entry and removes listeners on disposal. It sends no external probes and stores no network names or addresses. Connected state does not confirm backend availability.
 
-The Expo Network dependency needs new iOS and Android binaries. This change cannot ship to an earlier native runtime as an OTA update.
+- TanStack Query pauses reads offline and resumes them on reconnect. Cached content stays visible. Screens without cached data show an offline message.
+- Report streams resume from the saved cursor. Streams with fatal errors or terminal runs stay stopped.
+- Views retries each failed, interrupted read once on reconnect, including failures reported after reconnect. This retry skips the one-minute client interval. Server refresh limits still apply.
+- A handoff or pin stops if the connection drops during a prerequisite read. Reconnect can complete the shared read but cannot resume the write.
+
+Expo Network requires new iOS and Android binaries. Do not deploy this dependency through an OTA update to an older native runtime.
 
 ## The inbox list
 
