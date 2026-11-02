@@ -18,6 +18,7 @@ export interface BootContext {
     logged_in?: boolean
     deferred_app_context?: boolean
     deferred_app_context_variant?: string
+    early_user_context_reads?: string[]
 }
 
 const phaseTimes: Partial<Record<BootPhase, number>> = {}
