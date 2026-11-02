@@ -91,6 +91,7 @@ from posthog.models.oauth import (
     OAuthGrant,
     OAuthRefreshToken,
     lock_oauth_connection,
+    revoke_oauth_refresh_family,
     revoke_oauth_session,
     revoke_oauth_token_family,
 )
@@ -514,6 +515,10 @@ class OAuthValidator(OAuth2Validator):
             return getattr(request.client, "is_dcr_client", False) or getattr(request.client, "is_cimd_client", False)
         return False
 
+    def _is_device_client(self, request) -> bool:
+        client = getattr(request, "client", None)
+        return getattr(client, "authorization_grant_type", None) == DEVICE_CODE_GRANT_TYPE
+
     def _is_first_party_client(self, request) -> bool:
         """Check if the client is a first-party PostHog application."""
         if hasattr(request, "client") and request.client:
@@ -911,9 +916,12 @@ class OAuthValidator(OAuth2Validator):
         behavior of Google, Apple, Okta (for native apps), and AWS Cognito which
         all issue non-rotating refresh tokens.
 
-        Non-dynamic OAuth clients still get rotation per the default setting.
+        Non-dynamic OAuth clients still get rotation per the default setting, and so do
+        device-grant clients: they are command-line tools built to store each rotated token.
+        Rotation links every access token to its refresh token's family, which lets an RFC 7009
+        revoke end one login of a device client instead of all of them.
         """
-        if self._is_dynamic_client(request):
+        if self._is_dynamic_client(request) and not self._is_device_client(request):
             return False
         return oauth2_settings.ROTATE_REFRESH_TOKEN
 
@@ -1125,7 +1133,12 @@ class OAuthValidator(OAuth2Validator):
             )
             return
         if rt and rt.revoked is None and self._is_dynamic_client(request):
-            revoke_oauth_session(refresh_token=rt)
+            # A rotating family holds every access token of one login, so revoking it ends only
+            # that login. A non-rotating token can't be traced to its access tokens.
+            if self.rotate_refresh_token(request):
+                revoke_oauth_refresh_family(rt)
+            else:
+                revoke_oauth_session(refresh_token=rt)
             return
         return super().revoke_token(token, token_type_hint, request, *args, **kwargs)
 
