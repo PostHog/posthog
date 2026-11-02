@@ -13,18 +13,15 @@ import { FeatureFlagDeletedBanner } from 'products/feature_flags/frontend/Featur
 import { experimentLogic } from '../experimentLogic'
 import { deletedFlagBannerLogic } from './deletedFlagBannerLogic'
 
-// Deleting a flag that an experiment uses renames its key to `<key>:deleted:<id>`. People know the flag by the original key.
-function keyBeforeDelete(flag: FeatureFlagBasicType): string {
-    const suffix = `:deleted:${flag.id}`
-    return flag.key.endsWith(suffix) ? flag.key.slice(0, -suffix.length) : flag.key
-}
-
 function DeletedFlagBannerContent({
     experimentId,
     flag,
+    flagKey,
 }: {
     experimentId: Experiment['id']
     flag: FeatureFlagBasicType
+    /** The key people know the flag by, from before the delete renamed it. */
+    flagKey: Experiment['feature_flag_key']
 }): JSX.Element | null {
     const logic = deletedFlagBannerLogic({ experimentId, flagId: flag.id })
     const { deletedFlag, deletedFlagLoading, flagDeletion, restoredFlagLoading } = useValues(logic)
@@ -43,7 +40,7 @@ function DeletedFlagBannerContent({
                 <>
                     This experiment's feature flag{' '}
                     <Link to={urls.featureFlag(flag.id)} target="_blank">
-                        {keyBeforeDelete(flag)}
+                        {flagKey}
                     </Link>
                 </>
             }
@@ -74,5 +71,6 @@ export function DeletedFlagBanner(): JSX.Element | null {
         return null
     }
 
-    return <DeletedFlagBannerContent experimentId={experiment.id} flag={flag} />
+    // Deleting a flag adds `:deleted:<id>` to its key. The experiment API strips that suffix from `feature_flag_key`.
+    return <DeletedFlagBannerContent experimentId={experiment.id} flag={flag} flagKey={experiment.feature_flag_key} />
 }
