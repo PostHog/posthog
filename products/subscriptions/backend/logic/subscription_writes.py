@@ -379,7 +379,13 @@ class _SubscriptionWrite:
             if "delivery_config" in attrs
             else (self.instance.delivery_config if self.instance else None)
         ) or {}
-        gallery_enabled = effective_delivery_config.get("post_all_insights_in_main_message")
+        # A prompt report on a target that ignores the option still delivers, so only a value the request
+        # sends is checked. Older prompt rows can store it on an email target and must stay editable.
+        gallery_enabled = (
+            submitted_delivery_config
+            if resource_type == Subscription.ResourceType.AI_PROMPT
+            else effective_delivery_config
+        ).get("post_all_insights_in_main_message")
         if resource_type != Subscription.ResourceType.AI_PROMPT:
             unsupported = sorted(AI_DELIVERY_DISPLAY_FIELDS & submitted_delivery_config.keys())
             if unsupported:
