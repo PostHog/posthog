@@ -597,7 +597,8 @@ class TestGetInsightSeries(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual((found, enqueue.call_count), (None, 1))
 
-    def test_an_insight_the_person_cannot_view_returns_none(self) -> None:
+    @parameterized.expand([False, True])
+    def test_an_insight_the_person_cannot_view_returns_none(self, from_child_environment: bool) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
@@ -607,11 +608,23 @@ class TestGetInsightSeries(ClickhouseTestMixin, BaseTest):
             team_id=self.team.id, resource="insight", resource_id=str(insight.id), access_level="none"
         )
         reader = self._create_user("reader@example.com")
+        requesting_team = (
+            Team.objects.create(
+                organization=self.organization,
+                project_id=self.team.project_id,
+                parent_team=self.team,
+                name="Other environment",
+            )
+            if from_child_environment
+            else self.team
+        )
 
-        self.assertIsNone(get_insight_series(team=self.team, user=reader, short_id=insight.short_id))
-        self.assertEqual(viewable_insight_definitions(team=self.team, user=reader, short_ids=[insight.short_id]), {})
+        self.assertIsNone(get_insight_series(team=requesting_team, user=reader, short_id=insight.short_id))
         self.assertEqual(
-            viewable_insight_definitions(team=self.team, user=self.user, short_ids=[insight.short_id])[
+            viewable_insight_definitions(team=requesting_team, user=reader, short_ids=[insight.short_id]), {}
+        )
+        self.assertEqual(
+            viewable_insight_definitions(team=requesting_team, user=self.user, short_ids=[insight.short_id])[
                 insight.short_id
             ].name,
             insight.name or insight.derived_name,

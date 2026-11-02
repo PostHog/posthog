@@ -288,8 +288,14 @@ def run_source(inputs: HighlightSourceInputs) -> HighlightSourceResult:
     )
 
 
+@transaction.atomic
 def finalize(inputs: FinalizeHighlightsInputs) -> None:
-    row = TodayHighlights.objects.for_team(inputs.team_id).filter(id=inputs.highlights_id).first()
+    row = (
+        TodayHighlights.objects.for_team(inputs.team_id)
+        .select_for_update()
+        .filter(id=inputs.highlights_id, status=HighlightsStatus.COMPUTING)
+        .first()
+    )
     if row is None:
         return
     found = {result.source_name: _FINDINGS.validate_json(result.found) for result in inputs.results if result.found}

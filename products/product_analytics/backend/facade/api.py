@@ -295,9 +295,11 @@ def viewable_insight_definitions(
     *, team: Team, user: User, short_ids: Collection[str]
 ) -> dict[str, SavedInsightDefinition]:
     access_control = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
-    insights = access_control.filter_queryset_by_access_level(
-        Insight.objects.filter(team__project_id=team.project_id, short_id__in=short_ids, deleted=False),
-        resource="insight",
+    insights = list(Insight.objects.filter(team__project_id=team.project_id, short_id__in=short_ids, deleted=False))
+    denied = set(
+        access_control.denied_object_ids(
+            "insight", ((str(insight.pk), insight.team_id, insight.created_by_id) for insight in insights), "viewer"
+        )
     )
     return {
         insight.short_id: SavedInsightDefinition(
@@ -307,6 +309,7 @@ def viewable_insight_definitions(
             query=insight.query or {},
         )
         for insight in insights
+        if str(insight.pk) not in denied
     }
 
 
@@ -336,7 +339,9 @@ def get_insight_series(
     if insight is None:
         return None
     access_control = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
-    if not access_control.check_access_level_for_object(insight, "viewer"):
+    if access_control.denied_object_ids(
+        "insight", [(str(insight.pk), insight.team_id, insight.created_by_id)], "viewer"
+    ):
         return None
     from products.product_analytics.backend import (  # noqa: PLC0415 -- insight_series imports the query runner, which imports this facade
         insight_series,

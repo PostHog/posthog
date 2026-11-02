@@ -1,15 +1,21 @@
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from functools import partial
+from queue import Queue
+from time import monotonic, sleep
 from types import SimpleNamespace
 from typing import Any
 from zoneinfo import ZoneInfo
 
+import pytest
 import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.cache import cache
+from django.db import close_old_connections, connection, connections, transaction
 from django.test import SimpleTestCase
 from django.utils import timezone
 
@@ -538,6 +544,15 @@ class TestProgressiveHighlights(BaseTest):
         self.assertEqual([m.key for m in final.pulse], ["fast"])
         self.assertEqual([s.status for s in final.pulse_slots or []], [PulseSlotStatus.READY, PulseSlotStatus.ERROR])
         before = row.content
+        highlights.finalize(
+            FinalizeHighlightsInputs(
+                team_id=self.team.id,
+                highlights_id=str(row.id),
+                results=[HighlightSourceResult(source_name="routine", found=None, failed=True)],
+            )
+        )
+        row.refresh_from_db()
+        self.assertEqual(row.content, before)
         highlights.publish_pulse(inputs, HighlightFindings(pulse=(metric("slow"),)), slots)
         row.refresh_from_db()
         self.assertEqual(row.content, before)
@@ -632,3 +647,59 @@ class TestProgressiveHighlights(BaseTest):
             )
             self.assertEqual(connect.return_value.start_workflow.call_count, 2)
             self.assertTrue(connect.return_value.start_workflow.call_args.args[1].progressive)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_finalization_keeps_a_concurrent_publication(team: Team, user: User) -> None:
+    row = TodayHighlights.objects.for_team(team.id).create(
+        team_id=team.id, user_id=user.id, local_day=DAY, key="concurrent"
+    )
+    source = HighlightSourceInputs(
+        team_id=team.id,
+        user_id=user.id,
+        local_day=DAY.isoformat(),
+        scopes=None,
+        source_name="routine",
+        highlights_id=str(row.id),
+    )
+    final = FinalizeHighlightsInputs(
+        team_id=team.id,
+        highlights_id=str(row.id),
+        results=[HighlightSourceResult(source_name="routine", found=None, failed=True)],
+    )
+    pids: Queue[int] = Queue()
+
+    def run(action: Callable[[], None]) -> None:
+        close_old_connections()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT pg_backend_pid()")
+                pids.put(cursor.fetchone()[0])
+            action()
+        finally:
+            connections.close_all()
+
+    def wait_for_blocked_connection(pid: int) -> None:
+        deadline = monotonic() + 10
+        while monotonic() < deadline:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT cardinality(pg_blocking_pids(%s))", [pid])
+                if cursor.fetchone()[0] > 0:
+                    return
+            sleep(0.01)
+        pytest.fail("The concurrent database operation did not wait for the row lock")
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        with transaction.atomic():
+            TodayHighlights.objects.for_team(team.id).select_for_update().get(id=row.id)
+            publish = pool.submit(
+                run, partial(highlights.publish_pulse, source, HighlightFindings(pulse=(metric("fast"),)), [])
+            )
+            wait_for_blocked_connection(pids.get(timeout=10))
+            finish = pool.submit(run, partial(highlights.finalize, final))
+            wait_for_blocked_connection(pids.get(timeout=10))
+        publish.result(timeout=10)
+        finish.result(timeout=10)
+    row.refresh_from_db()
+    assert row.status == HighlightsStatus.READY
+    assert [metric.key for metric in HIGHLIGHTS.validate_python(row.content).pulse] == ["fast"]
