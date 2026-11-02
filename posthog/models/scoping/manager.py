@@ -16,13 +16,95 @@ raise on framework code that has no team context. Raw SQL bypasses the
 ORM entirely. Use this alongside explicit team checks at the API layer.
 """
 
-from typing import TypeVar, cast
+import sys
+from collections.abc import AsyncIterator, Iterator
+from functools import cache
+from typing import Any, TypeVar, cast
 
+from django.conf import settings
+from django.core.exceptions import FieldFetchBlocked
 from django.db import models
+from django.db.models.fetch_modes import FetchMode, FetchPeers
+from django.db.models.query_utils import DeferredAttribute
 
-from posthog.models.scoping import get_current_team_id
+from posthog.models.scoping import get_current_team_id, peer_lazy_loads
 
 T = TypeVar("T", bound=models.Model)
+
+
+class FetchRelationPeers(FetchPeers):
+    """`FETCH_PEERS` for relations, `FETCH_ONE` for deferred fields."""
+
+    __slots__ = ()
+
+    def fetch(self, fetcher: Any, instance: models.Model) -> None:
+        # Django's DeferredAttribute.fetch_many overwrites a value the caller already
+        # assigned on a peer, and raises KeyError when a peer row is gone.
+        if isinstance(fetcher, DeferredAttribute):
+            fetcher.fetch_one(instance)
+        else:
+            super().fetch(fetcher, instance)
+
+    def __reduce__(self) -> str:
+        return "FETCH_RELATION_PEERS"
+
+
+FETCH_RELATION_PEERS = FetchRelationPeers()
+
+
+def _has_live_peers(instance: models.Model) -> bool:
+    live = 0
+    for peer in instance._state.peers:
+        if peer() is not None:
+            live += 1
+            if live > 1:
+                return True
+    return False
+
+
+def _fix_hint(fetcher: Any, field: str) -> str:
+    if isinstance(fetcher, DeferredAttribute):
+        return f'add "{field}" to only(), or remove it from defer()'
+    # Only a GenericForeignKey has a content type field, and select_related() cannot follow one.
+    # Importing GenericForeignKey here would load the ContentType model before the app registry is ready.
+    if hasattr(fetcher.field, "ct_field"):
+        return f'add prefetch_related("{field}")'
+    return f'add select_related("{field}") or prefetch_related("{field}")'
+
+
+class FetchRaiseOnPeers(FetchRelationPeers):
+    """Test-only `FETCH_RELATION_PEERS` that raises when a lazy load would run once per row.
+
+    A row from `.get()`, `.first()` or a one-row result has no live peers and loads as usual.
+    A queryset that sets `.fetch_mode(FETCH_RELATION_PEERS)` loads like production.
+    """
+
+    __slots__ = ()
+
+    def fetch(self, fetcher: Any, instance: models.Model) -> None:
+        label, field = instance._meta.label, fetcher.field.name
+        if _has_live_peers(instance):
+            message = (
+                f"Lazy load of {label}.{field} on a row from a multi-row query, which costs one query per row. "
+                f"Load it with the query: {_fix_hint(fetcher, field)}."
+            )
+            peer_lazy_loads.record(message)
+            raise FieldFetchBlocked(message) from None
+        super().fetch(fetcher, instance)
+
+    def __reduce__(self) -> str:
+        return "FETCH_RAISE_ON_PEERS"
+
+
+FETCH_RAISE_ON_PEERS = FetchRaiseOnPeers()
+
+
+@cache
+def default_fetch_mode() -> FetchMode:
+    # Test processes load pytest, unlike servers and management commands with TEST=1.
+    if settings.TEST and sys.modules.get("pytest") is not None:
+        return FETCH_RAISE_ON_PEERS
+    return FETCH_RELATION_PEERS
 
 
 class TeamScopeError(Exception):
@@ -65,7 +147,30 @@ class TeamScopedQuerySet(models.QuerySet[T]):
 
     Provides an `unscoped()` method to bypass automatic filtering when you
     need to explicitly query across teams.
+
+    Defaults to `FETCH_RELATION_PEERS`: a lazy related read on one row loads
+    it for every row the same query returned, in one query. Tests use
+    `FETCH_RAISE_ON_PEERS`, so that read raises unless the queryset sets
+    `.fetch_mode(FETCH_RELATION_PEERS)`.
     """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._fetch_mode = default_fetch_mode()
+
+    def iterator(self, chunk_size: int | None = None) -> Iterator[T]:
+        return super(TeamScopedQuerySet, self._without_streamed_peers()).iterator(chunk_size)
+
+    def aiterator(self, chunk_size: int = 2000) -> AsyncIterator[T]:
+        return super(TeamScopedQuerySet, self._without_streamed_peers()).aiterator(chunk_size)
+
+    def _without_streamed_peers(self) -> "TeamScopedQuerySet[T]":
+        # A streamed query shares one peer list across all its rows, and FETCH_PEERS
+        # scans that list on each lazy read, so a loop that reads a relation per row
+        # costs O(rows²). The rows a loop has dropped are not batched anyway.
+        if isinstance(self._fetch_mode, FetchRelationPeers):
+            return self.fetch_mode(models.FETCH_ONE)
+        return self
 
     def _apply_team_filter(self, team_id: int) -> "TeamScopedQuerySet[T]":
         """Apply team filtering. Caller passes the canonical team_id; we
