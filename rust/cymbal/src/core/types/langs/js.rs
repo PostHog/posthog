@@ -414,11 +414,12 @@ mod test {
         // The map starts app.js at 0-based minified column 10, which is 1-based column 11.
         for (column, expected_source) in [(10, "vendor.js"), (11, "app.js")] {
             let frame = resolvable_frame(column)
-                .resolve_frame(1, &catalog, 0)
+                .resolve_frame(1, &catalog, 1)
                 .await
                 .unwrap();
             assert_eq!(frame.source.as_deref(), Some(expected_source), "{column}");
             assert_eq!((frame.line, frame.column), (Some(1), Some(1)), "{column}");
+            assert_eq!(frame.context.as_ref().unwrap().line.number, 1, "{column}");
         }
     }
 

@@ -370,6 +370,40 @@ mod test {
         assert!(app.in_app);
     }
 
+    #[tokio::test]
+    async fn resolves_1_based_frame_positions_to_1_based_source_positions() {
+        let catalog = source_map_catalog();
+
+        for (column, expected_source) in [(10, "vendor.js"), (11, "app.js")] {
+            let frame = resolvable_frame(column)
+                .resolve_frame(1, &catalog, 1)
+                .await
+                .unwrap();
+            assert_eq!(frame.source.as_deref(), Some(expected_source), "{column}");
+            assert_eq!((frame.line, frame.column), (Some(1), Some(1)), "{column}");
+            assert_eq!(frame.context.as_ref().unwrap().line.number, 1, "{column}");
+        }
+    }
+
+    #[tokio::test]
+    async fn frames_without_a_chunk_id_keep_their_captured_line() {
+        let catalog = source_map_catalog();
+        let raw: RawNodeFrame = serde_json::from_value(serde_json::json!({
+            "filename": "dist/widget.js",
+            "function": "renderWidget",
+            "lineno": 42,
+            "colno": 7,
+            "context_line": "renderWidget()",
+        }))
+        .unwrap();
+
+        let frame = raw.resolve_frame(1, &catalog, 1).await.unwrap();
+        assert_eq!(frame.line, Some(42));
+        assert_eq!(frame.column, None);
+        assert_eq!(frame.source.as_deref(), Some("dist/widget.js"));
+        assert_eq!(frame.context.as_ref().unwrap().line.number, 42);
+    }
+
     #[test]
     fn frame_id_distinguishes_columns_on_the_same_line() {
         // Minified bundles put every frame on line 1 of the same file with an anonymized
