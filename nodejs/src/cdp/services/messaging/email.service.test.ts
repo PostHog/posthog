@@ -1369,6 +1369,10 @@ describe('EmailService', () => {
             expect(result.error).toBeUndefined()
             expect(result.metrics.map((m) => m.metric_name)).toEqual(['email_missing_recipient'])
             expect(result.skipped).toBe(true)
+            expect(result.emailSendResult).toEqual({
+                status: 'skipped',
+                reason: expect.stringContaining('the recipient has no email address'),
+            })
             expect(invocation.state.vmState?.stack).toEqual([{ success: false }])
         })
 
