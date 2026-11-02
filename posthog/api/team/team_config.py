@@ -8,6 +8,7 @@ from rest_framework import serializers
 from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import Team, TeamRevenueAnalyticsConfig
 from posthog.models.filters.utils import validate_group_type_index
+from posthog.models.integration.email import SANDBOX_EMAIL_PROVIDER
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.customer_analytics.backend.facade.account_property_pins import (
@@ -428,6 +429,10 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
                 pass
         if sender is None:
             raise serializers.ValidationError("Choose an email sender from this project.")
+        if sender.config.get("provider") == SANDBOX_EMAIL_PROVIDER:
+            raise serializers.ValidationError(
+                "The sandbox sender can't be the project default. Choose a sender on your own verified domain."
+            )
         if not sender.config.get("verified"):
             raise serializers.ValidationError("Verify this sender's domain before making it the default.")
         return value

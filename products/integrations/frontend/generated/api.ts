@@ -968,6 +968,20 @@ export const integrationsDomainConnectCheckRetrieve = async (
     })
 }
 
+export const getIntegrationsEmailSandboxSenderCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/integrations/email_sandbox_sender/`
+}
+
+export const integrationsEmailSandboxSenderCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<IntegrationConfigApi> => {
+    return apiMutator<IntegrationConfigApi>(getIntegrationsEmailSandboxSenderCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getIntegrationsGithubAvailableInstallationsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/integrations/github/available_installations/`
 }

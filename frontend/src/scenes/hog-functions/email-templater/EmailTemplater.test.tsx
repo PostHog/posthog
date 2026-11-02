@@ -18,9 +18,32 @@ jest.mock('kea', () => ({
 
 jest.mock('@posthog/lemon-ui', () => ({
     ...jest.requireActual('@posthog/lemon-ui'),
-    LemonInputSelect: () => <div data-attr="multiple-email-sender-select" />,
-    LemonSelect: () => <div data-attr="single-email-sender-select" />,
+    LemonInputSelect: ({ options }: { options: { key: string; label: string }[] }) => (
+        <div data-attr="multiple-email-sender-select">
+            {options.map((option) => (
+                <span key={option.key}>{option.label}</span>
+            ))}
+        </div>
+    ),
+    LemonSelect: ({ options }: { options: { options: { value: number; label: string }[] }[] }) => (
+        <div data-attr="single-email-sender-select">
+            {options
+                .flatMap((section) => section.options)
+                .map((option) => (
+                    <span key={option.value}>{option.label}</span>
+                ))}
+        </div>
+    ),
 }))
+
+const ALICE = { id: 1, kind: 'email', display_name: 'Alice <alice@example.com>', config: { provider: 'ses' } }
+const BOB = { id: 2, kind: 'email', display_name: 'Bob <bob@example.com>', config: { provider: 'ses' } }
+const SANDBOX = {
+    id: 3,
+    kind: 'email',
+    display_name: 'Acme via PostHog <hello@sandbox.example.com>',
+    config: { provider: 'sandbox' },
+}
 
 describe('NativeEmailIntegrationChoice', () => {
     afterEach(cleanup)
@@ -28,18 +51,7 @@ describe('NativeEmailIntegrationChoice', () => {
     beforeEach(() => {
         jest.mocked(useValues).mockReturnValue({
             integrationsLoading: false,
-            integrations: [
-                {
-                    id: 1,
-                    kind: 'email',
-                    display_name: 'Alice <alice@example.com>',
-                },
-                {
-                    id: 2,
-                    kind: 'email',
-                    display_name: 'Bob <bob@example.com>',
-                },
-            ],
+            integrations: [ALICE, BOB, SANDBOX],
         })
     })
 
@@ -53,5 +65,25 @@ describe('NativeEmailIntegrationChoice', () => {
 
         expect(screen.getByTestId(expectedPicker)).toBeInTheDocument()
         expect(screen.getByText('Custom sender')).toBeInTheDocument()
+    })
+
+    it.each([false, true])(
+        'leaves the sandbox sender out of the picker when the rotation flag is %s',
+        (flagEnabled) => {
+            mockSenderRotationEnabled = flagEnabled
+
+            render(<NativeEmailIntegrationChoice label="From" value={{ integrationId: 1 }} onChange={jest.fn()} />)
+
+            expect(screen.getByText(ALICE.display_name)).toBeInTheDocument()
+            expect(screen.queryByText(SANDBOX.display_name)).not.toBeInTheDocument()
+        }
+    )
+
+    it('treats a project with only the sandbox sender as having no email sender', () => {
+        jest.mocked(useValues).mockReturnValue({ integrationsLoading: false, integrations: [SANDBOX] })
+
+        render(<NativeEmailIntegrationChoice label="From" value={{}} onChange={jest.fn()} />)
+
+        expect(screen.getByText('No email senders configured yet')).toBeInTheDocument()
     })
 })

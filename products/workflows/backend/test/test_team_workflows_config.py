@@ -1,3 +1,5 @@
+from typing import Any
+
 from posthog.test.base import APIBaseTest
 
 from django.contrib.admin import AdminSite
@@ -8,7 +10,7 @@ from rest_framework import status
 
 from posthog.api.project import update_team_workflows_config
 from posthog.models import OrganizationMembership, Team
-from posthog.models.integration import Integration
+from posthog.models.integration import SANDBOX_EMAIL_PROVIDER, Integration
 
 from products.workflows.backend.admin.team_workflows_config_admin import TeamWorkflowsConfigAdmin
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
@@ -156,16 +158,17 @@ class TestTeamWorkflowsConfig(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("unverified_sender", "email", False, False),
-            ("other_projects_sender", "email", True, True),
-            ("not_an_email_sender", "slack", True, False),
+            ("unverified_sender", "email", {"verified": False}, False),
+            ("other_projects_sender", "email", {"verified": True}, True),
+            ("not_an_email_sender", "slack", {"verified": True}, False),
+            ("sandbox_sender", "email", {"verified": True, "provider": SANDBOX_EMAIL_PROVIDER}, False),
         ]
     )
-    def test_patch_rejects_default_email_sender(self, _name: str, kind: str, verified: bool, other_team: bool) -> None:
+    def test_patch_rejects_default_email_sender(
+        self, _name: str, kind: str, config: dict[str, Any], other_team: bool
+    ) -> None:
         team = Team.objects.create(organization=self.organization, name="other") if other_team else self.team
-        sender = Integration.objects.create(
-            team=team, kind=kind, integration_id="hello@example.com", config={"verified": verified}
-        )
+        sender = Integration.objects.create(team=team, kind=kind, integration_id="hello@example.com", config=config)
 
         response = self.client.patch(self.url, {"workflows_config": {"default_email_integration_id": sender.id}})
 

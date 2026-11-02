@@ -1,3 +1,5 @@
+import { isSandboxEmailSender } from 'lib/integrations/utils'
+
 import type { IntegrationType } from '~/types'
 
 import type { ChannelType } from './MessageChannels'
@@ -35,7 +37,9 @@ export function summarizeChannel(
     kind: ChannelType,
     integrations: Pick<IntegrationType, 'kind' | 'config' | 'errors'>[]
 ): ChannelSummary {
-    const connected = integrations.filter((integration) => integration.kind === kind)
+    const connected = integrations.filter(
+        (integration) => integration.kind === kind && !isSandboxEmailSender(integration)
+    )
     const count = connected.length
     if (count === 0) {
         return { kind, status: 'not-set-up', count }

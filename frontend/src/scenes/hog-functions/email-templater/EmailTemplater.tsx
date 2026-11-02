@@ -27,6 +27,7 @@ import {
 import { TagSelect } from 'lib/components/TagSelect'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { isSandboxEmailSender } from 'lib/integrations/utils'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
@@ -285,7 +286,7 @@ export function NativeEmailIntegrationChoice({
     const { integrationsLoading, integrations } = useValues(integrationsLogic)
     const { logicProps } = useValues(emailTemplaterLogic)
     const senderRotationEnabled = useFeatureFlag('WORKFLOWS_EMAIL_SENDER_ROTATION')
-    const integrationsOfKind = integrations?.filter((x) => x.kind === 'email')
+    const integrationsOfKind = integrations?.filter((x) => x.kind === 'email' && !isSandboxEmailSender(x))
     const selectedIntegrationIds = value?.integrationIds?.length
         ? value.integrationIds
         : value?.integrationId

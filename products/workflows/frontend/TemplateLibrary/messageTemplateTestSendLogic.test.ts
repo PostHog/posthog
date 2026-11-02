@@ -32,6 +32,12 @@ describe('messageTemplateTestSendLogic', () => {
                 '/api/projects/:team_id/integrations/': {
                     results: [
                         {
+                            id: 3,
+                            kind: 'email',
+                            display_name: 'Acme via PostHog <hello@sandbox.example.com>',
+                            config: { provider: 'sandbox', verified: true },
+                        },
+                        {
                             id: 4,
                             kind: 'email',
                             display_name: 'Unverified sender <unverified@example.com>',
@@ -85,7 +91,7 @@ describe('messageTemplateTestSendLogic', () => {
         }).toMatchValues({ recipientEmail: 'john.doe@posthog.com' })
     })
 
-    it('defaults the sender to the first verified email integration, excluding unverified and non-email kinds', async () => {
+    it('defaults the sender to the first verified email integration, excluding unverified, sandbox and non-email kinds', async () => {
         await expectLogic(logic).toMatchValues({
             senderIntegrationId: 5,
             emailIntegrations: [expect.objectContaining({ id: 5 }), expect.objectContaining({ id: 7 })],

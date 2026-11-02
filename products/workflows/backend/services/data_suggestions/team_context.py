@@ -8,6 +8,7 @@ from django.db.models.functions import Coalesce
 
 from posthog.integrations import IntegrationManager
 from posthog.models import EventProperty, PropertyDefinition, Team
+from posthog.models.integration import SANDBOX_EMAIL_PROVIDER
 
 from products.access_control.backend.facade.api import person_property_names_with_access_rules
 from products.messaging.backend.facade.api import EmailTemplateSummary, list_email_templates
@@ -103,7 +104,9 @@ def _verified_senders(team: Team) -> list[EmailSender]:
     return [
         EmailSender(integration_id=integration.id, email=str(config["email"]), name=str(config.get("name") or ""))
         for integration in IntegrationManager.email.credentials.list(team.id)
-        if (config := integration.config or {}).get("verified") is True and config.get("email")
+        if (config := integration.config or {}).get("verified") is True
+        and config.get("email")
+        and config.get("provider") != SANDBOX_EMAIL_PROVIDER
     ]
 
 

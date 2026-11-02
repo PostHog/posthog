@@ -996,6 +996,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
             ("the only verified sender", ["only@example.com"], None, "only@example.com"),
             ("several senders and no default", ["a@example.com", "b@example.com"], None, None),
             ("no verified sender", [], None, None),
+            ("only the sandbox sender", [], None, None, True),
         ]
     )
     def test_drafts_send_from(
@@ -1004,7 +1005,15 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         senders: list[str],
         default: str | None,
         expected: str | None,
+        with_sandbox_sender: bool = False,
     ) -> None:
+        if with_sandbox_sender:
+            Integration.objects.create(
+                team=self.team,
+                kind="email",
+                integration_id="posthog-sandbox",
+                config={"provider": "sandbox", "email": "hello@sandbox.example.com", "verified": True},
+            )
         integrations = {
             address: Integration.objects.create(
                 team=self.team, kind="email", config={"email": address, "verified": True}

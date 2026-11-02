@@ -24,6 +24,19 @@ Only workflows that send email are subject to the tiers; SMS, push, and webhook 
 
 ## Configuration
 
+### Sandbox sender provisioning
+
+The `workflows-sandbox-sender` flag enables a PostHog-managed email integration per project through `POST /api/projects/:project_id/integrations/email_sandbox_sender/`.
+The endpoint requires `integration:write` and project membership. Repeated requests keep the same integration and refresh its display name from the organization name.
+Set `WORKFLOWS_SANDBOX_SENDER_DOMAIN`, `SES_SANDBOX_FROM_ADDRESS`, and `SES_SANDBOX_TENANT_NAME` in Django; any empty value leaves the endpoint unavailable.
+The worker sends from the same `SES_SANDBOX_FROM_ADDRESS`, so set it once for Django and the worker. The address the UI shows is then the address the worker sends from.
+The workflow email step does not offer it.
+Users cannot edit, verify, or remove the managed integration, or register their own integration on the shared domain.
+The managed integration is excluded from project SES tenant migration, identity cleanup, and the reputation page's domain breakdown.
+Deploy the schema, recipient restrictions, daily caps, and tenant pause checks first. Configure the shared SES route, then enable `WORKFLOWS_SANDBOX_SENDER_ENABLED` on the worker and CDP API. Enable `workflows-sandbox-sender` last so provisioning and sender selection follow delivery readiness.
+
+### Sending tiers
+
 Two sides read their own env vars because the worker never reads Django settings.
 Set them together; drift means the UI describes limits the worker does not apply, or the reverse.
 

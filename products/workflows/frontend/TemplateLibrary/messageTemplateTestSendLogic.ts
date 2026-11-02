@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { isSandboxEmailSender } from 'lib/integrations/utils'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { isEmail } from 'lib/utils/url'
 import { teamLogic } from 'scenes/teamLogic'
@@ -215,7 +216,10 @@ export const messageTemplateTestSendLogic = kea<messageTemplateTestSendLogicType
             (s) => [s.integrations],
             (integrations: IntegrationType[] | null): IntegrationType[] =>
                 integrations?.filter(
-                    (integration) => integration.kind === 'email' && integration.config?.verified === true
+                    (integration) =>
+                        integration.kind === 'email' &&
+                        integration.config?.verified === true &&
+                        !isSandboxEmailSender(integration)
                 ) ?? [],
         ],
         senderIntegrationId: [
