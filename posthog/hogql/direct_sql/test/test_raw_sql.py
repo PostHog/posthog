@@ -67,6 +67,16 @@ class TestDirectSQLQuoting(SimpleTestCase):
         with self.assertRaises(ExposedHogQLError):
             ensure_single_direct_statement(sql, dialect=dialect)
 
+    @parameterized.expand([("postgres",), ("redshift",), ("mysql",)])
+    def test_requires_consistent_session_quoting(self, dialect: str) -> None:
+        with self.assertRaisesMessage(ExposedHogQLError, "quoting must be unambiguous"):
+            ensure_single_direct_statement(r"SELECT '\' AS label -- '", dialect=dialect)
+
+    def test_rejects_excessive_nesting(self) -> None:
+        sql = "SELECT 29 + " + "(" * 1000 + "17" + ")" * 1000
+        with self.assertRaisesMessage(ExposedHogQLError, "too complex to validate"):
+            ensure_read_only_raw_motherduck_statement(sql)
+
     @parameterized.expand(
         [
             ("duckdb", ensure_read_only_raw_motherduck_statement, "read_text('example.txt')"),
