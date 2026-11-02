@@ -223,7 +223,7 @@ def create_workflow_task(
     )
 
     gateway_server_ids = resolve_connectors(team.id, connector_ids)
-    run_adapter, run_model = _workflow_run_selection(team.id, owner_id, model)
+    run_selection = _workflow_run_selection(team.id, owner_id, model)
 
     gate_owner = User.objects.filter(id=owner_id).first()
     if gate_owner is None:
@@ -390,8 +390,8 @@ def create_workflow_task(
                 origin_key=origin_key,
                 output_schema=output_schema,
                 extra_run_state=extra_run_state,
-                runtime_adapter=run_adapter,
-                model=run_model,
+                runtime_adapter=run_selection.runtime_adapter,
+                model=run_selection.model,
                 reasoning_effort=reasoning_effort,
                 slack_thread_context=thread_context,
                 interaction_origin=interaction_origin,
@@ -474,13 +474,19 @@ def _task_dto(task: Task, *, created: bool) -> contracts.WorkflowTaskDTO:
     return contracts.WorkflowTaskDTO(task_id=task.id, run_id=run.id if run is not None else None, created=created)
 
 
-def _workflow_run_selection(team_id: int, owner_id: int, model: str | None) -> tuple[str | None, str | None]:
+@frozen
+class _WorkflowRunSelection:
+    runtime_adapter: str | None
+    model: str | None
+
+
+def _workflow_run_selection(team_id: int, owner_id: int, model: str | None) -> _WorkflowRunSelection:
     if model and model_allowed_by_product_pin("workflows", model):
-        return runtime_adapter_for(model), model
+        return _WorkflowRunSelection(runtime_adapter=runtime_adapter_for(model), model=model)
     default = resolve_ai_run_selection(team_id, owner_id)
     if model_allowed_by_product_pin("workflows", default.model):
-        return None, None
-    return CLAUDE, None
+        return _WorkflowRunSelection(runtime_adapter=None, model=None)
+    return _WorkflowRunSelection(runtime_adapter=CLAUDE, model=None)
 
 
 def _find_replayed_task(
