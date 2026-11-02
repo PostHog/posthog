@@ -130,7 +130,6 @@ def resolve_audience_snapshot(
             team_id=team_id, batch_job_id=str(job.id), reason=audience_failure_reason(error)
         )
         return
-    # Database errors from here on reach the task, so Celery retries them.
     _publish_audience(job, person_ids)
 
 
@@ -146,8 +145,7 @@ def record_audience_snapshot_failure(*, team_id: int, batch_job_id: str, reason:
 
 
 def _publish_audience(job: HogFlowBatchJob, person_ids: list[str]) -> None:
-    # A redelivered task can run next to the first one. The row lock lets one publish; the other sees READY and stops.
-    # A run that ends waits on the lock, so its cleanup runs after this commits and drops these rows.
+    # A redelivered task can run beside the first, and a run that ends waits here, so its cleanup sees these rows.
     with transaction.atomic():
         still_open = (
             HogFlowBatchJob.objects.select_for_update()
