@@ -115,8 +115,10 @@ on:
         types: [opened, synchronize, reopened, ready_for_review]
 concurrency:
     # PRs: one group per event; cancel-superseded-runs cancels stale runs. Push: per-SHA so master
-    # pushes never cancel each other (check-migrations always completes).
-    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.event_name == 'pull_request' && format('pr-{0}-{1}-{2}', github.event.pull_request.number, github.event.pull_request.head.sha, github.event.pull_request.updated_at) || github.head_ref || github.ref }}
+    # pushes never cancel each other (check-migrations always completes). A `depot ci run` (event
+    # `api`) from an unpushed branch has ref refs/heads/master, so it gets its own group instead of
+    # queueing behind the hourly master run.
+    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.event_name == 'pull_request' && format('pr-{0}-{1}-{2}', github.event.pull_request.number, github.event.pull_request.head.sha, github.event.pull_request.updated_at) || github.event_name == 'api' && format('api-{0}', github.run_id) || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 env:
     # Schema cache epoch. Bump to abandon every shared schema cache entry at once
@@ -249,10 +251,12 @@ jobs:
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
+            # A `depot ci run` (event `api`) applies the local patch with `git apply` after this
+            # step, and `git apply` fails on any path outside a sparse tree.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
-                  sparse-checkout: .depot/actions/paths-filter
+                  sparse-checkout: ${{ github.event_name != 'api' && '.depot/actions/paths-filter' || '' }}
                   sparse-checkout-cone-mode: false
             - name: Clean up data directories with container permissions
               run: |

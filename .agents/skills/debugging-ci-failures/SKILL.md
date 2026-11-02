@@ -60,6 +60,7 @@ Report an outage as an outage, name the component, and stop recommending reruns.
 Do not do any of these without explicit approval in the current conversation:
 
 - Rerun or cancel a GitHub Actions run, or retry, rerun, or cancel a Depot CI run.
+  The exception is a check-job run from your working tree, see "Run a Depot CI check job from your working tree".
 - Post a GitHub comment, PR review, or issue comment through any CLI, MCP, or
   API tool.
 - Push commits, force-push, rename branches, or delete branches.
@@ -351,6 +352,42 @@ is unclear, read `.agents/skills/hogli/SKILL.md` and `hogli <command> --help`.
 Do NOT run `hogli test` with no arguments. Do NOT run `hogli nuke` or
 `hogli dev:reset` as a shortcut. Do NOT bypass hooks with `--no-verify`.
 
+### Run a Depot CI check job from your working tree
+
+Local commands come first, because each Depot run costs runner time.
+Fix the failure with the `hogli` command from the table above, and run that command until it passes.
+Use `depot ci run` only when the `hogli` command passes on your machine and the same job still fails in CI, which points at the CI environment.
+It runs the job on Depot against your working tree, so you do not need to push.
+Load the `depot-ci` skill for the flags.
+
+```bash
+depot ci run --workflow .depot/workflows/ci-backend.yml --job <job>
+```
+
+- `<job>` is one of `repo-checks`, `check-migrations`, `check-openapi-types` or `sdk-major-guard`.
+  The CLI adds the `changes` job that they need.
+- Start at most 2 runs per task without approval. Ask the user before each run after that.
+- Never run another job this way without approval.
+  A CLI run has the event `api`, so `changes` marks every path as changed.
+  The `django` and `turbo-tests` jobs then run their full matrices with no test selection.
+- The run posts its check runs to GitHub on the commit at `HEAD`, which can be a PR head.
+  Its result comes from code that is not in that commit, so tell the user that a red or green check on the PR can come from your run.
+- The patch includes only tracked files. Run `git add` on new files first.
+
+After each run:
+
+1. Poll `depot ci status <run-id>` in a bounded loop until the run is no longer queued or running.
+   The CLI version that flox installs has no `--wait` flag.
+2. On failure, run `depot ci diagnose --job <job-id> --output json`.
+   It returns grouped failures, a possible fix and its evidence lines.
+   The diagnosis is AI-generated, so confirm it against `depot ci logs <attempt-id>` before you act on it.
+3. Reproduce what you found with the local command, fix it, and run the local command again before the next Depot run.
+
+`--ssh-after-step <n>` pauses a job until someone connects with `depot ci ssh`, and the runner bills for the whole pause.
+Use it only with the user's approval, and cancel the run with `depot ci cancel` when you are done.
+
+At the cap, stop and report what you targeted, what was wrong, what you changed, and the run ids.
+
 ## PostHog CI notes
 
 - Most PostHog jobs run on `depot-ubuntu-latest` or `depot-ubuntu-latest-16`.
@@ -363,7 +400,7 @@ Do NOT run `hogli test` with no arguments. Do NOT run `hogli nuke` or
   where Depot itself is the outage, and the `depot-github-runners` skill owns
   runner troubleshooting beyond triage.
 - A PR can route its backend tests to Depot CI.
-  Read the failure there, see "Backend tests that ran on Depot CI" above.
+  Read the failure there, see "Backend tests on Depot CI" above.
 - If a job fails before `Checkout` completes (no app code ran), classify as
   `infra / runner`. Do not propose code fixes.
 - PostHog CI frequently parallelizes the same test class across N shards
