@@ -25,6 +25,9 @@ const LOCAL_SOURCES = [
 ] as const
 type LocalSource = (typeof LOCAL_SOURCES)[number]
 
+/** Lists of pages to open. A search with words ranks them with the saved objects, so a page named like the query leads. */
+const RANKED_LOCAL_SOURCES: LocalSource[] = ['products', 'data-management', 'people', 'health', 'misc']
+
 export type CommandKMode = 'empty' | 'key' | 'value' | 'search'
 
 export type CommandKSectionKey =
@@ -303,8 +306,10 @@ const plainName = (item: SearchItem): string =>
         .replace(/\s*\([^)]*\)\s*$/, '')
         .trim()
 
+const rankablePages = (local: LocalLists): SearchItem[] => RANKED_LOCAL_SOURCES.flatMap((source) => local[source])
+
 export function rankableSettings(local: LocalLists, localQuery: string): SearchItem[] {
-    const productNames = new Set(local.products.map(plainName))
+    const productNames = new Set(rankablePages(local).map(plainName))
     return exactSettingsMatches(local.settings, localQuery).filter((item) => !productNames.has(plainName(item)))
 }
 
@@ -326,7 +331,7 @@ function rankedResultsSections(
         query: words.join(' '),
         highlightWords: words,
         results,
-        products: localQuery ? local.products : [],
+        products: localQuery ? rankablePages(local) : [],
         state,
         scoped: (query.match(FILTER_TOKEN) ?? []).some((token) => token.trim().startsWith('type:')),
     })
@@ -365,7 +370,7 @@ function lowerSections(
     }
     if (localQuery) {
         for (const source of LOCAL_SOURCES) {
-            if (ranked && source === 'products') {
+            if (ranked && RANKED_LOCAL_SOURCES.includes(source)) {
                 continue
             }
             const filtered = matchLocal(source, local[source], localQuery, ranked).filter((item) => !shown.has(item.id))
