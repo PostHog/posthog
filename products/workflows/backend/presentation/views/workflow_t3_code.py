@@ -143,7 +143,7 @@ class WorkflowT3CodeViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(detail=False, methods=["post"])
     def projects(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         outcome = self._call(request.validated_data, "t3_project_list", {"limit": PROJECT_LIST_LIMIT})
-        if outcome.status != T3CodeCallStatus.OK:
+        if outcome.status != "ok":
             return Response(T3CodeProjectsSerializer(outcome).data)
         projects = [_project(project) for project in _structured(outcome).get("projects") or []]
         return Response(
@@ -169,7 +169,7 @@ class WorkflowT3CodeViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "bindToCurrentThread": False,
         }
         outcome = self._call(data, "schedule_task", arguments)
-        if outcome.status != T3CodeCallStatus.OK:
+        if outcome.status != "ok":
             return Response(T3CodeWebhookTaskSerializer(outcome).data)
         webhook_url = _structured(outcome).get("webhookUrl")
         if not webhook_url:
@@ -201,7 +201,7 @@ class WorkflowT3CodeViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             approval_token=data.get("approval_token") or None,
             approval_context=APPROVAL_CONTEXT,
         )
-        if outcome.status in (T3CodeCallStatus.OK, T3CodeCallStatus.NEEDS_APPROVAL) and not outcome.is_error:
+        if outcome.status in ("ok", "needs_approval") and not outcome.is_error:
             return outcome
         raise exceptions.ValidationError({"detail": _error_detail(outcome)})
 
