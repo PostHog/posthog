@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 # - "stats_list":       GET /stats returns one array of time buckets per service, keyed by service id.
 # - "origin_inspector": fan out over every service, reading its origin metrics timeseries.
 # - "ai_usage_metrics": GET an unpaginated AI Runtime Control usage report; rows sit under `data`.
+# - "platform_metrics": fan out over every service, reading its Metrics v2 platform timeseries.
 FastlyEndpointKind = Literal[
     "object",
     "service_list",
@@ -36,6 +37,7 @@ FastlyEndpointKind = Literal[
     "stats_list",
     "origin_inspector",
     "ai_usage_metrics",
+    "platform_metrics",
 ]
 
 # Fastly reports every metrics family in whole time buckets keyed by their start. The cursor is the
@@ -188,6 +190,19 @@ FASTLY_ENDPOINTS: dict[str, FastlyEndpointConfig] = {
         # AI Runtime Control is a separate product, so most accounts would sync an empty table.
         should_sync_default=False,
         description="Daily AI Runtime Control request, session and token usage per virtual key, provider and model.",
+    ),
+    "platform_metrics": FastlyEndpointConfig(
+        name="platform_metrics",
+        path="/metrics/v2/platform/entities/{service_id}/{granularity}",
+        kind="platform_metrics",
+        partition_key="start_time",
+        primary_keys=["service_id", "datacenter", "start_time"],
+        incremental_fields=_BUCKET_START_INCREMENTAL_FIELDS,
+        incremental_lookback_seconds=METRICS_LOOKBACK_SECONDS,
+        # Fastly labels Metrics v2 a beta that may still change shape, and `historical_stats` already
+        # covers the same traffic, so it is opt-in.
+        should_sync_default=False,
+        description="Daily delivery and Compute traffic, cache and error metrics per service and POP, from Fastly's Metrics v2 API.",
     ),
     "service_authorizations": FastlyEndpointConfig(
         name="service_authorizations",

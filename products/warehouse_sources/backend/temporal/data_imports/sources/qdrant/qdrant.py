@@ -1,4 +1,5 @@
-from datetime import UTC, datetime
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -20,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
     Endpoint,
+    EndpointResource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -30,6 +32,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.qdrant.set
     AUTH_ERROR,
     BASE_URL,
     ENDPOINTS,
+    METRICS_ENDPOINTS,
+    PACKAGE_STATUSES,
     PAGE_SIZE,
     PERMISSION_ERROR,
     USAGE_METRICS_LOOKBACK,
@@ -73,8 +77,10 @@ def validate_credentials(config: QdrantSourceConfig, schema_name: str | None = N
     path, params = ACCOUNTS_PATH, {}
     if schema_name:
         endpoint = endpoint_config(schema_name)
-        # A fan-out table needs the same permission as its parent listing, which has no path params to fill.
+        # A fan-out table needs the same permission as its root listing, which has no path params to fill.
         probe: QdrantEndpoint | QdrantParent = endpoint.parent or endpoint
+        while isinstance(probe, QdrantParent) and probe.parent is not None:
+            probe = probe.parent
         path = _account_path(probe.path, account)
         params = {"pageSize": 1} if probe.paginated else {}
     client = RESTClient(
@@ -118,14 +124,21 @@ def _list_endpoint(path: str, paginated: bool) -> Endpoint:
     }
 
 
-def usage_metrics_window(should_use_incremental_field: bool, db_incremental_field_last_value: Any) -> dict[str, str]:
+def metrics_window(
+    endpoint: str, should_use_incremental_field: bool, db_incremental_field_last_value: Any
+) -> dict[str, str]:
     # One `until` for every cluster, so the table-wide watermark never passes a cluster's unread points.
     until = datetime.now(UTC)
     since = until - USAGE_METRICS_LOOKBACK
+    overlap = USAGE_METRICS_OVERLAP if endpoint == "cluster_usage_metrics" else timedelta(0)
     last_value = parse_datetime_value(db_incremental_field_last_value) if should_use_incremental_field else None
-    if last_value is not None and last_value - USAGE_METRICS_OVERLAP > since:
-        since = last_value - USAGE_METRICS_OVERLAP
-    return {"since": _rfc3339(since), "until": _rfc3339(until)}
+    if last_value is not None and last_value - overlap > since:
+        since = last_value - overlap
+    if endpoint != "cluster_inference_metrics":
+        return {"since": _rfc3339(since), "until": _rfc3339(until)}
+    # Daily buckets: starting at midnight keeps bucket timestamps stable across runs and re-reads the open day.
+    since = since.replace(hour=0, minute=0, second=0, microsecond=0)
+    return {"since": _rfc3339(since), "until": _rfc3339(until), "interval": "INFERENCE_METRICS_INTERVAL_DAY"}
 
 
 def _rfc3339(value: datetime) -> str:
@@ -158,6 +171,74 @@ def usage_metric_rows(response: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
+def inference_metric_rows(response: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "cluster_id": response.get("cluster_id"),
+            "inference_model_id": model.get("inferenceModelId"),
+            "timestamp": point.get("timestamp"),
+            "value": point.get("value"),
+        }
+        for model in response.get("models") or []
+        for point in model.get("values") or []
+    ]
+
+
+def account_member_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {**(row.get("accountMember") or {}), "isOwner": row.get("isOwner", False)}
+
+
+ROW_MAPS: dict[str, Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]] = {
+    "cluster_usage_metrics": usage_metric_rows,
+    "cluster_inference_metrics": inference_metric_rows,
+    "account_members": account_member_row,
+}
+
+
+def _dependent_resource(
+    name: str, path: str, paginated: bool, parent: QdrantParent, account: str, params: dict[str, Any]
+) -> EndpointResource:
+    endpoint = _list_endpoint(_account_path(path, account), paginated)
+    if name in METRICS_ENDPOINTS:
+        endpoint["data_selector"] = "$"
+    endpoint["params"] = {
+        **(endpoint.get("params") or {}),
+        **params,
+        **{
+            param: {"type": "resolve", "resource": parent.name, "field": field}
+            for param, field in parent.path_params.items()
+        },
+    }
+    if parent.ignored_statuses:
+        endpoint["response_actions"] = [
+            {"status_code": status, "action": "ignore"} for status in parent.ignored_statuses
+        ]
+    row_map = ROW_MAPS.get(name)
+
+    def map_row(row: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
+        for field, column in parent.include.items():
+            row[column] = row.pop(f"_{parent.name}_{field}", None)
+        return row_map(row) if row_map else row
+
+    return {
+        "name": name,
+        "endpoint": endpoint,
+        "include_from_parent": list(parent.include),
+        "data_map": map_row,
+    }
+
+
+def _parent_resources(parent: QdrantParent, account: str) -> list[EndpointResource]:
+    if parent.parent is None:
+        return [
+            {"name": parent.name, "endpoint": _list_endpoint(_account_path(parent.path, account), parent.paginated)}
+        ]
+    return [
+        *_parent_resources(parent.parent, account),
+        _dependent_resource(parent.name, parent.path, parent.paginated, parent.parent, account, {}),
+    ]
+
+
 def _fanout_resource(
     client_config: ClientConfig,
     endpoint: str,
@@ -169,38 +250,15 @@ def _fanout_resource(
     team_id: int,
     job_id: str,
 ) -> Any:
-    child_endpoint = _list_endpoint(_account_path(config.path, account), config.paginated)
-    if endpoint == "cluster_usage_metrics":
-        child_endpoint["data_selector"] = "$"
-    child_endpoint["params"] = {
-        **(child_endpoint.get("params") or {}),
-        **child_params,
-        **{
-            param: {"type": "resolve", "resource": parent.name, "field": field}
-            for param, field in parent.path_params.items()
-        },
-    }
-    if parent.ignored_statuses:
-        child_endpoint["response_actions"] = [
-            {"status_code": status, "action": "ignore"} for status in parent.ignored_statuses
-        ]
-
-    def child_row_map(row: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
-        for field, column in parent.include.items():
-            row[column] = row.pop(f"_{parent.name}_{field}", None)
-        return usage_metric_rows(row) if endpoint == "cluster_usage_metrics" else row
-
+    child = _dependent_resource(endpoint, config.path, config.paginated, parent, account, child_params)
     rest_config: RESTAPIConfig = {
         "client": client_config,
         "resources": [
-            {"name": parent.name, "endpoint": _list_endpoint(_account_path(parent.path, account), parent.paginated)},
+            *_parent_resources(parent, account),
             {
-                "name": endpoint,
+                **child,
                 "table_name": endpoint,
                 "write_disposition": {"disposition": "merge", "strategy": "upsert"} if incremental else "replace",
-                "endpoint": child_endpoint,
-                "include_from_parent": list(parent.include),
-                "data_map": child_row_map,
             },
         ],
     }
@@ -228,11 +286,11 @@ def qdrant_source(
     }
 
     if settings.parent is not None:
-        child_params = (
-            usage_metrics_window(should_use_incremental_field, db_incremental_field_last_value)
-            if endpoint == "cluster_usage_metrics"
-            else {}
-        )
+        child_params: dict[str, Any] = {}
+        if endpoint in METRICS_ENDPOINTS:
+            child_params = metrics_window(endpoint, should_use_incremental_field, db_incremental_field_last_value)
+        elif endpoint == "packages":
+            child_params = {"statuses": PACKAGE_STATUSES}
         resource = _fanout_resource(
             client_config,
             endpoint,
@@ -245,17 +303,15 @@ def qdrant_source(
             job_id,
         )
     else:
-        rest_config: RESTAPIConfig = {
-            "client": client_config,
-            "resources": [
-                {
-                    "name": endpoint,
-                    "table_name": endpoint,
-                    "write_disposition": "replace",
-                    "endpoint": _list_endpoint(_account_path(settings.path, account), settings.paginated),
-                }
-            ],
+        resource_config: EndpointResource = {
+            "name": endpoint,
+            "table_name": endpoint,
+            "write_disposition": "replace",
+            "endpoint": _list_endpoint(_account_path(settings.path, account), settings.paginated),
         }
+        if endpoint in ROW_MAPS:
+            resource_config["data_map"] = ROW_MAPS[endpoint]
+        rest_config: RESTAPIConfig = {"client": client_config, "resources": [resource_config]}
         initial_state = None
         if resumable_source_manager.can_resume():
             resume = resumable_source_manager.load_state()
