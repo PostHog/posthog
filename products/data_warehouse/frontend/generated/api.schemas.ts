@@ -5679,6 +5679,7 @@ export type DataModelingJobsListParams = {
     engine?: DataModelingJobsListEngine
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**
@@ -6054,6 +6055,7 @@ export type WarehouseSavedQueriesListParams = {
 export type WarehouseSavedQueryDraftsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

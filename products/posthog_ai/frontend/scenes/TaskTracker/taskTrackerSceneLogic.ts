@@ -61,7 +61,7 @@ import { runCancellationLogic } from '../../logics/runCancellationLogic'
 import { runInteractionLogic, type RunContinuationHandoff } from '../../logics/runInteractionLogic'
 import { taskDefaultsLogic } from '../../logics/taskDefaultsLogic'
 import { taskRunDefaultsLogic } from '../../logics/taskRunDefaultsLogic'
-import { tasksLogic } from '../../logics/tasksLogic'
+import { hasTasksFlag, tasksLogic } from '../../logics/tasksLogic'
 import { taskWarmLogic } from '../../logics/taskWarmLogic'
 import type { WarmLease, WarmSubmission } from '../../logics/taskWarmLogic'
 import { toolStreamEventsLogic } from '../../logics/toolStreamEventsLogic'
@@ -207,6 +207,7 @@ export interface taskTrackerSceneLogicValues {
     composerOverride: ComposerOverride | null // composerOverrideLogic
     seed: ComposerSeed | null // composerSeedLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
+    githubIntegrations: IntegrationType[] // integrationsLogic
     integrations: IntegrationType[] | null // integrationsLogic
     catalogue: ModelChoiceApi[] // modelCatalogueLogic
     currentProjectId: number | null // projectLogic
@@ -524,7 +525,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             tasksLogic,
             ['tasks', 'repositories', 'taskListParams'],
             integrationsLogic,
-            ['integrations'],
+            ['integrations', 'githubIntegrations'],
             attachedContextLogic,
             ['contextItems'],
             aiConsentLogic,
@@ -937,7 +938,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             if (values.newTaskData.repositoryConfig.integrationId) {
                 return
             }
-            const githubIntegrations = values.integrations?.filter((integration) => integration.kind === 'github') ?? []
+            const githubIntegrations = values.githubIntegrations
             if (githubIntegrations.length === 0) {
                 return
             }
@@ -1419,10 +1420,20 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 actions.clearActiveCreation()
             }
         }
+        // Only the list and composer fall back to classic PostHog AI. Inbox task links need neither flag.
+        const redirectedWithoutAccess = (taskId?: string): boolean => {
+            if (props.panelId || hasTasksFlag(values.featureFlags) || (taskId && taskId !== 'new')) {
+                return false
+            }
+            router.actions.replace(urls.ai())
+            return true
+        }
         return {
+            '/tasks': () => (redirectedWithoutAccess() ? undefined : clearIfLeftCreatedTask()),
             // An embedded instance never navigates the main app on its own creation (see `submitNewTask`), so
             // main-app URL changes are unrelated to its run — never release the side panel's active creation.
-            '/tasks/:taskId': ({ taskId }) => (props.panelId ? undefined : clearIfLeftCreatedTask(taskId)),
+            '/tasks/:taskId': ({ taskId }) =>
+                props.panelId || redirectedWithoutAccess(taskId) ? undefined : clearIfLeftCreatedTask(taskId),
             [urls.ai()]: (_, search) =>
                 props.panelId
                     ? undefined
