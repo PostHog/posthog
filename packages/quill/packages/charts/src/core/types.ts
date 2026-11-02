@@ -300,8 +300,6 @@ export interface ChartConfig {
      *  width when that is wider, so a wider chart shows more of each label. Omit (default) to
      *  render labels untruncated. */
     maxCategoryLabelWidth?: number
-    /** Labels the x ticks sit at instead of the data labels. `xTickFormatter` indexes into it. */
-    xTickLabels?: string[]
     /** Per-axis config for multi-axis (dual y-axis) charts — one entry per distinct
      *  {@link Series.yAxisId}. When set, each axis formats ticks, labels, and scales independently;
      *  the scalar `yScaleType`/`yTickFormatter`/`yAxisLabel` then describe the primary (left) axis.

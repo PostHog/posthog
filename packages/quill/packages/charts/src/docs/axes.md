@@ -30,7 +30,6 @@ Theme-side restyle knobs, all optional: `theme.axisLineColor` strokes the baseli
 - `xAxis.tickLabelRotation` (`-45` tilts left) fixes the rotation, clamped to `-90..90`. Omit it to keep horizontal labels and the collision behavior.
 - `maxCategoryLabelWidth` truncates category labels with an ellipsis and reveals the full value on hover. It also clamps the axis margin, so a long label cannot push the plot off screen. On horizontal charts the cap grows to 30% of the chart width when that is wider, so a wider chart shows more of each label. `MAX_CATEGORY_LABEL_WIDTH` is the exported default.
 - `LineChart` `timeScale: { parse, domain }` places each label at its time instead of evenly by index. `parse` returns epoch milliseconds, and labels outside `domain` are not drawn. Memoize the object.
-- `xTickLabels` puts the x ticks on labels other than the data labels, such as a regular time grid. `xTickFormatter` then indexes into `xTickLabels`.
 
 ## Y-axis format
 

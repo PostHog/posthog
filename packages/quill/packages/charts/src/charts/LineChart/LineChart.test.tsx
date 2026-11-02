@@ -72,21 +72,6 @@ describe('LineChart', () => {
             )
             expect(fractions).toEqual(expectedFractions)
         })
-
-        it('draws x ticks at xTickLabels instead of the data labels', () => {
-            const { chart } = renderChart(
-                <LineChart
-                    series={[{ key: 'a', label: 'A', data: [1, 2, 3] }]}
-                    labels={TIME_LABELS}
-                    theme={THEME}
-                    config={{
-                        timeScale: timeScale(TIME_LABELS[0], TIME_LABELS[2]),
-                        xTickLabels: ['2026-03-01T02:00:00Z'],
-                    }}
-                />
-            )
-            expect(chart.xTicks()).toEqual(['2026-03-01T02:00:00Z'])
-        })
     })
 
     it('renders empty state without crashing', () => {
