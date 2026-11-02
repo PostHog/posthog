@@ -59,6 +59,8 @@ export type LogsIngestionConsumerConfig = {
     LOGS_METRICS_RULES_ENABLED_TEAMS: string
     /** When `true`, metric-rule evaluation and emission are skipped for every team. */
     LOGS_METRICS_RULES_KILLSWITCH: boolean
+    /** Comma-separated team IDs, or `*` for all teams, that also get the built-in default metric rules. Independent of `LOGS_METRICS_RULES_ENABLED_TEAMS`. */
+    LOGS_DEFAULT_METRIC_RULES_ENABLED_TEAMS: string
     /** capture-logs OTLP metrics endpoint (e.g. `http://capture-logs:3308/i/v1/metrics`); empty disables emission. */
     LOGS_METRICS_RULES_EXPORT_URL: string
     /** Comma-separated team IDs, or `*` for all teams, or empty to disable per-row retention rule evaluation entirely. */
@@ -69,7 +71,18 @@ export type LogsIngestionConsumerConfig = {
     LOGS_RETENTION_KILLSWITCH: boolean
     /** Comma-separated team IDs, or `*` for all teams. A `posthog-internal` batch from any other team is billed as normal. */
     LOGS_INTERNAL_INGESTION_ENABLED_TEAMS: string
+    /** Secret. Comma-separated HMAC keys, newest first. Producers sign with the first key, and the consumer accepts any. */
     LOGS_INTERNAL_INGESTION_SIGNING_KEYS: string
+    /** MUST be the in-cluster capture-logs service, never a public endpoint: the signature makes logs unbilled. Empty disables sending. */
+    LOGS_INTERNAL_PRODUCER_URL: string
+    /** Comma-separated team IDs, or `*` for all teams, whose internal logs a producer sends to the logs product. */
+    LOGS_INTERNAL_PRODUCER_TEAMS: string
+    /** Requests a producer keeps open at once. A batch over this cap waits in the buffer. */
+    LOGS_INTERNAL_PRODUCER_MAX_IN_FLIGHT: number
+    /** Bytes of records a producer holds while capture-logs is slow or down. A record that does not fit is dropped. */
+    LOGS_INTERNAL_PRODUCER_MAX_BUFFERED_BYTES: number
+    /** How long a producer retries one batch before it gives up on it. */
+    LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS: number
     /** Comma-separated team IDs, or `*` for all teams, or empty (default) to disable measure-only pattern masking. */
     LOGS_PATTERN_MASKING_ENABLED_TEAMS: string
     LOGS_JSON_ATTRIBUTE_PARSING_ENABLED_TEAMS: string
@@ -122,12 +135,18 @@ export function getDefaultLogsIngestionConsumerConfig(): LogsIngestionConsumerCo
         LOGS_METRICS_RULES_ENABLED_TEAMS: isProdEnv() ? '' : '*',
         LOGS_METRICS_RULES_KILLSWITCH: false,
         LOGS_METRICS_RULES_EXPORT_URL: '',
+        LOGS_DEFAULT_METRIC_RULES_ENABLED_TEAMS: '',
         // Off in prod until per-team rollout; on in dev for local end-to-end testing.
         LOGS_RETENTION_ENABLED_TEAMS: isProdEnv() ? '' : '*',
         LOGS_BACKFILL_ENABLED_TEAMS: isProdEnv() ? '' : '*',
         LOGS_RETENTION_KILLSWITCH: false,
         LOGS_INTERNAL_INGESTION_ENABLED_TEAMS: '',
         LOGS_INTERNAL_INGESTION_SIGNING_KEYS: '',
+        LOGS_INTERNAL_PRODUCER_URL: '',
+        LOGS_INTERNAL_PRODUCER_TEAMS: '',
+        LOGS_INTERNAL_PRODUCER_MAX_IN_FLIGHT: 20,
+        LOGS_INTERNAL_PRODUCER_MAX_BUFFERED_BYTES: 64 * 1024 * 1024,
+        LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS: 60_000,
         // Off by default: enabling forces decode+re-encode for allowlisted teams.
         LOGS_PATTERN_MASKING_ENABLED_TEAMS: '',
         LOGS_JSON_ATTRIBUTE_PARSING_ENABLED_TEAMS: '',
@@ -171,6 +190,8 @@ export type TracesIngestionConsumerConfig = {
     TRACES_METRICS_RULES_ENABLED_TEAMS: string
     TRACES_METRICS_RULES_KILLSWITCH: boolean
     TRACES_METRICS_RULES_EXPORT_URL: string
+    /** Comma-separated team IDs, or `*` for all teams, that also get the built-in default span metric rules. */
+    TRACES_DEFAULT_METRIC_RULES_ENABLED_TEAMS: string
     /** Comma-separated team IDs, or `*` for all teams, or empty to disable per-row span retention rules. */
     TRACES_RETENTION_ENABLED_TEAMS: string
     /** When `true`, span retention rules are never evaluated (spans keep the team default via the batch header). */
@@ -204,6 +225,7 @@ export function getDefaultTracesIngestionConsumerConfig(): TracesIngestionConsum
         TRACES_METRICS_RULES_ENABLED_TEAMS: isProdEnv() ? '' : '*',
         TRACES_METRICS_RULES_KILLSWITCH: false,
         TRACES_METRICS_RULES_EXPORT_URL: '',
+        TRACES_DEFAULT_METRIC_RULES_ENABLED_TEAMS: '',
         // Same rollout shape as the logs retention rules: on locally, off in prod until enabled per team.
         TRACES_RETENTION_ENABLED_TEAMS: isProdEnv() ? '' : '*',
         TRACES_RETENTION_KILLSWITCH: false,

@@ -5,12 +5,20 @@ import { urls } from 'scenes/urls'
 
 import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 import { AI_OBSERVABILITY_CLUSTER_URL_PATTERN } from './frontend/clusters/constants'
 import { scorerFiltersFromSearchParams } from './frontend/scoreDefinitions/scoreDefinitionNavigation'
 
 export const manifest: ProductManifest = {
     name: 'AI observability',
+    activityDescribers: {
+        [ActivityScope.LLM_PROMPT]: () =>
+            import('./frontend/prompts/promptActivityDescriber').then((module) => module.promptActivityDescriber),
+        [ActivityScope.LLM_PROMPT_LABEL]: () =>
+            import('./frontend/prompts/promptLabelActivityDescriber').then(
+                (module) => module.promptLabelActivityDescriber
+            ),
+    },
     scenes: {
         AIObservability: {
             import: () => import('./frontend/AIObservabilityScene'),

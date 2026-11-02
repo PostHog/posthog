@@ -1,8 +1,8 @@
 import { useValues } from 'kea'
 
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { useLastLoginMethod } from 'scenes/authentication/shared/lastLoginMethod'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { authLogic } from '../authLogic'
 import { PrecheckResponseType, loginLogic } from '../loginLogic'

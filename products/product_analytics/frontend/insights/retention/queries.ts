@@ -1,8 +1,8 @@
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { performQuery } from '~/queries/query'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import { ActorsQuery, NodeKind, RetentionQuery } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 
 import { RetentionTableAppearanceType, RetentionTablePeoplePayload } from './types'
 

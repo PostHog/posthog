@@ -25,7 +25,7 @@ use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembership, DeletePersonsRequest, GetGroupsRequest,
     GetPersonByDistinctIdRequest, GetPersonRequest, GetPersonResponse,
     GetPersonsByDistinctIdsInTeamRequest, Group, GroupIdentifier, Person,
-    UpdatePersonPropertiesRequest,
+    RaisePersonVersionRequest, UpdatePersonPropertiesRequest,
 };
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
@@ -411,6 +411,34 @@ async fn raw_proxy_update_person_properties_routes_to_leader() {
     let result = response.into_inner();
     assert!(result.updated);
     assert_eq!(result.person.unwrap().version, test_person.version + 1);
+}
+
+#[tokio::test]
+async fn raw_proxy_raise_person_version_routes_to_leader() {
+    let test_person = create_test_person();
+    let leader_service = TestLeaderService::new().with_person(test_person.clone());
+    let replica_addr = start_test_replica(TestReplicaService::new()).await;
+    let leader_addr = start_test_leader(leader_service).await;
+    let router_addr =
+        start_test_router_raw_with_leader(replica_addr, leader_addr, NUM_PARTITIONS).await;
+    let mut client = create_client(router_addr).await;
+
+    let result = client
+        .raise_person_version(with_person_key(
+            Request::new(RaisePersonVersionRequest {
+                team_id: 1,
+                person_id: 42,
+                min_version: test_person.version + 10,
+            }),
+            1,
+            42,
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert!(result.raised);
+    assert_eq!(result.person.unwrap().version, test_person.version + 10);
 }
 
 /// A lifecycle fence is the one refusal whose holder the caller can act

@@ -107,7 +107,15 @@ def user(organization):
 
 @pytest.fixture
 def grandfathered_batch_export(team: Team, request: pytest.FixtureRequest) -> Iterator[BatchExport]:
-    export_team = team if getattr(request, "param", True) else create_team(team.organization)
+    match getattr(request, "param", "same-team"):
+        case "same-team":
+            export_team = team
+        case "same-organization":
+            export_team = create_team(team.organization)
+        case "other-organization":
+            export_team = create_team(create_organization("Other organization"))
+        case scope:
+            raise ValueError(f"Unknown grandfathering scope: {scope}")
     destination = create_destination()
     batch_export = BatchExport.objects.create(
         team=export_team,

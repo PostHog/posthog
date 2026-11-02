@@ -38,7 +38,7 @@ from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.presentation.views.data_suggestion_drafts import validated_draft
 from products.workflows.backend.services.customerio_import import conditions, liquid
 from products.workflows.backend.services.customerio_import.images import _file_name
-from products.workflows.backend.services.customerio_import.translator import translate_campaign
+from products.workflows.backend.services.customerio_import.translator import _json_with_liquid, translate_campaign
 
 
 def _encode(condition: list[dict[str, Any]]) -> str:
@@ -172,13 +172,14 @@ class TestCustomerioCampaignTranslation(BaseTest):
         edges = [edge for edge in source.campaign["edges"] if edge["from"] != "5"]
         campaign = {
             **source.campaign,
-            "workflow_action_ids": [*source.campaign["workflow_action_ids"], "10", "11"],
+            "workflow_action_ids": [*source.campaign["workflow_action_ids"], "10", "11", "12"],
             "exit_on_conversion_matched": False,
             "edges": [
                 *edges,
                 {"from": "5", "to": "10", "type": "continue"},
                 {"from": "10", "to": "11", "type": "continue"},
-                {"from": "11", "to": "9", "type": "continue"},
+                {"from": "11", "to": "12", "type": "continue"},
+                {"from": "12", "to": "9", "type": "continue"},
             ],
             "conversion_event_filters": {
                 "or": [
@@ -193,17 +194,33 @@ class TestCustomerioCampaignTranslation(BaseTest):
         actions = [{**action, "delay": 129600} if action["id"] == "3" else action for action in source.actions] + [
             {"id": "10", "type": "attribute_update_action", "name": "Flags", "template_id": "14"},
             {"id": "11", "type": "webhook_action", "name": "CRM", "template_id": "15"},
+            {
+                "id": "12",
+                "type": "create_event_action",
+                "name": "Reminder sent",
+                "template_id": "16",
+                "event_name": json.dumps({"type": "static", "value": "reminder_sent"}),
+            },
         ]
         templates = {
             **source.templates,
             "14": {"body": json.dumps([{"name": "active", "value": False}, {"name": "score", "value": 0}])},
             "15": {
                 "url": "https://crm.example.com",
+                "body": '{"name": "{{ customer.first_name | default: "" }}", "seats": 3}',
                 "headers": [
                     {"name": "Authorization", "value": "Bearer fake-token"},
                     {"name": "X-Api-Key", "value": "{{customer.key}}"},
                     {"name": "X-Source", "value": "{{customer.id}}"},
                 ],
+            },
+            "16": {
+                "body": json.dumps(
+                    [
+                        {"name": "days_left", "type": "static", "value": "3"},
+                        {"name": "plan", "type": "liquid", "value": "{{ customer.plan }}"},
+                    ]
+                )
             },
         }
         translated = translate_campaign(
@@ -214,15 +231,29 @@ class TestCustomerioCampaignTranslation(BaseTest):
 
         assert steps["cio_3"]["config"] == {"delay_duration": "1.5d"}
         assert steps["cio_10"]["config"]["inputs"]["set_properties"]["value"] == {"active": False, "score": 0}
+        reminder = steps["cio_12"]["config"]["inputs"]
+        assert reminder["event"]["value"] == "reminder_sent"
+        assert reminder["properties"]["value"] == {"days_left": "3", "plan": "{{ person.properties.plan }}"}
         webhook = steps["cio_11"]["config"]["inputs"]
         assert webhook["headers"]["value"] == {"X-Source": "{{event.distinct_id}}"}
         assert webhook["secret_headers"]["value"] == {"Authorization": "Bearer fake-token"}
+        assert webhook["body"]["value"] == {"name": '{{ person.properties.first_name | default: "" }}', "seats": 3}
         assert "properties" not in workflow["conversion"]["events"][0]["filters"]["events"][0]
         assert workflow["exit_condition"] == "exit_only_at_end"
         messages = [note.message for note in translated.notes]
         assert any("`X-Api-Key` header" in message for message in messages)
         assert any("any of several conditions" in message for message in messages)
         assert any("removes people from this automation" in message for message in messages)
+
+    def test_goal_switched_on_without_an_event_is_left_out_quietly(self) -> None:
+        source = _onboarding_campaign()
+        campaign = {**source.campaign, "conversion_event_name": None}
+        translated = translate_campaign(
+            CampaignSource(campaign=campaign, actions=source.actions, templates=source.templates), _OPTIONS
+        )
+
+        assert translated.workflow["conversion"] is None
+        assert not any("goal" in note.message for note in translated.notes)
 
     def test_long_chain_of_left_out_steps_resolves(self) -> None:
         source = _onboarding_campaign()
@@ -416,6 +447,20 @@ class TestCustomerioConditions(SimpleTestCase):
 class TestCustomerioLiquid(SimpleTestCase):
     @parameterized.expand(
         [
+            ("quotes_inside_liquid", '{"a": "{{ x | default: "" }}"}', {"a": '{{ x | default: "" }}'}),
+            ("escaped_quotes_in_valid_json", '{"a": "{{ x | default: \\"\\" }}"}', {"a": '{{ x | default: "" }}'}),
+            (
+                "text_like_a_placeholder",
+                '{"a": "liquid-0 \\ue0000\\ue001", "b": "{{ y | default: "" }}"}',
+                {"a": "liquid-0 \ue0000\ue001", "b": '{{ y | default: "" }}'},
+            ),
+        ]
+    )
+    def test_webhook_body_keeps_its_liquid(self, _name: str, body: str, expected: dict[str, str]) -> None:
+        assert _json_with_liquid(body) == expected
+
+    @parameterized.expand(
+        [
             ("customer attribute", "{{ customer.first_name }}", "{{ person.properties.first_name }}"),
             ("customer id", "{{customer.id}}", "{{event.distinct_id}}"),
             (
@@ -450,10 +495,17 @@ class TestCustomerioLiquid(SimpleTestCase):
         assert rewritten.unsupported_globals == ("journey",)
         assert rewritten.missing_snippets == ("legal",)
 
-    def test_stops_inlining_snippets_past_the_budget(self) -> None:
+    @parameterized.expand(
+        [
+            ("output_tag", "{{ snippets.big }}"),
+            ("output_tag_with_brackets", '{{- snippets["big"] -}}'),
+            ("legacy_tag", '{% snippet "big" %}'),
+        ]
+    )
+    def test_stops_inlining_snippets_past_the_budget(self, _name: str, tag: str) -> None:
         room = SnippetRoom(remaining=10)
-        rewritten = liquid.rewrite('{% snippet "big" %}' * 3, {"big": "0123456"}, room)
-        assert rewritten.text == '0123456{% snippet "big" %}{% snippet "big" %}'
+        rewritten = liquid.rewrite(tag * 3, {"big": "0123456"}, room)
+        assert rewritten.text == "0123456" + tag * 2
         assert rewritten.missing_snippets == ("big",)
 
 
@@ -604,7 +656,13 @@ class TestWorkflowImportAPI(APIBaseTest):
         Integration.objects.create(team=self.team, kind="customerio-app", sensitive_config={"app_api_key": "k"})
         create_category(self.team.id, None, {"key": "customerio_topic_3", "name": "Product news"})
         email_actions = [
-            {"id": 1, "type": "email", "subject": "Hi", "body": "<p>Fetched {{customer.first_name}}</p>", "from_id": 4},
+            {
+                "id": 1,
+                "type": "email",
+                "subject": "Hi",
+                "body": "<p>Fetched {{customer.first_name}}</p>{{ snippets.signature }}",
+                "from_id": 4,
+            },
             {"id": 5, "type": "email", "subject": "Tips", "body": "<p>Tips</p>"},
         ]
 
@@ -618,6 +676,10 @@ class TestWorkflowImportAPI(APIBaseTest):
                 response.json.return_value = {"actions": email_actions[1:], "next": ""}
             elif url.endswith("/sender_identities"):
                 response.json.return_value = {"sender_identities": [{"id": 4, "email": "team@example.com"}]}
+            elif url.endswith("/snippets"):
+                response.json.return_value = {
+                    "snippets": [{"name": "signature", "value": "<p>Bye {{customer.id}}</p>"}]
+                }
             else:
                 response.json.return_value = {}
             return response
@@ -637,7 +699,8 @@ class TestWorkflowImportAPI(APIBaseTest):
         flow_actions = {action["id"]: action for action in flow.actions}
         welcome = flow_actions["cio_1"]["config"]
         assert welcome["inputs"]["email"]["value"]["html"] == (
-            '<div style="font-family: Arial, Helvetica, sans-serif;"><p>Fetched {{person.properties.first_name}}</p></div>'
+            '<div style="font-family: Arial, Helvetica, sans-serif;"><p>Fetched {{person.properties.first_name}}</p>'
+            "<p>Bye {{event.distinct_id}}</p></div>"
         )
         assert welcome["inputs"]["email"]["value"]["from"]["email"] == "team@example.com"
         assert welcome["message_category_type"] == "marketing"

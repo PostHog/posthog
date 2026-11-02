@@ -409,6 +409,13 @@ function hiddenPromptBlock(block: ContentBlock): ContentBlock {
   } as ContentBlock;
 }
 
+function compactionFailed(result: PromptResponse): boolean {
+  return (
+    (result._meta as { compactionFailed?: unknown } | undefined)
+      ?.compactionFailed === true
+  );
+}
+
 function isManualCompactPrompt(prompt: ContentBlock[]): boolean {
   return /^\/compact(?:\s|$)/.test(promptBlocksToText(prompt).trimStart());
 }
@@ -1658,7 +1665,11 @@ export class AgentServer {
                 result = await runTurn();
               }
 
-              if (result.stopReason === "end_turn" && manualCompactPrompt) {
+              if (
+                result.stopReason === "end_turn" &&
+                manualCompactPrompt &&
+                !compactionFailed(result)
+              ) {
                 commitDelivery();
                 if (messageId) {
                   this.pendingCompactContinuationMessageIds.add(messageId);
@@ -2362,6 +2373,10 @@ export class AgentServer {
       claudeMachineAuth:
         runtimeAdapter !== "codex" && claudeSubscriptionToken !== null
           ? { oauthToken: claudeSubscriptionToken }
+          : undefined,
+      claudeModelsGatewayUrl:
+        runtimeAdapter !== "codex" && claudeSubscriptionToken !== null
+          ? gatewayEnv.anthropicBaseUrl
           : undefined,
       codexOptions:
         runtimeAdapter === "codex"

@@ -762,14 +762,6 @@ ignore_imports = [
     "products.access_control.backend.presentation.access_control_settings -> products.access_control.backend.models.access_control",
     "products.access_control.backend.presentation.access_control_settings -> products.access_control.backend.models.role",
     "products.access_control.backend.presentation.role -> products.access_control.backend.models.role",
-    # TODO: batch_exports presentation wave — the moved viewsets, serializers and destination
-    # test helpers still reach in-product internals directly. Thin each one to parse -> facade
-    # -> serialize and delete each entry. backend:contract-check stays off until this list is
-    # empty. Only delete entries here: a new import from these views goes through the facade.
-    "products.batch_exports.backend.presentation.views.batch_export.destinations -> products.batch_exports.backend.models.batch_export",
-    "products.batch_exports.backend.presentation.views.batch_export.exports -> products.batch_exports.backend.hogql_source",
-    "products.batch_exports.backend.presentation.views.batch_export.exports -> products.batch_exports.backend.models.batch_export",
-    "products.batch_exports.backend.presentation.views.batch_export.exports -> products.batch_exports.backend.service",
 ]
 
 # routes.py is the one module core reads to assemble a product's API router, so it is the
