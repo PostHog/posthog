@@ -17319,6 +17319,7 @@ export namespace Schemas {
         auto_publish: boolean | null;
         channel: string | null;
         scheduled_at: string | null;
+        confirmed_repository: string;
         start_run: boolean;
         signal_report_discussion_question: string;
         naming_source: string;
