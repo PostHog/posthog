@@ -4,7 +4,7 @@ import { MetricsDisplayType, MetricsQuery, NodeKind } from '~/queries/schema/sch
 
 const METRICS_WIDGET_DEFAULT_DATE_FROM = '-1h'
 
-export type MetricsWidgetPresetId = 'time_series' | 'stat' | 'table' | 'heatmap'
+export type MetricsWidgetPresetId = 'time_series' | 'stat' | 'heatmap'
 
 export type MetricsWidgetPreset = {
     id: MetricsWidgetPresetId
@@ -26,12 +26,6 @@ export const METRICS_WIDGET_PRESETS: readonly MetricsWidgetPreset[] = [
         label: 'Single stat',
         description: 'One big number, such as the latest value or the average.',
         display: 'stat',
-    },
-    {
-        id: 'table',
-        label: 'Table',
-        description: 'One row per series, with its latest value.',
-        display: 'table',
     },
     {
         id: 'heatmap',

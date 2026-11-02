@@ -82,13 +82,6 @@ export const SingleStat: Story = {
     },
 }
 
-export const Table: Story = {
-    args: {
-        config: { query: metricsWidgetSampleQuery('table') },
-        result: metricsWidgetSampleResponse('table'),
-    },
-}
-
 export const Heatmap: Story = {
     args: {
         config: { query: metricsWidgetSampleQuery('heatmap') },

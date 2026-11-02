@@ -147,9 +147,11 @@ describe('AddWidgetModal', () => {
             [FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]: true,
         })
         renderAddWidgetModal({ onAdd })
-        expect(
-            ['Time series', 'Single stat', 'Table', 'Heatmap'].map((label) => !!screen.queryByLabelText(label))
-        ).toEqual([true, true, true, true])
+        expect(['Time series', 'Single stat', 'Heatmap'].map((label) => !!screen.queryByLabelText(label))).toEqual([
+            true,
+            true,
+            true,
+        ])
 
         await userEvent.click(screen.getByLabelText('Single stat'))
         await userEvent.click(screen.getByTestId('add-widget-submit'))
