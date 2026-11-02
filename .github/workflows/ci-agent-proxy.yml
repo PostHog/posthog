@@ -20,33 +20,17 @@ env:
     NPM_CONFIG_FUND: 'false'
 
 jobs:
-    changes:
+    push-baseline:
+        if: github.repository == 'PostHog/posthog' && github.event_name == 'push'
         permissions:
             actions: read
-            contents: read
-            pull-requests: read
-        # Push and schedule runs only belong in this repo. Mirrors run CI on their own PRs only.
-        if: github.repository == 'PostHog/posthog' || (github.event_name != 'push' && github.event_name != 'schedule')
         runs-on: ubuntu-24.04
         timeout-minutes: 5
-        name: Determine need to run agent-proxy checks
         outputs:
-            agent_proxy: ${{ steps.filter.outcome == 'success' && steps.filter.outputs.agent_proxy || 'true' }}
+            safe: ${{ steps.baseline.outcome == 'success' && steps.baseline.outputs.result == 'true' }}
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  sparse-checkout: .github/actions/paths-filter
-                  sparse-checkout-cone-mode: false
-
-            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-              id: app-token
-              if: github.repository == 'PostHog/posthog' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-              with:
-                  client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - name: Check push baseline
               id: baseline
-              if: github.event_name == 'push'
               continue-on-error: true
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               with:
@@ -69,9 +53,30 @@ jobs:
                       core.info(safe ? 'Compare the complete push range.' : 'Full checks: push baseline is not green.');
                       return safe;
 
+    changes:
+        needs: push-baseline
+        # Push and schedule runs only belong in this repo. Mirrors run CI on their own PRs only.
+        if: ${{ !cancelled() && (github.repository == 'PostHog/posthog' || (github.event_name != 'push' && github.event_name != 'schedule')) }}
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        name: Determine need to run agent-proxy checks
+        outputs:
+            agent_proxy: ${{ steps.filter.outcome == 'success' && steps.filter.outputs.agent_proxy || 'true' }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/actions/paths-filter
+                  sparse-checkout-cone-mode: false
+
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: app-token
+              if: github.repository == 'PostHog/posthog' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - name: Fetch push baseline without blobs
               id: fetch-baseline
-              if: steps.baseline.outputs.result == 'true'
+              if: needs.push-baseline.outputs.safe == 'true'
               continue-on-error: true
               env:
                   PUSH_BEFORE: ${{ github.event.before }}
