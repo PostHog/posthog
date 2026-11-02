@@ -257,6 +257,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Matcher::Full("personhog_leader_kafka_produce_bytes".into()),
                 CHANGELOG_PRODUCE_SIZE_BUCKETS_BYTES,
             ),
+            (
+                Matcher::Full(personhog_property_store::OBJECT_STORE_REQUEST_DURATION.into()),
+                personhog_property_store::OBJECT_STORE_REQUEST_BUCKETS_SECONDS,
+            ),
+            (
+                Matcher::Full("personhog_leader_property_store_read_ms".into()),
+                personhog_property_store::READ_LATENCY_BUCKETS_MS,
+            ),
+            (
+                Matcher::Full("personhog_leader_person_load_duration_ms".into()),
+                personhog_property_store::READ_LATENCY_BUCKETS_MS,
+            ),
+            (
+                Matcher::Full("personhog_property_store_reader_open_ms".into()),
+                personhog_property_store::READ_LATENCY_BUCKETS_MS,
+            ),
+            (
+                Matcher::Full("personhog_property_store_fresh_read_ms".into()),
+                personhog_property_store::READ_LATENCY_BUCKETS_MS,
+            ),
         ],
     );
     preregister_metrics();

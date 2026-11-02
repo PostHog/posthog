@@ -449,6 +449,9 @@ impl HandoffHandler for LeaderHandoffHandler {
                         == *capture.key()
             })
         });
+        if let Some(read) = &self.property_read {
+            read.reader.release_partition(partition, modulus);
+        }
         self.captures.remove(&partition);
         // The incoming owner derives versions from the changelog, which
         // is the authority these floors stood in for; carrying them would
@@ -598,6 +601,50 @@ mod tests {
             "{warmed:?}"
         );
         reader.close().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn releasing_a_partition_lets_its_property_store_shards_close() {
+        use personhog_property_store::object_store::local::LocalFileSystem;
+        use personhog_property_store::object_store::ObjectStore;
+        use personhog_property_store::{
+            PartitionKey, PropertyReader, PropertyStoreConfig, PropertyWriter,
+        };
+
+        let dir = tempfile::tempdir().unwrap();
+        let store: Arc<dyn ObjectStore> =
+            Arc::new(LocalFileSystem::new_with_prefix(dir.path()).unwrap());
+        let config = PropertyStoreConfig {
+            reader_idle_secs: 1,
+            ..PropertyStoreConfig::local("props", 8)
+        };
+        let writer = PropertyWriter::new(&config, Arc::clone(&store));
+        let key = PartitionKey {
+            topic: Arc::from("personhog_updates"),
+            partition: 1,
+        };
+        writer.assign(&key, 1, 4, || true).await.unwrap();
+        let reader = Arc::new(PropertyReader::new(&config, store));
+        let handler = handler().with_property_read(PropertyRead {
+            reader: Arc::clone(&reader),
+        });
+        reader.open_partition(1, 4).await.unwrap();
+
+        tokio::time::sleep(Duration::from_millis(1100)).await;
+        assert_eq!(
+            reader.close_idle().await,
+            2,
+            "an owned partition's shards stay open"
+        );
+        handler.release_partition(1).await.unwrap();
+        assert_eq!(
+            reader.close_idle().await,
+            0,
+            "a released partition's shards close when idle"
+        );
+
+        reader.close().await;
+        writer.close().await;
     }
 
     #[tokio::test]
