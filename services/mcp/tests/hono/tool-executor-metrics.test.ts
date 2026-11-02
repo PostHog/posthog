@@ -615,7 +615,7 @@ describe('ToolExecutor metrics', () => {
             })
         })
 
-        it('stamps the discovery hint kind and emptiness the response builder recorded', async () => {
+        it('stamps the emptiness the response builder recorded', async () => {
             vi.spyOn(catalog, 'getToolByName').mockReturnValue(
                 makeFakeTool('query-error-tracking-issues-list', async () => ({ results: [] })) as any
             )
@@ -626,7 +626,6 @@ describe('ToolExecutor metrics', () => {
             )
 
             expect(trackToolCallExtras('query-error-tracking-issues-list')).toMatchObject({
-                mcp_discovery_hint: 'empty_state',
                 mcp_result_empty: true,
             })
         })
@@ -774,7 +773,6 @@ describe('ToolExecutor metrics', () => {
 
             const extras = mockTrackToolCall.mock.calls.at(-1)?.[4]
             expect(extras?.mcp_result_empty).toBe(empty ? true : undefined)
-            expect(extras).not.toHaveProperty('mcp_discovery_hint')
         })
 
         // In exec mode the inner arguments are JSON inside `command`, so the direct
