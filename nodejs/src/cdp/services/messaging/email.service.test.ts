@@ -752,19 +752,61 @@ describe('EmailService', () => {
                 expect(capture).not.toHaveBeenCalled()
             })
 
-            it('keeps a bounded number of blocked-event captures waiting on a stalled store', async () => {
-                const useClient = jest.fn(() => new Promise<never>(() => {}))
+            it('captures every event of a burst of blocked sends while the store answers', async () => {
+                const useClient = jest.fn(() => Promise.resolve('OK'))
                 service = createSandboxService(true, { blockedEventRedis: { useClient } })
-                const invocations = Array.from({ length: 15 }, () => ({
-                    ...invocation,
-                    queueParameters: createSandboxParams({ to: { email: 'outsider@example.com', name: '' } }),
-                }))
 
-                const results = await Promise.all(invocations.map((blocked) => service.executeSendEmail(blocked)))
+                const results = await Promise.all(
+                    Array.from({ length: 15 }, () =>
+                        service.executeSendEmail({
+                            ...invocation,
+                            queueParameters: createSandboxParams({ to: { email: 'outsider@example.com', name: '' } }),
+                        })
+                    )
+                )
 
                 results.forEach(expectSkipped)
-                expect(useClient).toHaveBeenCalledTimes(10)
+                expect(useClient).toHaveBeenCalledTimes(15)
+                expect(capture).toHaveBeenCalledTimes(15)
             })
+
+            it('drops blocked-event captures while stalled ones fill the cap, and resumes once they settle', async () => {
+                const stalled: ((reply: string) => void)[] = []
+                const useClient = jest.fn(() => new Promise<string>((resolve) => stalled.push(resolve)))
+                service = createSandboxService(true, { blockedEventRedis: { useClient } })
+                const sendBlockedBatch = async (): Promise<void> => {
+                    const results = await Promise.all(
+                        Array.from({ length: 15 }, () =>
+                            service.executeSendEmail({
+                                ...invocation,
+                                queueParameters: createSandboxParams({
+                                    to: { email: 'outsider@example.com', name: '' },
+                                }),
+                            })
+                        )
+                    )
+                    results.forEach(expectSkipped)
+                }
+
+                await sendBlockedBatch()
+                expect(useClient).toHaveBeenCalledTimes(15)
+
+                await sendBlockedBatch()
+                expect(useClient).toHaveBeenCalledTimes(15)
+                const sent = await service.executeSendEmail(invocation)
+                expect(sent.error).toBeUndefined()
+                expect(capture).toHaveBeenCalledWith(
+                    expect.objectContaining({ id: team.id }),
+                    'workflows sandbox email sent',
+                    expect.anything()
+                )
+                sendEmailSpy.mockClear()
+
+                stalled.splice(0).forEach((resolve) => resolve('OK'))
+                await waitForExpect(() => expect(capture).toHaveBeenCalledTimes(16))
+                await sendBlockedBatch()
+                expect(useClient).toHaveBeenCalledTimes(30)
+            }, 15_000)
 
             it('fails closed when the member check fails', async () => {
                 const membersPostgres = new PostgresRouter(hub)
