@@ -27,6 +27,7 @@
         "build:hono": "tsx scripts/build-hono.ts",
         "build:cli": "tsx scripts/build-cli.ts",
         "build:cli:release": "tsx scripts/build-cli-release.ts",
+        "build:cli:library": "tsx scripts/build-cli-library.ts",
         "test": "vitest",
         "test:integration": "vitest run --config vitest.integration.config.mts",
         "test:live": "vitest run --config vitest.live.config.mts",

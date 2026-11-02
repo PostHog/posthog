@@ -30,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.plivo.sett
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     PLIVO_BASE_URL,
+    USAGE_SUMMARY,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -129,6 +130,8 @@ class PlivoSource(ResumableSource[PlivoSourceConfig, PlivoResumeConfig]):
             INCREMENTAL_FIELDS,
             names,
             descriptions=ENDPOINT_DESCRIPTIONS,
+            # Each sync re-reads the watermark day, which append would write twice.
+            merge_only=(USAGE_SUMMARY,),
         )
 
     def validate_credentials(

@@ -10,12 +10,25 @@ Each function raises NotImplementedError until its logic lands.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from typing import overload
 from uuid import UUID
 
+from ..logic import legacy, session
 from . import contracts
 from .enums import Action, Level, SubjectType
+
+
+@contextmanager
+def authorization_session() -> Iterator[None]:
+    """Share user, project and rule lookups between the checks in the block.
+
+    Every request already runs in a session. Open one in a task or a command that checks many
+    resources. It does not bind a current user, so checks in it still pass `subject`.
+    """
+    with session.scope():
+        yield
 
 
 def synchronize_organization(organization_id: UUID) -> None:
@@ -56,8 +69,17 @@ def check(
     subject: contracts.Subject | None = None,
     context: contracts.Context | None = None,
 ) -> bool | list[bool]:
-    """Return whether the subject may take the action on the resource, or one result per request, in order."""
-    raise NotImplementedError
+    """Return whether the subject may take the action on the resource, or one result per request, in order.
+
+    `subject=None` means the user of the current request. Outside a request, pass `subject`.
+    """
+    if requests is None:
+        if resource is None or action is None:
+            raise TypeError("Pass `resource` and `action`, or a sequence of check requests.")
+        return legacy.check([contracts.CheckRequest(resource=resource, action=action, subject=subject)], context)[0]
+    if resource is not None or action is not None or subject is not None:
+        raise TypeError("Pass either a sequence of check requests or `resource` and `action`, not both.")
+    return legacy.check(requests, context)
 
 
 def permissions(

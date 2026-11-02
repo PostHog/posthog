@@ -126,6 +126,20 @@ describe('reportListLogic', () => {
 
         afterEach(() => logic.unmount())
 
+        // A bulk claim returns no rows, so the lists show its claims only after they reload. A failed request
+        // can still have saved some claims on the server.
+        it.each(['bulkClaimSuccess', 'bulkClaimFailure'] as const)('reloads the first page after %s', async (end) => {
+            const bulkLogic = inboxBulkActionsLogic()
+            bulkLogic.mount()
+            requestedOffsets = []
+
+            bulkLogic.actions[end]()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(requestedOffsets).toEqual(['0'])
+            bulkLogic.unmount()
+        })
+
         it('appends the next server page from the loaded offset, then stops', async () => {
             logic.actions.loadMore()
             await expectLogic(logic).toFinishAllListeners()
@@ -228,6 +242,29 @@ describe('reportListLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.pageLoadFailed).toBe(false)
             expect(logic.values.reports).toHaveLength(FIRST_PAGE.length + SECOND_PAGE.length)
+        })
+
+        it('keeps a claim made while the first page reloads, which the reload read before the claim saved', async () => {
+            let releasePage: () => void = () => {}
+            const heldPage = new Promise<void>((resolve) => {
+                releasePage = resolve
+            })
+            useMocks({
+                get: {
+                    [REPORTS_URL]: async () => {
+                        await heldPage
+                        return [200, { count: FIRST_PAGE.length, next: null, previous: null, results: FIRST_PAGE }]
+                    },
+                },
+            })
+
+            logic.actions.loadReports()
+            logic.actions.setReportAssignee(FIRST_PAGE[0].id, myClaim)
+            releasePage()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.reports.find((r) => r.id === FIRST_PAGE[0].id)?.assignee).toEqual(myClaim)
+            expect(logic.values.reports.find((r) => r.id === FIRST_PAGE[1].id)?.assignee).toBeUndefined()
         })
 
         it('keeps a row removed while the next page is in flight out of the appended list', async () => {

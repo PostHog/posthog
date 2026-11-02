@@ -1,5 +1,5 @@
 import { FileUploadFormat } from './fileUploadSource'
-import { fileFormatMismatchError, fileUploadFormErrors } from './fileUploadSourceLogic'
+import { MAX_FILE_UPLOAD_SIZE_BYTES, fileFormatMismatchError, fileUploadFormErrors } from './fileUploadSourceLogic'
 
 describe('file upload format validation', () => {
     it.each<[string, FileUploadFormat]>([
@@ -31,5 +31,22 @@ describe('file upload format validation', () => {
         const file = new File(['a,b'], 'sheet.xlsx')
         const errors = fileUploadFormErrors({ files: [file], table_name: 'my_table', file_format: 'csv' })
         expect(errors.files).toContain('Spreadsheet files')
+    })
+})
+
+describe('oversized file message', () => {
+    it.each([
+        { enabled: false, expected: 'as a self-managed source instead', unexpected: 'Amazon S3' },
+        {
+            enabled: true,
+            expected: 'Amazon S3, Google Cloud Storage, Azure Blob Storage or Cloudflare R2',
+            unexpected: 'self-managed',
+        },
+    ])('points to the right bucket source when managed object storage sources enabled=$enabled', (c) => {
+        const file = new File(['a'], 'big.csv')
+        Object.defineProperty(file, 'size', { value: MAX_FILE_UPLOAD_SIZE_BYTES + 1 })
+        const errors = fileUploadFormErrors({ files: [file], table_name: 'my_table', file_format: 'csv' }, c.enabled)
+        expect(errors.files).toContain(c.expected)
+        expect(errors.files).not.toContain(c.unexpected)
     })
 })

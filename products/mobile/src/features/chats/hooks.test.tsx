@@ -186,5 +186,14 @@ describe('chats hooks', () => {
                 await waitFor(() => expect(result.current.list.data?.map((item) => item.sourceId)).toEqual(expected))
             }
         )
+
+        test('archives a directly opened task that is not in the cached list', async () => {
+            mocked.setTaskArchived.mockResolvedValue(undefined)
+            const { result } = renderChats()
+            await waitFor(() => expect(result.current.list.data).toHaveLength(2))
+            await act(async () => result.current.archive.archive({ sourceId: 'direct-task' }))
+            expect(mocked.setTaskArchived).toHaveBeenCalledWith('direct-task', true)
+            expect(result.current.list.data?.map((item) => item.sourceId)).toEqual(['task-1', 'task-2'])
+        })
     })
 })

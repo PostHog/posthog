@@ -84,6 +84,7 @@ pub struct CompressedBlock {
     pub images: Vec<Arc<Image>>,
     pub counts: WriterCounts,
     pub url_fingerprints: Vec<String>,
+    pub visited_url_fingerprints: Vec<String>,
 }
 
 /// A block sealed for one object, with the images it moved out.
@@ -94,6 +95,7 @@ pub struct SealedBlock {
     pub images: Vec<Arc<Image>>,
     pub counts: WriterCounts,
     pub url_fingerprints: Vec<String>,
+    pub visited_url_fingerprints: Vec<String>,
 }
 
 fn unique_suffix(at: DateTime<Utc>) -> String {
@@ -320,6 +322,7 @@ pub fn compress_block(
         images: images.into_iter().map(Arc::new).collect(),
         counts,
         url_fingerprints: url_fingerprints(&key.key, &block_urls(block)),
+        visited_url_fingerprints: visited_url_fingerprints(&key.key, &block.visited_urls),
     })
 }
 
@@ -342,6 +345,7 @@ pub fn seal_compressed(
         images: block.images.clone(),
         counts: block.counts,
         url_fingerprints: block.url_fingerprints.clone(),
+        visited_url_fingerprints: block.visited_url_fingerprints.clone(),
     })
 }
 
@@ -585,6 +589,16 @@ pub fn url_fingerprints(session_key: &[u8; 32], urls: &[String]) -> Vec<String> 
     fingerprints
 }
 
+/// The block's distinct visited pages for its surfacing features, as fingerprints under the session's fingerprint key,
+/// sorted.
+pub fn visited_url_fingerprints(session_key: &[u8; 32], urls: &[String]) -> Vec<String> {
+    let key = url_fingerprint_key(session_key);
+    let mut fingerprints: Vec<String> = urls.iter().map(|url| url_fingerprint(&key, url)).collect();
+    fingerprints.sort_unstable();
+    fingerprints.dedup();
+    fingerprints
+}
+
 /// Numbers the rows of each partition in order and gives each row the count of its partition.
 fn number_rows(rows: &mut [BlockIndexRow<'_>]) {
     let mut counts: HashMap<(&str, i32), u32> = HashMap::new();
@@ -771,6 +785,7 @@ mod tests {
             remote_urls: Vec::new(),
             url_limit: None,
             srcsets: Vec::new(),
+            visited_urls: Vec::new(),
             captured_at_ms: None,
         }
     }
@@ -1222,6 +1237,9 @@ mod tests {
             {"type": 4, "timestamp": 4, "data": {"href": "https://app.example.com/a"}},
         ]);
         let mut blocks = [block("kept", events.clone()), block("again", events)];
+        blocks[0].visited_urls = ["/b", "/a"]
+            .map(|path| format!("https://app.example.com{path}"))
+            .to_vec();
         let mut keys = FlushKeys::default();
         for session in ["kept", "again"] {
             let (id, key) = session_key(session);
@@ -1265,6 +1283,9 @@ mod tests {
             sealed[0].url_fingerprints,
             [fingerprint("/a"), fingerprint("/b")]
         );
+        let mut visited = [fingerprint("/a"), fingerprint("/b")];
+        visited.sort_unstable();
+        assert_eq!(sealed[0].visited_url_fingerprints, visited);
 
         let session_frames = session_keyed_frames(&sealed);
         let memory = Arc::new(MemoryStore::default());

@@ -51,6 +51,7 @@ from products.signals.backend.auto_start import (
     maybe_autostart_implementation_task,
 )
 from products.signals.backend.enums import ReportLinkKind
+from products.signals.backend.issue_dependencies import IssueRef
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
     ArtefactAttribution,
@@ -677,6 +678,9 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team, 
     report = SignalReport.objects.create(
         team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
     )
+    SignalTeamConfig.objects.update_or_create(
+        team=team, defaults={"implementation_repositories": ["owner/assets", "other/assets", "owner/repo"]}
+    )
 
     created_tasks = []
 
@@ -737,6 +741,10 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team, 
     # self-driving reviews (the agent pushes to a name the server never stamped).
     assert call_kwargs["self_driving_head_branch"].startswith("posthog-self-driving/")
     assert call_kwargs["self_driving_head_branch"] in call_kwargs["description"]
+    # Only same-owner entries apply, because the token comes from the selected repository's installation.
+    assert call_kwargs["github_access_repositories"] == ["owner/assets"]
+    assert "`owner/assets`" in call_kwargs["description"]
+    assert call_kwargs["repository"] == "owner/repo"
     # The gate the second evaluation observed is the legacy SignalReportTask implementation link,
     # written in the same transaction as the task; the task_run artefact is the work-log entry
     # alongside.
@@ -1220,6 +1228,7 @@ def _link(team_id: int, source: SignalReport, target: SignalReport, kind: Report
         ("later_duplicate_of_with_pr", "duplicate_of"),
         ("depends_on_without_pr", "blocked_by_dependency"),
         ("depends_on_with_open_pr", None),
+        ("unresolved_github_issue", "blocked_by_dependency"),
         ("incoming_part_of", "plan_parent"),
         ("none", None),
     ],
@@ -1342,6 +1351,10 @@ async def test_typed_links_hold_back_autostart(link, expect_skip_reason, link_be
             return_value=AgentRuntime(),
         ),
         patch("products.signals.backend.auto_start.posthoganalytics.capture") as capture_mock,
+        patch(
+            "products.signals.backend.auto_start.resolve_issue_dependencies",
+            return_value=(IssueRef(repository="owner/repo", number=7),) if link == "unresolved_github_issue" else (),
+        ),
     ):
         outcome = await maybe_autostart_implementation_task(
             team_id=team.id,
