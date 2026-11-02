@@ -137,13 +137,14 @@ export interface logsAlertFormLogicValues {
     alertFormTouches: Record<string, boolean>
     alertFormValidationErrors: DeepPartialMap<LogsAlertFormType, ValidationErrorType>
     canGroup: boolean
+    groupingFlagEnabled: boolean
     isAlertFormSubmitting: boolean
-    lockedGroupBy: LogsAlertGroupBy | null
     isAlertFormValid: boolean
     isEditing: boolean
     isRegroupConfirmationOpen: boolean
     isRegroupConfirmed: boolean
     isSimulationPanelOpen: boolean
+    lockedGroupBy: LogsAlertGroupBy | null
     needsRegroupConfirmation: boolean
     regroupConfirmation: string
     showAlertFormErrors: boolean
