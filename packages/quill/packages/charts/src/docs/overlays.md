@@ -61,8 +61,7 @@ Omit `from` to run it to the plot bottom, or `to` to run it to the top; the part
 `yAxisId` picks a secondary axis.
 The fill defaults to the theme's axis color.
 It draws over the series, like a `ReferenceLine` fill, so keep `fillOpacity` low.
-Pair each threshold's band with a goal line; `GoalLineConfig.stroke: 'solid'` draws the line solid instead of dashed.
-Goal lines render before child overlays, so a band also tints the goal line and its label.
+Pair each band with a goal line at its threshold (`GoalLineConfig.stroke: 'solid'` for a solid one), and expect the band to tint that line, because goal lines render first.
 
 ### `HighlightedRange`
 

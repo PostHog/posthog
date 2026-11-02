@@ -50,7 +50,7 @@ export function buildGoalLineReferenceLines(
             // Match the UI control and legacy chart.js, which both default an unset position to 'end'.
             labelPosition: line.labelPosition ?? 'end',
             variant: 'goal',
-            style: line.color || line.stroke ? { color: line.color, stroke: line.stroke } : undefined,
+            style: { color: line.color, stroke: line.stroke },
             showValueOnHover: line.showValueOnHover,
         }))
 }

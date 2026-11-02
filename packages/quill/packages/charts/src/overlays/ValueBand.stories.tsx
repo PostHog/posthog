@@ -16,8 +16,6 @@ export default meta
 
 type Story = StoryObj<{}>
 
-/** Threshold zones: a band per range, with a goal line at each threshold. `stroke: 'solid'` on a
- *  goal line draws it solid; the default is dashed. */
 export const ThresholdZones: Story = {
     render: () => {
         const theme = useReactiveTheme()

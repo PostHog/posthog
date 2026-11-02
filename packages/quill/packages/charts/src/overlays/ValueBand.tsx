@@ -13,30 +13,20 @@ export interface ValueBandProps {
     color?: string
     /** Opacity 0-1 of the fill. Defaults to 0.1. */
     fillOpacity?: number
-    /** Which y-axis the values reference. Defaults to the primary axis, and falls back to it when
-     *  the id is unknown. */
+    /** Defaults to the primary axis. */
     yAxisId?: string
 }
 
-/** Translucent band across the plot between two values on the value axis, e.g. a threshold zone
- *  ("warning between 80 and 95"). The part outside the axis range is clipped, and a band wholly
- *  outside it renders nothing. Draws over the series, like a {@link ReferenceLine} fill, so keep
- *  `fillOpacity` low. On a horizontal bar chart the band runs top to bottom across the value axis. */
+/** Translucent band between two values on the value axis. Draws over the series, so keep `fillOpacity` low. */
 export function ValueBand({ from, to, color, fillOpacity = 0.1, yAxisId }: ValueBandProps): React.ReactElement | null {
     const { scales, dimensions, axis, theme } = useChartLayout()
     const { plotLeft, plotTop, plotWidth, plotHeight } = dimensions
     const scale = yAxisId && scales.yAxes?.[yAxisId] ? scales.yAxes[yAxisId].scale : scales.y
     const horizontal = axis.orientation === 'horizontal'
     const [lo, hi] = horizontal ? [plotLeft, plotLeft + plotWidth] : [plotTop, plotTop + plotHeight]
+    const [axisMinEdge, axisMaxEdge] = horizontal ? [lo, hi] : [hi, lo]
 
-    // Pixel order flips between orientations, so sort the two ends and clamp both to the plot.
-    const ends = [from, to].map((v, i) => {
-        if (v != null) {
-            return scale(v)
-        }
-        // A vertical value axis grows upward, a horizontal one rightward.
-        return (i === 0) === horizontal ? lo : hi
-    })
+    const ends = [from == null ? axisMinEdge : scale(from), to == null ? axisMaxEdge : scale(to)]
     if (!ends.every(isFinite)) {
         return null
     }

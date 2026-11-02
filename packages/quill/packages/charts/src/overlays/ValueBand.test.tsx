@@ -17,7 +17,6 @@ describe('ValueBand', () => {
         ['runs to the plot bottom without `from`', { to: 100 }, 'vertical', { top: 268, height: 100 }],
         ['clamps a band that spills past the plot', { from: 300, to: 900 }, 'vertical', { top: 16 }],
         ['renders nothing wholly outside the plot', { from: 500, to: 600 }, 'vertical', null],
-        // The right axis maps v to PLOT_BOTTOM - v / 2, so the band is half the height of the primary one.
         [
             'reads the axis named by yAxisId',
             { from: 100, to: 200, yAxisId: 'right' },
