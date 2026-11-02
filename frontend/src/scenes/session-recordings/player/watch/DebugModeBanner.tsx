@@ -31,7 +31,7 @@ export function DebugModeBanner(): JSX.Element | null {
                 },
             }}
         >
-            Looking for the inspector or network waterfall? They are under Debug now.
+            Looking for the inspector, network waterfall or linked issues? They are under Debug now.
         </LemonBanner>
     )
 }

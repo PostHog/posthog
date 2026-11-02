@@ -23,7 +23,7 @@ from products.experiments.backend.health.context import (
 )
 from products.experiments.backend.health.skips import NOT_ON_ARCHIVED, CheckOutcome, not_applicable, not_checked
 
-# pinned: the subcodes are sent as `finding_variant` on the health finding events, so insights group on them.
+# pinned: the subcodes are sent as `finding_subcode` on the health finding events, so insights group on them.
 COHORT_FORCES_VARIANT = "cohort_forces_variant"
 COHORT_IN_RELEASE_CONDITIONS = "cohort_in_release_conditions"
 

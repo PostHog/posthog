@@ -20,6 +20,7 @@ import type { Session, SessionAssistantItem, SessionDisplayItem, SessionErrorIte
 interface SessionThreadProps {
     session: Session
     onRetryHistory: () => void
+    topInset?: number
 }
 
 const AssistantRow = memo(function AssistantRow({ item }: { item: SessionAssistantItem }): ReactElement {
@@ -51,7 +52,7 @@ function statusLine(session: Session): string | null {
     }
 }
 
-export function SessionThread({ session, onRetryHistory }: SessionThreadProps): ReactElement {
+export function SessionThread({ session, onRetryHistory, topInset = 0 }: SessionThreadProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     const scroll = useRef<ScrollView>(null)
@@ -60,18 +61,24 @@ export function SessionThread({ session, onRetryHistory }: SessionThreadProps): 
 
     if (session.history.status === 'loading') {
         positioned.current = false
-        return <LoadingView label="Loading session" />
+        return (
+            <View style={[styles.scroll, { paddingTop: topInset }]}>
+                <LoadingView label="Loading session" />
+            </View>
+        )
     }
     if (session.history.status === 'error') {
         return (
-            <StateView
-                icon={<WarningIcon size={iconSizes.empty} color={colors.orange} />}
-                title="Couldn't load this session"
-                message={session.history.error?.message}
-                actionLabel="Try again"
-                onAction={onRetryHistory}
-                testID="session-history-error"
-            />
+            <View style={[styles.scroll, { paddingTop: topInset }]}>
+                <StateView
+                    icon={<WarningIcon size={iconSizes.empty} color={colors.orange} />}
+                    title="Couldn't load this session"
+                    message={session.history.error?.message}
+                    actionLabel="Try again"
+                    onAction={onRetryHistory}
+                    testID="session-history-error"
+                />
+            </View>
         )
     }
 
@@ -109,7 +116,8 @@ export function SessionThread({ session, onRetryHistory }: SessionThreadProps): 
         <ScrollView
             ref={scroll}
             style={styles.scroll}
-            contentContainerStyle={styles.content}
+            contentContainerStyle={[styles.content, { paddingTop: topInset + 12 }]}
+            scrollIndicatorInsets={{ top: topInset }}
             onContentSizeChange={() => {
                 scroll.current?.scrollToEnd({ animated: positioned.current })
                 positioned.current = true

@@ -2,8 +2,8 @@ import { MakeLogicType, BreakPointFunction, actions, afterMount, kea, key, liste
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { getInsightId } from 'lib/insights/getInsightId'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { getInsightId } from 'scenes/insights/utils'
 
 import { SubscriptionType } from '~/types'
 

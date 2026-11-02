@@ -174,6 +174,7 @@ def _configure_source_mock_versioning(mock_get_source) -> None:
     mock_get_source.return_value.job_inputs_add_connection_host.return_value = False
     mock_get_source.return_value.has_preserved_row_backed_credentials.return_value = False
     mock_get_source.return_value.serialize_config.side_effect = lambda config: config.to_dict()
+    mock_get_source.return_value.uploaded_file_name.return_value = None
 
 
 class TestExternalDataSource(APIBaseTest):
@@ -279,6 +280,8 @@ class TestExternalDataSource(APIBaseTest):
                 "sync_frequency",
                 "latest_error",
                 "table",
+                "table_id",
+                "pending_self_managed_table",
             },
         )
         self.assertEqual(listed_schema["sync_frequency"], "6hour")
@@ -3371,6 +3374,7 @@ class TestExternalDataSource(APIBaseTest):
                 "user_access_level",
                 "supports_webhooks",
                 "supports_column_selection",
+                "file_name",
                 "api_version",
                 "api_version_deprecation",
                 "connection_warning",
@@ -3392,8 +3396,10 @@ class TestExternalDataSource(APIBaseTest):
                     "latest_error": schema.latest_error,
                     "should_sync": schema.should_sync,
                     "status": schema.status,
+                    "pending_self_managed_table": False,
                     "sync_type": schema.sync_type,
                     "table": schema.table,
+                    "table_id": None,
                     "sync_frequency": sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval),
                     "sync_time_of_day": schema.sync_time_of_day,
                     "full_refresh_interval_days": None,

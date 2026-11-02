@@ -28,7 +28,8 @@
         "frontend/src/generated/**",
         "services/mcp/**/generated.ts",
         "services/mcp/schema/tool-inputs.json",
-        "products/**/frontend/generated/**"
+        "products/**/frontend/generated/**",
+        "hog/test/parity/bundles/**"
     ],
     "rules": {
         "no-constant-condition": "off",

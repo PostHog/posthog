@@ -1,5 +1,4 @@
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
-import { uuid } from 'lib/utils/dom'
 
 import { AnyEntityNode, GroupNode, NodeKind } from '~/queries/schema/schema-general'
 import { ActionFilter, EntityTypes, FilterType } from '~/types'
@@ -135,35 +134,4 @@ export function seriesToLegacyFilters(series: SeriesNode[]): FilterType {
         [EntityTypes.DATA_WAREHOUSE]: filters.filter((filter) => filter.type === EntityTypes.DATA_WAREHOUSE),
         [EntityTypes.GROUPS]: filters.filter((filter) => filter.type === EntityTypes.GROUPS),
     } as FilterType
-}
-
-/**
- * The legacy row shape. Replay's playlist summary (`summarizePlaylistFilters`) still builds it
- * with `toLocalFilters` to name its event and action filters.
- */
-export type LocalFilter = ActionFilter & {
-    order: number
-    uuid: string
-    table_name?: string
-    [key: string]: any
-}
-
-export function toLocalFilters(filters: Partial<FilterType>): LocalFilter[] {
-    const localFilters = [
-        ...(filters[EntityTypes.ACTIONS] || []),
-        ...(filters[EntityTypes.EVENTS] || []),
-        ...(filters[EntityTypes.DATA_WAREHOUSE] || []),
-        ...(filters[EntityTypes.GROUPS] || []),
-    ]
-        .sort((a, b) => a.order - b.order)
-        .map((filter, order) => ({ ...(filter as ActionFilter), order }))
-    return localFilters.map((filter) =>
-        filter.properties && Array.isArray(filter.properties)
-            ? {
-                  ...filter,
-                  uuid: uuid(),
-                  properties: convertPropertyGroupToProperties(filter.properties),
-              }
-            : { ...filter, uuid: uuid() }
-    )
 }

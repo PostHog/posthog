@@ -1,6 +1,6 @@
 import { MakeLogicType, actions, connect, kea, path, reducers, selectors } from 'kea'
 
-import { getBackendHost } from 'lib/oauth/oauthClient'
+import { getBackendHost } from 'lib/utils/oauthClient'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { TeamType } from '~/types'
