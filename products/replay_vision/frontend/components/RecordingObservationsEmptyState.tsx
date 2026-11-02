@@ -14,7 +14,6 @@ import { ScanBlock } from '../utils/scanEligibility'
 import { VisionDocsLink } from './DocsLink'
 import { ScannerPicker } from './ScannerPicker'
 import { scannerTypeIcon } from './ScannerTypeBadge'
-import { SummarizeButton } from './SummarizeButton'
 
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 const HedgehogAsleep = pngHoggie(asleepPng)
@@ -92,17 +91,15 @@ function ExampleScanRows({ className }: { className?: string }): JSX.Element {
 export function RecordingObservationsEmptyState({
     sessionId,
     scanBlock,
-    inWatchLayout = false,
 }: {
     sessionId: string
     scanBlock: ScanBlock | null
-    inWatchLayout?: boolean
 }): JSX.Element {
     const { scanners, scannersLoading } = useValues(observationsDockLogic({ sessionId }))
 
     if (scanBlock) {
         return (
-            <div className="flex flex-wrap items-center gap-4 px-4 py-3" data-attr="vision-observations-skipped">
+            <div className="flex flex-wrap items-center gap-4 px-4 py-3" data-attr="vision-observations-tab-skipped">
                 <HedgehogAsleep className="h-14 w-14 shrink-0" />
                 <div className="flex min-w-0 flex-1 basis-64 flex-col gap-0.5">
                     <span className="text-sm font-semibold">
@@ -134,7 +131,6 @@ export function RecordingObservationsEmptyState({
                         something specific.
                     </p>
                     <div className="mt-1 flex flex-wrap gap-2">
-                        <SummarizeButton sessionId={sessionId} scanBlock={null} inWatchLayout={inWatchLayout} />
                         {noScanners ? (
                             <LemonButton
                                 type="secondary"

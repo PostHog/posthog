@@ -96,11 +96,14 @@ export function RecordingMoments({ sessionId, playerLogicProps }: RecordingMomen
         if (currentIndex < 0 || followedIndex.current === currentIndex) {
             return
         }
+        // Not marked followed until the row exists: the timeline waits for the width measurement.
+        const current = timelineRef.current?.querySelector<HTMLElement>(CURRENT_MOMENT_SELECTOR)
+        if (!current) {
+            return
+        }
         followedIndex.current = currentIndex
-        timelineRef.current
-            ?.querySelector<HTMLElement>(CURRENT_MOMENT_SELECTOR)
-            ?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-    }, [currentIndex, followMoments])
+        current.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    }, [currentIndex, followMoments, filmstrip, width])
 
     const timelineProps = {
         timeline,
@@ -120,11 +123,7 @@ export function RecordingMoments({ sessionId, playerLogicProps }: RecordingMomen
                     <Spinner /> Loading observations…
                 </div>
             ) : observations.length === 0 ? (
-                <RecordingObservationsEmptyState
-                    sessionId={sessionId}
-                    scanBlock={scanBlock}
-                    inWatchLayout={inWatchLayout}
-                />
+                <RecordingObservationsEmptyState sessionId={sessionId} scanBlock={scanBlock} />
             ) : (
                 <>
                     <div className="flex items-center gap-2 p-2 border-b bg-surface-secondary">

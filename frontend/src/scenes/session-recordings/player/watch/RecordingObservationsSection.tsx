@@ -22,11 +22,7 @@ export function RecordingObservationsSection({ sessionId }: { sessionId: string 
     const content = !hasLoadedObservations ? (
         <LemonSkeleton className="h-24 m-2" />
     ) : observations.length === 0 ? (
-        <RecordingObservationsEmptyState
-            sessionId={sessionId}
-            scanBlock={recordingScanBlock(sessionPlayerMetaData)}
-            inWatchLayout
-        />
+        <RecordingObservationsEmptyState sessionId={sessionId} scanBlock={recordingScanBlock(sessionPlayerMetaData)} />
     ) : (
         <div className="flex flex-col max-h-[60vh]">
             <RecordingMoments key={sessionId} sessionId={sessionId} playerLogicProps={logicProps} />

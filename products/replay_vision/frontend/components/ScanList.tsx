@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useMemo } from 'react'
 
-import { IconChevronDown, IconChevronRight } from '@posthog/icons'
+import { IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
@@ -213,7 +213,7 @@ export function ScanList({ sessionId, observations, endMs, currentTimeMs, onSeek
                                 data-attr="vision-run-row"
                             >
                                 <span className="flex items-center gap-2 min-w-0 w-full font-normal">
-                                    <span className="text-sm truncate shrink-0 max-w-[40%]">
+                                    <span className="min-w-0 truncate text-sm @[760px]:shrink-0 @[760px]:max-w-[40%]">
                                         {scannerLabel(observation)}
                                     </span>
                                     <span className="flex items-center gap-2 min-w-0 shrink-0 max-w-[40%]">
@@ -232,8 +232,8 @@ export function ScanList({ sessionId, observations, endMs, currentTimeMs, onSeek
                                 currentTimeMs={currentTimeMs}
                                 onSeek={onSeek}
                             />
-                            <span className="flex shrink-0 items-center px-2 text-secondary" aria-hidden>
-                                {isFocused ? <IconChevronDown /> : <IconChevronRight />}
+                            <span className="flex w-8 shrink-0 items-center justify-center text-secondary" aria-hidden>
+                                {!isFocused && <IconChevronRight />}
                             </span>
                         </div>
                         {isFocused && (
