@@ -21,12 +21,15 @@ from posthog.scopes import UNPRIVILEGED_SCOPES
 #   `business_knowledge:write` start the same kind of run.
 # - `project:write` lets a token rotate the project's secret token.
 # - `streamlit_app` returns a one-hour OAuth token to connect to a running app.
+# - `webhook:write` and `batch_export:write` set up data feeds that keep sending after the token expires,
+#   like sharing links.
 WORKLOAD_TRUST_POLICY_DENIED_SCOPES: frozenset[str] = frozenset(
     {
         "workload_trust_policy:read",
         "workload_trust_policy:write",
         "workload_trust_policy_request:read",
         "workload_trust_policy_request:write",
+        "batch_export:write",
         "business_knowledge:write",
         "conversation:write",
         "project:write",
@@ -34,6 +37,7 @@ WORKLOAD_TRUST_POLICY_DENIED_SCOPES: frozenset[str] = frozenset(
         "streamlit_app:read",
         "streamlit_app:write",
         "task:write",
+        "webhook:write",
     }
 )
 
