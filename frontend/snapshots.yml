@@ -8266,6 +8266,18 @@ snapshots:
         hash: v1.k794b7964.b59d3e3b569184f8fdd9029c1c2067b053e8e135173c37218bfe4c626079b7e3.v2d325yM8eofSv8GOhTRsOEFjAoT2k8AHsyUXsGxaHs
     products-wizard-wizard-run-sync-card--running--light:
         hash: v1.k794b7964.df30028d9399928f4b1c8d2ad87fadb9ce6597419600e07b57b35d34ac9ade93.zpJJ3MjyG1rhJm9eAq8JTYdRRteI3ptNuZor2nr8hOA
+    products-workflows-channels--sandbox-and-own-sender--dark:
+        hash: v1.k794b7964.15b7c3da16ad732b6b13df38d2fd31b7444559f41445061d684b03c32eb9fb5e.O_2EIlRnYEQUr4_E2n580S7cmZlY4W8_YvM9ZbspZdU
+    products-workflows-channels--sandbox-and-own-sender--light:
+        hash: v1.k794b7964.c046e30cf0e4570fc29d40d69f406c94cf2068c8a25f6c05858ae60616662024.8wCs4SXcumBAw45geAiRpK0PuWHTRyBNK4Lodqq3Jsw
+    products-workflows-channels--sandbox-and-own-sender-narrow--dark:
+        hash: v1.k794b7964.9873fd51c0b1a09ae0b236235db654c6a6c5556dbce0eade12d79eb35152b3a8.iQjnT6-xOag-Cr8Q4DnDq0kqRfSY07_dDHRcSFCUHVM
+    products-workflows-channels--sandbox-and-own-sender-narrow--light:
+        hash: v1.k794b7964.e6447e974f6b85694a2fe22580d89b098bf00338b8fe7a9829d790cb016bb426.LVUBL-3X8oXTFiSYO2FBHtOI7-kOfwR42hWhmD3bw8I
+    products-workflows-channels--sandbox-sender-only--dark:
+        hash: v1.k794b7964.4fa6f89e67b6a578576c3f1c93200cf99390cceb5189db7a5492e62d397ca792.zjLTkIDFFtehICue9t6UU-eNXHPOUsyv5fBTh5S4r0g
+    products-workflows-channels--sandbox-sender-only--light:
+        hash: v1.k794b7964.9c4d0056d6f090211138a34e8caa83000bdfaecc316c7dfa79759b0de597671b.u0T_XAJAo-HxEb9oI-W7UhUPTOBRCslpzImr_Cdtfwg
     products-workflows-customerioimportmodal--all-steps-completed--dark:
         hash: v1.k794b7964.4433daf4a6f3ad289f37cbc466609a947b254f8b3a027357d05e00a725c57fa9.06a8j_j5NyzCTMMcfO3UH1b6ZIvt9oDgSBHpTJ6JOFk
     products-workflows-customerioimportmodal--all-steps-completed--light:
