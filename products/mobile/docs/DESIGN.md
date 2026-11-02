@@ -109,6 +109,7 @@ The native build supports rotation; iOS builds use Xcode 27.1 for the full Duo d
   Before selection, the detail area asks the person to choose a report. Opening the device does not mark a report read.
 - Folding or entering a narrow Split View hides the inbox pane without remounting the selected report or its sheets.
   The expanded inbox shows the same filters and actions as the main inbox and initially reveals the selected report.
+  Both inbox lists prefetch reports as rows become visible, including rows beyond the initial prefetch window.
 - Navigation uses a side rail in sufficiently tall, wide landscape windows, or when a side safe area signals side chrome.
   It requires at least 600pt of safe width; narrow cover displays keep the phone navigation and full reading width.
   The rail follows the side with the larger inset. Short windows keep horizontal tab navigation and the report's Back control,
@@ -123,6 +124,7 @@ The native build supports rotation; iOS builds use Xcode 27.1 for the full Duo d
 - Sign-in keeps its form within 600pt, and Settings uses the same 720pt reading width as chat.
 - Consecutive chart or number pins can share a row when each has enough width. Recent and Browse remain lists.
   The first visible pin anchors the list when its columns change; chart tooltips can close as their canvases resize.
+  The chosen pin stays anchored through deferred row measurements until the user scrolls.
 - Sheets have a bounded width on expanded windows. Their height follows their current scene, including rotation and Split View.
   Their floating presentation uses the full safe window width, even when opened from a narrow report pane.
   Floating sheets subtract their bottom margin from the available height so their top stays below the safe area.

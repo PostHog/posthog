@@ -20,6 +20,7 @@ import { InboxRow } from './InboxRow'
 import { InboxRowActions, type RowMenuTarget } from './InboxRowActions'
 import { inboxFilterActions } from './inboxFilterActions'
 import { useInboxFilters } from './inboxFiltersStore'
+import { usePrefetchReports } from './usePrefetchReports'
 
 export function ReportInbox({ selectedReportId, active }: { selectedReportId: string; active: boolean }): ReactElement {
     const styles = useStyles()
@@ -29,6 +30,7 @@ export function ReportInbox({ selectedReportId, active }: { selectedReportId: st
     const now = useNow()
     const filters = useInboxFilters()
     const query = useInboxItems({ filters, refreshWhileVisible: active })
+    const prefetch = usePrefetchReports(query.data)
     const setRead = useSetReportRead()
     const filterActions = inboxFilterActions(filters)
     const [filtersOpen, setFiltersOpen] = useState(false)
@@ -83,6 +85,8 @@ export function ReportInbox({ selectedReportId, active }: { selectedReportId: st
                     listRef.current?.scrollToOffset({ offset: averageItemLength * index, animated: false })
                 }
                 data={query.data ?? []}
+                onViewableItemsChanged={prefetch.onViewableItemsChanged}
+                viewabilityConfig={prefetch.viewabilityConfig}
                 keyExtractor={(item) => item.id}
                 renderItem={({ item }) => (
                     <View style={item.reportId === selectedReportId && styles.selected}>
