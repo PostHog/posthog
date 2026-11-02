@@ -1,15 +1,15 @@
 """Walking a saved query's ancestors and descendants through the data modeling DAG."""
 
-from typing import cast
-
-from django.db.models import Model
+from uuid import UUID
 
 from rest_framework import request, serializers
+
+from posthog.uuidt import UUIDT
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.data_modeling.backend.facade.api import reachable_node_ids, saved_query_node_ids
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery, Node, NodeType
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+from products.warehouse_sources.backend.facade.api import allowed_table_ids
 
 
 class SavedQueryLineageRequestSerializer(serializers.Serializer):
@@ -104,14 +104,10 @@ def _related_saved_queries(
         )
 
     if warehouse_table_ids:
-        tables = list(
-            DataWarehouseTable.raw_objects.only("id", "created_by_id", "external_data_source_id")
-            .filter(id__in=warehouse_table_ids, team_id=saved_query.team_id)
-            .exclude(deleted=True)
-        )
-        user_access_control.preload_object_access_controls(cast(list[Model], tables))
+        # A malformed id in node properties must not break the lookup.
+        candidate_ids = [UUID(table_id) for table_id in warehouse_table_ids if UUIDT.is_valid_uuid(table_id)]
         visible_identifiers.update(
-            str(table.id) for table in tables if user_access_control.check_access_level_for_object(table, "viewer")
+            str(table_id) for table_id in allowed_table_ids(saved_query.team_id, user_access_control, ids=candidate_ids)
         )
 
     return visible_identifiers
