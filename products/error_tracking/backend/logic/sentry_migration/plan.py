@@ -328,17 +328,29 @@ class SentryMigrationPlanner:
         if len(glob) > MAX_PATTERN_LENGTH:
             return _pattern_too_long_item("release", SentryMigrationCategory.RELEASE, "Release filter", glob)
         package, separator, version_glob = glob.rpartition("@")
-        notes = ["PostHog compares this with the release version it finds for each exception ($app_version)."]
-        if separator and package not in ("", "*"):
-            notes.append(f'PostHog doesn\'t store the package name "{package}", so the rule checks the version only.')
+        release_glob = version_glob if separator else glob
+        # Cymbal splits a release on its last `+` and keeps the build in $app_build, not in $app_version.
+        app_version_glob, plus, app_build_glob = release_glob.rpartition("+")
+        if plus and app_version_glob and app_build_glob:
+            leaves = [_glob_leaf("$app_version", app_version_glob), _glob_leaf("$app_build", app_build_glob)]
+            notes = [
+                "PostHog compares this with the release version ($app_version) and build ($app_build) "
+                "it finds for each exception."
+            ]
+        else:
+            leaves = [_glob_leaf("$app_version", release_glob)]
+            notes = ["PostHog compares this with the release version it finds for each exception ($app_version)."]
+        drops_package = bool(separator) and package not in ("", "*")
+        if drops_package:
+            notes.append(f"PostHog doesn't store the package name \"{package}\", so the rule doesn't check it.")
         return self._suppression_item(
             item_id=_item_id("release", glob),
             category=SentryMigrationCategory.RELEASE,
             sentry_setting="Release filter",
             sentry_value=glob,
-            fit=SentryMigrationFit.PARTIAL if len(notes) > 1 else SentryMigrationFit.GOOD,
+            fit=SentryMigrationFit.PARTIAL if drops_package else SentryMigrationFit.GOOD,
             note=" ".join(notes),
-            filters=_group("AND", [_glob_leaf("$app_version", version_glob if separator else glob)]),
+            filters=_group("AND", leaves),
         )
 
     def _built_in_filter_item(

@@ -69,4 +69,21 @@ describe('sentryMigrationLogic', () => {
 
         expect(logic.values.selectedItemIds).toEqual([])
     })
+
+    it('loads the preview again when the import fails because Sentry changed', async () => {
+        useMocks({
+            post: {
+                '/api/environments/:team_id/error_tracking/sentry_migration/apply/': () => [
+                    400,
+                    { detail: 'Some selected settings changed in Sentry since the preview. Load the preview again.' },
+                ],
+                '/api/environments/:team_id/error_tracking/sentry_migration/preview/': { items: [item('release:1')] },
+            },
+        })
+        logic.actions.setSelectedItemIds(['release:1', 'release:2'])
+
+        await expectLogic(logic, () => logic.actions.applyImport()).toFinishAllListeners()
+
+        expect(logic.values).toMatchObject({ items: [item('release:1')], selectedItemIds: ['release:1'] })
+    })
 })
