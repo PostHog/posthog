@@ -17,8 +17,13 @@ describe('integrations-domain-connect-apply-url-create', () => {
             proxy_record_id: '00000000-0000-4000-8000-000000000001',
         })
 
-        await tool.handler(context, params)
+        const result = await tool.handler(context, params)
 
-        expect(request).toHaveBeenCalledWith(expect.objectContaining({ body: { context: 'email', integration_id: 7 } }))
+        expect(request).toHaveBeenCalledWith({
+            method: 'POST',
+            path: '/api/projects/42/integrations/domain-connect/apply-url/',
+            body: { context: 'email', integration_id: 7 },
+        })
+        expect(result).toEqual({ url: 'https://dns.example.com/apply' })
     })
 })
