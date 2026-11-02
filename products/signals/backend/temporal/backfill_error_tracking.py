@@ -23,7 +23,7 @@ SEVERITY_MULTIPLIERS = {"critical": 1.5, "high": 1.25}
 TREND_DAYS = 7
 
 
-@dataclass
+@dataclass(frozen=True)
 class BackfillErrorTrackingInput:
     team_id: int
     # Only workflow code that stops at BACKFILL_ISSUE_LIMIT asks for spare candidates. Workflow code
@@ -31,7 +31,7 @@ class BackfillErrorTrackingInput:
     candidate_limit: int = BACKFILL_ISSUE_LIMIT
 
 
-@dataclass
+@dataclass(frozen=True)
 class ErrorTrackingIssueData:
     issue_id: str
     name: str
@@ -42,7 +42,7 @@ class ErrorTrackingIssueData:
     occurrences: int = 0
 
 
-@dataclass
+@dataclass(frozen=True)
 class EmitBackfillSignalInput:
     team_id: int
     issue: ErrorTrackingIssueData
