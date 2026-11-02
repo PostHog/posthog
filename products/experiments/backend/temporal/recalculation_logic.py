@@ -41,7 +41,10 @@ from products.experiments.backend.hogql_queries.error_handling import (
 )
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import sanitize_non_finite
-from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
+from products.experiments.backend.metric_calculation.config import (
+    get_metric_calculation_config,
+    team_experiments_configs,
+)
 from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.metric_resolution import build_metric, get_metrics_for_calculation
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
@@ -626,6 +629,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
     role: str = "primary",
     is_final_attempt: bool = True,
     attempt: int = 1,
+    calculation_key_version: int = 1,
 ) -> MetricRecalculationResult:
     close_old_connections()
 
@@ -679,7 +683,12 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 error_type="validation_error",
             )
 
-        calculation_config = get_metric_calculation_config(experiment, metric_uuid)
+        # One read of the settings serves the reuse check, the query and the write, so the result is filed under the key
+        # of the settings it was computed from.
+        team_config = team_experiments_configs([experiment.team_id])[experiment.team_id]
+        calculation_config = get_metric_calculation_config(
+            experiment, metric_uuid, team_config=team_config, key_version=calculation_key_version
+        )
         if calculation_config is None:
             return _fail(
                 recalculation_id,
@@ -764,6 +773,8 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 error_event_context=None,
                 # Must fail typed inside the activity before Temporal's start_to_close kill — see models.py.
                 max_execution_time=METRIC_CALC_MAX_EXECUTION_TIME_SECONDS,
+                experiment=experiment,
+                team_experiments_config=team_config,
             )
 
             # Deferred: recalculation.py imports temporal.models, whose package __init__ imports this module.
@@ -974,7 +985,11 @@ def _record_metric_out_of_time_failure_sync(failure: MetricOutOfTimeFailure) -> 
             return
 
         experiment = Experiment.objects.filter(id=failure.experiment_id, deleted=False).first()
-        calculation_config = get_metric_calculation_config(experiment, failure.metric_uuid) if experiment else None
+        calculation_config = (
+            get_metric_calculation_config(experiment, failure.metric_uuid, key_version=failure.calculation_key_version)
+            if experiment
+            else None
+        )
         if experiment is None or calculation_config is None or not experiment.start_date or state.query_to is None:
             _fail(
                 failure.recalculation_id, failure.metric_uuid, "calculation", _OUT_OF_TIME_MESSAGE, error_type="timeout"

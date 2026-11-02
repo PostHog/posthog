@@ -107,6 +107,7 @@ async def calculate_experiment_metric_for_recalculation(
     recalculation_id: str,
     query_to: str,
     role: str = "primary",
+    calculation_key_version: int = 1,
 ) -> MetricRecalculationResult:
     """Calculate one metric, write its recalc-fingerprinted result to ExperimentMetricResult, and fold the
     progress update (counter + error) into the same job atomically. query_to is the run's shared data-window end.
@@ -130,7 +131,14 @@ async def calculate_experiment_metric_for_recalculation(
     async with Heartbeater(factor=_HEARTBEAT_FACTOR):
         task = asyncio.ensure_future(
             on_asyncify_pool(_calculate_experiment_metric_for_recalculation_sync)(
-                experiment_id, metric_uuid, recalculation_id, query_to, role, is_final_attempt, attempt
+                experiment_id,
+                metric_uuid,
+                recalculation_id,
+                query_to,
+                role,
+                is_final_attempt,
+                attempt,
+                calculation_key_version,
             )
         )
         try:

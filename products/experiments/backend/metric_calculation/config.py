@@ -525,13 +525,22 @@ def build_primary_calculation_configs(
     return sorted(primary, key=lambda calculation_config: rank(calculation_config.metric_id))
 
 
-def get_metric_calculation_config(experiment: Experiment, metric_uuid: str) -> MetricCalculationConfig | None:
+def get_metric_calculation_config(
+    experiment: Experiment,
+    metric_uuid: str,
+    *,
+    team_config: TeamExperimentsConfig | None = None,
+    key_version: int | None = None,
+) -> MetricCalculationConfig | None:
     """The config that `build_calculation_configs` builds for one metric, or None when the experiment
-    calculates no metric with this uuid."""
+    calculates no metric with this uuid. `team_config` and `key_version` are as for
+    `ExperimentCalculationSettings.from_experiment`."""
     metric = next((metric for metric in get_metrics_for_calculation(experiment) if metric.uuid == metric_uuid), None)
     if metric is None:
         return None
-    settings = ExperimentCalculationSettings.from_experiment(experiment)
+    settings = ExperimentCalculationSettings.from_experiment(
+        experiment, team_config=team_config, key_version=key_version
+    )
     return settings.build_metric_config(metric_id=metric.uuid, role=metric.role, definition=metric.definition)
 
 
