@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { ReactNode } from 'react'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { Tabs, TabsList, TabsTrigger } from '@posthog/quill'
 
 export interface PaneTab<K extends string> {
     key: K
@@ -27,37 +27,28 @@ export function PaneTabBar<K extends string>({
     children?: ReactNode
 }): JSX.Element {
     return (
-        <div className={clsx('flex flex-row items-stretch shrink-0 border-b bg-surface-secondary', className)}>
-            {tabs.map((tab) => {
-                const active = activeKey === tab.key
-                return (
-                    <LemonButton
+        <Tabs
+            data-quill
+            value={activeKey}
+            onValueChange={(value) => onChange(value as K)}
+            className={clsx('shrink-0 gap-0', className)}
+        >
+            <TabsList variant="line" className="w-full justify-start rounded-none bg-muted">
+                {tabs.map((tab) => (
+                    <TabsTrigger
                         key={tab.key}
-                        noPadding
-                        active={active}
-                        onClick={() => onChange(tab.key)}
-                        disabledReason={tab.disabledReason}
-                        className={clsx(
-                            'rounded-none border-b-2',
-                            active ? 'border-b-accent bg-surface-primary' : 'border-b-transparent',
-                            fullWidth && 'flex-auto'
-                        )}
+                        value={tab.key}
+                        disabled={!!tab.disabledReason}
+                        className={clsx('text-xs', fullWidth && 'flex-auto')}
                         data-attr={tab.dataAttr}
                     >
-                        <span
-                            className={clsx(
-                                'flex items-center gap-1.5 px-3 py-1.5 text-xs',
-                                fullWidth && 'justify-center w-full'
-                            )}
-                        >
-                            {tab.icon && <span className="text-base">{tab.icon}</span>}
-                            <span className="flex items-center gap-1">{tab.label}</span>
-                        </span>
-                    </LemonButton>
-                )
-            })}
-            {!fullWidth && <div className="flex-1" />}
-            {children}
-        </div>
+                        {tab.icon}
+                        {tab.label}
+                    </TabsTrigger>
+                ))}
+                {!fullWidth && <div className="flex-1" />}
+                {children}
+            </TabsList>
+        </Tabs>
     )
 }

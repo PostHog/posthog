@@ -30,7 +30,7 @@ export function WatchPanel({
     const vision = visionSurfaceShown(logicProps)
 
     return (
-        <div className="flex flex-col gap-4 px-1 pt-3 pb-6" data-attr="watch-panel">
+        <div data-quill className="flex flex-col gap-4 px-1 pt-3 pb-6 text-foreground" data-attr="watch-panel">
             <DebugModeBanner />
             <RecordingTitleBlock
                 actions={vision ? <SummarizeRecordingBar inline extraActions={summaryActions} /> : summaryActions}
