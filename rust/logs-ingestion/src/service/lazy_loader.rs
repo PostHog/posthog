@@ -104,7 +104,7 @@ impl<V: Clone + Send + Sync + 'static> LazyLoader<V> {
                 entry.last_used = now;
                 if entry.cache_until.is_some_and(|until| now <= until) {
                     let value = entry.value.clone();
-                    if !entry.background_after.is_some_and(|b| now > b) {
+                    if entry.background_after.is_none_or(|b| now <= b) {
                         return Ok(value);
                     }
                     let load = self.load_locked(&mut state, key);
