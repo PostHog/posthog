@@ -16,6 +16,12 @@ const cdpEmailMxValidationTotal = new Counter({
     labelNames: ['result'],
 })
 
+const cdpEmailMxCacheErrorsTotal = new Counter({
+    name: 'cdp_email_mx_cache_errors_total',
+    help: 'MX verdict cache reads and writes that failed because the SES Valkey was unreachable. A failed read resolves through DNS instead.',
+    labelNames: ['operation'],
+})
+
 const cdpEmailMxSkippedTotal = new Counter({
     name: 'cdp_email_mx_skipped_total',
     help: 'Sends skipped by pre-send email validation as predicted hard bounces, per team.',
@@ -268,6 +274,7 @@ export class EmailValidationService {
                 client.get(VALKEY_KEY_PREFIX + domain)
             )
         } catch (error) {
+            cdpEmailMxCacheErrorsTotal.inc({ operation: 'read' })
             logger.warn('Email MX cache read failed - resolving through DNS', { domain, error: String(error) })
             return null
         }
@@ -290,6 +297,7 @@ export class EmailValidationService {
                 client.set(VALKEY_KEY_PREFIX + domain, deliverable ? '1' : '0', 'EX', ttlSeconds)
             )
         } catch (error) {
+            cdpEmailMxCacheErrorsTotal.inc({ operation: 'write' })
             logger.warn('Email MX cache write failed', { domain, error: String(error) })
         }
     }
