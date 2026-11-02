@@ -1738,6 +1738,10 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[3]["count"] == 16
         assert response.results[3]["data"] == [1, 0, 2, 4, 4, 0, 2, 1, 1, 0, 1, 0]
 
+        assert [result["custom_name"] for result in response.results] == [
+            result["label"] for result in response.results
+        ]
+
     def test_formula_with_multi_cohort_all_breakdown_with_compare(self):
         self._create_test_events()
         cohort1 = Cohort.objects.create(

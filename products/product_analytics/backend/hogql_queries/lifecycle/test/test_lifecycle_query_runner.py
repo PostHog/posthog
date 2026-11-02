@@ -188,6 +188,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                         "19-Jan-2020",
                     ],
                     "order": 0,
+                    "custom_name": None,
                     "status": "new",
                 },
                 {
@@ -233,6 +234,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                         "19-Jan-2020",
                     ],
                     "order": 0,
+                    "custom_name": None,
                     "status": "returning",
                 },
                 {
@@ -278,6 +280,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                         "19-Jan-2020",
                     ],
                     "order": 0,
+                    "custom_name": None,
                     "status": "resurrecting",
                 },
                 {
@@ -323,6 +326,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                         "19-Jan-2020",
                     ],
                     "order": 0,
+                    "custom_name": None,
                     "status": "dormant",
                 },
             ],
@@ -438,6 +442,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                         "19-Jan-2020",
                     ],
                     "order": 0,
+                    "custom_name": None,
                     "status": "new",
                 },
                 {
@@ -483,6 +488,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                         "19-Jan-2020",
                     ],
                     "order": 0,
+                    "custom_name": None,
                     "status": "returning",
                 },
                 {
@@ -528,6 +534,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                         "19-Jan-2020",
                     ],
                     "order": 0,
+                    "custom_name": None,
                     "status": "resurrecting",
                 },
                 {
@@ -573,6 +580,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                         "19-Jan-2020",
                     ],
                     "order": 0,
+                    "custom_name": None,
                     "status": "dormant",
                 },
             ],
@@ -914,6 +922,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "19-Jan-2020",
                     ],
                     "order": 0,
+                    "custom_name": None,
                     "status": "new",
                 },
                 {
@@ -959,6 +968,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "19-Jan-2020",
                     ],
                     "order": 0,
+                    "custom_name": None,
                     "status": "returning",
                 },
                 {
@@ -1004,6 +1014,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "19-Jan-2020",
                     ],
                     "order": 0,
+                    "custom_name": None,
                     "status": "resurrecting",
                 },
                 {
@@ -1049,6 +1060,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "19-Jan-2020",
                     ],
                     "order": 0,
+                    "custom_name": None,
                     "status": "dormant",
                 },
             ],

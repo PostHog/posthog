@@ -752,6 +752,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     ]
 
             series_object["order"] = series.series_order
+            series_object["custom_name"] = series.series.custom_name
             res.append(series_object)
         return res
 
@@ -1149,6 +1150,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         formula = formula_node.formula
         base_result = results_group[0]
         base_result["label"] = formula_node.custom_name or f"Formula ({formula})"
+        base_result["custom_name"] = formula_node.custom_name
 
         if aggregate_values:
             series_data = [[s["aggregated_value"]] for s in results_group]

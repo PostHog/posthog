@@ -25,6 +25,9 @@ from posthog.schema import (
     ActorsQuery,
     ActorsQueryResponse,
     BounceRatePageViewMode,
+    CachedLifecycleQueryResponse,
+    CachedStickinessQueryResponse,
+    CachedTrendsQueryResponse,
     CacheMissResponse,
     CurrencyCode,
     DashboardFilter,
@@ -41,6 +44,8 @@ from posthog.schema import (
     InlineCohortCalculation,
     InsightVizNode,
     IntervalType,
+    LifecycleQuery,
+    LifecycleQueryResponse,
     MaterializationMode,
     PersonsArgMaxVersion,
     PersonsOnEventsMode,
@@ -51,9 +56,14 @@ from posthog.schema import (
     SessionsTimelineQuery,
     SessionsV2JoinMode,
     SessionTableVersion,
+    StickinessQuery,
+    StickinessQueryResponse,
     TestBasicQueryResponse as TheTestBasicQueryResponse,
     TestCachedBasicQueryResponse as TheTestCachedBasicQueryResponse,
+    TrendsFilter,
+    TrendsFormulaNode,
     TrendsQuery,
+    TrendsQueryResponse,
 )
 
 from posthog.hogql import ast
@@ -124,7 +134,11 @@ from products.access_control.backend.property_access_control import PropertyAcce
 from products.customer_analytics.backend.facade.constants import DEFAULT_ACTIVITY_EVENT
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
-from products.product_analytics.backend.facade.queries import TrendsQueryRunner
+from products.product_analytics.backend.facade.queries import (
+    LifecycleQueryRunner,
+    StickinessQueryRunner,
+    TrendsQueryRunner,
+)
 from products.revenue_analytics.backend.views.test.data.structure import REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
@@ -1750,6 +1764,50 @@ class TestSeriesCustomNameCaching(BaseTest):
             self.assertEqual(cache_key_a, cache_key_b)
         else:
             self.assertNotEqual(cache_key_a, cache_key_b)
+
+    @parameterized.expand(
+        [
+            ("trends", TrendsQueryRunner, TrendsQuery, TrendsQueryResponse, {}, None, "Renamed"),
+            ("stickiness", StickinessQueryRunner, StickinessQuery, StickinessQueryResponse, {}, None, "Renamed"),
+            ("lifecycle", LifecycleQueryRunner, LifecycleQuery, LifecycleQueryResponse, {}, None, "Renamed"),
+            (
+                "trends_formula_keeps_the_formula_name",
+                TrendsQueryRunner,
+                TrendsQuery,
+                TrendsQueryResponse,
+                {"trendsFilter": TrendsFilter(formulaNodes=[TrendsFormulaNode(formula="A", custom_name="Total")])},
+                "Total",
+                "Total",
+            ),
+        ]
+    )
+    def test_raw_cache_read_patches_a_series_renamed_after_caching(
+        self,
+        _name: str,
+        runner_class: type[QueryRunner],
+        query_class: type[TrendsQuery | StickinessQuery | LifecycleQuery],
+        response_class: type[TrendsQueryResponse | StickinessQueryResponse | LifecycleQueryResponse],
+        query_kwargs: dict[str, Any],
+        cached_custom_name: str | None,
+        expected_custom_name: str,
+    ) -> None:
+        cached_rows = [{"order": 0, "custom_name": cached_custom_name, "data": [1]}]
+        with mock.patch.object(runner_class, "calculate", return_value=response_class(results=cached_rows)):
+            runner_class(query=query_class(series=[EventsNode(event="$pageview")], **query_kwargs), team=self.team).run(
+                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+            )
+
+        runner = runner_class(
+            query=query_class(series=[EventsNode(event="$pageview", custom_name="Renamed")], **query_kwargs),
+            team=self.team,
+        )
+        runner.serve_raw_cached_results = True
+        response = runner.run(execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
+
+        assert isinstance(
+            response, CachedTrendsQueryResponse | CachedStickinessQueryResponse | CachedLifecycleQueryResponse
+        )
+        assert [row["custom_name"] for row in response.results] == [expected_custom_name]
 
 
 class TestSharedInsightsExecutionMode(BaseTest):
