@@ -10,6 +10,10 @@ Projects with a connected warehouse source or warehouse table use ordinary empty
 
 Onboarding only checks warehouse setup for non-demo projects without events. Source detection returns an existence flag without serializing schemas, and table detection omits columns. Navigation refreshes an empty result so returning after source creation opens the Sources list.
 
+## Direct SQL validation
+
+**Send raw query** checks statement boundaries and read-only restrictions using the selected connection's SQL dialect. Quoted strings, identifiers, and comments follow that dialect, including backslashes in LIKE and regex patterns. Queries with unfinished quotes or comments are rejected before execution. For PostgreSQL, Redshift, and MySQL, quoting must have the same boundaries with and without session-level backslash escaping; use doubled quotes when embedding a quote in a string.
+
 ## Model namespace reservation
 
 The shared PostHog catalog reserves `models.*` for authored data models. New warehouse tables, endpoint saved queries, and managed viewsets cannot claim that namespace. The bare name `models` is reserved for the namespace container; use a name such as `models.revenue` for a model. Names such as `models_v2` remain available. Saved queries with no origin are treated as authored models for compatibility.
