@@ -23353,6 +23353,18 @@ export namespace Schemas {
     export interface CanvasStateResponse {
       /** The canvas's shared entries plus the caller's own user-scoped entries. */
       entries: CanvasStateEntry[];
+      /** Number of entries in the whole selection, across all pages. */
+      count: number;
+      /**
+         * URL of the next page, or null when complete. It pages the same way as this request: by cursor when the request used a cursor, otherwise by offset.
+         * @nullable
+         */
+      next: string | null;
+      /**
+         * URL of the previous page by offset, or null on the first page and for a cursor request.
+         * @nullable
+         */
+      previous: string | null;
       /**
          * Next entry offset, or null when complete. Null when the request used a cursor.
          * @nullable
@@ -132561,6 +132573,7 @@ export namespace Schemas {
     export type AutoresearchListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -132572,6 +132585,7 @@ export namespace Schemas {
     export type AutoresearchModelsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -132583,6 +132597,7 @@ export namespace Schemas {
     export type AutoresearchRunsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -132594,6 +132609,7 @@ export namespace Schemas {
     export type AutoresearchSuggestionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -132605,6 +132621,7 @@ export namespace Schemas {
     export type AutoresearchTrainingRunsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -133050,6 +133067,7 @@ export namespace Schemas {
     kind?: CanvasesListKind;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -133251,6 +133269,7 @@ export namespace Schemas {
     export type CanvasesVersionsRetrieveParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -142985,6 +143004,7 @@ export namespace Schemas {
     include_unlisted?: boolean;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
