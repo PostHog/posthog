@@ -164,7 +164,7 @@ def _ids(queryset: QuerySet[SignalReport], size: int) -> list[str]:
 
 
 def _scored_pool(queryset: QuerySet[SignalReport], head: str, size: int) -> list[str]:
-    """Reports with a current score for `head`, the highest first. Unscored and stale reports drop out, so EU gives none."""
+    """Reports with a current score for `head`, the highest first. Unscored and stale reports drop out."""
     return _ids(
         queryset.annotate(_pool_score=latest_ranking_value(head, "scores"))
         .filter(_pool_score__isnull=False)
