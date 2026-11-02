@@ -1,7 +1,7 @@
 import { HogError } from '@/core/errors'
 import type { Runtime } from '@/core/runtime'
 
-import { FileStore, openStore, probeKeychain } from './credential-store'
+import { FileStore, openStore, probeKeychain, type StoreChoice } from './credential-store'
 import { posthogFile, type Credentials } from './credentials'
 import { startDeviceLogin, waitForApproval, type PendingLogin } from './device-auth'
 import { writeLogin } from './logins'
@@ -15,7 +15,7 @@ const REUSE_MARGIN_MS = 60_000
 export interface LoggedIn {
     host: string
     projectId: string
-    store: 'keychain' | 'file'
+    store: StoreChoice
     // Set when the credentials are in a file.
     credentialsPath: string | null
     // Why hog couldn't use the keychain, when it stored the credentials in a file.

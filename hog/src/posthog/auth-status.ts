@@ -1,5 +1,6 @@
 import type { Context } from '@/core/context'
 import { HogError } from '@/core/errors'
+import type { StoreChoice } from '@/posthog/credential-store'
 
 import { ApiError } from './api'
 import type { CredentialSource } from './credentials'
@@ -20,7 +21,7 @@ export type AuthStatus =
           projectName: string | null
           source: CredentialSource
           // Set when the source is the store.
-          store: 'keychain' | 'file' | null
+          store: StoreChoice | null
           credentialsPath: string | null
           // Null when the key lacks the user:read scope, so hog can't tell whose key it is.
           user: { email: string; name: string | null } | null
