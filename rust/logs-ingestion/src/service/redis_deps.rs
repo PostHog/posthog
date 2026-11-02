@@ -137,7 +137,8 @@ pub const QUOTA_LIMITER_CACHE_KEY: &str = "@posthog/quota-limits/";
 /// refreshed in the background after a minute. A Redis error reads as no limited tokens. It
 /// only ever reads.
 pub struct RedisQuotaLimiting {
-    loader: LazyLoader<HashMap<String, f64>>,
+    // Shared, so a cache hit clones a pointer instead of every limited token.
+    loader: LazyLoader<Arc<HashMap<String, f64>>>,
     clock: Clock,
 }
 
@@ -180,7 +181,7 @@ impl RedisQuotaLimiting {
                                 HashMap::new()
                             }
                         };
-                        out.insert(resource, Some(tokens));
+                        out.insert(resource, Some(Arc::new(tokens)));
                     }
                     Ok(out)
                 }

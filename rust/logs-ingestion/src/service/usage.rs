@@ -12,8 +12,8 @@ use tonic::Code;
 use usage_ingestion_proto::usage_ingestion::v1::usage_ingestion_client::UsageIngestionClient;
 use usage_ingestion_proto::usage_ingestion::v1::{BillingUsageRecord, IngestBillingUsageRequest};
 
-use crate::pipeline::context::team_id_matches_csv;
 use crate::pipeline::UsageRecordBatch;
+use crate::property_filter::coerce::js_parse_int;
 use crate::rate_limiter::Clock;
 
 use super::config::UsageConfig;
@@ -41,11 +41,13 @@ pub struct GrpcUsageRecordBatch {
     producer_id: Arc<str>,
     report_teams: String,
     max_batch_size: usize,
+    timeout: Duration,
     records: Mutex<Records>,
     clock: Clock,
 }
 
-/// `buildIntegerMatcher(USAGE_INGESTION_REPORT_TEAMS, true)`.
+/// `buildIntegerMatcher(USAGE_INGESTION_REPORT_TEAMS, true)`: only an exact `*` matches all,
+/// and each item is `parseInt(item)` with no radix.
 fn report_teams_match(raw: &str, team_id: i64) -> bool {
     if raw.trim().is_empty() {
         return false;
@@ -53,7 +55,8 @@ fn report_teams_match(raw: &str, team_id: i64) -> bool {
     if raw == "*" {
         return true;
     }
-    team_id_matches_csv(raw, team_id)
+    raw.split(',')
+        .any(|item| js_parse_int(item, None) == team_id as f64)
 }
 
 impl GrpcUsageRecordBatch {
@@ -77,6 +80,7 @@ impl GrpcUsageRecordBatch {
             producer_id: Arc::from(producer_id),
             report_teams: config.report_teams.clone(),
             max_batch_size: config.max_batch_size.max(1),
+            timeout: config.timeout,
             records: Mutex::new(Records::default()),
             clock,
         })
@@ -99,7 +103,16 @@ impl GrpcUsageRecordBatch {
             if let Ok(v) = self.producer_id.parse() {
                 request.metadata_mut().insert("x-client-name", v);
             }
-            match client.clone().ingest_billing_usage(request).await {
+            // connect-rpc's `defaultTimeoutMs` bounds the whole call, connecting included.
+            let mut client = client.clone();
+            let call = tokio::time::timeout(self.timeout, client.ingest_billing_usage(request));
+            let reply = match call.await {
+                Ok(reply) => reply,
+                Err(_) => Err(tonic::Status::deadline_exceeded(
+                    "usage-ingestion call timed out",
+                )),
+            };
+            match reply {
                 Ok(response) => {
                     let accepted: HashSet<String> = response
                         .into_inner()
@@ -208,5 +221,57 @@ impl UsageRecordBatch for GrpcUsageRecordBatch {
         )
         .await;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn report_teams_match_like_build_integer_matcher() {
+        for (raw, expected) in [
+            ("*", true),
+            (" * ", false),
+            ("*,5", true),
+            ("*,6", false),
+            ("3, 5", true),
+            ("0x5", true),
+            ("5abc", true),
+            ("", false),
+            ("  ", false),
+            ("6", false),
+        ] {
+            assert_eq!(report_teams_match(raw, 5), expected, "{raw:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_usage_call_to_a_silent_server_ends_at_the_timeout() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let mut held = Vec::new();
+            while let Ok((socket, _)) = listener.accept().await {
+                held.push(socket);
+            }
+        });
+        let batch = GrpcUsageRecordBatch::new(
+            &UsageConfig {
+                addr: addr.to_string(),
+                tls: false,
+                timeout: Duration::from_millis(50),
+                max_batch_size: 10,
+                report_teams: "*".to_string(),
+            },
+            "logs",
+            crate::rate_limiter::system_clock(),
+        )
+        .unwrap();
+        batch.add(1, "logs_bytes", "record-1", 5.0, "bytes");
+        tokio::time::timeout(Duration::from_secs(5), batch.flush())
+            .await
+            .expect("each attempt must end at its timeout")
+            .unwrap();
     }
 }

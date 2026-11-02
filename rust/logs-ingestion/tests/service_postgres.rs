@@ -1,5 +1,6 @@
-//! The Postgres-backed dependencies against the local Django test database. Each test seeds a
-//! team copied from an existing one and removes everything it wrote. Skips without Postgres.
+//! The Postgres-backed dependencies against the local Django test database. Each test inserts
+//! its own organization, project and team and removes everything it wrote. Skips without
+//! Postgres.
 
 use std::sync::Arc;
 
@@ -21,41 +22,58 @@ const DATABASE_URL: &str = "postgres://posthog:posthog@localhost:5432/test_posth
 struct SeededTeam {
     pool: PgPool,
     id: i32,
+    organization_id: uuid::Uuid,
     token: String,
 }
 
 impl SeededTeam {
-    async fn create(pool: PgPool, logs_settings: &str) -> Option<Self> {
+    /// Inserts its own organization, project and team, so it needs no existing rows.
+    async fn create(pool: PgPool, logs_settings: &str) -> Self {
         let mut tx = pool.begin().await.unwrap();
-        let source: Option<i32> =
-            sqlx::query_scalar("SELECT id FROM posthog_team ORDER BY id LIMIT 1")
-                .fetch_optional(&mut *tx)
-                .await
-                .unwrap();
-        let source = source?;
-        let id = 2_000_000_000 + (std::process::id() as i32 % 100_000) * 100 + rand_suffix();
-        let token = format!("phc_rust_logs_test_{id}");
-        sqlx::query("CREATE TEMP TABLE seed_team ON COMMIT DROP AS SELECT * FROM posthog_team WHERE id = $1")
-            .bind(source)
-            .execute(&mut *tx)
+        let id: i32 = sqlx::query_scalar("SELECT nextval('posthog_team_id_seq')::int")
+            .fetch_one(&mut *tx)
             .await
             .unwrap();
+        let organization_id = uuid::Uuid::now_v7();
+        let token = format!("phc_rust_logs_test_{id}");
         sqlx::query(
-            "UPDATE seed_team SET id = $1, api_token = $2, uuid = gen_random_uuid(), secret_api_token = NULL, \
-             secret_api_token_backup = NULL, logs_settings = $3::jsonb, ingested_event = false",
+            r#"INSERT INTO posthog_organization
+            (id, name, slug, created_at, updated_at, plugins_access_level, for_internal_metrics, is_member_join_email_enabled, enforce_2fa, customer_id, available_product_features, personalization, setup_section_2_completed, domain_whitelist, members_can_use_personal_api_keys, allow_publicly_shared_resources, default_anonymize_ips)
+            VALUES ($1, 'Rust logs test', $2, now(), now(), 9, false, true, NULL, NULL, '{}', '{}', true, '{}', true, true, false)"#,
+        )
+        .bind(organization_id)
+        .bind(format!("rust-logs-test-{}", organization_id.simple()))
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO posthog_project (id, organization_id, name, created_at) VALUES ($1, $2, 'Rust logs test', now())",
         )
         .bind(id)
+        .bind(organization_id)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"INSERT INTO posthog_team
+            (id, uuid, organization_id, project_id, api_token, name, created_at, updated_at, app_urls, anonymize_ips, completed_snippet_onboarding, ingested_event, session_recording_opt_in, is_demo, access_control, test_account_filters, timezone, data_attributes, plugins_opt_in, opt_out_capture, event_names, event_names_with_usage, event_properties, event_properties_with_usage, event_properties_numerical, cookieless_server_hash_mode, base_currency, session_recording_retention_period, web_analytics_pre_aggregated_tables_enabled, logs_settings)
+            VALUES ($1, $2, $3, $1, $4, 'Rust logs test', now(), now(), '{}', false, false, false, false, false, false, '{}', 'UTC', '["data-attr"]', false, false, '[]', '[]', '[]', '[]', '[]', 0, 'USD', '30d', false, $5::jsonb)"#,
+        )
+        .bind(id)
+        .bind(uuid::Uuid::now_v7())
+        .bind(organization_id)
         .bind(&token)
         .bind(logs_settings)
         .execute(&mut *tx)
         .await
         .unwrap();
-        sqlx::query("INSERT INTO posthog_team SELECT * FROM seed_team")
-            .execute(&mut *tx)
-            .await
-            .unwrap();
         tx.commit().await.unwrap();
-        Some(Self { pool, id, token })
+        Self {
+            pool,
+            id,
+            organization_id,
+            token,
+        }
     }
 
     async fn cleanup(&self) {
@@ -73,20 +91,18 @@ impl SeededTeam {
                 .await
                 .unwrap();
         }
-        sqlx::query("DELETE FROM posthog_team WHERE id = $1")
-            .bind(self.id)
+        for (sql, id) in [
+            ("DELETE FROM posthog_team WHERE id = $1", self.id),
+            ("DELETE FROM posthog_project WHERE id = $1", self.id),
+        ] {
+            sqlx::query(sql).bind(id).execute(&self.pool).await.unwrap();
+        }
+        sqlx::query("DELETE FROM posthog_organization WHERE id = $1")
+            .bind(self.organization_id)
             .execute(&self.pool)
             .await
             .unwrap();
     }
-}
-
-fn rand_suffix() -> i32 {
-    (std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .subsec_nanos()
-        % 100) as i32
 }
 
 async fn pool() -> Option<PgPool> {
@@ -110,8 +126,7 @@ async fn team_manager_reads_teams_and_writes_ingested_event_once() {
         pool.clone(),
         r#"{"json_parse_logs": true, "retention_days": 30}"#,
     )
-    .await
-    .expect("test_posthog has a team to copy");
+    .await;
     let manager = PgTeamManager::new(pool.clone(), Some(pool.clone()));
     let by_token = manager
         .get_team_by_token(&team.token)
@@ -164,7 +179,7 @@ async fn team_manager_reads_teams_and_writes_ingested_event_once() {
 #[tokio::test]
 async fn rule_caches_read_the_same_rows_as_node() {
     let Some(pool) = pool().await else { return };
-    let team = SeededTeam::create(pool.clone(), "null").await.unwrap();
+    let team = SeededTeam::create(pool.clone(), "null").await;
     let id = team.id;
     for (priority, rule_type, enabled) in [
         (2, "path_drop", true),

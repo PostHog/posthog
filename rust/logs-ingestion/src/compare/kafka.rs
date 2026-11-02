@@ -1,10 +1,12 @@
-//! Reads the compared topics with one consumer of the comparator's own group. The comparator
-//! creates no producer, so it cannot write to any topic.
+//! Reads every partition of the compared topics with one consumer. It assigns the partitions
+//! itself instead of joining a group, so each replica sees both sides of every partition. The
+//! comparator creates no producer, so it cannot write to any topic.
 
 use std::time::{Duration, Instant};
 
 use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::error::KafkaError;
+use rdkafka::{Offset, TopicPartitionList};
 
 use crate::service::kafka_source::to_kafka_message;
 
@@ -29,14 +31,32 @@ pub struct TopicPlan {
     pub stream: Stream,
 }
 
-pub fn subscribe(consumer: &StreamConsumer, plan: &[TopicPlan]) -> anyhow::Result<()> {
-    let topics: Vec<&str> = plan.iter().map(|p| p.topic.as_str()).collect();
-    consumer.subscribe(&topics)?;
+/// Assigns every partition of every planned topic from its committed offset. Partitions added
+/// later are not read until a restart.
+pub fn assign_all_partitions(
+    consumer: &StreamConsumer,
+    plan: &[TopicPlan],
+    timeout: Duration,
+) -> anyhow::Result<()> {
+    // The all-topics request, because a request that names a topic can create it.
+    let metadata = consumer.fetch_metadata(None, timeout)?;
+    let mut tpl = TopicPartitionList::new();
+    for p in plan {
+        let topic = metadata
+            .topics()
+            .iter()
+            .find(|t| t.name() == p.topic && t.error().is_none() && !t.partitions().is_empty())
+            .ok_or_else(|| anyhow::anyhow!("compared topic {} does not exist", p.topic))?;
+        for partition in topic.partitions() {
+            tpl.add_partition_offset(&p.topic, partition.id(), Offset::Stored)?;
+        }
+    }
+    consumer.assign(&tpl)?;
     Ok(())
 }
 
 /// Feeds the comparator until `stop` resolves, or until no message arrived for `idle` when one
-/// is given. Sweeps once a second.
+/// is given. Sweeps once a second. A fatal consumer error ends it with that error.
 pub async fn run_compare(
     consumer: &StreamConsumer,
     plan: &[TopicPlan],
@@ -58,6 +78,9 @@ pub async fn run_compare(
         match received {
             Err(_) => comparator.sweep(now),
             Ok(Err(KafkaError::PartitionEOF(_))) => {}
+            Ok(Err(e)) if is_fatal(consumer, &e) => {
+                return Err(anyhow::anyhow!("comparator consumer failed: {e}"))
+            }
             Ok(Err(e)) => tracing::warn!(error = %e, "comparator consume error"),
             Ok(Ok(m)) => {
                 let message = to_kafka_message(&m);
@@ -87,6 +110,11 @@ pub async fn run_compare(
             }
         }
     }
+}
+
+fn is_fatal(consumer: &StreamConsumer, error: &KafkaError) -> bool {
+    matches!(error, KafkaError::MessageConsumptionFatal(_))
+        || consumer.client().fatal_error().is_some()
 }
 
 #[cfg(test)]

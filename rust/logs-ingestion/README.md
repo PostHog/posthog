@@ -46,8 +46,10 @@ The loop follows the Node consumer (`consumer-v2.ts`):
 - It reads up to `CONSUMER_BATCH_SIZE` messages within 500 ms and runs `process_kafka_batch`.
 - Up to `CONSUMER_MAX_BACKGROUND_TASKS` background tasks run at once (default 1).
 - A batch's offsets are stored only after its background task and every earlier one succeeded. librdkafka's auto commit commits them, and shutdown commits once more.
-- A batch that fails, or a background task that fails or runs past `CONSUMER_BACKGROUND_TASK_TIMEOUT_MS`, stops the loop and exits the process with an error. Nothing from that batch or later is stored, so the restart replays it (at least once).
-- SIGTERM stops fetching, lets the in-flight batch finish, stores and commits its offsets, then exits.
+- A batch that fails, or a background task that fails or runs past `CONSUMER_BACKGROUND_TASK_TIMEOUT_MS` after its dispatch, stops the loop and exits the process with an error. Nothing from that batch or later is stored, so the restart replays it (at least once).
+- A consume error is tried 3 times, 100 ms apart doubling, as `retryIfRetriable` does, and then exits the process.
+- A revoke bumps the epoch of each revoked partition. A task dispatched before the revoke does not store that partition's offset, as `consumer-v2.ts` fences it.
+- SIGTERM stops fetching, lets the in-flight batch finish, stores and commits its offsets, then exits. A task still running at the `LOGS_RUST_SHUTDOWN_TIMEOUT_SECS` deadline is aborted.
 
 ### Primary mode
 
@@ -63,8 +65,8 @@ The service refuses to start unless all of these hold:
 - `LOGS_RUST_SHADOW_CONSUMER_GROUP_ID` ends with `-rust-shadow`. No Node or ClickHouse group uses that suffix, and sharing a group would take its partitions or move its offsets.
 - Each of the three shadow topics ends with `_rust_shadow` (after trimming), and they differ from each other.
 - As defence in depth, the group is not `ingestion-logs`, `ingestion-traces`, or a value of `LOGS_INGESTION_CONSUMER_GROUP_ID` or `TRACES_INGESTION_CONSUMER_GROUP_ID` in env, and no shadow topic is a known production topic: the Node default names of every logs and traces topic (bare, with `_test`, and with this env's prefix and suffix), the input topic, and any `LOGS_INGESTION_OUTPUT_*_TOPIC`, `*_CLICKHOUSE_TOPIC`, `*_DLQ_TOPIC`, `*_CONSUME_TOPIC` or `*_OVERFLOW_TOPIC` value in env.
-- Each shadow topic exists. The shadow producers set `allow.auto.create.topics=false`, and at startup they read the metadata of each shadow topic and stop if it is missing, because brokers below Metadata v4 ignore that setting. A mistyped name cannot create a topic.
-- `LOGS_RUST_SHADOW_REDIS_HOST` is set and is not the value of `LOGS_REDIS_HOST` (logs) or `TRACES_REDIS_HOST` (traces) when that key is in env. Shadow mode never reads `LOGS_REDIS_*`, `TRACES_REDIS_*` or `REDIS_URL`.
+- Each shadow topic exists. The shadow producers set `allow.auto.create.topics=false`, and at startup they read the metadata of all topics and stop if a shadow topic is missing, because brokers below Metadata v4 ignore that setting and create a topic that a metadata request names. A mistyped name cannot create a topic.
+- `LOGS_RUST_SHADOW_REDIS_HOST` is a host name, not a URL, and with `LOGS_RUST_SHADOW_REDIS_PORT` it does not name the Redis of `LOGS_REDIS_HOST` and `LOGS_REDIS_PORT` (logs), `TRACES_REDIS_HOST` and `TRACES_REDIS_PORT` (traces), or `REDIS_URL`, when those keys are in env. Hosts compare without scheme, user info or case. Shadow mode never connects to `LOGS_REDIS_*`, `TRACES_REDIS_*` or `REDIS_URL`.
 - `DATABASE_READONLY_URL` is set. Shadow mode reads Postgres only through it and never falls back to `DATABASE_URL`.
 
 What shadow mode suppresses, and why:
@@ -101,7 +103,7 @@ cargo run --release -p logs-ingestion --bin logs-ingestion
 
 ## The comparator
 
-`logs-shadow-compare` reads the Node and the shadow topics with its own group and compares them under the parity contract. It has no Kafka producer.
+`logs-shadow-compare` reads the Node and the shadow topics and compares them under the parity contract. It has no Kafka producer. It assigns itself every partition that the topics have at startup, instead of joining a group, so each replica compares all of both topics; run one replica. It reads from its group's committed offsets and stops on a fatal consumer error.
 
 - A `logs` record is matched by `source_topic`, `source_partition` and the record's `uuid`. A record with no `uuid` is matched by a hash of its content. A value that is not an Avro container is one item, matched by its hash.
 - A DLQ message is matched by `source_topic`, `source_partition` and `source_offset`.
@@ -110,13 +112,13 @@ cargo run --release -p logs-ingestion --bin logs-ingestion
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `LOGS_SHADOW_COMPARE_GROUP_ID` | required | The comparator's group. Must end with `-rust-shadow-compare` (after trimming), so it never equals a Node, ClickHouse Kafka-engine or shadow group. Auto commit records only its own progress. |
+| `LOGS_SHADOW_COMPARE_GROUP_ID` | required | The group the comparator commits its offsets under. Must end with `-rust-shadow-compare` (after trimming), so it never equals a Node, ClickHouse Kafka-engine or shadow group. Auto commit records only its own progress. |
 | `LOGS_SHADOW_COMPARE_NODE_TOPIC`, `LOGS_SHADOW_COMPARE_RUST_TOPIC` | required | The two `logs` topics. |
 | `LOGS_SHADOW_COMPARE_NODE_DLQ_TOPIC`, `LOGS_SHADOW_COMPARE_RUST_DLQ_TOPIC` | unset | Both or neither. |
 | `LOGS_SHADOW_COMPARE_LAG_TOLERANCE_MS` | 120000 | How long an item waits for its counterpart. |
 | `LOGS_SHADOW_COMPARE_WARMUP_MS` | 300000 | Start-up window for `warmup_unmatched`. |
 | `LOGS_SHADOW_COMPARE_MAX_PENDING` | 1000000 | Waiting items kept before the oldest count as one-sided. |
-| `LOGS_SHADOW_COMPARE_MISMATCH_SAMPLE` | 200 | Mismatches logged with the key, field and both values. |
+| `LOGS_SHADOW_COMPARE_MISMATCH_SAMPLE` | 200 | Mismatches logged with the key, the field, and the length and a short hash of each value. Values are customer content, so they are never logged. |
 | `LOGS_SHADOW_COMPARE_HTTP_PORT` | 6739 | `/_health` and `/metrics`. |
 | `KAFKA_CONSUMER_*` | | rdkafka settings, as for the service. `auto.offset.reset` defaults to `earliest`; set `KAFKA_CONSUMER_AUTO_OFFSET_RESET=latest` to skip the backlog. `allow.auto.create.topics` is always false. |
 

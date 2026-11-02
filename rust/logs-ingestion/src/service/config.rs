@@ -176,7 +176,7 @@ pub enum ConfigError {
     ShadowTopicSuffix(&'static str, String),
     #[error("LOGS_RUST_SHADOW_CONSUMER_GROUP_ID must end with {SHADOW_GROUP_SUFFIX:?}, got {0:?}")]
     ShadowGroupSuffix(String),
-    #[error("LOGS_RUST_SHADOW_REDIS_HOST is the production Redis host in {0}")]
+    #[error("LOGS_RUST_SHADOW_REDIS_HOST and LOGS_RUST_SHADOW_REDIS_PORT name the production Redis in {0}")]
     ShadowRedisIsProduction(String),
     #[error(
         "{0} is not empty, but hog transformations are not ported, so primary mode refuses it"
@@ -484,25 +484,68 @@ pub fn shadow_routes(
     Ok((group, routes))
 }
 
+/// The host and port of an ioredis connection string: a `scheme://` URL, `host:port` or a host.
+/// The scheme, user info and path are dropped, and the host is lower case.
+fn redis_endpoint(raw: &str) -> (String, Option<u16>) {
+    let raw = raw.trim();
+    let rest = raw.split_once("://").map_or(raw, |(_, rest)| rest);
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let authority = authority.rsplit_once('@').map_or(authority, |(_, a)| a);
+    let (host, port) = match authority.strip_prefix('[') {
+        Some(v6) => match v6.split_once(']') {
+            Some((host, tail)) => (host, tail.strip_prefix(':')),
+            None => (v6, None),
+        },
+        None => match authority.rsplit_once(':') {
+            Some((host, port)) => (host, Some(port)),
+            None => (authority, None),
+        },
+    };
+    (host.to_ascii_lowercase(), port.and_then(|p| p.parse().ok()))
+}
+
+/// The endpoints Node's limiter Redis can use, from the keys set in env: `{p}_REDIS_HOST` with
+/// `{p}_REDIS_PORT`, and `REDIS_URL`, which Node uses when the host is empty. A URL port and
+/// the port key both count, so the guard holds whichever one the client applies.
+fn production_redis_endpoints(env: &Env, prefix: &str) -> Vec<(String, String, Vec<u16>)> {
+    let mut out = Vec::new();
+    let host_key = format!("{prefix}_REDIS_HOST");
+    let port_key = format!("{prefix}_REDIS_PORT");
+    if let Some(raw) = env.get(&host_key).filter(|v| !v.trim().is_empty()) {
+        let (host, url_port) = redis_endpoint(raw);
+        let configured = env
+            .get(&port_key)
+            .and_then(|p| p.trim().parse().ok())
+            .unwrap_or(SHADOW_REDIS_DEFAULT_PORT);
+        out.push((
+            host_key,
+            host,
+            url_port.into_iter().chain([configured]).collect(),
+        ));
+    }
+    if let Some(raw) = env.get("REDIS_URL").filter(|v| !v.trim().is_empty()) {
+        let (host, url_port) = redis_endpoint(raw);
+        out.push((
+            "REDIS_URL".to_string(),
+            host,
+            vec![url_port.unwrap_or(SHADOW_REDIS_DEFAULT_PORT)],
+        ));
+    }
+    out
+}
+
 /// The shadow token buckets must never share a Redis with Node, so only the
 /// `LOGS_RUST_SHADOW_REDIS_*` keys are read.
 pub fn shadow_redis(
     env: &Env,
     rust: &RustServiceEnv,
-    production_host_key: &str,
+    prefix: &str,
 ) -> Result<RedisTarget, ConfigError> {
     let host = required(&rust.shadow_redis_host, "LOGS_RUST_SHADOW_REDIS_HOST")?;
-    if host.contains("://") {
-        return Err(ConfigError::Invalid(format!(
-            "LOGS_RUST_SHADOW_REDIS_HOST must be a host name, not a URL, got {host:?}"
-        )));
-    }
-    if env
-        .get(production_host_key)
-        .is_some_and(|production| production.trim().eq_ignore_ascii_case(&host))
-    {
-        return Err(ConfigError::ShadowRedisIsProduction(
-            production_host_key.to_string(),
+    // The value is not echoed, because a URL can carry a password.
+    if host.contains("://") || host.contains('@') {
+        return Err(ConfigError::Invalid(
+            "LOGS_RUST_SHADOW_REDIS_HOST must be a host name, not a URL".to_string(),
         ));
     }
     let port = match rust.shadow_redis_port.as_deref().map(str::trim) {
@@ -513,6 +556,12 @@ pub fn shadow_redis(
             ))
         })?,
     };
+    let (shadow_host, _) = redis_endpoint(&host);
+    for (key, production_host, ports) in production_redis_endpoints(env, prefix) {
+        if production_host == shadow_host && ports.contains(&port) {
+            return Err(ConfigError::ShadowRedisIsProduction(key));
+        }
+    }
     Ok(RedisTarget {
         url_or_host: host,
         port: Some(port),
@@ -644,7 +693,7 @@ impl ServiceConfig {
                 Some(&format!("{p}_REDIS_TLS")),
                 None,
             ),
-            RunMode::Shadow => shadow_redis(env, &rust, &format!("{p}_REDIS_HOST"))?,
+            RunMode::Shadow => shadow_redis(env, &rust, p)?,
         };
         let posthog_redis = redis_target(
             "POSTHOG_REDIS_HOST",
@@ -853,6 +902,26 @@ mod tests {
                 ConfigError::ShadowRedisIsProduction("LOGS_REDIS_HOST".into()),
             ),
             (
+                shadow_env(&[("LOGS_REDIS_HOST", "redis://user:pw@SHADOW-redis:6379/0")]),
+                ConfigError::ShadowRedisIsProduction("LOGS_REDIS_HOST".into()),
+            ),
+            (
+                shadow_env(&[
+                    ("LOGS_REDIS_HOST", ""),
+                    ("REDIS_URL", "rediss://shadow-redis"),
+                ]),
+                ConfigError::ShadowRedisIsProduction("REDIS_URL".into()),
+            ),
+            (
+                shadow_env(&[(
+                    "LOGS_RUST_SHADOW_REDIS_HOST",
+                    "redis://:hunter2@shadow-redis",
+                )]),
+                ConfigError::Invalid(
+                    "LOGS_RUST_SHADOW_REDIS_HOST must be a host name, not a URL".into(),
+                ),
+            ),
+            (
                 shadow_env(&[("LOGS_RUST_SHADOW_DLQ_TOPIC", "clickhouse_logs_rust_shadow")]),
                 ConfigError::DuplicateShadowTopic("clickhouse_logs_rust_shadow".into()),
             ),
@@ -862,8 +931,16 @@ mod tests {
             ),
         ];
         for (e, expected) in cases {
-            assert_eq!(ServiceConfig::from_env(&e).unwrap_err(), expected);
+            let error = ServiceConfig::from_env(&e).unwrap_err();
+            assert!(!error.to_string().contains("hunter2"), "{error}");
+            assert_eq!(error, expected);
         }
+        // Another port on the same host is another Redis.
+        ServiceConfig::from_env(&shadow_env(&[
+            ("LOGS_REDIS_HOST", "shadow-redis"),
+            ("LOGS_RUST_SHADOW_REDIS_PORT", "6380"),
+        ]))
+        .unwrap();
         let mut no_mode = shadow_env(&[]);
         no_mode.remove("LOGS_RUST_MODE");
         assert_eq!(

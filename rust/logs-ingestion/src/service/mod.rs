@@ -22,7 +22,8 @@ use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
 use lifecycle::{ComponentOptions, Manager};
-use rdkafka::consumer::{Consumer, StreamConsumer};
+use rdkafka::consumer::Consumer;
+use rdkafka::metadata::Metadata;
 use rdkafka::producer::{FutureProducer, Producer};
 use sqlx::PgPool;
 
@@ -35,10 +36,12 @@ use crate::rate_limiter::{system_clock, KeyRoot, RedisTokenBucket};
 use config::{ConsumerKind, RunMode, ServiceConfig};
 use consumer_loop::run_consumer_loop;
 use kafka_outputs::{producer_client_config, KafkaOutputs};
-use kafka_source::{consumer_client_config, KafkaBatchSource};
+use kafka_source::{consumer_client_config, FencingContext, KafkaBatchSource, LogsConsumer};
 use node_env::NodeEnv;
 
 const SERVICE_NAME: &str = "logs-ingestion";
+/// How long a task may take to finish once the lifecycle monitor has returned.
+const TASK_JOIN_GRACE: Duration = Duration::from_secs(2);
 
 /// The shadow-mode rules, applied to any set of dependencies (README.md lists them).
 pub fn shadow_deps(mut deps: LogsIngestionConsumerDeps) -> LogsIngestionConsumerDeps {
@@ -78,13 +81,13 @@ pub fn create_producers(config: &ServiceConfig) -> anyhow::Result<HashMap<String
             client.set("allow.auto.create.topics", "false");
         }
         let producer: FutureProducer = client.create()?;
-        producer
+        let metadata = producer
             .client()
             .fetch_metadata(None, Duration::from_secs(15))
             .map_err(|e| anyhow::anyhow!("producer {name} cannot reach Kafka: {e}"))?;
         if config.mode == RunMode::Shadow {
             for topic in topics {
-                require_topic(&producer, topic)?;
+                require_topic(&metadata, topic)?;
             }
         }
         out.insert(name.clone(), producer);
@@ -93,12 +96,9 @@ pub fn create_producers(config: &ServiceConfig) -> anyhow::Result<HashMap<String
 }
 
 /// Brokers below Metadata v4 ignore `allow.auto.create.topics`, so the shadow also checks that
-/// each of its topics exists before it produces.
-fn require_topic(producer: &FutureProducer, topic: &str) -> anyhow::Result<()> {
-    let metadata = producer
-        .client()
-        .fetch_metadata(Some(topic), Duration::from_secs(15))
-        .map_err(|e| anyhow::anyhow!("cannot read metadata for shadow topic {topic}: {e}"))?;
+/// each of its topics exists before it produces. `metadata` must come from the all-topics
+/// request, because those brokers create a topic that a metadata request names.
+fn require_topic(metadata: &Metadata, topic: &str) -> anyhow::Result<()> {
     let exists = metadata
         .topics()
         .iter()
@@ -107,14 +107,14 @@ fn require_topic(producer: &FutureProducer, topic: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn create_consumer(config: &ServiceConfig) -> anyhow::Result<StreamConsumer> {
-    let consumer: StreamConsumer = consumer_client_config(
+pub fn create_consumer(config: &ServiceConfig) -> anyhow::Result<LogsConsumer> {
+    let consumer: LogsConsumer = consumer_client_config(
         &config.group_id,
         &config.kafka_consumer,
         config.kafka_client_rack.as_deref(),
         config.node_env == NodeEnv::Test,
     )
-    .create()?;
+    .create_with_context(FencingContext::default())?;
     consumer.subscribe(&[config.input_topic.as_str()])?;
     Ok(consumer)
 }
@@ -281,12 +281,34 @@ pub async fn run(config: ServiceConfig) -> anyhow::Result<()> {
 
     let app = health_router(readiness, liveness, Arc::new(move || recorder.render()));
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", config.http_port)).await?;
-    axum::serve(listener, app)
-        .with_graceful_shutdown(metrics_handle.shutdown_signal())
-        .await?;
-    metrics_handle.work_completed();
+    let server_task = tokio::spawn(async move {
+        let result = axum::serve(listener, app)
+            .with_graceful_shutdown(metrics_handle.shutdown_signal())
+            .await;
+        match &result {
+            Ok(()) => metrics_handle.work_completed(),
+            Err(error) => metrics_handle.signal_failure(format!("http server failed: {error}")),
+        }
+        result
+    });
+    // The monitor returns by the global shutdown deadline, so nothing after it waits unbounded.
     let monitor = guard.wait().await;
-    consumer_task.await??;
+    let consumer_result = join_or_abort("consumer", consumer_task).await;
+    let server_result = join_or_abort("http server", server_task).await;
+    consumer_result??;
+    server_result??;
     monitor?;
     Ok(())
+}
+
+async fn join_or_abort<T>(name: &str, mut task: tokio::task::JoinHandle<T>) -> anyhow::Result<T> {
+    match tokio::time::timeout(TASK_JOIN_GRACE, &mut task).await {
+        Ok(joined) => Ok(joined?),
+        Err(_) => {
+            task.abort();
+            Err(anyhow::anyhow!(
+                "{name} did not stop by the shutdown deadline"
+            ))
+        }
+    }
 }

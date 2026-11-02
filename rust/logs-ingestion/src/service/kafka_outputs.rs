@@ -15,7 +15,7 @@ use rdkafka::producer::{FutureProducer, FutureRecord, Producer};
 use rdkafka::util::Timeout;
 use rdkafka::ClientConfig;
 
-use crate::pipeline::{DependencyUnavailableError, NamedError};
+use crate::pipeline::NamedError;
 
 use super::config::OutputRoute;
 
@@ -56,18 +56,14 @@ pub fn hostname() -> String {
     std::env::var("HOSTNAME").unwrap_or_else(|_| "logs-ingestion".to_string())
 }
 
-/// How a failed produce reaches the pipeline. A retriable error becomes
-/// `DependencyUnavailableError`, which fails the batch instead of quarantining the message.
+/// How a failed produce reaches the pipeline, as `KafkaProducerWrapper.produce` throws it.
+/// node-rdkafka sets `isRetriable` only on transactional errors, so no produce error becomes
+/// `DependencyUnavailableError` there, and every one except a too-large message quarantines.
 pub fn classify_produce_error(error: KafkaError) -> anyhow::Error {
-    let code = error.rdkafka_error_code();
-    match code {
+    match error.rdkafka_error_code() {
         Some(RDKafkaErrorCode::MessageSizeTooLarge) => {
             anyhow::Error::new(NamedError::new("MessageSizeTooLarge", error.to_string()))
         }
-        Some(RDKafkaErrorCode::QueueFull) => anyhow::Error::new(DependencyUnavailableError {
-            message: error.to_string(),
-            dependency_name: "Kafka".to_string(),
-        }),
         _ => anyhow::Error::new(NamedError::new("Error", error.to_string())),
     }
 }
@@ -191,13 +187,14 @@ mod tests {
             RDKafkaErrorCode::MessageSizeTooLarge,
         ));
         assert_eq!(error_name(&too_large), "MessageSizeTooLarge");
-        let full =
-            classify_produce_error(KafkaError::MessageProduction(RDKafkaErrorCode::QueueFull));
-        assert!(is_dependency_unavailable(&full));
-        let timed_out = classify_produce_error(KafkaError::MessageProduction(
+        for code in [
+            RDKafkaErrorCode::QueueFull,
             RDKafkaErrorCode::MessageTimedOut,
-        ));
-        assert_eq!(error_name(&timed_out), "Error");
-        assert!(!is_dependency_unavailable(&timed_out));
+            RDKafkaErrorCode::TopicAuthorizationFailed,
+        ] {
+            let error = classify_produce_error(KafkaError::MessageProduction(code));
+            assert_eq!(error_name(&error), "Error", "{code:?}");
+            assert!(!is_dependency_unavailable(&error), "{code:?}");
+        }
     }
 }

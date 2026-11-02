@@ -60,6 +60,7 @@ struct Item {
     fields: BTreeMap<String, String>,
 }
 
+/// `node` and `rust` hold `redact` of each value, because field values are customer content.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Mismatch {
     pub key: Key,
@@ -124,6 +125,15 @@ pub fn canonical(value: &AvroValue) -> JsValue {
 
 fn sha(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
+}
+
+/// The length and a short hash of a value: enough to tell two values apart, not to read them.
+pub fn redact(value: &str) -> String {
+    format!(
+        "len={} sha256={}",
+        value.len(),
+        &sha(value.as_bytes())[..12]
+    )
 }
 
 fn header_fields(message: &KafkaMessage, ignored: &[&str]) -> BTreeMap<String, String> {
@@ -212,7 +222,8 @@ pub struct Comparator {
     started: Instant,
     seq: u64,
     pending: [HashMap<Key, VecDeque<Item>>; 2],
-    order: VecDeque<(u64, Instant, Side, Key)>,
+    /// Waiting items by arrival sequence. A matched item leaves at once, so the length is exact.
+    order: BTreeMap<u64, (Instant, Side, Key)>,
     report: Report,
     samples: Vec<Mismatch>,
 }
@@ -230,7 +241,7 @@ impl Comparator {
             started: now,
             seq: 0,
             pending: [HashMap::new(), HashMap::new()],
-            order: VecDeque::new(),
+            order: BTreeMap::new(),
             report: Report::default(),
             samples: Vec::new(),
         }
@@ -268,6 +279,7 @@ impl Comparator {
             if queue.is_empty() {
                 other.remove(&key);
             }
+            self.order.remove(&counterpart.seq);
             let (node, rust) = match side {
                 Side::Node => (fields, counterpart.fields),
                 Side::Rust => (counterpart.fields, fields),
@@ -283,7 +295,7 @@ impl Comparator {
                 seq: self.seq,
                 fields,
             });
-        self.order.push_back((self.seq, now, side, key));
+        self.order.insert(self.seq, (now, side, key));
     }
 
     fn compare(
@@ -312,8 +324,8 @@ impl Comparator {
                 let sample = Mismatch {
                     key: key.clone(),
                     field: name.clone(),
-                    node: n.cloned(),
-                    rust: r.cloned(),
+                    node: n.map(|v| redact(v)),
+                    rust: r.map(|v| redact(v)),
                 };
                 tracing::warn!(stream = ?sample.key.stream, source = %sample.key.source, id = %sample.key.id, field = %sample.field, node = ?sample.node, rust = ?sample.rust, "shadow mismatch");
                 self.samples.push(sample);
@@ -329,7 +341,7 @@ impl Comparator {
     }
 
     fn expire_front(&mut self) {
-        let Some((seq, arrived, side, key)) = self.order.pop_front() else {
+        let Some((seq, (arrived, side, key))) = self.order.pop_first() else {
             return;
         };
         let queue = self.pending[side.index()].get_mut(&key);
@@ -354,7 +366,7 @@ impl Comparator {
     }
 
     pub fn sweep(&mut self, now: Instant) {
-        while let Some((_, arrived, _, _)) = self.order.front() {
+        while let Some((_, (arrived, _, _))) = self.order.first_key_value() {
             let expired = now.saturating_duration_since(*arrived) > self.settings.lag_tolerance;
             if !expired && self.order.len() <= self.settings.max_pending {
                 break;
@@ -457,19 +469,25 @@ mod tests {
     }
 
     #[test]
-    fn field_and_header_differences_are_reported_with_both_values() {
+    fn field_and_header_differences_are_reported_without_their_values() {
         let t0 = Instant::now();
         let mut c = Comparator::new(settings(), t0);
         c.ingest(
             Side::Node,
             Stream::Logs,
-            &logs_message(&[record("a", "x", 1.0, &[])], &[("retention-days", "14")]),
+            &logs_message(
+                &[record("a", "secret-node-body", 1.0, &[])],
+                &[("retention-days", "14")],
+            ),
             t0,
         );
         c.ingest(
             Side::Rust,
             Stream::Logs,
-            &logs_message(&[record("a", "x", 1.5, &[])], &[("retention-days", "30")]),
+            &logs_message(
+                &[record("a", "secret-rust-body", 1.5, &[])],
+                &[("retention-days", "30")],
+            ),
             t0,
         );
         let report = c.finish();
@@ -477,12 +495,44 @@ mod tests {
         assert_eq!(
             report.field_mismatches,
             BTreeMap::from([
+                ("body".to_string(), 1),
                 ("header:retention-days".to_string(), 1),
                 ("n".to_string(), 1)
             ])
         );
-        assert_eq!(c.samples()[1].node.as_deref(), Some("1"));
-        assert_eq!(c.samples()[1].rust.as_deref(), Some("1.5"));
+        let body = &c.samples()[0];
+        assert_eq!(body.field, "body");
+        assert_ne!(body.node, body.rust);
+        assert!(!format!("{:?}", c.samples()).contains("secret"));
+    }
+
+    #[test]
+    fn matched_items_do_not_count_against_max_pending() {
+        let t0 = Instant::now();
+        let mut c = Comparator::new(
+            CompareSettings {
+                max_pending: 2,
+                ..settings()
+            },
+            t0,
+        );
+        for (side, uuid) in [
+            (Side::Node, "x"),
+            (Side::Node, "a"),
+            (Side::Rust, "a"),
+            (Side::Node, "b"),
+            (Side::Rust, "x"),
+        ] {
+            c.ingest(
+                side,
+                Stream::Logs,
+                &logs_message(&[record(uuid, "v", 1.0, &[])], &[]),
+                t0,
+            );
+        }
+        assert_eq!(c.pending(), 1);
+        let r = c.finish();
+        assert_eq!((r.matched, r.node_only, r.rust_only), (2, 1, 0));
     }
 
     #[test]

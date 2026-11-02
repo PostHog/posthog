@@ -281,13 +281,12 @@ A parsed `FilterGroupNode` implements `metric_rules::FilterGroupMatcher` with `f
 - **`first team event ingested`.** `setTeamIngestedEvent` captures a PostHog analytics event to every organization member after the first `ingested_event` write. `PgTeamManager` writes the flag and refreshes the cache, but captures nothing.
 - **Hog transformations in primary mode.** No `LogsTransformer` exists, so primary mode refuses to start when `LOGS_TRANSFORMATIONS_ENABLED_TEAMS` is not empty.
 - **Offsets after a failed background task.** Node's default consumer (`consumer-v1.ts`, `CONSUMER_USE_V2=false`) stores a batch's offsets in a `finally`, so a failed task's offsets can still commit before the process exits. The port follows `consumer-v2.ts`: a failed task stores nothing from it or any later batch.
-- **Rebalance fencing.** `consumer-v2.ts` fences offset stores by a per-partition epoch and drains in-flight tasks on revoke. The port relies on librdkafka rejecting a store for a partition it no longer holds, so a partition revoked and reassigned to the same member while a task runs can still store that task's offset.
+- **Drain on revoke.** `consumer-v2.ts` waits for in-flight tasks inside the revoke callback. The port fences their offset stores by the same per-partition epoch, but does not wait, so the new owner can process a revoked partition while an old task still runs. That costs duplicates, not data.
 - **Consumer telemetry.** The node-rdkafka statistics, loop-stall health check and batch histograms are not ported. Liveness is the lifecycle heartbeat on every loop turn.
-- **Produce error classes.** Node marks a produce error retriable from node-rdkafka's `isRetriable`, which a delivery report rarely sets. The port treats only a full producer queue as `DependencyUnavailableError`.
+- **A full producer queue.** node-rdkafka fails the produce at once; the port waits up to 10 s for queue space first. Both then quarantine the message, because node-rdkafka sets `isRetriable` only on transactional errors.
 - **`USAGE_INGESTION_TLS=true`.** The workspace `tonic` has no TLS feature, so the service refuses to start with it.
 - **`LazyLoader` instrumentation.** The OpenTelemetry spans and the hit and miss counters are not ported; `lazy_loader_cache_size` is. Loader retries are not ported, because the logs servers build their loaders without `loaderRetry`.
 - **Rule-cache spans.** The `logs.sampling.*`, `logs.retention.*`, `traces.retention.*` and `logs.patterns.*` span attributes are not ported.
-- **`USAGE_INGESTION_REPORT_TEAMS` with spaces around `*`.** `buildIntegerMatcher` matches all teams only for an exact `*`; the port also accepts ` * `.
 - **The logs Redis password.** Node never passes `LOGS_REDIS_PASSWORD` to the logs Redis client, and neither does the port.
 
 ## Regenerating references

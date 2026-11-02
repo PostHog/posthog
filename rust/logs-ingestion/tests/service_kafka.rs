@@ -15,7 +15,7 @@ use common::{
 use futures::FutureExt;
 use ingestion_framework::{Headers, IngestionOutputs, KafkaMessage, OutputMessage};
 use logs_ingestion::avro::{decode_container, encode_container, Schema};
-use logs_ingestion::compare::kafka::{run_compare, subscribe, TopicPlan};
+use logs_ingestion::compare::kafka::{assign_all_partitions, run_compare, TopicPlan};
 use logs_ingestion::compare::{Comparator, CompareSettings, Side, Stream};
 use logs_ingestion::js::{json_parse, json_stringify, JsObject, JsString, JsValue};
 use logs_ingestion::pipeline::scenario::{kafka_message, scenario_parts, PinnedClock};
@@ -693,7 +693,7 @@ async fn shadow_scenario(name: &str) {
         .set("auto.offset.reset", "earliest")
         .create()
         .unwrap();
-    subscribe(&compare_consumer, &plan).unwrap();
+    assign_all_partitions(&compare_consumer, &plan, Duration::from_secs(10)).unwrap();
     let mut comparator = Comparator::new(
         CompareSettings {
             lag_tolerance: Duration::from_secs(60),

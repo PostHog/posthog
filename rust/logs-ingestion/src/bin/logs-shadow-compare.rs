@@ -5,7 +5,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use envconfig::Envconfig;
-use logs_ingestion::compare::kafka::{compare_group_id, run_compare, subscribe, TopicPlan};
+use logs_ingestion::compare::kafka::{
+    assign_all_partitions, compare_group_id, run_compare, TopicPlan,
+};
 use logs_ingestion::compare::{Comparator, CompareSettings, Side, Stream};
 use logs_ingestion::service::config::NODE_DEFAULT_CONFIG_CONSUMER_KEYS;
 use logs_ingestion::service::kafka_source::consumer_client_config;
@@ -96,7 +98,7 @@ async fn main() -> anyhow::Result<()> {
         .set("enable.auto.offset.store", "true")
         .set("allow.auto.create.topics", "false");
     let consumer: StreamConsumer = client.create()?;
-    subscribe(&consumer, &plan)?;
+    assign_all_partitions(&consumer, &plan, Duration::from_secs(15))?;
 
     let recorder = serve_metrics::setup_metrics_recorder();
     let app = axum::Router::new()

@@ -1,5 +1,6 @@
 //! The batch loop of `consumer-v2.ts`. A batch's offsets are stored once its background task
-//! and every earlier one succeeded; any failure stops the loop so the restart replays it.
+//! and every earlier one succeeded; any failure stops the loop so the restart replays it. A
+//! task's timeout runs from its dispatch, as `trackTask` starts its timer.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::time::Duration;
@@ -23,7 +24,12 @@ pub trait BatchSource: Send {
         max: usize,
         timeout: Duration,
     ) -> anyhow::Result<Vec<KafkaMessage>>;
-    fn store_offsets(&mut self, offsets: &OffsetsToStore) -> anyhow::Result<()>;
+    /// The fence epoch of each partition in `offsets`, as the last `next_batch` read it.
+    fn epochs(&self, offsets: &OffsetsToStore) -> Vec<u64> {
+        vec![0; offsets.len()]
+    }
+    /// Stores each offset whose partition still has the epoch in `epochs`.
+    fn store_offsets(&mut self, offsets: &OffsetsToStore, epochs: &[u64]) -> anyhow::Result<()>;
     fn commit(&mut self) -> anyhow::Result<()>;
 }
 
@@ -56,6 +62,7 @@ pub fn offsets_to_store(messages: &[KafkaMessage]) -> OffsetsToStore {
 struct InFlight {
     task: JoinHandle<anyhow::Result<()>>,
     offsets: OffsetsToStore,
+    epochs: Vec<u64>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -64,25 +71,17 @@ pub struct LoopStats {
     pub messages: u64,
 }
 
-async fn settle(
-    entry: InFlight,
-    timeout: Duration,
-    source: &mut dyn BatchSource,
-) -> anyhow::Result<()> {
-    let result = match tokio::time::timeout(timeout, entry.task).await {
-        Err(_) => Err(anyhow::anyhow!(
-            "background_task_timeout_after_{}ms",
-            timeout.as_millis()
-        )),
-        Ok(Err(join_error)) => Err(anyhow::anyhow!("background task panicked: {join_error}")),
-        Ok(Ok(result)) => result,
+async fn settle(entry: InFlight, source: &mut dyn BatchSource) -> anyhow::Result<()> {
+    let result = match entry.task.await {
+        Err(join_error) => Err(anyhow::anyhow!("background task panicked: {join_error}")),
+        Ok(result) => result,
     };
     if let Err(error) = result {
         tracing::error!(error = %error, "kafka_consumer_background_task_failed");
         metrics::counter!("logs_ingestion_consumer_background_task_failed_total").increment(1);
         return Err(error);
     }
-    source.store_offsets(&entry.offsets)?;
+    source.store_offsets(&entry.offsets, &entry.epochs)?;
     Ok(())
 }
 
@@ -102,7 +101,7 @@ pub async fn run_consumer_loop(
         on_tick();
         while in_flight.front().is_some_and(|f| f.task.is_finished()) {
             let entry = in_flight.pop_front().unwrap();
-            if let Err(e) = settle(entry, config.background_task_timeout, source).await {
+            if let Err(e) = settle(entry, source).await {
                 outcome = Err(e);
                 break;
             }
@@ -128,6 +127,7 @@ pub async fn run_consumer_loop(
         stats.batches += 1;
         stats.messages += messages.len() as u64;
         let offsets = offsets_to_store(&messages);
+        let epochs = source.epochs(&offsets);
         let task = match processor.process(messages).await {
             Ok(task) => task,
             Err(e) => {
@@ -135,16 +135,25 @@ pub async fn run_consumer_loop(
                 break;
             }
         };
+        let timeout = config.background_task_timeout;
         let task = tokio::spawn(async move {
-            match task {
-                Some(task) => task.await,
-                None => Ok(()),
+            let Some(task) = task else { return Ok(()) };
+            match tokio::time::timeout(timeout, task).await {
+                Ok(result) => result,
+                Err(_) => Err(anyhow::anyhow!(
+                    "background_task_timeout_after_{}ms",
+                    timeout.as_millis()
+                )),
             }
         });
-        in_flight.push_back(InFlight { task, offsets });
+        in_flight.push_back(InFlight {
+            task,
+            offsets,
+            epochs,
+        });
         if in_flight.len() >= config.max_background_tasks {
             let entry = in_flight.pop_front().unwrap();
-            if let Err(e) = settle(entry, config.background_task_timeout, source).await {
+            if let Err(e) = settle(entry, source).await {
                 outcome = Err(e);
                 break;
             }
@@ -152,7 +161,7 @@ pub async fn run_consumer_loop(
     }
     if outcome.is_ok() {
         while let Some(entry) = in_flight.pop_front() {
-            if let Err(e) = settle(entry, config.background_task_timeout, source).await {
+            if let Err(e) = settle(entry, source).await {
                 outcome = Err(e);
                 break;
             }
@@ -186,14 +195,21 @@ mod tests {
         async fn next_batch(
             &mut self,
             _max: usize,
-            _timeout: Duration,
+            timeout: Duration,
         ) -> anyhow::Result<Vec<KafkaMessage>> {
             match self.batches.pop_front() {
                 Some(b) => Ok(b),
-                None => futures::future::pending().await,
+                None => {
+                    tokio::time::sleep(timeout).await;
+                    Ok(vec![])
+                }
             }
         }
-        fn store_offsets(&mut self, offsets: &OffsetsToStore) -> anyhow::Result<()> {
+        fn store_offsets(
+            &mut self,
+            offsets: &OffsetsToStore,
+            _epochs: &[u64],
+        ) -> anyhow::Result<()> {
             self.stored.lock().unwrap().push(offsets.clone());
             Ok(())
         }
@@ -203,9 +219,11 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
     struct FakeProcessor {
         fail_task_at: Vec<i64>,
         fail_batch_at: Vec<i64>,
+        hang_task_at: Vec<i64>,
     }
 
     #[async_trait]
@@ -219,8 +237,12 @@ mod tests {
                 anyhow::bail!("batch failed");
             }
             let fail = self.fail_task_at.contains(&first);
+            let hang = self.hang_task_at.contains(&first);
             Ok(Some(
                 async move {
+                    if hang {
+                        futures::future::pending::<()>().await;
+                    }
                     tokio::time::sleep(Duration::from_millis(5)).await;
                     if fail {
                         anyhow::bail!("produce failed")
@@ -288,6 +310,7 @@ mod tests {
             let processor = FakeProcessor {
                 fail_task_at: vec![],
                 fail_batch_at: vec![],
+                ..Default::default()
             };
             let (result, stored, commits) = run(batches(), processor, max).await;
             assert_eq!(result.unwrap().batches, 3);
@@ -309,6 +332,7 @@ mod tests {
             let processor = FakeProcessor {
                 fail_task_at: vec![2],
                 fail_batch_at: vec![],
+                ..Default::default()
             };
             let (result, stored, commits) = run(batches(), processor, max).await;
             assert_eq!(result.unwrap_err().to_string(), "produce failed");
@@ -318,10 +342,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_hung_task_times_out_from_dispatch_when_traffic_stops() {
+        let processor = FakeProcessor {
+            hang_task_at: vec![2],
+            ..Default::default()
+        };
+        let mut source = FakeSource {
+            batches: batches().into(),
+            ..Default::default()
+        };
+        let config = ConsumerLoopConfig {
+            background_task_timeout: Duration::from_millis(50),
+            ..config(3)
+        };
+        let result = tokio::time::timeout(
+            Duration::from_secs(5),
+            run_consumer_loop(
+                &mut source,
+                &processor,
+                &config,
+                futures::future::pending(),
+                &|| {},
+            ),
+        )
+        .await
+        .expect("the loop must end without a shutdown or a full queue");
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "background_task_timeout_after_50ms"
+        );
+        assert_eq!(source.stored.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
     async fn a_failed_batch_stops_the_loop_before_its_offsets() {
         let processor = FakeProcessor {
             fail_task_at: vec![],
             fail_batch_at: vec![8],
+            ..Default::default()
         };
         let (result, stored, _) = run(batches(), processor, 1).await;
         assert_eq!(result.unwrap_err().to_string(), "batch failed");
