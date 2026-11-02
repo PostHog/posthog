@@ -1,4 +1,9 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import { Meta, StoryObj } from '@storybook/react'
+import { useState } from 'react'
+
+import { userLogic } from 'scenes/userLogic'
 
 import { useStorybookMocks } from '~/mocks/browser'
 
@@ -56,6 +61,14 @@ const createdBy = { id: 1, uuid: 'test-user', first_name: 'Test', email: 'test@e
 
 export const WithPolicies: Story = {
     render: () => {
+        // The section asks for a recent login on mount, so the story user has a fresh session before it renders.
+        useState(() => {
+            userLogic.mount()
+            userLogic.actions.loadUserSuccess({
+                ...MOCK_DEFAULT_USER,
+                sensitive_session_expires_at: '2099-01-01T00:00:00Z',
+            })
+        })
         useStorybookMocks({
             get: {
                 '/api/projects/:team_id/workload_trust_policies/providers/': providers,
