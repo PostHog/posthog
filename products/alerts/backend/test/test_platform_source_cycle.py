@@ -2,6 +2,7 @@ import json
 import time
 from collections.abc import Callable
 from contextlib import AbstractContextManager
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -14,6 +15,7 @@ from unittest.mock import MagicMock, patch
 from django.test import override_settings
 
 from parameterized import parameterized
+from temporalio.testing import ActivityEnvironment
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import get_query_tags
@@ -24,6 +26,7 @@ from posthog.redis import get_client
 from posthog.schema_enums import AlertCalculationInterval
 from posthog.tasks.alerts.utils import AlertEvaluationResult, RenderedInsightChart, next_check_time
 from posthog.temporal.alerts.admission import admit_evaluation_slots, inflight_alert_ids, release_evaluation_slot
+from posthog.temporal.alerts.retry_policy import ALERT_EVALUATE_RETRY_POLICY
 
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, SeriesEvaluation
@@ -208,7 +211,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         slot = slot_of(configuration.next_check_at, CUTOFF)
         expires_at = time.time() + 3600
         assert plan_insight_batch(self.team.id, slot, CUTOFF, expires_at=expires_at) == (str(configuration.id),)
-        side_effect = result if isinstance(result, Exception) else None
+        side_effect = result if isinstance(result, Exception | list) else None
         returned = result if isinstance(result, AlertEvaluationResult) else None
         with patch(f"{_MODULE}.check_alert_for_insight", side_effect=side_effect, return_value=returned) as query:
             evaluation = evaluate_insight_check(
@@ -595,12 +598,38 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("too_many_queries", ClickHouseAtCapacity()),
-            ("cluster_memory_full", ClickHouseClusterMemoryLimitExceeded()),
+            ("too_many_queries", ClickHouseAtCapacity(), None, ALERT_EVALUATE_RETRY_POLICY.maximum_attempts),
+            (
+                "cluster_memory_full",
+                ClickHouseClusterMemoryLimitExceeded(),
+                None,
+                ALERT_EVALUATE_RETRY_POLICY.maximum_attempts,
+            ),
+            ("attempt_out_of_time", ClickHouseAtCapacity(), "start_to_close", 1),
+            ("check_out_of_time", ClickHouseAtCapacity(), "schedule_to_close", 1),
         ]
     )
-    def test_a_check_clickhouse_refuses_for_load_leaves_the_alert_as_it_was(self, _name: str, error: Exception) -> None:
-        outcome, _ = self._evaluate(self._copy(self._alert()), result=error)
+    def test_a_check_clickhouse_refuses_on_every_try_leaves_the_alert_as_it_was(
+        self, _name: str, error: Exception, budget_spent: str | None, tries: int
+    ) -> None:
+        configuration = self._copy(self._alert())
+        with patch(f"{_MODULE}.time.sleep"):
+            if budget_spent is None:
+                outcome, query = self._evaluate(configuration, result=error)
+            else:
+                now = datetime.now(UTC)
+                spent = timedelta(minutes=13)
+                environment = ActivityEnvironment()
+                # A later attempt with its own start-to-close left, inside a schedule-to-close that ran out, or the reverse.
+                environment.info = replace(
+                    environment.info,
+                    attempt=2,
+                    scheduled_time=now - spent if budget_spent == "schedule_to_close" else now,
+                    schedule_to_close_timeout=spent,
+                    current_attempt_scheduled_time=now - spent if budget_spent == "start_to_close" else now,
+                    start_to_close_timeout=timedelta(minutes=12),
+                )
+                outcome, query = environment.run(lambda: self._evaluate(configuration, result=error))
 
         assert outcome is not None
         assert (outcome.groups[0].kind, outcome.groups[0].new_state, outcome.error_message, outcome.disable) == (
@@ -609,6 +638,17 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             CAPACITY_REJECTED,
             False,
         )
+        assert query.call_count == tries
+
+    def test_a_check_clickhouse_refuses_once_records_the_retried_query_verdict(self) -> None:
+        with patch(f"{_MODULE}.time.sleep"):
+            outcome, query = self._evaluate(
+                self._copy(self._alert()),
+                result=[ClickHouseAtCapacity(), AlertEvaluationResult(value=150.0, breaches=["above 100"])],
+            )
+
+        assert outcome is not None
+        assert (outcome.groups[0].new_state, outcome.error_message, query.call_count) == ("firing", None, 2)
 
     def test_a_cadence_the_plan_no_longer_includes_errors_and_is_disabled(self) -> None:
         self.organization.available_product_features = []
