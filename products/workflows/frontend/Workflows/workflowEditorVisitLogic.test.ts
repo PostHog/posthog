@@ -273,6 +273,16 @@ describe('workflowEditorVisitLogic', () => {
             'trigger',
             (editor: ReturnType<typeof workflowLogic.build>) => editor.actions.setScheduleRepeating(true),
         ],
+        [
+            'adding a schedule',
+            'trigger',
+            (editor: ReturnType<typeof workflowLogic.build>) => editor.actions.addSchedule(),
+        ],
+        [
+            'removing a schedule',
+            'trigger',
+            (editor: ReturnType<typeof workflowLogic.build>) => editor.actions.deleteSchedule('schedule-1'),
+        ],
     ])('reports %s as a %s edit', async (_, lastEdit, edit) => {
         const draft = {
             ...NEW_WORKFLOW,
