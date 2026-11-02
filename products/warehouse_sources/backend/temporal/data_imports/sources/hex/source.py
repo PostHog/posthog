@@ -101,8 +101,10 @@ If your workspace runs on a single-tenant or self-hosted Hex deployment, enter i
             # and the message carries nothing past the stock "for url: ..." text. A 422 means the
             # request itself was semantically rejected, so every retry fails identically regardless
             # of which endpoint raised it. Kept last so the more specific, better-worded key above
-            # still wins when Hex does return a structured code.
-            "422 Client Error: Unprocessable Entity": "Hex rejected a request as unprocessable. This is usually caused by the state of a specific resource in your Hex workspace rather than something PostHog can retry. Check your Hex workspace, or contact Hex support if this persists.",
+            # still wins when Hex does return a structured code. Matched on just the status, like
+            # the 401/403 keys above, since the reason phrase isn't guaranteed stable (RFC 9110
+            # renamed it "Unprocessable Content").
+            "422 Client Error": "Hex rejected a request as unprocessable. This is usually caused by the state of a specific resource in your Hex workspace rather than something PostHog can retry. Check your Hex workspace, or contact Hex support if this persists.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
