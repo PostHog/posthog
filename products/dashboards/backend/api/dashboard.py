@@ -4,6 +4,7 @@ import re
 import json
 import uuid
 import builtins
+import contextvars
 from collections.abc import AsyncGenerator
 from contextlib import nullcontext
 from enum import StrEnum
