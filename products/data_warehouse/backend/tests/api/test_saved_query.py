@@ -1339,6 +1339,34 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(response.status_code, 400, response.json())
         self.assertIn("consumer_view", str(response.json()))
 
+    @parameterized.expand(
+        [
+            ("materialized_with_a_slower_target", NodeType.MAT_VIEW, timedelta(days=1), ["upstream_view"]),
+            # with no target it would not run at all until this view drags it along
+            ("materialized_without_a_target", NodeType.MAT_VIEW, None, ["upstream_view"]),
+            # an ephemeral view never runs, so nothing about it speeds up
+            ("ephemeral", NodeType.VIEW, timedelta(days=1), []),
+        ]
+    )
+    def test_an_option_names_the_upstream_views_it_speeds_up(self, _name, upstream_type, upstream_target, expected):
+        # A finer cadence downstream drags slower upstream views along with it. The picker has to
+        # say so before the write, or the upstream cadences change behind the user's back.
+        from products.data_modeling.backend.facade.api import set_declared_target
+
+        upstream = self._create_view_with_a_consumer(consumer_target=timedelta(days=1))
+        upstream_node = Node.objects.get(saved_query_id=upstream["id"])
+        upstream_node.type = upstream_type
+        upstream_node.save(update_fields=["type"])
+        if upstream_target is not None:
+            set_declared_target(upstream_node, upstream_target)
+        consumer_id = DataWarehouseSavedQuery.objects.get(team=self.team, name="consumer_view").id
+
+        options = {option["cadence"]: option for option in self._read_frequency_bounds(str(consumer_id))["options"]}
+
+        self.assertEqual([view["name"] for view in options["6hour"]["speeds_up"]], expected)
+        self.assertFalse(options["6hour"]["speeds_up_withheld"])
+        self.assertEqual(options["24hour"]["speeds_up"], [])
+
     def test_bounds_stay_off_the_list_page(self):
         # Bounds cost a graph walk per view, so serving them on a page of views is an N+1. The
         # picker only ever renders on one view's panel, so retrieve is the only place they belong.
