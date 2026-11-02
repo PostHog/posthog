@@ -179,6 +179,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                     name=view.name, team=self.team, managed_viewset=self
                 ).first()
                 if saved_query:
+                    saved_query.managed_viewset = self
                     created = False
                 else:
                     saved_query = DataWarehouseSavedQuery(
