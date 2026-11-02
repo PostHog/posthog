@@ -299,7 +299,9 @@ def _to_stack_frame(frame) -> contracts.ErrorTrackingStackFrame:
 
 
 def list_stack_frames(team_id: int, *, page: PageRequest) -> Page[contracts.ErrorTrackingStackFrame]:
-    return select_page(logic.stack_frame_queryset(team_id), page).map(_to_stack_frame)
+    # Order by created_at so et_frame_team_created_at_idx serves the page. No (team_id, id) index exists.
+    queryset = logic.stack_frame_queryset(team_id).order_by("created_at")
+    return select_page(queryset, page).map(_to_stack_frame)
 
 
 def get_stack_frame(team_id: int, frame_id: str) -> contracts.ErrorTrackingStackFrame | None:
