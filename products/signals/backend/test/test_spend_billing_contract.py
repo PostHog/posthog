@@ -37,8 +37,14 @@ class TestSpendBillingContract(BaseTest):
         with time_machine.travel(_at(10, 0), tick=False):
             assert self_driving_quota_resource(self.organization) == QuotaResource.SIGNALS_SPEND_CREDITS
 
-    @parameterized.expand([("original", False), ("after_plan_cleanup", True)])
-    def test_distinct_meters_use_billing_cutoff_and_run_age(self, _name: str, cleanup: bool) -> None:
+    @parameterized.expand(
+        [
+            ("original", None),
+            ("after_plan_cleanup", {"billing_start_date": "2026-06-01", "limit": 1000, "usage": 25}),
+            ("default_plan", {"limit": 0, "usage": 0}),
+        ]
+    )
+    def test_distinct_meters_use_billing_cutoff_and_run_age(self, _name: str, replacement: dict | None) -> None:
         self.organization.usage = {"signals_spend_credits": {"billing_start_date": "2026-06-10", "limit": 1000}}
         self.organization.save(update_fields=["usage"])
         with time_machine.travel(_at(9), tick=False):
@@ -61,19 +67,21 @@ class TestSpendBillingContract(BaseTest):
                 spend=25,
                 finalized_at=_at(10),
             )
-        if cleanup:
+        if replacement is not None:
             with time_machine.travel(_at(10), tick=False):
                 set_org_usage_summary(
                     self.organization,
                     cast(
                         OrganizationUsageInfo,
                         {
-                            "signals_spend_credits": {"billing_start_date": "2026-06-01", "limit": 1000, "usage": 25},
+                            "signals_spend_credits": replacement,
                             "events": {"limit": 100, "usage": 12},
                         },
                     ),
                 )
-            assert self.organization.usage["signals_spend_credits"]["billing_start_date"] == "2026-06-01"
+            assert self.organization.usage["signals_spend_credits"].get("billing_start_date") == replacement.get(
+                "billing_start_date"
+            )
             assert self.organization.usage["signals_spend_credits"]["billing_cutover_date"] == "2026-06-10"
             assert self.organization.usage["events"]["usage"] == 12
             self.organization.save(update_fields=["usage"])
@@ -130,3 +138,19 @@ class TestSpendBillingContract(BaseTest):
         assert self_driving_quota_resource(self.organization) == QuotaResource.SIGNALS_CREDITS
         with time_machine.travel(_at(10, 0), tick=False):
             assert self_driving_quota_resource(self.organization) == QuotaResource.SIGNALS_SPEND_CREDITS
+
+    @time_machine.travel(_at(9), tick=False)
+    def test_default_plan_cancels_a_cutover_that_has_not_happened(self) -> None:
+        self.organization.usage = {
+            "signals_spend_credits": {
+                "billing_start_date": "2026-06-10",
+                "billing_cutover_date": "2026-06-10",
+                "limit": 1000,
+            }
+        }
+        set_org_usage_summary(
+            self.organization,
+            cast(OrganizationUsageInfo, {"signals_spend_credits": {"usage": 0, "limit": 0}}),
+        )
+        assert "billing_cutover_date" not in self.organization.usage["signals_spend_credits"]
+        assert self_driving_quota_resource(self.organization) == QuotaResource.SIGNALS_CREDITS

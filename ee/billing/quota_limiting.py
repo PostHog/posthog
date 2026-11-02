@@ -1027,18 +1027,21 @@ def set_org_usage_summary(
             new_usage.pop("signals_spend_credits", None)
     else:
         cutoff = spend_usage.get("billing_start_date")
+        previous_cutoff = (previous_spend_usage or {}).get("billing_cutover_date") or (previous_spend_usage or {}).get(
+            "billing_start_date"
+        )
+        effective_cutoff = (
+            previous_cutoff
+            if previous_cutoff and date.fromisoformat(previous_cutoff) <= timezone.now().date()
+            else None
+        )
         if "billing_start_date" in spend_usage:
             if not isinstance(cutoff, str) or date.fromisoformat(cutoff).isoformat() != cutoff:
                 raise ValueError("Inbox spend billing requires a canonical billing_start_date")
-            previous_cutoff = (previous_spend_usage or {}).get("billing_cutover_date") or (
-                previous_spend_usage or {}
-            ).get("billing_start_date")
-            # Plan cleanup must not move work that started before cutover onto the spend meter.
-            spend_usage["billing_cutover_date"] = (
-                previous_cutoff
-                if previous_cutoff and date.fromisoformat(previous_cutoff) <= timezone.now().date()
-                else cutoff
-            )
+            # Plan cleanup must not change which meter owns work that already started.
+            spend_usage["billing_cutover_date"] = effective_cutoff or cutoff
+        elif effective_cutoff:
+            spend_usage["billing_cutover_date"] = effective_cutoff
         else:
             spend_usage.pop("billing_cutover_date", None)
 

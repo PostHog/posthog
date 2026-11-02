@@ -20,7 +20,7 @@ from products.signals.backend.artefact_schemas import TASK_RUN_TYPE_IMPLEMENTATI
 from products.signals.backend.enums import SignalSourceProduct
 from products.signals.backend.models import SignalReport, SignalReportRefund, SignalReportTask, SignalScoutRun
 from products.signals.backend.scout_harness.lazy_seed import scout_skill_row_is_proven_canonical
-from products.signals.backend.spend_billing import usage_billing_cutoffs
+from products.signals.backend.spend_billing import group_usage_billing_cutoffs, usage_billing_cutoffs
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade.api import GITHUB_PR_URL_PREFIX
 
@@ -57,8 +57,8 @@ def _bridges_with_pr_run(
     against the same `TaskRun` row.
     """
     eligible = Q()
-    for org_id, cutoff in (cutoffs or {}).items():
-        eligible &= ~Q(team__organization_id=org_id) | Q(task__runs__created_at__lt=cutoff)
+    for cutoff, organization_ids in group_usage_billing_cutoffs(cutoffs or {}).items():
+        eligible &= ~Q(team__organization_id__in=organization_ids) | Q(task__runs__created_at__lt=cutoff)
     return SignalReportTask.objects.filter(
         eligible,
         **({} if include_manual else {"task__runs__state__billing_product__isnull": True}),

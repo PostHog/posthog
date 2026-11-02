@@ -1,3 +1,4 @@
+from collections import defaultdict
 from collections.abc import Collection
 from datetime import UTC, date, datetime, time
 from uuid import UUID
@@ -52,7 +53,10 @@ def usage_billing_cutoffs(
     organization_id: str | UUID | None = None,
     organization_ids: Collection[str | UUID] | None = None,
 ) -> dict[UUID, datetime]:
-    organizations = Organization.objects.filter(usage__signals_spend_credits__has_key="billing_start_date")
+    organizations = Organization.objects.filter(
+        Q(usage__signals_spend_credits__has_key="billing_start_date")
+        | Q(usage__signals_spend_credits__has_key="billing_cutover_date")
+    )
     if organization_id is not None:
         organizations = organizations.filter(id=organization_id)
     if organization_ids is not None:
@@ -65,6 +69,13 @@ def usage_billing_cutoffs(
             raise ValueError(f"Invalid Inbox billing cutoff for organization {org_id}")
         cutoffs[org_id] = datetime.combine(cutoff, time.min, UTC)
     return cutoffs
+
+
+def group_usage_billing_cutoffs(cutoffs: dict[UUID, datetime]) -> dict[datetime, list[UUID]]:
+    grouped: dict[datetime, list[UUID]] = defaultdict(list)
+    for organization_id, cutoff in cutoffs.items():
+        grouped[cutoff].append(organization_id)
+    return grouped
 
 
 def usage_billing_cutoff(organization_id: UUID) -> datetime | None:
@@ -85,8 +96,8 @@ def spend_billing_credits_by_team(begin: datetime, end: datetime, *, cutoffs: di
     if end <= begin or not cutoffs:
         return {}
     eligible = Q(pk__in=[])
-    for organization_id, cutoff in cutoffs.items():
-        eligible |= Q(team__organization_id=organization_id, created_at__gte=cutoff)
+    for cutoff, organization_ids in group_usage_billing_cutoffs(cutoffs).items():
+        eligible |= Q(team__organization_id__in=organization_ids, created_at__gte=cutoff)
     # Deliberately cross-team: both usage reporting and organization quota use this meter.
     totals = (
         SignalSpend.objects.unscoped()

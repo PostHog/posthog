@@ -99,6 +99,20 @@ const mountWithUsage = async (
     return logic
 }
 
+const mockSpendBilling = (cutoff: string | undefined): void => {
+    useMocks({
+        get: {
+            '/api/billing': () => [
+                200,
+                {
+                    products: [PRICED_INBOX_PRODUCT, { type: 'inbox_usage', current_amount_usd: '12.34' }],
+                    usage_summary: { signals_spend_credits: { billing_start_date: cutoff } },
+                },
+            ],
+        },
+    })
+}
+
 describe('inboxUsageLogic', () => {
     let logic: ReturnType<typeof inboxUsageLogic.build> | undefined
 
@@ -112,17 +126,7 @@ describe('inboxUsageLogic', () => {
     it.each([undefined, '2099-01-01', '2020-01-01'])(
         'selects the spend product only after its Billing cutoff (%s)',
         async (cutoff) => {
-            useMocks({
-                get: {
-                    '/api/billing': () => [
-                        200,
-                        {
-                            products: [PRICED_INBOX_PRODUCT, { type: 'inbox_usage', current_amount_usd: '12.34' }],
-                            usage_summary: { signals_spend_credits: { billing_start_date: cutoff } },
-                        },
-                    ],
-                },
-            })
+            mockSpendBilling(cutoff)
             logic = inboxUsageLogic()
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
@@ -133,6 +137,40 @@ describe('inboxUsageLogic', () => {
 
     afterEach(() => {
         logic?.unmount()
+        jest.useRealTimers()
+        jest.restoreAllMocks()
+    })
+
+    it('switches meters at UTC midnight without replacing billing data', async () => {
+        jest.useFakeTimers({ advanceTimers: true, now: new Date('2026-06-09T23:59:00Z') })
+        mockSpendBilling('2026-06-10')
+        logic = inboxUsageLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const billing = logic.values.billing
+        expect(logic.values.spendProduct).toBeNull()
+
+        jest.advanceTimersByTime(Date.parse('2026-06-10T00:00:00Z') - Date.now())
+
+        expect(logic.values.billing).toBe(billing)
+        expect(logic.values.spendProduct?.type).toBe('inbox_usage')
+    })
+
+    it('refreshes the meter when a background tab becomes visible after cutoff', async () => {
+        jest.useFakeTimers({ advanceTimers: true, now: new Date('2026-06-09T23:59:00Z') })
+        mockSpendBilling('2026-06-10')
+        logic = inboxUsageLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const billing = logic.values.billing
+        expect(logic.values.spendProduct).toBeNull()
+
+        jest.setSystemTime(new Date('2026-06-10T12:00:00Z'))
+        jest.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+        document.dispatchEvent(new Event('visibilitychange'))
+
+        expect(logic.values.billing).toBe(billing)
+        expect(logic.values.spendProduct?.type).toBe('inbox_usage')
     })
 
     // createdPrs must read `max(billing's recorded usage, live billable credits)`, the gross total

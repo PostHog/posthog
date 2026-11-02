@@ -1,4 +1,5 @@
 import type { Decorator, Meta, StoryObj } from '@storybook/react'
+import { within } from '@testing-library/dom'
 import { useMountedLogic } from 'kea'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
@@ -9,6 +10,7 @@ import { SELF_DRIVING_WORKFLOW_ID } from 'scenes/onboarding/shared/wizard-sync/w
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import { billingJson } from '~/mocks/fixtures/_billing'
 
 import { expect } from 'storybook/test'
 
@@ -179,6 +181,37 @@ export const Scouts: Story = {
 
 export const Settings: Story = {
     decorators: [routeTo(urls.inbox('settings'))],
+}
+
+export const SettingsWithSpendBilling: Story = {
+    decorators: [
+        routeTo(urls.inbox('settings')),
+        mswDecorator({
+            get: {
+                '/api/billing': () => [
+                    200,
+                    {
+                        ...billingJson,
+                        products: [
+                            {
+                                ...billingJson.products[0],
+                                type: 'inbox_usage',
+                                name: 'Inbox usage',
+                                usage_key: 'signals_spend_credits',
+                                current_amount_usd: '12.34',
+                                current_usage: 1234,
+                            },
+                        ],
+                        usage_summary: { signals_spend_credits: { billing_start_date: '2020-01-01' } },
+                    },
+                ],
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await expect(await canvas.findByText('$12.34')).toBeVisible()
+    },
 }
 
 export const Sources: Story = {

@@ -41,6 +41,7 @@ export interface inboxUsageLogicValues {
     canAccessBilling: boolean // billingLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
     currentTeamId: number | null // teamLogic
+    billingDate: string
     createdPrs: number
     creditsPerPr: number | null
     customLimitUsd: number | null
@@ -111,6 +112,9 @@ export interface inboxUsageLogicActions {
             [key: string]: number | null
         }
     } // billingLogic
+    checkBillingDate: (now?: number) => {
+        now: number
+    }
     closeModal: () => {
         value: true
     }
@@ -187,7 +191,7 @@ export interface inboxUsageLogicMeta {
         refundsFlagEnabled: (featureFlags: FeatureFlagsSet) => boolean
         quotaEnforcementFlagEnabled: (featureFlags: FeatureFlagsSet) => boolean
         summaryFlagEnabled: (refundsFlagEnabled: boolean, quotaEnforcementFlagEnabled: boolean) => boolean
-        spendProduct: (billing: BillingType | null) => BillingProductV2Type | null
+        spendProduct: (billing: BillingType | null, billingDate: any) => BillingProductV2Type | null
         product: (billing: BillingType | null) => BillingProductV2Type | null
         isLoading: (
             billing: BillingType | null,
@@ -266,6 +270,7 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
         actions: [billingLogic, ['loadBilling', 'updateBillingLimits', 'updateBillingLimitsSuccess']],
     })),
     actions({
+        checkBillingDate: (now: number = Date.now()) => ({ now }),
         openModal: true,
         closeModal: true,
     }),
@@ -299,7 +304,11 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
             },
         ],
     })),
-    reducers({
+    reducers(() => ({
+        billingDate: [
+            dayjs.utc().format('YYYY-MM-DD'),
+            { checkBillingDate: (_, { now }) => dayjs.utc(now).format('YYYY-MM-DD') },
+        ],
         isModalOpen: [
             false,
             {
@@ -309,7 +318,7 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
                 updateBillingLimitsSuccess: () => false,
             },
         ],
-    }),
+    })),
     // Defined before `selectors` so the `limitForm` values selector exists when
     // `estimatedBudgetUsd` lists it as an input (kea builds in array order).
     forms(({ values }) => ({
@@ -360,10 +369,10 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
                 refundsFlagEnabled || quotaEnforcementFlagEnabled,
         ],
         spendProduct: [
-            (s) => [s.billing],
-            (billing: BillingType | null): BillingProductV2Type | null => {
+            (s) => [s.billing, s.billingDate],
+            (billing: BillingType | null, billingDate: string): BillingProductV2Type | null => {
                 const cutoff = billing?.usage_summary?.signals_spend_credits?.billing_start_date
-                return cutoff && cutoff <= dayjs.utc().format('YYYY-MM-DD')
+                return cutoff && cutoff <= billingDate
                     ? (billing?.products?.find((product) => product.type === 'inbox_usage') ?? null)
                     : null
             },
@@ -587,7 +596,26 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
             }
         },
     })),
-    afterMount(({ actions, values }) => {
+    afterMount(({ actions, values, cache }) => {
+        cache.disposables.add(() => {
+            let timeout: ReturnType<typeof setTimeout>
+            const updateDate = (): void => {
+                const now = dayjs.utc()
+                actions.checkBillingDate(now.valueOf())
+                timeout = setTimeout(updateDate, now.add(1, 'day').startOf('day').diff(now))
+            }
+            const onVisibilityChange = (): void => {
+                if (document.visibilityState === 'visible') {
+                    actions.checkBillingDate()
+                }
+            }
+            updateDate()
+            document.addEventListener('visibilitychange', onVisibilityChange)
+            return () => {
+                clearTimeout(timeout)
+                document.removeEventListener('visibilitychange', onVisibilityChange)
+            }
+        }, 'billingDate')
         if (!values.billing) {
             actions.loadBilling()
         }
