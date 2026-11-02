@@ -140,10 +140,16 @@ class TestRssPeakSampler:
         ]
     )
     def test_failed_reads_are_missing_samples(self, _name, reader):
-        sampler = RssPeakSampler(0.001, read_rss_mb=reader)
+        attempts: list[None] = []
+
+        def counted_reader() -> float | None:
+            attempts.append(None)
+            return reader()
+
+        sampler = RssPeakSampler(0.001, read_rss_mb=counted_reader)
         with sampler.window() as window:
             thread = sampler.thread()
-            time.sleep(0.01)
+            _wait_for(lambda: len(attempts) >= 3)
         assert (window.start_mb, window.peak_mb, window.delta_mb, window.samples) == (None, None, None, 0)
         assert _stopped(sampler, thread)
 

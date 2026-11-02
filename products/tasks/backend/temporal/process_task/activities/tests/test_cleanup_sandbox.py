@@ -424,14 +424,17 @@ class TestCleanupSandboxActivity:
 
         def run_long_command():
             try:
-                sandbox.execute("sleep 30", timeout_seconds=60)
+                sandbox.execute("touch /tmp/long-command-started && sleep 30", timeout_seconds=60)
             except Exception:
                 pass
 
         long_task = threading.Thread(target=run_long_command)
         long_task.start()
 
-        time.sleep(5)
+        deadline = time.monotonic() + 30
+        while sandbox.execute("test -f /tmp/long-command-started", timeout_seconds=10).exit_code != 0:
+            assert time.monotonic() < deadline, "the long command never started"
+            time.sleep(0.5)
 
         assert Sandbox.get_by_id(sandbox_id).is_running()
 

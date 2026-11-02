@@ -1,4 +1,3 @@
-import time
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -9,7 +8,7 @@ from llm_gateway.dependencies import _format_retry_delay
 from llm_gateway.rate_limiting.redis_limiter import RateLimiter
 from llm_gateway.rate_limiting.throttles import Throttle, ThrottleContext, ThrottleResult
 from llm_gateway.rate_limiting.token_bucket import TokenBucketLimiter
-from tests.conftest import create_test_app
+from tests.conftest import FakeClock, create_test_app
 
 
 class TestTokenBucketLimiter:
@@ -72,23 +71,23 @@ class TestTokenBucketLimiter:
         assert limiter.consume("user1") is True
         assert limiter.consume("user2") is True
 
-    def test_tokens_replenish_over_time(self) -> None:
-        limiter = TokenBucketLimiter(rate=10.0, capacity=1.0)
+    def test_tokens_replenish_over_time(self, clock: FakeClock) -> None:
+        limiter = TokenBucketLimiter(rate=10.0, capacity=1.0, clock=clock)
 
         assert limiter.consume("user1") is True
         assert limiter.consume("user1") is False
 
-        time.sleep(0.15)
+        clock.advance(0.15)
 
         assert limiter.consume("user1") is True
 
-    def test_partial_replenishment(self) -> None:
-        limiter = TokenBucketLimiter(rate=10.0, capacity=2.0)
+    def test_partial_replenishment(self, clock: FakeClock) -> None:
+        limiter = TokenBucketLimiter(rate=10.0, capacity=2.0, clock=clock)
 
         assert limiter.consume("user1", tokens=2.0) is True
         assert limiter.consume("user1") is False
 
-        time.sleep(0.1)
+        clock.advance(0.1)
 
         assert limiter.consume("user1") is True
         assert limiter.consume("user1") is False

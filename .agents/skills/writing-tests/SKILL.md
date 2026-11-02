@@ -166,8 +166,15 @@ Escalating to the next rung is the last resort, not the default.
     Do not assume a debounce, `setTimeout`, kea breakpoint, or fast mock will still be
     pending on the next line. Test setup may shorten internal delays without changing
     production behavior.
-- **No `time.sleep` / arbitrary waits.** A sleep is a flake waiting to happen, and it
-  slows every run. Replace it with the matching control above or `time_machine.travel`.
+- **No fixed `time.sleep` in a test body.** `posthog/test/repo_invariants/test_no_sleep_in_test_bodies.py` fails the build on one.
+  A sleep guesses how long the work takes, so it flakes on a loaded runner and slows every run on a fast one.
+  Pick the replacement by what the test waits for:
+  - Code that reads `time.time()` or `datetime.now()`: `time_machine.travel(..., tick=False)`, then `traveller.shift(...)`.
+  - Code that reads `time.monotonic()`: time-machine does not patch it. Give the code a `clock` parameter and pass a fake.
+  - Work on another thread or process: wait on a signal it sets (`threading.Event`, a future, `thread.join()`), or poll the observable state in a loop with a deadline.
+  - A fake that must hang: block it on an `Event` that teardown sets, so no thread outlives the test.
+  - Something that must not happen: `assert not event.wait(timeout=...)` on the event the bug would set.
+  - Order between two writes: set each timestamp yourself.
 - **An absolute date in a test is a time bomb until you pin the clock.**
   A fixture date keeps its meaning only while the real clock stays where you left it.
   If anything under test measures that date against `now` — an age, a window, a "recent" flag, an expiry — the assertion holds today and fails some weeks later, on every open branch at once.

@@ -1,4 +1,3 @@
-import time
 import asyncio
 import threading
 import contextvars
@@ -68,13 +67,16 @@ async def test_async_iterate_close_runs_when_cancelled_mid_iteration():
     # in-flight _next), which skipped iterator.close() and leaked DB /
     # network resources. Using a fresh cleanup_ctx prevents that.
     closed_flag = threading.Event()
+    next_entered = threading.Event()
+    next_released = threading.Event()
 
     class SlowIterator:
         def __iter__(self):
             return self
 
         def __next__(self):
-            time.sleep(0.5)  # blocks long enough for cancellation to fire
+            next_entered.set()
+            next_released.wait(timeout=3.0)
             return 1
 
         def close(self):
@@ -85,8 +87,9 @@ async def test_async_iterate_close_runs_when_cancelled_mid_iteration():
             pass
 
     task = asyncio.create_task(consume())
-    await asyncio.sleep(0.05)  # let the first _next actually enter ctx.run
+    assert await asyncio.to_thread(next_entered.wait, 3.0), "the first next() never started"
     task.cancel()
+    next_released.set()
     with pytest.raises(asyncio.CancelledError):
         await task
 

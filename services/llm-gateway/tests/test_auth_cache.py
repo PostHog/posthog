@@ -1,4 +1,3 @@
-import time
 from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -9,6 +8,7 @@ from llm_gateway.auth.authenticators import OAuthAccessTokenAuthenticator, Perso
 from llm_gateway.auth.cache import AuthCache, reset_auth_cache
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.auth.service import AuthService
+from tests.conftest import FakeClock
 
 
 @pytest.fixture(autouse=True)
@@ -46,8 +46,8 @@ class TestAuthCache:
         assert hit is True
         assert cached_user == user
 
-    def test_cache_expiry(self) -> None:
-        cache = AuthCache(max_size=100, ttl=1)
+    def test_cache_expiry(self, clock: FakeClock) -> None:
+        cache = AuthCache(max_size=100, ttl=1, clock=clock)
         user = AuthenticatedUser(
             user_id=1, team_id=2, auth_method="test", distinct_id="test-distinct-id", scopes=["read"]
         )
@@ -57,7 +57,7 @@ class TestAuthCache:
         hit, _ = cache.get("key1")
         assert hit is True
 
-        time.sleep(1.1)
+        clock.advance(1.1)
 
         hit, cached_user = cache.get("key1")
         assert hit is False
@@ -163,8 +163,8 @@ class TestAuthCache:
         assert hit is True
         assert cached_user == user
 
-    def test_per_entry_ttl_overrides_default(self) -> None:
-        cache = AuthCache(max_size=100, ttl=900)
+    def test_per_entry_ttl_overrides_default(self, clock: FakeClock) -> None:
+        cache = AuthCache(max_size=100, ttl=900, clock=clock)
         user = AuthenticatedUser(
             user_id=1, team_id=2, auth_method="test", distinct_id="test-distinct-id", scopes=["read"]
         )
@@ -173,14 +173,14 @@ class TestAuthCache:
         hit, _ = cache.get("key1")
         assert hit is True
 
-        time.sleep(1.1)
+        clock.advance(1.1)
 
         hit, cached_user = cache.get("key1")
         assert hit is False
         assert cached_user is None
 
-    def test_ttl_clamped_to_token_remaining_lifetime(self) -> None:
-        cache = AuthCache(max_size=100, ttl=900)
+    def test_ttl_clamped_to_token_remaining_lifetime(self, clock: FakeClock) -> None:
+        cache = AuthCache(max_size=100, ttl=900, clock=clock)
         user = AuthenticatedUser(
             user_id=1,
             team_id=2,
@@ -194,7 +194,7 @@ class TestAuthCache:
         hit, _ = cache.get("short_lived")
         assert hit is True
 
-        time.sleep(1.1)
+        clock.advance(1.1)
 
         hit, cached_user = cache.get("short_lived")
         assert hit is False

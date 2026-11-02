@@ -4174,8 +4174,13 @@ class TestHeartbeatLoop:
 
         task = asyncio.create_task(consumer._heartbeat_loop())
         await asyncio.sleep(0.03)
-        time.sleep(1.0)  # block the event loop so the heartbeat cannot run
-        assert "most recent call first" in capfd.readouterr().err
+        # Polls synchronously, so the event loop and the heartbeat stay blocked until the dump arrives.
+        stderr = ""
+        deadline = time.monotonic() + 5
+        while "most recent call first" not in stderr:
+            assert time.monotonic() < deadline, "the stalled heartbeat never dumped stacks"
+            stderr += capfd.readouterr().err
+            time.sleep(0.01)
 
         await asyncio.sleep(0.03)  # the heartbeat resumes and arms the timer again
         consumer._shutdown.set()

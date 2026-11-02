@@ -4531,9 +4531,7 @@ email@example.org,
         self.assertEqual(response.status_code, 201, response.content)
 
         cohort_id = response.json()["id"]
-
-        while response.json()["is_calculating"]:
-            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
+        self.assertFalse(Cohort.objects.get(pk=cohort_id).is_calculating)
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts/",
@@ -4551,12 +4549,6 @@ email@example.org,
         new_cohort_id = response.json()["id"]
         new_cohort = Cohort.objects.get(pk=new_cohort_id)
         self.assertEqual(new_cohort.is_static, True)
-
-        while new_cohort.is_calculating:
-            new_cohort.refresh_from_db()
-            import time
-
-            time.sleep(0.1)
         self.assertEqual(new_cohort.name, "cohort A (static copy)")
         self.assertEqual(new_cohort.is_calculating, False)
         self.assertEqual(new_cohort.errors_calculating, 0)
