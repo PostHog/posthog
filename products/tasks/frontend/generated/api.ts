@@ -16,6 +16,7 @@ import type {
     ChannelFeedMessageWriteApi,
     ChannelInstructionsDTOApi,
     ChannelInstructionsWriteApi,
+    ChannelListResponseApi,
     ChannelMembersWriteApi,
     ChannelSetupWriteApi,
     ChannelStarWriteApi,
@@ -28,7 +29,6 @@ import type {
     OnboardingSessionApi,
     OnboardingSessionTestApi,
     OnboardingSessionTestResponseApi,
-    PaginatedChannelDTOListApi,
     PaginatedChannelFeedMessageDTOListApi,
     PaginatedChannelInstructionsDTOListApi,
     PaginatedSandboxCustomImageDTOListApi,
@@ -592,8 +592,8 @@ export const taskChannelsList = async (
     projectId: string,
     params?: TaskChannelsListParams,
     options?: RequestInit
-): Promise<PaginatedChannelDTOListApi> => {
-    return apiMutator<PaginatedChannelDTOListApi>(getTaskChannelsListUrl(projectId, params), {
+): Promise<ChannelListResponseApi> => {
+    return apiMutator<ChannelListResponseApi>(getTaskChannelsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
