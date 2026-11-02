@@ -29,12 +29,14 @@ Two rewrites, each result-equivalent:
    reads the key from the events table, and the outer read points at that column. A bare read of the blob is left
    alone, so a consumer of the whole document still gets it.
 
-A moved key read is lowered to a raw extract on the spot, as the lazy-join wrapper does, so it keeps the untyped
-string value the outer read has today rather than the property-definition type a direct read gets: an outer
-`toFloatOrZero(properties.amount)` would otherwise receive a Float and fail. On the native JSON table a property read
-decodes a JSON string while the outer read of the rebuilt document keeps its escapes, so there the moved read takes the
-key's JSON text, `toJSONString(properties.<key>)`, which the ClickHouse property pass serves from one subcolumn, and
-extracts any deeper keys from that text as the outer read extracted them from the document.
+A moved key read is the outer read's JSON extract over the stored blob, not a property read of the events table. A
+property read gets what a direct read gets and the outer read of the exported document did not: the property-definition
+type, so an outer `toFloatOrZero(properties.amount)` would receive a Float and fail, and on the legacy table a
+materialized column, which reads an empty string as NULL, decodes the escapes of a nullable string and may carry a
+numeric type. On the native JSON table the blob is rebuilt per row, so there the extract runs over the key's JSON text,
+`toJSONString(properties.<key>)`, which the ClickHouse property pass serves from one subcolumn. That rebuilt document
+leaves out the `$feature_flags` member in favour of its `$feature/<key>` pairs, so a read of that key is not moved and
+the document stays exported for it.
 
 Runs after type resolution, before projection pruning (so a blob nobody reads anymore can be pruned) and before the
 lazy-join pass (so the subquery is still a bare events scan). A pure optimization: an unexpected error leaves the
@@ -183,21 +185,25 @@ class _ExportedColumns:
         if not isinstance(source.type.resolve_database_field(self.context), StringJSONDatabaseField):
             return None
         chain = list(property_type.chain)
-        if self.context.uses_new_events_schema():
-            # A native property read decodes the JSON string; the outer read of the rebuilt document did not. The JSON
-            # text of the first key comes from toJSONString over an untyped property read, which the property swapper
-            # leaves alone and the ClickHouse pass serves from one subcolumn.
-            first_key = ast.Field(
-                chain=[*source.chain, chain[0]], type=ast.PropertyType(chain=chain[:1], field_type=source.type)
-            )
-            json_text = ast.Call(
-                name="toJSONString",
-                args=[lower_property_access(first_key, self.context)],
-                type=ast.StringType(nullable=False),
-            )
-            return _document_key_extract(json_text, chain[1:])
-        read = ast.Field(chain=[*source.chain, *chain], type=ast.PropertyType(chain=chain, field_type=source.type))
-        return lower_property_access(read, self.context)
+        if not self.context.uses_new_events_schema():
+            # A property read of the events table would take a materialized column, which does not read as the document
+            # extract did: an empty string becomes NULL, a nullable column decodes escapes, a typed column is no String.
+            return _document_key_extract(clone_expr(source, clear_types=False), chain)
+        if chain[0] == "$feature_flags":
+            # The rebuilt document leaves this member out (`event_document_sql`), while a native read serves the map.
+            return None
+        # A native property read decodes the JSON string; the outer read of the rebuilt document did not. The JSON text
+        # of the first key comes from toJSONString over an untyped property read, which the property swapper leaves
+        # alone and the ClickHouse pass serves from one subcolumn.
+        first_key = ast.Field(
+            chain=[*source.chain, chain[0]], type=ast.PropertyType(chain=chain[:1], field_type=source.type)
+        )
+        json_text = ast.Call(
+            name="toJSONString",
+            args=[lower_property_access(first_key, self.context)],
+            type=ast.StringType(nullable=False),
+        )
+        return _document_key_extract(json_text, chain[1:])
 
 
 class _ConjunctRewriter(CloningVisitor):

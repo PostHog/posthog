@@ -1,4 +1,11 @@
-from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from posthog.test.base import (
+    APIBaseTest,
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    flush_persons_and_events,
+    materialized,
+)
 from unittest.mock import patch
 
 from parameterized import parameterized
@@ -118,10 +125,11 @@ class TestEventsSubqueryPushdown(BaseTest):
                 "outer_stream_function",
                 "SELECT rowNumberInAllBlocks() AS n FROM (SELECT event FROM events) WHERE event = 'y' AND rowNumberInAllBlocks() = 1",
             ),
+            ("native_flag_map_read", f"SELECT properties.$feature_flags FROM {STAR_EVENTS}", True),
         ]
     )
-    def test_declines_when_the_rewrite_would_change_rows(self, _name: str, select: str) -> None:
-        assert self._print(select) == self._print(select, on=False)
+    def test_declines_when_the_rewrite_would_change_rows(self, _name: str, select: str, native: bool = False) -> None:
+        assert self._print(select, native=native) == self._print(select, on=False, native=native)
 
     def test_mixed_where_moves_only_the_events_conjuncts(self) -> None:
         printed = self._print(
@@ -170,7 +178,6 @@ class TestEventsSubqueryPushdown(BaseTest):
         assert " AS properties__email" in printed, printed
         assert "properties.email" not in printed, printed
         assert "properties, 'email'" not in printed, printed
-        assert "JSONDropKeys" not in printed, printed
 
     def test_unexpected_internal_error_leaves_the_query_untouched(self) -> None:
         select = f"SELECT count() FROM {STAR_EVENTS} WHERE event = 'x'"
@@ -191,6 +198,11 @@ class TestEventsSubqueryPushdownExecution(ClickhouseTestMixin, APIBaseTest):
             ("2024-01-03T10:00:00", "$pageview", {"amount": None}),
             ("2024-01-03T11:00:00", "signup", {"utm_source": "bing"}),
             ("2024-01-03T12:00:00", "signup", {"utm_source": 'say "hi"\\now'}),
+            (
+                "2024-01-03T13:00:00",
+                "signup",
+                {"$feature/test": "true", "$feature_flags": {"test": "true"}, "$active_feature_flags": ["test"]},
+            ),
             ("2023-12-31T23:59:59", "$pageview", {"utm_source": "google", "amount": 100}),
         ]
         for index, (timestamp, event, properties) in enumerate(rows):
@@ -198,6 +210,12 @@ class TestEventsSubqueryPushdownExecution(ClickhouseTestMixin, APIBaseTest):
                 team=self.team, event=event, distinct_id=f"u{index}", timestamp=timestamp, properties=properties
             )
         flush_persons_and_events()
+
+    def _assert_same_rows(self, select: str) -> None:
+        on = execute_hogql_query(select, team=self.team, modifiers=_modifiers(True)).results
+        off = execute_hogql_query(select, team=self.team, modifiers=_modifiers(False)).results
+        assert on == off, f"on={on} off={off}"
+        assert on, "the query must match some rows for the comparison to mean anything"
 
     @parameterized.expand(
         [
@@ -223,6 +241,14 @@ class TestEventsSubqueryPushdownExecution(ClickhouseTestMixin, APIBaseTest):
                 f"SELECT count() FROM {STAR_EVENTS} WHERE properties.utm_source = 'google'",
             ),
             (
+                "flag_map_read",
+                f"SELECT count() FROM {STAR_EVENTS} WHERE properties.$feature_flags IS NULL",
+            ),
+            (
+                "rebuilt_flag_reads",
+                f"SELECT properties.`$feature/test`, properties.$active_feature_flags FROM {STAR_EVENTS} WHERE event = 'signup' ORDER BY 1, 2",
+            ),
+            (
                 "colliding_alias_name",
                 f"SELECT concat(coalesce(properties.utm_source, '-'), '!') AS properties__utm_source FROM {STAR_EVENTS} ORDER BY 1",
             ),
@@ -239,7 +265,35 @@ class TestEventsSubqueryPushdownExecution(ClickhouseTestMixin, APIBaseTest):
         ]
     )
     def test_rewrite_returns_the_same_rows(self, _name: str, select: str) -> None:
-        on = execute_hogql_query(select, team=self.team, modifiers=_modifiers(True)).results
-        off = execute_hogql_query(select, team=self.team, modifiers=_modifiers(False)).results
-        assert on == off, f"on={on} off={off}"
-        assert on, "the query must match some rows for the comparison to mean anything"
+        self._assert_same_rows(select)
+
+    @parameterized.expand(
+        [
+            (
+                "string_empty_value",
+                "utm_source",
+                False,
+                None,
+                f"SELECT count() FROM {STAR_EVENTS} WHERE properties.utm_source = ''",
+            ),
+            (
+                "nullable_string_escapes",
+                "utm_source",
+                True,
+                None,
+                f"SELECT properties.utm_source FROM {STAR_EVENTS} WHERE event = 'signup' ORDER BY 1",
+            ),
+            (
+                "float_under_a_string_parser",
+                "amount",
+                False,
+                "Float64",
+                f"SELECT sum(toFloatOrZero(properties.amount)), arraySort(groupArray(properties.amount)) FROM {STAR_EVENTS} WHERE event = '$pageview'",
+            ),
+        ]
+    )
+    def test_rewrite_ignores_a_materialized_column(
+        self, _name: str, property_name: str, is_nullable: bool, column_type: str | None, select: str
+    ) -> None:
+        with materialized("events", property_name, is_nullable=is_nullable, column_type=column_type):
+            self._assert_same_rows(select)
