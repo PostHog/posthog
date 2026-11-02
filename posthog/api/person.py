@@ -16,7 +16,6 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiExample,
     OpenApiParameter,
-    OpenApiResponse,
     extend_schema,
     extend_schema_field,
     extend_schema_serializer,
@@ -60,12 +59,12 @@ from posthog.models.activity_logging.activity_log import Change, Detail, load_ac
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person.bulk_delete import (
+    DeletionRun,
     delete_persons_profile,
     queue_person_event_deletion,
     queue_person_recording_deletion,
     resolve_persons_for_deletion,
 )
-from posthog.models.person.divergence.repairs import is_person_busy, is_retryable, repair_distinct_id
 from posthog.models.person.missing_person import MissingPerson
 from posthog.models.person.util import (
     get_distinct_ids_for_persons,
@@ -105,8 +104,6 @@ logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
 DEFAULT_PAGE_LIMIT = 100
-# A reset request waits this long for Kafka to confirm the republished rows; a rerun of the reset is safe.
-RESET_DISTINCT_ID_DELIVERY_TIMEOUT_SECONDS = 10
 
 # The id reaches the ClickHouse query id and every query_log row for the request, so bound it.
 # Cancelling matches on `query_id LIKE '<team_id>_<client_query_id>%'`, which makes an id holding
@@ -1177,6 +1174,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         persons_deleted = 0
         errors: builtins.list[dict[str, str]] = []
         if not keep_person:
+            # This path holds a web worker, so each saga call gets the request-path deadline.
             result = delete_persons_profile(
                 self.team_id,
                 persons,
@@ -1184,6 +1182,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 request=request,
                 organization_id=self.organization.id,
                 queue_ai_training_deletion=False,
+                run=DeletionRun.fresh(rpc_timeout=settings.PERSON_DELETE_LIFECYCLE_REQUEST_TIMEOUT_MS / 1000),
             )
             persons_deleted = result.deleted_count
             errors = [
@@ -1870,47 +1869,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return response.Response(status=202)
         except Person.DoesNotExist:
             raise NotFound(detail="Person not found.")
-
-    @extend_schema(
-        description="Fix a distinct_id that stays hidden after its person was deleted and created again. Does nothing if no live person uses this distinct_id. In that case, send a new event for it instead.",
-        responses={
-            202: OpenApiResponse(description="The fix was applied, or nothing needed fixing."),
-            409: OpenApiResponse(description="The person is being updated by another operation. Try again shortly."),
-            503: OpenApiResponse(description="Person data is temporarily unavailable. Try again shortly."),
-        },
-    )
-    @action(methods=["POST"], detail=False, required_scopes=["person:write"])
-    def reset_person_distinct_id(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        distinct_id = request.data.get("distinct_id")
-        if not distinct_id or not isinstance(distinct_id, str):
-            raise ValidationError(detail="distinct_id is required")
-
-        try:
-            summary = repair_distinct_id(
-                self.team_id, distinct_id, delivery_timeout_seconds=RESET_DISTINCT_ID_DELIVERY_TIMEOUT_SECONDS
-            )
-        except Exception as error:
-            if is_person_busy(error):
-                return response.Response(
-                    {"detail": "This person is being updated right now. Try again in a few seconds."},
-                    status=409,
-                )
-            if is_retryable(error):
-                return response.Response(
-                    {"detail": "Person data is temporarily unavailable. Try again in a minute."},
-                    status=503,
-                )
-            raise
-        if summary is not None:
-            logger.info(
-                "person_reset_distinct_id",
-                team_id=self.team_id,
-                person_outcomes=summary.person_outcomes,
-                mapping_outcomes=summary.mapping_outcomes,
-                undelivered=summary.undelivered,
-            )
-
-        return response.Response(status=202)
 
     @action(methods=["POST"], detail=False, url_path="batch_by_distinct_ids", required_scopes=["person:read"])
     def batch_by_distinct_ids(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:

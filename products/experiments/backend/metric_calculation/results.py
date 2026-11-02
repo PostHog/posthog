@@ -40,6 +40,7 @@ from posthog.schema import ExperimentQueryResponse
 
 from posthog.dataclasses import frozen
 
+from products.experiments.backend.facade.enums import ExposuresPath
 from products.experiments.backend.logic.result_stats import MetricResultStats, parse_stored_response
 from products.experiments.backend.metric_calculation.config import MetricCalculationConfig, build_calculation_configs
 from products.experiments.backend.models.experiment import (
@@ -139,6 +140,29 @@ class MetricResultStore:
         if not with_result:
             rows = rows.defer("result")
         return list(_newest_write_first(rows, "metric_uuid").distinct("metric_uuid"))
+
+    def with_zero_baseline(self, rows: Iterable[ExperimentMetricResult]) -> list[ExperimentMetricResult]:
+        """Those of these rows whose baseline reads zero on the metric or on its denominator, with `result`, in the order
+        of `rows`. The database applies the filter, so the rows with a value don't load `result`."""
+        by_pk = {row.pk: row for row in rows}
+        loaded = ExperimentMetricResult.objects.filter(
+            Q(result__baseline__sum=0) | Q(result__baseline__denominator_sum=0),
+            experiment_id=self.experiment_id,
+            pk__in=by_pk,
+        ).in_bulk()
+        return [loaded[pk] for pk in by_pk if pk in loaded]
+
+    def exposures_paths(self, rows: Iterable[ExperimentMetricResult]) -> frozenset[ExposuresPath]:
+        """Where the queries of these rows read the exposures. It reads one key of `result`, so the rows of `for_run` can
+        leave `result` unloaded. A result without the key adds nothing."""
+        stored = ExperimentMetricResult.objects.filter(
+            experiment_id=self.experiment_id, pk__in=[row.pk for row in rows]
+        ).values_list("result__is_precomputed", flat=True)
+        return frozenset(
+            ExposuresPath.PRECOMPUTED if is_precomputed else ExposuresPath.DIRECT_SCAN
+            for is_precomputed in stored
+            if is_precomputed is not None
+        )
 
     def has_completed(self, calculation_config: MetricCalculationConfig, *, window: datetime) -> bool:
         """Whether a recalculation already stored a completed result for this calculation config at this window."""
