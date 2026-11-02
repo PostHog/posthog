@@ -53,6 +53,14 @@ def _recovery_scanner_ids(signals: list[SignalData]) -> set[str]:
     return scanner_ids
 
 
+def _emitter_enabled(signal: SignalData, *, scanners: set[str], scouts: set[str]) -> bool:
+    if signal.source_product == "replay_vision":
+        return signal.extra.get("scanner_id") in scanners
+    if signal.source_product == "signals_scout":
+        return signal.extra.get("skill_name") in scouts
+    return True
+
+
 def enabled_recovery_signals(team_id: int, signals: list[SignalData]) -> list[SignalData]:
     team = Team.objects.get(pk=team_id)
     source_enabled = {
@@ -72,8 +80,7 @@ def enabled_recovery_signals(team_id: int, signals: list[SignalData]) -> list[Si
         signal
         for signal in signals
         if source_enabled[(signal.source_product, signal.source_type)]
-        and (signal.source_product != "replay_vision" or signal.extra.get("scanner_id") in enabled_scanners)
-        and (signal.source_product != "signals_scout" or signal.extra.get("skill_name") in scout_names)
+        and _emitter_enabled(signal, scanners=enabled_scanners, scouts=scout_names)
     ]
 
 
