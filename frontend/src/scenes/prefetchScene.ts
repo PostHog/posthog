@@ -1,6 +1,7 @@
 import posthog from 'posthog-js'
 import UrlPattern from 'url-pattern'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { markBootPhase } from 'lib/utils/bootTiming'
 import { pathFromWindowToRoutes, urlPatternOptions } from 'lib/utils/kea-router'
 import { appScenes } from 'scenes/appScenes'
@@ -28,7 +29,12 @@ function sceneForRoutePath(path: string, followRedirects: boolean): string | nul
         // A function target builds its path from the request's params and query, which the boot does not resolve.
         return followRedirects && typeof target === 'string' ? sceneForRoutePath(routePath(target), false) : null
     }
-    const homepage = followRedirects && matchPath === homePath ? getBootstrappedHomepage() : null
+    // sceneLogic ignores a saved homepage when the rail navigation is on, and opens the project homepage instead.
+    const followsSavedHomepage =
+        followRedirects &&
+        matchPath === homePath &&
+        !posthog.isFeatureEnabled(FEATURE_FLAGS.TODAY_RAIL_NAV, { send_event: false })
+    const homepage = followsSavedHomepage ? getBootstrappedHomepage() : null
     if (homepage) {
         return sceneForRoutePath(routePath(homepageTargetPathname(homepage)), false)
     }
