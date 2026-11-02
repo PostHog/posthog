@@ -41,12 +41,25 @@ class TestGroq:
 
     @parameterized.expand(
         [
-            ("fresh_run", None, [None, "c2"]),
-            ("resumed_run", GroqResumeConfig(cursor="c2"), ["c2"]),
+            (
+                "fresh_run",
+                None,
+                [None, "c2"],
+                ["a", "b"],
+                [GroqResumeConfig(cursor="c2"), GroqResumeConfig(completed=True)],
+            ),
+            ("resumed_run", GroqResumeConfig(cursor="c2"), ["c2"], ["b"], [GroqResumeConfig(completed=True)]),
+            # A hand-off after the last page must not read that page again.
+            ("completed_run", GroqResumeConfig(completed=True), [], [], []),
         ]
     )
     def test_batches_resume_from_saved_cursor(
-        self, _name: str, resume_state: GroqResumeConfig | None, expected_cursors: list[str | None]
+        self,
+        _name: str,
+        resume_state: GroqResumeConfig | None,
+        expected_cursors: list[str | None],
+        expected_ids: list[str],
+        expected_saved: list[GroqResumeConfig],
     ) -> None:
         pages = {
             None: ScriptedResponse(json={"data": [{"id": "a"}], "paging": {"next_cursor": "c2"}}),
@@ -58,8 +71,8 @@ class TestGroq:
 
         assert result.raised is None
         assert result.params("cursor") == expected_cursors
-        assert [row["id"] for row in result.rows] == (["a", "b"] if resume_state is None else ["b"])
-        assert result.saved_states == ([GroqResumeConfig(cursor="c2")] if resume_state is None else [])
+        assert [row["id"] for row in result.rows] == expected_ids
+        assert result.saved_states == expected_saved
 
     def test_non_dict_body_is_retried_then_reraises(self) -> None:
         # A non-object body (bare array) is an unexpected shape; the request is reissued and, if it

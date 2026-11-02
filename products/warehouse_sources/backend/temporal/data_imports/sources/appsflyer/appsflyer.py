@@ -372,7 +372,8 @@ def get_rows(
 
     today = datetime.now(UTC).date()
     start = _window_start(config, today, should_use_incremental_field, db_incremental_field_last_value)
-    resume = manager.load_state() if manager.can_resume() else None
+    # A full refresh appends, so the part of a window read before a hand-off would load twice.
+    resume = manager.load_state() if should_use_incremental_field and manager.can_resume() else None
     if resume is not None:
         # Never earlier than the computed start, which keeps a raw pull inside its lookback limit.
         start = max(start, date.fromisoformat(resume.next_window_start))
@@ -436,6 +437,7 @@ def appsflyer_source(
         partition_mode="datetime",
         partition_format=config.partition_format,
         partition_keys=[config.partition_key],
+        supports_resume=should_use_incremental_field,
         # Dimension keys can collide (e.g. blank campaign values) — an expected trait of report
         # data, not something the user can fix. Don't set has_duplicate_primary_keys: that flag
         # tells validate_incremental_sync to block incremental syncing altogether. The merge's own

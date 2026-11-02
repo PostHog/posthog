@@ -201,6 +201,9 @@ Raw data tables (installs, in-app events, uninstalls, retargeting conversions, a
                 "Could not reach AppsFlyer to validate credentials. This may be a temporary rate-limit or network issue — please try again.",
             )
 
+    def resume_covers_run(self, *, incremental_or_append: bool, schema_name: str | None = None) -> bool:
+        return incremental_or_append
+
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[AppsFlyerResumeConfig]:
         return ResumableSourceManager[AppsFlyerResumeConfig](inputs, AppsFlyerResumeConfig)
 

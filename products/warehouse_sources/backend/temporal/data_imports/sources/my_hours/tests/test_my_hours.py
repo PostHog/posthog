@@ -161,6 +161,7 @@ class TestTimeLogs:
             ("incremental_watermark_after_today", True, datetime(2010, 3, 10), None, [("2010-02-21", "2010-02-21")]),
             ("resumed_full_refresh", False, None, "2010-02-01", [("2010-02-01", "2010-02-21")]),
             ("resumed_incremental", True, datetime(2010, 1, 5), "2010-02-04", [("2010-02-04", "2010-02-21")]),
+            ("resumed_after_last_window", False, None, "2010-02-22", []),
         ]
     )
     @time_machine.travel("2010-02-20 12:00:00", tick=False)

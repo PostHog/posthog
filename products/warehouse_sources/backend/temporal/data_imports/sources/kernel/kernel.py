@@ -13,7 +13,6 @@ from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponenti
 
 from posthog.dataclasses import frozen
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     make_tracked_session,
     retry_with_deadline,
@@ -50,6 +49,8 @@ class KernelResumeConfig:
     # page. Sessions are read in id order, and a None cursor starts the session at its first event.
     telemetry_session_id: str | None = None
     telemetry_cursor: int | None = None
+    # List and telemetry endpoints: the last page is handed on, so a resume reads nothing again.
+    completed: bool = False
 
 
 class KernelRetryableError(Exception):
@@ -285,7 +286,6 @@ def get_audit_log_rows(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> Iterator[Any]:
     headers = _get_headers(api_key)
-    batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
     session = make_tracked_session(capture=False)
     end = datetime.now(UTC)
     start = end - AUDIT_LOG_RETENTION
@@ -299,9 +299,8 @@ def get_audit_log_rows(
     for window_end, rows in _iter_audit_log_windows(session, headers, start, end, logger, manager):
         manager.save_state(KernelResumeConfig(audit_log_start=_format_datetime(window_end)))
         if rows:
-            # One table per window, so a window and the cursor past it commit together.
-            batcher.batch(rows)
-            yield batcher.get_table()
+            # One item per window, so a window and the cursor past it commit together.
+            yield rows
         else:
             manager.safe_point()
 
@@ -454,6 +453,8 @@ def _iter_browser_telemetry_events(
     retention_start = datetime.now(UTC) - timedelta(days=TELEMETRY_RETENTION_DAYS)
     since = retention_start.strftime("%Y-%m-%dT%H:%M:%SZ")
     resume = manager.load_state() if manager.can_resume() else None
+    if resume is not None and resume.completed:
+        return
     resume_session_id = resume.telemetry_session_id if resume is not None else None
     session_ids = _telemetry_session_ids(session, headers, retention_start, logger, manager)
     for index, session_id in enumerate(session_ids):
@@ -466,6 +467,8 @@ def _iter_browser_telemetry_events(
                 manager.save_state(KernelResumeConfig(telemetry_session_id=session_id, telemetry_cursor=next_cursor))
             elif following is not None:
                 manager.save_state(KernelResumeConfig(telemetry_session_id=following))
+            else:
+                manager.save_state(KernelResumeConfig(completed=True))
             if rows:
                 yield rows
             else:
@@ -480,27 +483,26 @@ def get_rows(
 ) -> Iterator[Any]:
     config = KERNEL_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
-    batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
     # One session reused across every page so urllib3 keeps the connection alive.
     # capture=False: Kernel responses carry secret-bearing fields (see SENSITIVE_FIELDS) that the
     # generic HTTP-sample scrubber does not know to redact, and sampling happens before redaction.
     session = make_tracked_session(capture=False)
 
-    # Each page goes out as its own table, so the cursor staged for a page covers every row handed on.
+    # Each page goes out as its own item, so the cursor staged for a page covers every row handed on.
     if endpoint == BROWSER_TELEMETRY_EVENTS:
-        for rows in _iter_browser_telemetry_events(session, headers, logger, manager):
-            batcher.batch(rows)
-            yield batcher.get_table()
+        yield from _iter_browser_telemetry_events(session, headers, logger, manager)
         return
 
     resume = manager.load_state() if manager.can_resume() else None
+    if resume is not None and resume.completed:
+        return
     offset = resume.offset if resume is not None and resume.offset is not None else 0
     for items, next_offset in _iter_list_pages(session, headers, config, logger, offset):
-        if next_offset is not None:
-            manager.save_state(KernelResumeConfig(offset=next_offset))
+        manager.save_state(
+            KernelResumeConfig(offset=next_offset) if next_offset is not None else KernelResumeConfig(completed=True)
+        )
         if items:
-            batcher.batch([_redact_sensitive_fields(item, config.nested_sensitive_fields) for item in items])
-            yield batcher.get_table()
+            yield [_redact_sensitive_fields(item, config.nested_sensitive_fields) for item in items]
         else:
             manager.safe_point()
 

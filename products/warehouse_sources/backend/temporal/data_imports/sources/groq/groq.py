@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from typing import Any
 
 from posthog.dataclasses import frozen
@@ -26,7 +27,9 @@ GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 @frozen
 class GroqResumeConfig:
     # The `paging.next_cursor` of the last page handed on. Only `batches` paginates.
-    cursor: str
+    cursor: str | None = None
+    # The last page is handed on, so a resume reads nothing again.
+    completed: bool = False
 
 
 def _get_headers(api_key: str) -> dict[str, str]:
@@ -85,6 +88,8 @@ def groq_source(
     def save_checkpoint(state: dict[str, Any] | None) -> None:
         if state and state.get("cursor"):
             resumable_source_manager.save_state(GroqResumeConfig(cursor=str(state["cursor"])))
+        elif state is None:
+            resumable_source_manager.save_state(GroqResumeConfig(completed=True))
 
     resource = rest_api_resource(
         rest_config,
@@ -92,13 +97,17 @@ def groq_source(
         job_id,
         None,
         resume_hook=save_checkpoint,
-        initial_paginator_state={"cursor": resume.cursor} if resume is not None else None,
+        initial_paginator_state={"cursor": resume.cursor} if resume is not None and resume.cursor else None,
     )
+    completed = resume is not None and resume.completed
+
+    def items() -> Iterable[Any]:
+        return [] if completed else resource
 
     return SourceResponse(
         name=endpoint,
         on_complete=resumable_source_manager.clear_state,
-        items=lambda: resource,
+        items=items,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,

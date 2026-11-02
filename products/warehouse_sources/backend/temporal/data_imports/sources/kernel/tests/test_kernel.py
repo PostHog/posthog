@@ -1,4 +1,3 @@
-import json
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -36,10 +35,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kernel.sou
 
 def _driver() -> SourceDriver:
     return SourceDriver(KernelSource(), KernelSourceConfig(api_key="sk_test"))
-
-
-def _rows(result: DriveResult) -> list[dict[str, Any]]:
-    return [row for table in result.rows for row in table.to_pylist()]
 
 
 def _response(
@@ -119,13 +114,16 @@ class TestGetRows:
         )
 
         assert result.raised is None
-        assert _rows(result) == [{"id": "a1"}, {"id": "a2"}]
+        # Row lists, not tables, so the pipeline batches pages together.
+        assert result.items == [[{"id": "a1"}], [{"id": "a2"}]]
         assert result.params("offset") == ["0", "100"]
+        # The last page carries a terminal cursor, so a hand-off after it reads nothing again.
+        assert result.committed_states == [KernelResumeConfig(offset=100), KernelResumeConfig(completed=True)]
 
     def test_empty_first_page_yields_nothing(self) -> None:
         result = _driver().run("profiles", [_response([], has_more=False)])
         assert result.raised is None
-        assert _rows(result) == []
+        assert result.rows == []
 
     def test_empty_page_with_more_pages_keeps_paging(self) -> None:
         # An empty page that still reports X-Has-More must not end the sync early.
@@ -137,7 +135,7 @@ class TestGetRows:
             ],
         )
         assert result.raised is None
-        assert _rows(result) == [{"id": "a1"}]
+        assert result.rows == [{"id": "a1"}]
         assert result.params("offset") == ["0", "100"]
 
     @pytest.mark.parametrize(
@@ -151,7 +149,7 @@ class TestGetRows:
             assert isinstance(result.raised, requests.HTTPError)
         else:
             assert result.raised is None
-            assert _rows(result) == []
+            assert result.rows == []
 
     def test_unexpected_response_shape_raises(self) -> None:
         result = _driver().run("apps", [_response({"unexpected": [{"id": "a1"}]}, has_more=False)])
@@ -185,6 +183,26 @@ class TestGetRows:
                 [2, 3],
                 id="telemetry_skips_finished_sessions_and_resumes_the_saved_one",
             ),
+            pytest.param(
+                "deployments",
+                KernelResumeConfig(completed=True),
+                {},
+                [],
+                [],
+                "id",
+                [],
+                id="list_after_its_last_page_reads_nothing",
+            ),
+            pytest.param(
+                "browser_telemetry_events",
+                KernelResumeConfig(completed=True),
+                {},
+                [],
+                [],
+                "seq",
+                [],
+                id="telemetry_after_its_last_page_reads_nothing",
+            ),
         ],
     )
     def test_resumes_from_saved_state(
@@ -202,7 +220,7 @@ class TestGetRows:
         assert result.raised is None
         assert result.paths == expected_paths
         assert result.params("offset") == expected_offsets
-        assert [row[row_key] for row in _rows(result)] == expected_keys
+        assert [row[row_key] for row in result.rows] == expected_keys
 
     def test_retries_exhausted_raises(self) -> None:
         result = _driver().run("apps", always(_response(None, status_code=503)))
@@ -252,7 +270,7 @@ class TestBrowserTelemetryEvents:
         )
 
         assert result.raised is None
-        assert [{**row, "data": json.loads(row["data"])} for row in _rows(result)] == [
+        assert result.rows == [
             {
                 "browser_session_id": "active",
                 "seq": 1,
@@ -300,7 +318,7 @@ class TestBrowserTelemetryEvents:
         )
 
         assert result.raised is None
-        assert [row["seq"] for row in _rows(result)] == [1]
+        assert [row["seq"] for row in result.rows] == [1]
         assert len(result.requests) == 2
 
     def test_skips_browser_purged_after_listing(self) -> None:
@@ -314,7 +332,7 @@ class TestBrowserTelemetryEvents:
         )
 
         assert result.raised is None
-        assert [(row["browser_session_id"], row["seq"]) for row in _rows(result)] == [("b2", 7)]
+        assert [(row["browser_session_id"], row["seq"]) for row in result.rows] == [("b2", 7)]
 
 
 class TestKernelSourceResponse:
@@ -388,7 +406,7 @@ class TestAuditLogRows:
             _audit_record(_NOW - timedelta(hours=2), path="/apps"),
         ]
         result = _driver().run("audit_logs", _fake_audit_log_api(records))
-        rows = _rows(result)
+        rows = result.rows
 
         assert result.raised is None
         assert len(rows) == len(records)
@@ -413,7 +431,7 @@ class TestAuditLogRows:
             db_incremental_field_last_value=_NOW - timedelta(hours=2),
         )
         assert rerun.raised is None
-        assert {r["id"] for r in _rows(rerun)} == {r["id"] for r in rows[-2:]}
+        assert {r["id"] for r in rerun.rows} == {r["id"] for r in rows[-2:]}
 
     @pytest.mark.parametrize(
         "last_value, resume_start, expected_start",

@@ -105,10 +105,13 @@ def _time_log_pages(
     client: RESTClient, start: date, manager: ResumableSourceManager[MyHoursResumeConfig]
 ) -> Iterator[list[dict[str, Any]]]:
     resume = manager.load_state() if manager.can_resume() else None
-    if resume is not None and resume.next_window_start:
-        start = date.fromisoformat(resume.next_window_start)
     # One day past today in UTC covers accounts in timezones already on the next day.
     today = datetime.now(UTC).date() + timedelta(days=1)
+    if resume is not None and resume.next_window_start:
+        start = date.fromisoformat(resume.next_window_start)
+        if start > today:
+            # The last window is handed on. The window walk would clamp to today and read it again.
+            return
     for window in _time_log_windows(start, today):
         rows: list[dict[str, Any]] = []
         for page in client.paginate(
