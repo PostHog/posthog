@@ -9,20 +9,15 @@ from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
-from posthog.exceptions_capture import capture_exception
-
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+from products.warehouse_sources.sources.notion.settings import NOTION_ENDPOINTS, NOTION_PAGE_SIZE, NotionEndpointConfig
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
+    capture_exception,
     make_tracked_session,
     retry_with_deadline,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.notion.settings import (
-    NOTION_ENDPOINTS,
-    NOTION_PAGE_SIZE,
-    NotionEndpointConfig,
-)
+from products.warehouse_sources.sources.sdk.internals import Batcher
 
 NOTION_BASE_URL = "https://api.notion.com"
 # Supported API versions, as opaque Notion-Version header labels (never parsed or ordered). The pin

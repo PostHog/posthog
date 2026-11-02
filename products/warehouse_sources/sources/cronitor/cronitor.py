@@ -9,15 +9,7 @@ from dateutil import parser
 from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
-    make_tracked_session,
-    retry_with_deadline,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.cronitor.settings import (
+from products.warehouse_sources.sources.cronitor.settings import (
     BASE_URL,
     CRONITOR_ENDPOINTS,
     METRICS_FIELDS,
@@ -29,6 +21,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cronitor.s
     PAGINATED_LIST_ENDPOINTS,
     SITE_ERRORS_ENDPOINT,
     CronitorListEndpoint,
+)
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    retry_with_deadline,
 )
 
 

@@ -1,35 +1,29 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.newsapi import (
-    NewsApiSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.news_api.news_api import (
+from products.warehouse_sources.sources.news_api._config import NewsApiSourceConfig
+from products.warehouse_sources.sources.news_api.news_api import (
     NewsApiResumeConfig,
     news_api_source,
     validate_credentials as validate_news_api_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.news_api.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-    NEWS_API_ENDPOINTS,
+from products.warehouse_sources.sources.news_api.settings import ENDPOINTS, INCREMENTAL_FIELDS, NEWS_API_ENDPOINTS
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    detect,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -97,9 +91,7 @@ Note: NewsAPI's free Developer plan is limited to articles from the last month a
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.news_api.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.news_api.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

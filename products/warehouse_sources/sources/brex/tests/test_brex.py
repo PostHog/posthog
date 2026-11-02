@@ -5,24 +5,16 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.brex.brex import (
-    BrexResumeConfig,
-    _to_rfc3339,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.brex.settings import (
+from products.warehouse_sources.sources.brex._config import BrexSourceConfig
+from products.warehouse_sources.sources.brex.brex import BrexResumeConfig, _to_rfc3339, validate_credentials
+from products.warehouse_sources.sources.brex.settings import (
     BREX_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     BrexEndpointConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.brex.source import BrexSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.brex import BrexSourceConfig
+from products.warehouse_sources.sources.brex.source import BrexSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 CASH_TX_PATH = BREX_ENDPOINTS["cash_transactions"].path
 

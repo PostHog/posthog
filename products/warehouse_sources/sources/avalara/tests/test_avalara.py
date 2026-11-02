@@ -6,7 +6,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.avalara.avalara import (
+from products.warehouse_sources.sources.avalara._config import AvalaraSourceConfig
+from products.warehouse_sources.sources.avalara.avalara import (
     AVALARA_ENVIRONMENT_HOSTS,
     AvalaraResumeConfig,
     _format_filter_date,
@@ -14,17 +15,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.avalara.av
     base_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.avalara.settings import AVALARA_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.avalara.source import AvalaraSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.avalara import (
-    AvalaraSourceConfig,
-)
+from products.warehouse_sources.sources.avalara.settings import AVALARA_ENDPOINTS
+from products.warehouse_sources.sources.avalara.source import AvalaraSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

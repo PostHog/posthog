@@ -9,13 +9,8 @@ from unittest.mock import MagicMock
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lob import LobSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.lob.lob import (
+from products.warehouse_sources.sources.lob._config import LobSourceConfig
+from products.warehouse_sources.sources.lob.lob import (
     LobResumeConfig,
     LobRetryableError,
     _fetch_page,
@@ -23,7 +18,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lob.lob im
     _parse_date_created,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.lob.source import LobSource
+from products.warehouse_sources.sources.lob.source import LobSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _make_response(json_body: dict[str, Any] | None = None, status: int = 200) -> Response:

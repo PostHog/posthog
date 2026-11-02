@@ -1,7 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.invoiceninja import (
-    InvoiceninjaSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.invoiceninja.source import InvoiceninjaSource
+from products.warehouse_sources.sources.invoiceninja._config import InvoiceninjaSourceConfig
+from products.warehouse_sources.sources.invoiceninja.source import InvoiceninjaSource
 
 
 class TestInvoiceninjaSource:

@@ -4,8 +4,9 @@ from typing import Any
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.airbrake import airbrake
-from products.warehouse_sources.backend.temporal.data_imports.sources.airbrake.airbrake import (
+from products.warehouse_sources.sources.airbrake import airbrake
+from products.warehouse_sources.sources.airbrake._config import AirbrakeSourceConfig
+from products.warehouse_sources.sources.airbrake.airbrake import (
     NOTICES_MAX_PAGES_PER_GROUP,
     AirbrakeResumeConfig,
     AirbrakeRetryableError,
@@ -13,16 +14,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.airbrake.a
     _format_start_time,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.airbrake.source import AirbrakeSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.airbrake import (
-    AirbrakeSourceConfig,
-)
+from products.warehouse_sources.sources.airbrake.source import AirbrakeSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

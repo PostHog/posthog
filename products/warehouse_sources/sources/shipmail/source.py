@@ -1,31 +1,25 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shipmail import (
-    ShipmailSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.shipmail.settings import SHIPMAIL_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.shipmail.shipmail import (
-    ShipmailResumeConfig,
-    get_capabilities,
-    shipmail_source,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.sources.shipmail._config import ShipmailSourceConfig
+from products.warehouse_sources.sources.shipmail.settings import SHIPMAIL_ENDPOINTS
+from products.warehouse_sources.sources.shipmail.shipmail import ShipmailResumeConfig, get_capabilities, shipmail_source
 
 
 @SourceRegistry.register
@@ -68,9 +62,7 @@ Grant the key the read scopes for the tables you want to sync: `messages:read`, 
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.shipmail.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.shipmail.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

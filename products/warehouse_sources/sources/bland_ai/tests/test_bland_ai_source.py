@@ -1,18 +1,9 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.bland_ai.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.bland_ai.source import BlandAISource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.blandai import (
-    BlandAISourceConfig,
-)
+from products.warehouse_sources.sources.bland_ai._config import BlandAISourceConfig
+from products.warehouse_sources.sources.bland_ai.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.bland_ai.source import BlandAISource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, always, scripted_network
 
 
 class TestBlandAISource:

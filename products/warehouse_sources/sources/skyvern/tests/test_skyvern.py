@@ -3,7 +3,7 @@ from typing import Any, cast
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
     Script,
@@ -11,12 +11,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     SourceDriver,
     always,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.skyvern import (
-    SkyvernSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.skyvern import skyvern
-from products.warehouse_sources.backend.temporal.data_imports.sources.skyvern.skyvern import SkyvernResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.skyvern.source import SkyvernSource
+from products.warehouse_sources.sources.skyvern import skyvern
+from products.warehouse_sources.sources.skyvern._config import SkyvernSourceConfig
+from products.warehouse_sources.sources.skyvern.skyvern import SkyvernResumeConfig
+from products.warehouse_sources.sources.skyvern.source import SkyvernSource
 
 
 def _run(endpoint: str, script: Script, **kwargs: Any) -> DriveResult:

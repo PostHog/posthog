@@ -6,17 +6,8 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.northflank import (
-    NorthflankSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.northflank.northflank import (
+from products.warehouse_sources.sources.northflank._config import NorthflankSourceConfig
+from products.warehouse_sources.sources.northflank.northflank import (
     NorthflankResumeConfig,
     NorthflankRetryableError,
     _build_url,
@@ -27,15 +18,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.northflank
     northflank_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.northflank.settings import (
-    ENDPOINTS,
-    NORTHFLANK_ENDPOINTS,
+from products.warehouse_sources.sources.northflank.settings import ENDPOINTS, NORTHFLANK_ENDPOINTS
+from products.warehouse_sources.sources.northflank.source import NorthflankSource
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.northflank.source import NorthflankSource
 
-PATCH_SESSION = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.northflank.northflank.make_tracked_session"
-)
+PATCH_SESSION = "products.warehouse_sources.sources.northflank.northflank.make_tracked_session"
 
 
 def _response(body: dict[str, Any], status_code: int = 200, headers: dict[str, str] | None = None) -> mock.MagicMock:

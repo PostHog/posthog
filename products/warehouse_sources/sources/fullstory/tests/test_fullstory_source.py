@@ -1,10 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.fullstory.source import FullStorySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fullstory import (
-    FullStorySourceConfig,
-)
+from products.warehouse_sources.sources.fullstory._config import FullStorySourceConfig
+from products.warehouse_sources.sources.fullstory.source import FullStorySource
 
 
 class TestFullStorySource:
@@ -20,9 +18,7 @@ class TestFullStorySource:
             (False, False, "Invalid Fullstory API key"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.fullstory.source.validate_fullstory_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.fullstory.source.validate_fullstory_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
         mock_validate.return_value = mock_return
 

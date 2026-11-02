@@ -10,9 +10,8 @@ from django.test import override_settings
 import structlog
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.heygen.heygen import HeyGenResumeConfig
+from products.warehouse_sources.sources.heygen.heygen import HeyGenResumeConfig
+from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceInputs
 
 
 @pytest.fixture

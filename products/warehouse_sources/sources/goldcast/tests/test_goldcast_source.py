@@ -1,16 +1,9 @@
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.goldcast import (
-    GoldcastSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.goldcast.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.goldcast.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.goldcast.source import GoldcastSource
+from products.warehouse_sources.sources.goldcast._config import GoldcastSourceConfig
+from products.warehouse_sources.sources.goldcast.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.goldcast.settings import ENDPOINTS
+from products.warehouse_sources.sources.goldcast.source import GoldcastSource
+from products.warehouse_sources.sources.sdk import SourceFieldInputConfig
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 class TestSourceConfig:

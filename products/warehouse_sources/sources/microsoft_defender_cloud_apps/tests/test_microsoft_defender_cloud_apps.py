@@ -8,27 +8,21 @@ from unittest.mock import MagicMock, patch
 
 from requests import HTTPError, Response, Session
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.microsoftdefendercloudapps import (
+from products.warehouse_sources.sources.microsoft_defender_cloud_apps._config import (
     MicrosoftDefenderCloudAppsSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_defender_cloud_apps.microsoft_defender_cloud_apps import (
+from products.warehouse_sources.sources.microsoft_defender_cloud_apps.microsoft_defender_cloud_apps import (
     DefenderResumeConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_defender_cloud_apps.settings import (
-    AUTH_ERROR,
-    PERMISSION_ERROR,
+from products.warehouse_sources.sources.microsoft_defender_cloud_apps.settings import AUTH_ERROR, PERMISSION_ERROR
+from products.warehouse_sources.sources.microsoft_defender_cloud_apps.source import MicrosoftDefenderCloudAppsSource
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceInputs,
+    SourceResponse,
+    ValidateDatabaseHostMixin,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_defender_cloud_apps.source import (
-    MicrosoftDefenderCloudAppsSource,
-)
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 PORTAL_URL = "https://defender.example.com"
 

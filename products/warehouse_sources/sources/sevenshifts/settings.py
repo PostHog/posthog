@@ -1,12 +1,7 @@
 from dataclasses import field
 from typing import Any
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
+from products.warehouse_sources.sources.sdk import DependentEndpointConfig, frozen, incremental_field
 
 BASE_URL = "https://api.7shifts.com/v2/"
 INCREMENTAL_ENDPOINTS = ("locations", "departments", "roles", "users", "shifts", "time_punches")

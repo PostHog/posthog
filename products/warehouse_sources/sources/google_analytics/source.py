@@ -4,44 +4,41 @@ import requests
 import structlog
 from google.auth.exceptions import RefreshError
 
-from posthog.exceptions_capture import capture_exception
-from posthog.integrations import IntegrationNotFound
-from posthog.schema_enums import ProductKey
-
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-    SourceFieldOauthConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import OAuthMixin
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleanalytics import (
-    GoogleAnalyticsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.google_analytics import (
+from products.warehouse_sources.sources.google_analytics._config import GoogleAnalyticsSourceConfig
+from products.warehouse_sources.sources.google_analytics.google_analytics import (
     GoogleAnalyticsResumeConfig,
     get_property_metadata,
     google_analytics_session,
     google_analytics_source,
     normalize_property_id,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.settings import (
+from products.warehouse_sources.sources.google_analytics.settings import (
     GOOGLE_ANALYTICS_INCREMENTAL_FIELD,
     CustomReportError,
     build_report_schemas,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    IntegrationNotFound,
+    OAuthMixin,
+    ProductKey,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldOauthConfig,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    capture_exception,
+    detect,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -181,8 +178,8 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
         return ExternalDataSourceType.GOOGLEANALYTICS
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.canonical_descriptions import (  # noqa: PLC0415
-            CANONICAL_DESCRIPTIONS,
+        from products.warehouse_sources.sources.google_analytics.canonical_descriptions import (
+            CANONICAL_DESCRIPTIONS,  # noqa: PLC0415
         )
 
         return CANONICAL_DESCRIPTIONS

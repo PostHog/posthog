@@ -4,17 +4,15 @@ import time_machine
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.impact_partner._config import ImpactPartnerSourceConfig
+from products.warehouse_sources.sources.impact_partner.source import ImpactPartnerSource
+from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
+    error_message_matches,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.impactpartner import (
-    ImpactPartnerSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.impact_partner.source import ImpactPartnerSource
 
 
 def _driver() -> SourceDriver:

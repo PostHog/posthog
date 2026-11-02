@@ -11,26 +11,11 @@ from unittest.mock import MagicMock, patch
 from requests import PreparedRequest, Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.embrace.embrace import (
-    EmbraceClient,
-    EmbraceResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.embrace.source import EmbraceSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.embrace import (
-    EmbraceSourceConfig,
-)
+from products.warehouse_sources.sources.embrace._config import EmbraceSourceConfig
+from products.warehouse_sources.sources.embrace.embrace import EmbraceClient, EmbraceResumeConfig, validate_credentials
+from products.warehouse_sources.sources.embrace.source import EmbraceSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError, ResumableSourceManager, SourceInputs
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 NOW = datetime(2026, 1, 31, 12, 30, tzinfo=UTC)
 END = int(datetime(2026, 1, 31, 11, tzinfo=UTC).timestamp())

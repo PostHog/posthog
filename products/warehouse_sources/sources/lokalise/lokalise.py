@@ -3,31 +3,21 @@ from typing import Any
 from requests import Response
 from requests.exceptions import RequestException
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    build_dependent_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponseCursorPaginator,
-    PageNumberPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+from products.warehouse_sources.sources.lokalise.settings import LOKALISE_ENDPOINTS, LokaliseEndpointConfig
+from products.warehouse_sources.sources.sdk import (
+    APIKeyAuth,
     ClientConfig,
     Endpoint,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.lokalise.settings import (
-    LOKALISE_ENDPOINTS,
-    LokaliseEndpointConfig,
+    JSONResponseCursorPaginator,
+    PageNumberPaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    build_dependent_resource,
+    frozen,
+    make_tracked_session,
+    rest_api_resource,
+    schema_for_resource,
 )
 
 INVALID_TOKEN_MESSAGE = "Your Lokalise API token is invalid or expired. Create a new token and reconnect."

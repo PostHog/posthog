@@ -8,8 +8,8 @@ from unittest import mock
 import requests
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_ses import aws_ses
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_ses.aws_ses import (
+from products.warehouse_sources.sources.aws_ses import aws_ses
+from products.warehouse_sources.sources.aws_ses.aws_ses import (
     AwsSesError,
     AwsSesResumeConfig,
     error_for_response,
@@ -19,7 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_ses.aw
     validate_credentials,
     validate_region,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.sources.sdk import ResumableSourceManager
 
 LOGGER = structlog.get_logger()
 

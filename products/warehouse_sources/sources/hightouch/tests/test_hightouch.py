@@ -6,16 +6,8 @@ from unittest.mock import Mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hightouch import (
-    HightouchSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.hightouch.hightouch import (
+from products.warehouse_sources.sources.hightouch._config import HightouchSourceConfig
+from products.warehouse_sources.sources.hightouch.hightouch import (
     HightouchPaginator,
     HightouchResumeConfig,
     _format_hightouch_datetime,
@@ -23,7 +15,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hightouch.
     get_resource,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.hightouch.source import HightouchSource
+from products.warehouse_sources.sources.hightouch.source import HightouchSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

@@ -1,11 +1,9 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.newrelic import (
-    NewRelicSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.new_relic.source import NewRelicSource
+from products.warehouse_sources.sources.new_relic._config import NewRelicSourceConfig
+from products.warehouse_sources.sources.new_relic.source import NewRelicSource
 
-SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.new_relic.source"
+SOURCE_MODULE = "products.warehouse_sources.sources.new_relic.source"
 
 
 class TestNewRelicSource:

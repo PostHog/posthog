@@ -3,16 +3,16 @@ from datetime import date
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.adjust import adjust
-from products.warehouse_sources.backend.temporal.data_imports.sources.adjust.source import AdjustSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.adjust import adjust
+from products.warehouse_sources.sources.adjust._config import AdjustSourceConfig
+from products.warehouse_sources.sources.adjust.source import AdjustSource
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.adjust import AdjustSourceConfig
 
 
 class TestAdjustSource:

@@ -5,19 +5,11 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.xendit import XenditSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.xendit.settings import (
-    XENDIT_BASE_URL,
-    XENDIT_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.xendit.source import XenditSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.xendit.xendit import (
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.xendit._config import XenditSourceConfig
+from products.warehouse_sources.sources.xendit.settings import XENDIT_BASE_URL, XENDIT_ENDPOINTS
+from products.warehouse_sources.sources.xendit.source import XenditSource
+from products.warehouse_sources.sources.xendit.xendit import (
     XenditResumeConfig,
     _build_params,
     _format_datetime,

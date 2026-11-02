@@ -1,39 +1,31 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.worldbank import (
-    WorldBankSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.settings import (
-    ENDPOINT_DESCRIPTIONS,
-    ENDPOINTS,
-    PRIMARY_KEYS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.world_bank import (
+from products.warehouse_sources.sources.world_bank._config import WorldBankSourceConfig
+from products.warehouse_sources.sources.world_bank.settings import ENDPOINT_DESCRIPTIONS, ENDPOINTS, PRIMARY_KEYS
+from products.warehouse_sources.sources.world_bank.world_bank import (
     WorldBankResumeConfig,
     parse_indicator_codes,
     validate_credentials as validate_world_bank_credentials,
     world_bank_source,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -91,8 +83,8 @@ The API has no "changed since" filter, and the World Bank revises historical val
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.canonical_descriptions import (  # noqa: PLC0415
-            CANONICAL_DESCRIPTIONS,
+        from products.warehouse_sources.sources.world_bank.canonical_descriptions import (
+            CANONICAL_DESCRIPTIONS,  # noqa: PLC0415
         )
 
         return CANONICAL_DESCRIPTIONS

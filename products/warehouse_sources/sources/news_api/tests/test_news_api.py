@@ -4,21 +4,15 @@ from typing import Any
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.newsapi import (
-    NewsApiSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.news_api.news_api import (
+from products.warehouse_sources.sources.news_api._config import NewsApiSourceConfig
+from products.warehouse_sources.sources.news_api.news_api import (
     PAGE_SIZE,
     NewsApiResumeConfig,
     _format_from_value,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.news_api.source import NewsApiSource
+from products.warehouse_sources.sources.news_api.source import NewsApiSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver(language: str | None = None) -> SourceDriver:

@@ -1,37 +1,35 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.uptimerobot import (
-    UptimerobotSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.uptimerobot.settings import (
+from products.warehouse_sources.sources.uptimerobot._config import UptimerobotSourceConfig
+from products.warehouse_sources.sources.uptimerobot.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     RESPONSE_TIMES_INITIAL_LOOKBACK_DAYS,
     UPTIMEROBOT_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.uptimerobot.uptimerobot import (
+from products.warehouse_sources.sources.uptimerobot.uptimerobot import (
     AUTH_ERROR_PREFIX,
     UptimeRobotResumeConfig,
     uptimerobot_source,
     validate_credentials as validate_uptimerobot_credentials,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -73,9 +71,7 @@ Use your account's **read-only API key**, created under [Integrations & API](htt
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.uptimerobot.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.uptimerobot.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

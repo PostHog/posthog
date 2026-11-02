@@ -1,33 +1,31 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.wix import WixSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.wix.settings import ENDPOINTS, INCREMENTAL_FIELDS
-from products.warehouse_sources.backend.temporal.data_imports.sources.wix.wix import (
+from products.warehouse_sources.sources.wix._config import WixSourceConfig
+from products.warehouse_sources.sources.wix.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.wix.wix import (
     WixResumeConfig,
     check_endpoint_permissions,
     validate_credentials as validate_wix_credentials,
     wix_source,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -95,9 +93,7 @@ Find the site ID in the Wix dashboard URL for your site, in the part after `/das
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.wix.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.wix.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

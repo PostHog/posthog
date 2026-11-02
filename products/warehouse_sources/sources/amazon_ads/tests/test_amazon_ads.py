@@ -9,7 +9,8 @@ import time_machine
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_ads.amazon_ads import (
+from products.warehouse_sources.sources.amazon_ads._config import AmazonAdsSourceConfig
+from products.warehouse_sources.sources.amazon_ads.amazon_ads import (
     INVALID_REGION_MESSAGE,
     LWA_REJECTED_MESSAGE,
     LWA_TOKEN_URL,
@@ -22,14 +23,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_ads
     _base_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_ads.settings import (
+from products.warehouse_sources.sources.amazon_ads.settings import (
     AMAZON_ADS_ENDPOINTS,
     ENDPOINTS,
     PAGE_SIZE,
     SP_CAMPAIGN_REPORT,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_ads.source import AmazonAdsSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.amazon_ads.source import AmazonAdsSource
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
     Script,
@@ -37,9 +38,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     SourceDriver,
     always,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.amazonads import (
-    AmazonAdsSourceConfig,
 )
 
 _REPORT_URL = "https://offline-report-storage.s3.amazonaws.com/report.json.gz"

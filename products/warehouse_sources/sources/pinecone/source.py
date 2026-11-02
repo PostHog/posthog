@@ -2,43 +2,34 @@ from typing import TYPE_CHECKING, cast
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
-    SourceSchema,
-    build_endpoint_schemas,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pinecone import (
-    PineconeSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.pinecone.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.pinecone.pinecone import (
+from products.warehouse_sources.sources.pinecone._config import PineconeSourceConfig
+from products.warehouse_sources.sources.pinecone.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.pinecone.pinecone import (
     PineconeResumeConfig,
     pinecone_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.pinecone.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
+from products.warehouse_sources.sources.pinecone.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.sdk import (
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
-    from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-        CanonicalDescriptions,
-    )
+    from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 
 
 @SourceRegistry.register

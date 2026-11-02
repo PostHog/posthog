@@ -3,29 +3,20 @@ from typing import Any
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.browser_use.browser_use import (
+from products.warehouse_sources.sources.browser_use._config import BrowserUseSourceConfig
+from products.warehouse_sources.sources.browser_use.browser_use import (
     BROWSER_USE_BASE_URL,
     BrowserUseResumeConfig,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.browser_use.settings import (
+from products.warehouse_sources.sources.browser_use.settings import (
     BROWSER_USE_API_VERSION_V3,
     BROWSER_USE_API_VERSION_V4,
     BROWSER_USE_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.browser_use.source import BrowserUseSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.browseruse import (
-    BrowserUseSourceConfig,
-)
+from products.warehouse_sources.sources.browser_use.source import BrowserUseSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

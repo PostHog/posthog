@@ -6,12 +6,8 @@ import pytest
 import responses
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.abnormal_security.source import (
-    AbnormalSecuritySource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.abnormalsecurity import (
-    AbnormalSecuritySourceConfig,
-)
+from products.warehouse_sources.sources.abnormal_security._config import AbnormalSecuritySourceConfig
+from products.warehouse_sources.sources.abnormal_security.source import AbnormalSecuritySource
 
 
 @pytest.mark.parametrize("region, host", [("us", "api.abnormalplatform.com"), ("eu", "eu.rest.abnormalsecurity.com")])

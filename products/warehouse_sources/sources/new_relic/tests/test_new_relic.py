@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.new_relic.new_relic import (
+from products.warehouse_sources.sources.new_relic.new_relic import (
     DEFAULT_LOOKBACK_DAYS,
     DEFAULT_WINDOW_MS,
     MIN_WINDOW_MS,
@@ -29,7 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.new_relic.
 )
 
 ACCOUNT_ID = 1234567
-NEW_RELIC_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.new_relic.new_relic"
+NEW_RELIC_MODULE = "products.warehouse_sources.sources.new_relic.new_relic"
 
 
 class FakeResumableSourceManager:

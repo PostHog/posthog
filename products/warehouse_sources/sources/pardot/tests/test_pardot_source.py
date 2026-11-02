@@ -3,19 +3,13 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pardot import PardotSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.pardot.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.pardot.pardot import PardotResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.pardot.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-    PARDOT_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.pardot.source import PardotSource
+from products.warehouse_sources.sources.pardot._config import PardotSourceConfig
+from products.warehouse_sources.sources.pardot.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.pardot.pardot import PardotResumeConfig
+from products.warehouse_sources.sources.pardot.settings import ENDPOINTS, INCREMENTAL_FIELDS, PARDOT_ENDPOINTS
+from products.warehouse_sources.sources.pardot.source import PardotSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager
+from products.warehouse_sources.sources.sdk.testing import SourceDriver
 
 INCREMENTAL_ENDPOINTS = sorted(INCREMENTAL_FIELDS)
 FULL_REFRESH_ENDPOINTS = sorted(set(ENDPOINTS) - set(INCREMENTAL_FIELDS))
@@ -63,9 +57,7 @@ class TestPardotSource:
         "probe_result",
         [(True, None), (False, "Account Engagement rejected the connection")],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.pardot.source.validate_pardot_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.pardot.source.validate_pardot_credentials")
     def test_validate_credentials_probes_with_the_integration_token(
         self, mock_validate: mock.MagicMock, probe_result: tuple[bool, str | None]
     ) -> None:
@@ -91,9 +83,7 @@ class TestPardotSource:
             {"return_value": _integration(access_token=None)},
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.pardot.source.validate_pardot_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.pardot.source.validate_pardot_credentials")
     def test_validate_credentials_fails_cleanly_without_a_usable_integration(
         self, mock_validate: mock.MagicMock, patched: dict[str, Any]
     ) -> None:
@@ -112,7 +102,7 @@ class TestPardotSource:
         assert prospects._data_class is PardotResumeConfig
         assert prospects._key != visits._key
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.pardot.source.pardot_source")
+    @mock.patch("products.warehouse_sources.sources.pardot.source.pardot_source")
     def test_source_for_pipeline_syncs_with_the_integration_credentials(
         self, mock_pardot_source: mock.MagicMock
     ) -> None:
@@ -138,7 +128,7 @@ class TestPardotSource:
         assert kwargs["db_incremental_field_last_value"] == "2024-05-01T00:00:00Z"
         assert kwargs["resumable_source_manager"] is manager
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.pardot.source.pardot_source")
+    @mock.patch("products.warehouse_sources.sources.pardot.source.pardot_source")
     def test_full_refresh_run_drops_the_stored_watermark(self, mock_pardot_source: mock.MagicMock) -> None:
         inputs = _make_inputs(
             "prospects", should_use_incremental_field=False, db_incremental_field_last_value="2024-05-01T00:00:00Z"

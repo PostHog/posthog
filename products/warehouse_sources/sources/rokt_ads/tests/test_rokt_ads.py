@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 from parameterized import parameterized
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.rokt_ads.rokt_ads import (
+from products.warehouse_sources.sources.rokt_ads.rokt_ads import (
     DateWindow,
     ReportCapabilities,
     RoktAdsClient,
@@ -18,11 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.rokt_ads.r
     resolve_start_date,
     rokt_ads_source,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.rokt_ads.settings import (
-    CAMPAIGN_METRICS,
-    ENDPOINTS,
-    INITIAL_BACKFILL_DAYS,
-)
+from products.warehouse_sources.sources.rokt_ads.settings import CAMPAIGN_METRICS, ENDPOINTS, INITIAL_BACKFILL_DAYS
 
 ALL_DIMENSIONS = {dimension for endpoint in ENDPOINTS.values() for dimension in endpoint["dimensions"]}
 ALL_METRICS = set(CAMPAIGN_METRICS)

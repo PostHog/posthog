@@ -1,34 +1,29 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.bluetally.bluetally import (
+from products.warehouse_sources.sources.bluetally._config import BluetallySourceConfig
+from products.warehouse_sources.sources.bluetally.bluetally import (
     BluetallyResumeConfig,
     bluetally_source,
     validate_credentials as validate_bluetally_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.bluetally.settings import (
-    BLUETALLY_ENDPOINTS,
-    ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+from products.warehouse_sources.sources.bluetally.settings import BLUETALLY_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.sources.sdk import (
     CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bluetally import (
-    BluetallySourceConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -88,9 +83,7 @@ If your account has multi-tenancy enabled, also enter the tenant ID the key shou
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.bluetally.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.bluetally.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

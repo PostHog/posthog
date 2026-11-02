@@ -1,15 +1,11 @@
 import pytest
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rapid7insightvm import (
-    Rapid7InsightvmSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.rapid7_insightvm.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.rapid7_insightvm.source import (
-    Rapid7InsightvmSource,
-)
+from products.warehouse_sources.sources.rapid7_insightvm._config import Rapid7InsightvmSourceConfig
+from products.warehouse_sources.sources.rapid7_insightvm.settings import ENDPOINTS
+from products.warehouse_sources.sources.rapid7_insightvm.source import Rapid7InsightvmSource
+from products.warehouse_sources.sources.sdk import ReleaseStatus
 
-SOURCE = "products.warehouse_sources.backend.temporal.data_imports.sources.rapid7_insightvm.source"
+SOURCE = "products.warehouse_sources.sources.rapid7_insightvm.source"
 
 
 class TestRapid7InsightvmSource:

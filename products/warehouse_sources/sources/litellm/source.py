@@ -1,46 +1,40 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
-    DATABASE_HOST_NOT_ALLOWED_ERROR,
-    HostNotAllowedError,
-    ValidateDatabaseHostMixin,
-    resolve_safe_host,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
-    SourceSchema,
-    build_endpoint_schemas,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.litellm import (
-    LiteLLMSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.litellm.litellm import (
+from products.warehouse_sources.sources.litellm._config import LiteLLMSourceConfig
+from products.warehouse_sources.sources.litellm.litellm import (
     SPEND_LOGS_UNAVAILABLE_MESSAGE,
     LiteLLMResumeConfig,
     hostname_of,
     litellm_source,
     probe_key,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.litellm.settings import (
+from products.warehouse_sources.sources.litellm.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     SPEND_LOGS_LOOKBACK_SECONDS,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.sources.sdk import (
+    DATABASE_HOST_NOT_ALLOWED_ERROR,
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    HostNotAllowedError,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    ValidateDatabaseHostMixin,
+    build_endpoint_schemas,
+    detect,
+    resolve_safe_host,
+)
 
 
 @SourceRegistry.register
@@ -97,9 +91,7 @@ Enter the proxy's public https URL and the master key or an admin key. A key wit
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.litellm.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.litellm.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

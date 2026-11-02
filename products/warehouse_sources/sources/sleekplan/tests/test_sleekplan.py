@@ -5,21 +5,16 @@ from unittest.mock import Mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sleekplan import (
-    SleekplanSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.sleekplan.settings import (
-    SLEEKPLAN_ENDPOINTS,
-    SURVEY_LOOKBACK_DAYS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.sleekplan.sleekplan import (
+from products.warehouse_sources.sources.sleekplan._config import SleekplanSourceConfig
+from products.warehouse_sources.sources.sleekplan.settings import SLEEKPLAN_ENDPOINTS, SURVEY_LOOKBACK_DAYS
+from products.warehouse_sources.sources.sleekplan.sleekplan import (
     SleekplanPaginator,
     SleekplanResumeConfig,
     _format_survey_date,
@@ -27,7 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sleekplan.
     _resource,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.sleekplan.source import SleekplanSource
+from products.warehouse_sources.sources.sleekplan.source import SleekplanSource
 
 
 def _driver(api_key: str = "key") -> SourceDriver:

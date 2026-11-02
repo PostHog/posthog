@@ -5,9 +5,7 @@ Keyed by the endpoint names in `settings.py`, which match the `ExternalDataSchem
 table. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 
 _DOCS = "https://docs.schematichq.com/api-reference"
 

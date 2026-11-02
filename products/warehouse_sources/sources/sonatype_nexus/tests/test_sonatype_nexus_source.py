@@ -1,10 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sonatypenexus import (
-    SonatypeNexusSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.sonatype_nexus.source import SonatypeNexusSource
+from products.warehouse_sources.sources.sonatype_nexus._config import SonatypeNexusSourceConfig
+from products.warehouse_sources.sources.sonatype_nexus.source import SonatypeNexusSource
 
 
 class TestSonatypeNexusSource:
@@ -21,9 +19,7 @@ class TestSonatypeNexusSource:
         # get_schemas is a static endpoint catalog, so the public docs can render tables.
         assert self.source.lists_tables_without_credentials is True
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.sonatype_nexus.source.validate_sonatype_nexus_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.sonatype_nexus.source.validate_sonatype_nexus_credentials")
     @mock.patch.object(SonatypeNexusSource, "is_database_host_valid")
     def test_validate_credentials_happy_path(self, mock_host_valid, mock_validate):
         mock_host_valid.return_value = (True, None)
@@ -53,9 +49,7 @@ class TestSonatypeNexusSource:
         assert is_valid is False
         assert error_message == "Invalid Nexus instance URL"
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.sonatype_nexus.source.validate_sonatype_nexus_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.sonatype_nexus.source.validate_sonatype_nexus_credentials")
     @mock.patch.object(SonatypeNexusSource, "is_database_host_valid")
     def test_validate_credentials_bad_credentials(self, mock_host_valid, mock_validate):
         mock_host_valid.return_value = (True, None)
@@ -66,9 +60,7 @@ class TestSonatypeNexusSource:
         assert is_valid is False
         assert "Invalid Nexus credentials" in (error_message or "")
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.sonatype_nexus.source.sonatype_nexus_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.sonatype_nexus.source.sonatype_nexus_source")
     @mock.patch.object(SonatypeNexusSource, "is_database_host_valid")
     def test_source_for_pipeline_plumbs_arguments(self, mock_host_valid, mock_source):
         mock_host_valid.return_value = (True, None)

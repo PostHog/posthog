@@ -3,7 +3,8 @@ from datetime import UTC, date, datetime
 import pytest
 from unittest.mock import MagicMock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.commercetools.commercetools import (
+from products.warehouse_sources.sources.commercetools._config import CommercetoolsSourceConfig
+from products.warehouse_sources.sources.commercetools.commercetools import (
     MAX_OFFSET,
     PAGE_SIZE,
     CommercetoolsResumeConfig,
@@ -11,19 +12,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.commerceto
     _validate_path_component,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.commercetools.settings import (
-    COMMERCETOOLS_ENDPOINTS,
-    ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.commercetools.source import CommercetoolsSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.commercetools import (
-    CommercetoolsSourceConfig,
-)
+from products.warehouse_sources.sources.commercetools.settings import COMMERCETOOLS_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.sources.commercetools.source import CommercetoolsSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver() -> SourceDriver:

@@ -1,7 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.queries.fragments import (
-    COUNT_FRAGMENT,
-    METAFIELD_CONNECTIONS_FRAGMENT,
-)
+from products.warehouse_sources.sources.shopify.queries.fragments import COUNT_FRAGMENT, METAFIELD_CONNECTIONS_FRAGMENT
 
 BLOGS_SORTKEY = "ID"
 

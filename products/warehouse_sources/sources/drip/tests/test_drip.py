@@ -2,24 +2,11 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.drip.drip import (
-    DripResumeConfig,
-    _base_params,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.drip.settings import (
-    CAMPAIGN_SUBSCRIBER_STATUSES,
-    DRIP_ENDPOINTS,
-    ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.drip.source import DripSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.drip import DripSourceConfig
+from products.warehouse_sources.sources.drip._config import DripSourceConfig
+from products.warehouse_sources.sources.drip.drip import DripResumeConfig, _base_params, validate_credentials
+from products.warehouse_sources.sources.drip.settings import CAMPAIGN_SUBSCRIBER_STATUSES, DRIP_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.sources.drip.source import DripSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

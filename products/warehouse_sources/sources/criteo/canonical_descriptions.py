@@ -1,7 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.criteo.settings import ENDPOINTS
+from products.warehouse_sources.sources.criteo.settings import ENDPOINTS
+from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 
 REFERENCE_URL = "https://developers.criteo.com/marketing-solutions/v2026.07/reference"
 

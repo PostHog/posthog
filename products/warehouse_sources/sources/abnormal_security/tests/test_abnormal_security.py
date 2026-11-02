@@ -10,16 +10,10 @@ import responses
 import structlog
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.abnormal_security.abnormal_security import (
-    AbnormalSecurityResumeConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.abnormal_security.source import (
-    AbnormalSecuritySource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.abnormalsecurity import (
-    AbnormalSecuritySourceConfig,
-)
+from products.warehouse_sources.sources.abnormal_security._config import AbnormalSecuritySourceConfig
+from products.warehouse_sources.sources.abnormal_security.abnormal_security import AbnormalSecurityResumeConfig
+from products.warehouse_sources.sources.abnormal_security.source import AbnormalSecuritySource
+from products.warehouse_sources.sources.sdk import SourceInputs, SourceResponse
 
 BASE = "https://api.abnormalplatform.com/v1"
 

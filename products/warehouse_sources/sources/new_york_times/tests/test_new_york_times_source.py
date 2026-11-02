@@ -1,14 +1,8 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.newyorktimes import (
-    NewYorkTimesSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.new_york_times.source import NewYorkTimesSource
+from products.warehouse_sources.sources.new_york_times._config import NewYorkTimesSourceConfig
+from products.warehouse_sources.sources.new_york_times.source import NewYorkTimesSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _config(api_key: str = "KEY", article_search_query: str | None = None) -> NewYorkTimesSourceConfig:

@@ -1,10 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.uservoice import (
-    UservoiceSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.uservoice.source import UservoiceSource
+from products.warehouse_sources.sources.uservoice._config import UservoiceSourceConfig
+from products.warehouse_sources.sources.uservoice.source import UservoiceSource
 
 _INCREMENTAL_ENDPOINTS = {
     "suggestions",
@@ -38,9 +36,7 @@ class TestUservoiceSource:
             ((False, None), False, "Could not connect to UserVoice with the provided subdomain and API token"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.uservoice.source.validate_uservoice_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.uservoice.source.validate_uservoice_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
         mock_validate.return_value = mock_return
 
@@ -50,9 +46,7 @@ class TestUservoiceSource:
         assert error_message == expected_message
         mock_validate.assert_called_once_with("acme", "token")
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.uservoice.source.validate_uservoice_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.uservoice.source.validate_uservoice_credentials")
     def test_validate_credentials_surfaces_bad_subdomain(self, mock_validate):
         mock_validate.side_effect = ValueError("Invalid UserVoice account subdomain: 'a/b'.")
 

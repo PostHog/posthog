@@ -3,16 +3,8 @@ from typing import Any
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    route,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.northpasslms import (
-    NorthpassLMSSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.northpass_lms.northpass_lms import (
+from products.warehouse_sources.sources.northpass_lms._config import NorthpassLMSSourceConfig
+from products.warehouse_sources.sources.northpass_lms.northpass_lms import (
     NorthpassQuizLogEmptyError,
     NorthpassResumeConfig,
     _build_url,
@@ -20,10 +12,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.northpass_
     _make_quiz_attempt_flattener,
     _make_relationship_flattener,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.northpass_lms.settings import (
-    QUIZ_LOG_EMPTY_MESSAGE,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.northpass_lms.source import NorthpassLMSSource
+from products.warehouse_sources.sources.northpass_lms.settings import QUIZ_LOG_EMPTY_MESSAGE
+from products.warehouse_sources.sources.northpass_lms.source import NorthpassLMSSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, route
 
 
 def _resp(body: dict[str, Any], status: int = 200) -> ScriptedResponse:

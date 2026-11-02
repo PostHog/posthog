@@ -3,14 +3,12 @@ import json
 import pytest
 from unittest.mock import MagicMock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.azure_application_insights.source import (
+from products.warehouse_sources.sources.azure_application_insights._config import AzureApplicationInsightsSourceConfig
+from products.warehouse_sources.sources.azure_application_insights.source import (
     APP_ERROR,
     AUTH_ERROR,
     PERMISSION_ERROR,
     AzureApplicationInsightsSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.azureapplicationinsights import (
-    AzureApplicationInsightsSourceConfig,
 )
 
 

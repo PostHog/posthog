@@ -5,20 +5,11 @@ import pytest
 
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.donorbox.donorbox import (
-    DonorboxResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.donorbox.source import DonorboxSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.donorbox import (
-    DonorboxSourceConfig,
-)
+from products.warehouse_sources.sources.donorbox._config import DonorboxSourceConfig
+from products.warehouse_sources.sources.donorbox.donorbox import DonorboxResumeConfig, validate_credentials
+from products.warehouse_sources.sources.donorbox.source import DonorboxSource
+from products.warehouse_sources.sources.sdk import UnknownResourceError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 @pytest.fixture

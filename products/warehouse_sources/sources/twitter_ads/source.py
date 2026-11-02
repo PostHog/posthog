@@ -3,38 +3,31 @@ from urllib.parse import quote
 
 import requests
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    IntegrationAccount,
+    IntegrationAccountListingError,
+    OAuthMixin,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
-    SuggestedTable,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
-    IntegrationAccount,
-    IntegrationAccountListingError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import OAuthMixin
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
+    SuggestedTable,
+    detect,
     incremental_field,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.twitterads import (
-    TwitterAdsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.twitter_ads.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.twitter_ads.settings import (
+from products.warehouse_sources.sources.twitter_ads._config import TwitterAdsSourceConfig
+from products.warehouse_sources.sources.twitter_ads.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.twitter_ads.settings import (
     ACCOUNT_ACCESS_DENIED,
     API_VERSION,
     ENTITY_TABLES,
@@ -45,12 +38,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.twitter_ad
     REVOKED_GRANT,
     STATS_TABLES,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.twitter_ads.twitter_ads import (
+from products.warehouse_sources.sources.twitter_ads.twitter_ads import (
     TwitterAdsClient,
     TwitterAdsResumeConfig,
     twitter_ads_source,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register

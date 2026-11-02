@@ -1,11 +1,6 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hubplanner import (
-    HubplannerSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.hubplanner.source import HubplannerSource
+from products.warehouse_sources.sources.hubplanner._config import HubplannerSourceConfig
+from products.warehouse_sources.sources.hubplanner.source import HubplannerSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 class TestHubplannerSource:

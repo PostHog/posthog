@@ -4,21 +4,19 @@ from typing import Any, Literal
 import pytest
 import time_machine
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.everflow._config import EverflowSourceConfig
+from products.warehouse_sources.sources.everflow.everflow import (
+    EverflowResumeConfig,
+    flatten_entity_row,
+    validate_credentials,
+)
+from products.warehouse_sources.sources.everflow.source import EverflowSource
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.everflow.everflow import (
-    EverflowResumeConfig,
-    flatten_entity_row,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.everflow.source import EverflowSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.everflow import (
-    EverflowSourceConfig,
 )
 
 NOW = datetime(2026, 10, 15, 12, tzinfo=UTC)

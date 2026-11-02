@@ -6,31 +6,26 @@ from unittest import mock
 
 import structlog
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldOauthConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import VersionDeprecation
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
-    IntegrationAccountListingError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.instagram import (
-    InstagramSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.instagram.instagram import (
+from products.warehouse_sources.sources.instagram._config import InstagramSourceConfig
+from products.warehouse_sources.sources.instagram.instagram import (
     AUTH_ERROR_PREFIX,
     PERMISSION_ERROR_PREFIX,
     InstagramAuthError,
     InstagramResumeConfig,
     InstagramRetryableError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.instagram.settings import INSTAGRAM_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.instagram.source import InstagramSource
+from products.warehouse_sources.sources.instagram.settings import INSTAGRAM_ENDPOINTS
+from products.warehouse_sources.sources.instagram.source import InstagramSource
+from products.warehouse_sources.sources.sdk import (
+    IntegrationAccountListingError,
+    ResumableSourceManager,
+    SourceFieldOauthConfig,
+    SourceInputs,
+    VersionDeprecation,
+)
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
-SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.instagram.source"
+SOURCE_MODULE = "products.warehouse_sources.sources.instagram.source"
 ACCOUNT_ID = "17841400000000000"
 
 

@@ -2,22 +2,20 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.deepsource.deepsource import (
+from products.warehouse_sources.sources.deepsource._config import DeepsourceSourceConfig
+from products.warehouse_sources.sources.deepsource.deepsource import (
     DEEPSOURCE_MAX_RETRY_ATTEMPTS,
     DeepsourceResumeConfig,
     DeepsourceRetryableError,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.deepsource.source import DeepsourceSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.deepsource import (
-    DeepsourceSourceConfig,
+from products.warehouse_sources.sources.deepsource.source import DeepsourceSource
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
 )
 
 _CONFIG = DeepsourceSourceConfig(api_token="token", account_login="acme", vcs_provider="GITHUB")

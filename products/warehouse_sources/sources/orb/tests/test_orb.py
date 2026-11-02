@@ -7,22 +7,17 @@ from unittest.mock import MagicMock
 from parameterized import parameterized
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.orb import OrbSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.orb.orb import (
+from products.warehouse_sources.sources.orb._config import OrbSourceConfig
+from products.warehouse_sources.sources.orb.orb import (
     OrbCursorPaginator,
     OrbResumeConfig,
     _format_incremental_value,
     get_resource,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.orb.settings import ENDPOINTS, ORB_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.orb.source import OrbSource
+from products.warehouse_sources.sources.orb.settings import ENDPOINTS, ORB_ENDPOINTS
+from products.warehouse_sources.sources.orb.source import OrbSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 TOP_LEVEL_ENDPOINTS = [e for e in ENDPOINTS if ORB_ENDPOINTS[e].fanout is None]
 FANOUT_ENDPOINTS = [e for e in ENDPOINTS if ORB_ENDPOINTS[e].fanout is not None]

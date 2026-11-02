@@ -1,11 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-    CanonicalEndpoint,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.google_play_console.settings import (
-    BREAKDOWN_TABLES,
-    RELEASE_FILTER_OPTIONS,
-)
+from products.warehouse_sources.sources.google_play_console.settings import BREAKDOWN_TABLES, RELEASE_FILTER_OPTIONS
+from products.warehouse_sources.sources.sdk import CanonicalDescriptions, CanonicalEndpoint
 
 # Columns every vitals metric-set table carries: the app and window the row aggregates, plus the
 # version slice it was requested with.

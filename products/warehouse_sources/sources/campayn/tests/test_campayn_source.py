@@ -1,10 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.campayn.source import CampaynSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.campayn import (
-    CampaynSourceConfig,
-)
+from products.warehouse_sources.sources.campayn._config import CampaynSourceConfig
+from products.warehouse_sources.sources.campayn.source import CampaynSource
 
 
 class TestCampaynSource:
@@ -26,9 +24,7 @@ class TestCampaynSource:
             ("acme@evil.com", True, False, "Campayn subdomain is incorrect"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.campayn.source.validate_campayn_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.campayn.source.validate_campayn_credentials")
     def test_validate_credentials(
         self,
         mock_validate: mock.MagicMock,

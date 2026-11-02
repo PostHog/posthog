@@ -9,34 +9,19 @@ from unittest import mock
 
 from requests import HTTPError, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    always,
-    scripted_network,
-    source_inputs,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.depot.depot import (
+from products.warehouse_sources.sources.depot._config import DepotSourceConfig
+from products.warehouse_sources.sources.depot.depot import (
     DEPOT_CI_SERVICE_URL,
     DepotResumeState,
     depot_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.depot.settings import (
-    ARTIFACTS,
-    FAILURE_DIAGNOSES,
-    JOB_ATTEMPTS,
-    JOB_METRICS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.depot.source import (
-    DepotReconciliationCursor,
-    DepotSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.depot import DepotSourceConfig
+from products.warehouse_sources.sources.depot.settings import ARTIFACTS, FAILURE_DIAGNOSES, JOB_ATTEMPTS, JOB_METRICS
+from products.warehouse_sources.sources.depot.source import DepotReconciliationCursor, DepotSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceCursorManager, SourceResponse
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, always, scripted_network, source_inputs
 
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.depot.depot"
+MODULE = "products.warehouse_sources.sources.depot.depot"
 REPOSITORY = "example-org/example-repo"
 API_TOKEN = "depot-test-token"
 IN_FLIGHT = ["queued", "running"]

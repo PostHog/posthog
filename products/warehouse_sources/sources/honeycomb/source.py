@@ -1,40 +1,37 @@
 from typing import Optional, cast
 
-from posthog.schema_enums import ProductKey
-
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-    SourceFieldSelectConfig,
-    SourceFieldSelectConfigOption,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.honeycomb import (
-    HoneycombSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.honeycomb.honeycomb import (
+from products.warehouse_sources.sources.honeycomb._config import HoneycombSourceConfig
+from products.warehouse_sources.sources.honeycomb.honeycomb import (
     HoneycombResumeConfig,
     honeycomb_source,
     validate_credentials as validate_honeycomb_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.honeycomb.settings import (
+from products.warehouse_sources.sources.honeycomb.settings import (
     ENDPOINTS,
     HONEYCOMB_ENDPOINTS,
     INCREMENTAL_FIELDS,
     HoneycombScope,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ProductKey,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    detect,
+)
 
 
 @SourceRegistry.register
@@ -173,8 +170,8 @@ Keys are region-specific — pick the region that matches your Honeycomb account
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.honeycomb.canonical_descriptions import (  # noqa: PLC0415
-            CANONICAL_DESCRIPTIONS,
+        from products.warehouse_sources.sources.honeycomb.canonical_descriptions import (
+            CANONICAL_DESCRIPTIONS,  # noqa: PLC0415
         )
 
         return CANONICAL_DESCRIPTIONS

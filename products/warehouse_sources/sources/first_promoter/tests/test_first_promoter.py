@@ -5,14 +5,8 @@ from unittest.mock import MagicMock, Mock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.first_promoter.first_promoter import (
+from products.warehouse_sources.sources.first_promoter._config import FirstPromoterSourceConfig
+from products.warehouse_sources.sources.first_promoter.first_promoter import (
     FirstPromoterPaginator,
     FirstPromoterResumeConfig,
     _format_filter_date,
@@ -20,14 +14,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.first_prom
     get_resource,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.first_promoter.settings import (
+from products.warehouse_sources.sources.first_promoter.settings import (
     DEFAULT_PAGE_SIZE,
     PROGRAM_REPORT_COLUMNS,
     TRAFFIC_SOURCES_REPORT_COLUMNS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.first_promoter.source import FirstPromoterSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.firstpromoter import (
-    FirstPromoterSourceConfig,
+from products.warehouse_sources.sources.first_promoter.source import FirstPromoterSource
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
 )
 
 
@@ -187,9 +185,7 @@ class TestFirstPromoterTransport:
         assert result.raised is None
         assert result.params("page") == ["7"]
 
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.first_promoter.first_promoter.rest_api_resource"
-    )
+    @patch("products.warehouse_sources.sources.first_promoter.first_promoter.rest_api_resource")
     def test_resume_hook_saves_state_only_when_there_is_a_next_page(self, mock_rest_api_resource: MagicMock) -> None:
         manager = MagicMock()
         manager.can_resume.return_value = False

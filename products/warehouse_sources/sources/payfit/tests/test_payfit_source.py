@@ -2,12 +2,9 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.payfit import PayFitSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.payfit.source import PayFitSource
+from products.warehouse_sources.sources.payfit._config import PayFitSourceConfig
+from products.warehouse_sources.sources.payfit.source import PayFitSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 class TestPayFitSource:
@@ -60,7 +57,7 @@ class TestPayFitSource:
         assert network.requests_log[0].json() == {"token": "payfit-key"}
         assert result == (True, None)
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.payfit.source.payfit_source")
+    @mock.patch("products.warehouse_sources.sources.payfit.source.payfit_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "collaborators"

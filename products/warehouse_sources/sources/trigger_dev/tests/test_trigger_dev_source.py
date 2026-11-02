@@ -2,8 +2,8 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.trigger_dev import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.trigger_dev.source import TriggerDevSource
+from products.warehouse_sources.sources.trigger_dev import source as source_module
+from products.warehouse_sources.sources.trigger_dev.source import TriggerDevSource
 
 
 class TestTriggerDevSourceConfig:

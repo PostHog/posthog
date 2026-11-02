@@ -3,31 +3,22 @@ from typing import Any
 from requests import Response
 from requests.exceptions import RequestException
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    PageNumberPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+from products.warehouse_sources.sources.sdk import (
+    APIKeyAuth,
     Endpoint,
+    PageNumberPaginator,
     ResponseAction,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import (
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    rest_api_resource,
+    schema_for_resource,
     unreachable_vendor_message,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ticketmaster import (
-    TicketmasterSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.ticketmaster.settings import (
+from products.warehouse_sources.sources.ticketmaster._config import TicketmasterSourceConfig
+from products.warehouse_sources.sources.ticketmaster.settings import (
     AUTH_ERRORS,
     ENDPOINTS,
     KEYWORD_ERROR,

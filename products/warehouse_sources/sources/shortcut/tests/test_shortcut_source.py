@@ -1,7 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shortcut import (
-    ShortcutSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.shortcut.source import ShortcutSource
+from products.warehouse_sources.sources.shortcut._config import ShortcutSourceConfig
+from products.warehouse_sources.sources.shortcut.source import ShortcutSource
 
 
 class TestShortcutSource:

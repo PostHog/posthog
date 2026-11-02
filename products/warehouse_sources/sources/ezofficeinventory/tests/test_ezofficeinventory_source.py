@@ -3,18 +3,14 @@ from typing import cast
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.ezofficeinventory.settings import (
+from products.warehouse_sources.sources.ezofficeinventory._config import EZOfficeInventorySourceConfig
+from products.warehouse_sources.sources.ezofficeinventory.settings import (
     EZOFFICEINVENTORY_API_VERSION_V1,
     EZOFFICEINVENTORY_API_VERSION_V2,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.ezofficeinventory.source import (
-    EZOfficeInventorySource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ezofficeinventory import (
-    EZOfficeInventorySourceConfig,
-)
+from products.warehouse_sources.sources.ezofficeinventory.source import EZOfficeInventorySource
 
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.ezofficeinventory.source"
+_MODULE = "products.warehouse_sources.sources.ezofficeinventory.source"
 
 
 def _config() -> EZOfficeInventorySourceConfig:

@@ -3,16 +3,11 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.chargedesk import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.chargedesk.source import ChargedeskSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.chargedesk import (
-    ChargedeskSourceConfig,
-)
+from products.warehouse_sources.sources.chargedesk import source as source_module
+from products.warehouse_sources.sources.chargedesk._config import ChargedeskSourceConfig
+from products.warehouse_sources.sources.chargedesk.source import ChargedeskSource
+from products.warehouse_sources.sources.sdk import SourceFieldInputConfig
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 def _config() -> ChargedeskSourceConfig:

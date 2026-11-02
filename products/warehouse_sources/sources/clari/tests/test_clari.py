@@ -3,8 +3,8 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import validate_incremental_sync
-from products.warehouse_sources.backend.temporal.data_imports.sources.clari.clari import (
+from products.warehouse_sources.sources.clari._config import ClariSourceConfig
+from products.warehouse_sources.sources.clari.clari import (
     ClariResumeConfig,
     ClariRetryableError,
     _extract_result_rows,
@@ -12,16 +12,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clari.clar
     _to_datetime,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.clari.settings import (
-    ACTIVITY_INITIAL_LOOKBACK_DAYS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.clari.source import ClariSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clari import ClariSourceConfig
+from products.warehouse_sources.sources.clari.settings import ACTIVITY_INITIAL_LOOKBACK_DAYS
+from products.warehouse_sources.sources.clari.source import ClariSource
+from products.warehouse_sources.sources.sdk.internals import validate_incremental_sync
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver() -> SourceDriver:

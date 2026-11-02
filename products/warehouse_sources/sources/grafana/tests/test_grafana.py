@@ -4,19 +4,9 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.grafana import (
-    GrafanaAuthMethodConfig,
-    GrafanaSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.grafana import grafana as grafana_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.grafana.grafana import (
+from products.warehouse_sources.sources.grafana import grafana as grafana_module
+from products.warehouse_sources.sources.grafana._config import GrafanaAuthMethodConfig, GrafanaSourceConfig
+from products.warehouse_sources.sources.grafana.grafana import (
     ANNOTATIONS_LIMIT,
     BASIC_AUTH,
     DASHBOARD_VERSIONS_PAGE_SIZE,
@@ -34,11 +24,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.grafana.gr
     normalize_host,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.grafana.settings import (
-    DEFAULT_PAGE_SIZE,
-    LIBRARY_ELEMENTS_PAGE_SIZE,
+from products.warehouse_sources.sources.grafana.settings import DEFAULT_PAGE_SIZE, LIBRARY_ELEMENTS_PAGE_SIZE
+from products.warehouse_sources.sources.grafana.source import GrafanaSource
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.grafana.source import GrafanaSource
 
 
 def _response(

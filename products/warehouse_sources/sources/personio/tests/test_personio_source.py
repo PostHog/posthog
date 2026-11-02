@@ -1,16 +1,9 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
-    OAUTH2_PERMANENT_ERROR_MARKER,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.personio import (
-    PersonioSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.personio.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.personio.source import PersonioSource
+from products.warehouse_sources.sources.personio._config import PersonioSourceConfig
+from products.warehouse_sources.sources.personio.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.personio.source import PersonioSource
+from products.warehouse_sources.sources.sdk import OAUTH2_PERMANENT_ERROR_MARKER
 
 
 class TestPersonioSource:

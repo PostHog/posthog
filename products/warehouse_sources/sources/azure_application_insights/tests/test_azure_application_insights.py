@@ -10,24 +10,18 @@ from unittest.mock import MagicMock
 
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.azure_application_insights.azure_application_insights import (
+from products.warehouse_sources.sources.azure_application_insights._config import AzureApplicationInsightsSourceConfig
+from products.warehouse_sources.sources.azure_application_insights.azure_application_insights import (
     AzureApplicationInsightsClient,
     AzureApplicationInsightsResumeConfig,
     azure_application_insights_source,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.azure_application_insights.source import (
-    AzureApplicationInsightsSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.azureapplicationinsights import (
-    AzureApplicationInsightsSourceConfig,
-)
+from products.warehouse_sources.sources.azure_application_insights.source import AzureApplicationInsightsSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
 
 TOKEN = {"access_token": "fake-access-token", "expires_in": 3600}
 TIMESTAMP = "2026-01-07T10:00:00.1234567Z"
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.azure_application_insights.azure_application_insights"
+MODULE = "products.warehouse_sources.sources.azure_application_insights.azure_application_insights"
 
 
 def payload(ids: list[str]) -> dict[str, Any]:

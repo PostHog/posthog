@@ -8,25 +8,23 @@ from unittest import mock
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shortcut import (
-    ShortcutSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.shortcut.settings import SHORTCUT_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.shortcut.shortcut import (
+from products.warehouse_sources.sources.shortcut._config import ShortcutSourceConfig
+from products.warehouse_sources.sources.shortcut.settings import SHORTCUT_ENDPOINTS
+from products.warehouse_sources.sources.shortcut.shortcut import (
     SHORTCUT_BASE_URL,
     STORY_SEARCH_EPOCH_START,
     _build_search_body,
     _format_incremental_value,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.shortcut.source import ShortcutSource
+from products.warehouse_sources.sources.shortcut.source import ShortcutSource
 
 
 def _driver(token: str = "secret-token") -> SourceDriver:
@@ -152,7 +150,7 @@ class TestRequests:
         ]
 
         with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.shortcut.shortcut.STORY_SEARCH_SPLIT_THRESHOLD",
+            "products.warehouse_sources.sources.shortcut.shortcut.STORY_SEARCH_SPLIT_THRESHOLD",
             split_threshold,
         ):
             result = _driver().run(

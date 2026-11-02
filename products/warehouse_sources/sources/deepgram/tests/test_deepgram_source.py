@@ -2,15 +2,9 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.deepgram.source import DeepgramSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.deepgram import (
-    DeepgramSourceConfig,
-)
+from products.warehouse_sources.sources.deepgram._config import DeepgramSourceConfig
+from products.warehouse_sources.sources.deepgram.source import DeepgramSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 class TestDeepgramSourceClass:

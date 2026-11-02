@@ -1,40 +1,38 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ubidots import (
-    UbidotsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.settings import (
+from products.warehouse_sources.sources.ubidots._config import UbidotsSourceConfig
+from products.warehouse_sources.sources.ubidots.settings import (
     DEFAULT_UBIDOTS_API_BASE_URL,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     UBIDOTS_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.ubidots import (
+from products.warehouse_sources.sources.ubidots.ubidots import (
     SUPPORTED_UBIDOTS_API_VERSIONS,
     UBIDOTS_API_VERSION_V2_0,
     UbidotsResumeConfig,
     ubidots_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -94,8 +92,8 @@ Use the permanent token from **your profile → API Credentials** in Ubidots —
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.canonical_descriptions import (  # noqa: PLC0415
-            CANONICAL_DESCRIPTIONS,
+        from products.warehouse_sources.sources.ubidots.canonical_descriptions import (
+            CANONICAL_DESCRIPTIONS,  # noqa: PLC0415
         )
 
         return CANONICAL_DESCRIPTIONS

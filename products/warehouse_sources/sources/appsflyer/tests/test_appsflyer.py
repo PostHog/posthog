@@ -3,7 +3,8 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.appsflyer import (
+from products.warehouse_sources.sources.appsflyer._config import AppsFlyerSourceConfig
+from products.warehouse_sources.sources.appsflyer.appsflyer import (
     CHUNK_SIZE,
     LOOKBACK_DAYS,
     MASTER_MAX_LOOKBACK_DAYS,
@@ -20,20 +21,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.
     appsflyer_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.settings import APPSFLYER_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.source import AppsFlyerSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.appsflyer.settings import APPSFLYER_ENDPOINTS
+from products.warehouse_sources.sources.appsflyer.source import AppsFlyerSource
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appsflyer import (
-    AppsFlyerSourceConfig,
-)
 
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.appsflyer"
+_MODULE = "products.warehouse_sources.sources.appsflyer.appsflyer"
 
 _CSV = (
     "Date,Agency/PMD (af_prt),Media Source (pid),Campaign (c),Impressions,Clicks\n"

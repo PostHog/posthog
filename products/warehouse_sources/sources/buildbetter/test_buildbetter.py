@@ -2,24 +2,15 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.buildbetter.buildbetter import (
-    BuildBetterResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.buildbetter.settings import (
+from products.warehouse_sources.sources.buildbetter._config import BuildBetterSourceConfig
+from products.warehouse_sources.sources.buildbetter.buildbetter import BuildBetterResumeConfig, validate_credentials
+from products.warehouse_sources.sources.buildbetter.settings import (
     BUILDBETTER_API_URL,
     BUILDBETTER_ENDPOINTS,
     BUILDBETTER_REST_API_URL,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.buildbetter.source import BuildBetterSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.buildbetter import (
-    BuildBetterSourceConfig,
-)
+from products.warehouse_sources.sources.buildbetter.source import BuildBetterSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _interview_payload(ids: list[str]) -> dict:

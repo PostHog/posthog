@@ -7,30 +7,7 @@ from typing import Any, Optional
 
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
-    coerce_datetime_to_utc,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    build_dependent_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    PageNumberPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-    ClientConfig,
-    Endpoint,
-    EndpointResource,
-    IncrementalConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.first_promoter.settings import (
+from products.warehouse_sources.sources.first_promoter.settings import (
     DEFAULT_PAGE_SIZE,
     FIRST_PROMOTER_ENDPOINTS,
     REPORTS_GROUP_BY,
@@ -38,6 +15,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.first_prom
     FirstPromoterEndpointConfig,
     FirstPromoterReportConfig,
     base_url,
+)
+from products.warehouse_sources.sources.sdk import (
+    ClientConfig,
+    Endpoint,
+    EndpointResource,
+    IncrementalConfig,
+    PageNumberPaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceResponse,
+    build_dependent_resource,
+    coerce_datetime_to_utc,
+    make_tracked_session,
+    rest_api_resource,
 )
 
 logger = logging.getLogger(__name__)

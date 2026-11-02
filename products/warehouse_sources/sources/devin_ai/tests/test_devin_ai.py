@@ -4,24 +4,11 @@ import pytest
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.devin_ai.devin_ai import (
-    DevinAIResumeConfig,
-    _endpoint_path,
-    get_status_code,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.devin_ai.settings import (
-    DEVIN_AI_ENDPOINTS,
-    PAGE_SIZE,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.devin_ai.source import DevinAISource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.devinai import (
-    DevinAISourceConfig,
-)
+from products.warehouse_sources.sources.devin_ai._config import DevinAISourceConfig
+from products.warehouse_sources.sources.devin_ai.devin_ai import DevinAIResumeConfig, _endpoint_path, get_status_code
+from products.warehouse_sources.sources.devin_ai.settings import DEVIN_AI_ENDPOINTS, PAGE_SIZE
+from products.warehouse_sources.sources.devin_ai.source import DevinAISource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _page(

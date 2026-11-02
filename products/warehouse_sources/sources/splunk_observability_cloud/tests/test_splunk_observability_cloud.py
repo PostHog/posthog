@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
     ScriptedResponse,
@@ -15,16 +15,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.splunkobservabilitycloud import (
-    SplunkObservabilityCloudSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.splunk_observability_cloud.settings import (
-    PAGE_SIZE,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.splunk_observability_cloud.source import (
-    SplunkObservabilityCloudSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.splunk_observability_cloud.splunk_observability_cloud import (
+from products.warehouse_sources.sources.splunk_observability_cloud._config import SplunkObservabilityCloudSourceConfig
+from products.warehouse_sources.sources.splunk_observability_cloud.settings import PAGE_SIZE
+from products.warehouse_sources.sources.splunk_observability_cloud.source import SplunkObservabilityCloudSource
+from products.warehouse_sources.sources.splunk_observability_cloud.splunk_observability_cloud import (
     SplunkObservabilityCloudResumeConfig,
     _iter_sse_events,
     _ms_to_datetime,

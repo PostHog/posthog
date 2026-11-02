@@ -1,36 +1,28 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    SimpleSource,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shortio import (
-    ShortioSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.shortio.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-    SHORTIO_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.shortio.shortio import (
+from products.warehouse_sources.sources.shortio._config import ShortioSourceConfig
+from products.warehouse_sources.sources.shortio.settings import ENDPOINTS, INCREMENTAL_FIELDS, SHORTIO_ENDPOINTS
+from products.warehouse_sources.sources.shortio.shortio import (
     shortio_source,
     validate_credentials as _validate_credentials,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -76,8 +68,8 @@ This version syncs your top-level list of **domains** only. Per-domain links and
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.shortio.canonical_descriptions import (  # noqa: PLC0415
-            CANONICAL_DESCRIPTIONS,
+        from products.warehouse_sources.sources.shortio.canonical_descriptions import (
+            CANONICAL_DESCRIPTIONS,  # noqa: PLC0415
         )
 
         return CANONICAL_DESCRIPTIONS

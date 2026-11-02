@@ -6,14 +6,9 @@ from unittest.mock import MagicMock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.simfin import SimFinSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.simfin.simfin import (
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.simfin._config import SimFinSourceConfig
+from products.warehouse_sources.sources.simfin.simfin import (
     SimFinAPIError,
     _normalize_column_name,
     _parse_common_shares,
@@ -26,7 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.simfin.sim
     validate_credentials,
     validate_tickers,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.simfin.source import SimFinSource
+from products.warehouse_sources.sources.simfin.source import SimFinSource
 
 
 def _driver(tickers: str = "AAPL, MSFT") -> SourceDriver:

@@ -3,19 +3,10 @@ from typing import Any
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pexels import PexelsSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.pexels.pexels import (
-    PexelsResumeConfig,
-    _build_url,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.pexels.source import PexelsSource
+from products.warehouse_sources.sources.pexels._config import PexelsSourceConfig
+from products.warehouse_sources.sources.pexels.pexels import PexelsResumeConfig, _build_url, validate_credentials
+from products.warehouse_sources.sources.pexels.source import PexelsSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, route, scripted_network
 
 
 def _driver(api_key: str = "k", search_query: str | None = None) -> SourceDriver:

@@ -1,41 +1,37 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ukcompanieshouse import (
-    UkCompaniesHouseSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.uk_companies_house.settings import (
+from products.warehouse_sources.sources.uk_companies_house._config import UkCompaniesHouseSourceConfig
+from products.warehouse_sources.sources.uk_companies_house.settings import (
     DESCRIPTIONS,
     ENDPOINT_SPECS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.uk_companies_house.uk_companies_house import (
+from products.warehouse_sources.sources.uk_companies_house.uk_companies_house import (
     UkCompaniesHouseResumeConfig,
     invalid_company_numbers,
     parse_company_numbers,
     uk_companies_house_source,
     validate_credentials as validate_companies_house_credentials,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 NO_COMPANY_NUMBERS_ERROR = "Add at least one company number to sync from Companies House."
 
@@ -72,9 +68,7 @@ class UkCompaniesHouseSource(ResumableSource[UkCompaniesHouseSourceConfig, UkCom
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.uk_companies_house.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.uk_companies_house.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

@@ -7,17 +7,8 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lacework import (
-    LaceworkSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.lacework.lacework import (
+from products.warehouse_sources.sources.lacework._config import LaceworkSourceConfig
+from products.warehouse_sources.sources.lacework.lacework import (
     INVALID_ACCOUNT_ERROR,
     LaceworkResumeConfig,
     LaceworkRetryableError,
@@ -26,7 +17,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lacework.l
     normalize_account,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.lacework.source import LaceworkSource
+from products.warehouse_sources.sources.lacework.source import LaceworkSource
+from products.warehouse_sources.sources.sdk.testing import (
+    DriveResult,
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 
 
 def _token() -> ScriptedResponse:

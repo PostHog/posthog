@@ -2,20 +2,17 @@ import re
 from datetime import UTC, datetime
 from typing import Any
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.appcues.settings import BASE_URLS, ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from products.warehouse_sources.sources.appcues._config import AppcuesSourceConfig
+from products.warehouse_sources.sources.appcues.settings import BASE_URLS, ENDPOINTS
+from products.warehouse_sources.sources.sdk import (
+    HttpBasicAuth,
     RESTAPIConfig,
     RESTClient,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import HttpBasicAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appcues import (
-    AppcuesSourceConfig,
+    SourceInputs,
+    SourceResponse,
+    rest_api_resource,
+    schema_for_resource,
 )
 
 REQUEST_TIMEOUT_SECONDS = 30

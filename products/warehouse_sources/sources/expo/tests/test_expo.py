@@ -5,7 +5,7 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.expo.expo import (
+from products.warehouse_sources.sources.expo.expo import (
     PAGE_SIZE,
     ExpoAPIError,
     ExpoResumeConfig,
@@ -13,7 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.expo.expo 
     validate_credentials,
 )
 
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.expo.expo"
+_MODULE = "products.warehouse_sources.sources.expo.expo"
 
 
 def _manager(resume_state: ExpoResumeConfig | None = None) -> mock.MagicMock:

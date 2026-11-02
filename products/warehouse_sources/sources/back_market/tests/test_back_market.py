@@ -6,7 +6,8 @@ from parameterized import parameterized
 from requests import PreparedRequest, Response
 from requests.structures import CaseInsensitiveDict
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.back_market.back_market import (
+from products.warehouse_sources.sources.back_market._config import BackMarketSourceConfig
+from products.warehouse_sources.sources.back_market.back_market import (
     BackMarketPaginator,
     BackMarketResumeConfig,
     BackMarketTokenAuth,
@@ -14,16 +15,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.back_marke
     _format_timestamp,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.back_market.settings import BACK_MARKET_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.back_market.source import BackMarketSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.backmarket import (
-    BackMarketSourceConfig,
-)
+from products.warehouse_sources.sources.back_market.settings import BACK_MARKET_ENDPOINTS
+from products.warehouse_sources.sources.back_market.source import BackMarketSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 class TestBackMarketTokenAuth:

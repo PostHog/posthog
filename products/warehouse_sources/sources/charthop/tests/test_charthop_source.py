@@ -2,12 +2,10 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.charthop.source import ChartHopSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.charthop import (
-    ChartHopSourceConfig,
-)
+from products.warehouse_sources.sources.charthop._config import ChartHopSourceConfig
+from products.warehouse_sources.sources.charthop.source import ChartHopSource
 
-CHECK_ACCESS_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.charthop.source.check_access"
+CHECK_ACCESS_PATH = "products.warehouse_sources.sources.charthop.source.check_access"
 
 
 class TestChartHopSource:
@@ -87,8 +85,8 @@ class TestChartHopSource:
         mock_check.assert_not_called()
 
     @parameterized.expand([("unpinned", None, "v2"), ("legacy", "v1", "v1"), ("v2", "v2", "v2")])
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.charthop.source.resolve_org_id")
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.charthop.source.charthop_source")
+    @mock.patch("products.warehouse_sources.sources.charthop.source.resolve_org_id")
+    @mock.patch("products.warehouse_sources.sources.charthop.source.charthop_source")
     def test_source_for_pipeline_plumbs_arguments(
         self,
         _name: str,

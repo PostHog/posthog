@@ -7,24 +7,16 @@ from unittest.mock import MagicMock, patch
 import requests_mock
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.clarifai.clarifai import (
-    ClarifaiClient,
-    ClarifaiResumeConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.clarifai.source import ClarifaiSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.clarifai._config import ClarifaiSourceConfig
+from products.warehouse_sources.sources.clarifai.clarifai import ClarifaiClient, ClarifaiResumeConfig
+from products.warehouse_sources.sources.clarifai.source import ClarifaiSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError, ResumableSourceManager
+from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
     route,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clarifai import (
-    ClarifaiSourceConfig,
 )
 
 BASE_URL = "https://api.clarifai.com/v2/users/example-user/apps/example-app/"

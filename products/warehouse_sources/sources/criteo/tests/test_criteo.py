@@ -6,13 +6,10 @@ import pytest
 import time_machine
 from unittest.mock import patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.criteo.criteo import CriteoResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.criteo.source import CriteoSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.criteo import CriteoSourceConfig
+from products.warehouse_sources.sources.criteo._config import CriteoSourceConfig
+from products.warehouse_sources.sources.criteo.criteo import CriteoResumeConfig
+from products.warehouse_sources.sources.criteo.source import CriteoSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 def driver(start_date: str = "2026-10-10") -> SourceDriver:
@@ -224,9 +221,7 @@ def test_report_resume_keeps_the_original_end_date_and_commits_empty_days() -> N
 def test_invalid_reports_fail_before_rows_or_checkpoints_escape(
     rows: list[dict[str, Any]], error: str, limit: int
 ) -> None:
-    with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.criteo.criteo.REPORT_ROW_LIMIT", limit
-    ):
+    with patch("products.warehouse_sources.sources.criteo.criteo.REPORT_ROW_LIMIT", limit):
         result = driver().run("CampaignStats", [token(), ScriptedResponse(json={"Rows": rows})])
     assert isinstance(result.raised, ValueError)
     assert error in str(result.raised)

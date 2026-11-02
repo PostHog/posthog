@@ -2,12 +2,8 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.dynamodb.dynamodb import (
+from products.warehouse_sources.sources.dynamodb._config import DynamoDBSourceConfig
+from products.warehouse_sources.sources.dynamodb.dynamodb import (
     DynamoDBAPIError,
     DynamoDBClient,
     DynamoDBResumeConfig,
@@ -18,11 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dynamodb.d
     validate_credentials,
     validate_region,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.dynamodb.settings import MAX_RETRY_ATTEMPTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.dynamodb.source import DynamoDBSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dynamodb import (
-    DynamoDBSourceConfig,
-)
+from products.warehouse_sources.sources.dynamodb.settings import MAX_RETRY_ATTEMPTS
+from products.warehouse_sources.sources.dynamodb.source import DynamoDBSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _client() -> DynamoDBClient:

@@ -1,9 +1,7 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zenloop import (
-    ZenloopSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.zenloop.source import ZenloopSource
+from products.warehouse_sources.sources.zenloop._config import ZenloopSourceConfig
+from products.warehouse_sources.sources.zenloop.source import ZenloopSource
 
 
 class TestZenloopSource:
@@ -16,7 +14,7 @@ class TestZenloopSource:
         # get_schemas is a static catalog with no I/O, so the public docs can render the table list.
         assert self.source.lists_tables_without_credentials is True
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.zenloop.source.zenloop_source")
+    @mock.patch("products.warehouse_sources.sources.zenloop.source.zenloop_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_zenloop_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "surveys"

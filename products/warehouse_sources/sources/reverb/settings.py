@@ -1,12 +1,12 @@
 from dataclasses import field
 from typing import Any, Literal, Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+from products.warehouse_sources.sources.sdk import (
     DependentEndpointConfig,
+    IncrementalField,
+    IncrementalFieldType,
+    frozen,
 )
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 # Reverb clamps `per_page` to 50 regardless of the value requested (verified against the live
 # /api/listings endpoint), so always ask for the max to minimise round trips.

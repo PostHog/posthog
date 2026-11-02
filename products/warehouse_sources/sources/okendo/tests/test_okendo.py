@@ -2,21 +2,11 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.okendo import OkendoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.okendo.okendo import (
-    OkendoResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.okendo.settings import (
-    OKENDO_API_VERSION,
-    REVIEW_STATUSES,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.okendo.source import OkendoSource
+from products.warehouse_sources.sources.okendo._config import OkendoSourceConfig
+from products.warehouse_sources.sources.okendo.okendo import OkendoResumeConfig, validate_credentials
+from products.warehouse_sources.sources.okendo.settings import OKENDO_API_VERSION, REVIEW_STATUSES
+from products.warehouse_sources.sources.okendo.source import OkendoSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _reviews_page(ids: list[str], next_cursor: str | None = None) -> ScriptedResponse:

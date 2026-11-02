@@ -3,18 +3,11 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.asknicely.asknicely import build_responses_url
-from products.warehouse_sources.backend.temporal.data_imports.sources.asknicely.source import AsknicelySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.asknicely import (
-    AsknicelySourceConfig,
-)
+from products.warehouse_sources.sources.asknicely._config import AsknicelySourceConfig
+from products.warehouse_sources.sources.asknicely.asknicely import build_responses_url
+from products.warehouse_sources.sources.asknicely.source import AsknicelySource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceInputs
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _make_inputs(**overrides: Any) -> SourceInputs:
@@ -84,7 +77,7 @@ class TestAsknicelySource:
         assert request.url == build_responses_url("acme", page_number=1, since_time=0, page_size=1)
         assert request.headers["x-apikey"] == "test-key"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.asknicely.source.asknicely_source")
+    @mock.patch("products.warehouse_sources.sources.asknicely.source.asknicely_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = _make_inputs(
             should_use_incremental_field=True,

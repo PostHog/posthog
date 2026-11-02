@@ -34,17 +34,14 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
+    _is_host_safe,
     make_tracked_session,
     retry_with_deadline,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.unstructured.settings import (
-    UNSTRUCTURED_ENDPOINTS,
-    UnstructuredEndpointConfig,
-)
+from products.warehouse_sources.sources.unstructured.settings import UNSTRUCTURED_ENDPOINTS, UnstructuredEndpointConfig
 
 DEFAULT_BASE_URL = "https://platform.unstructuredapp.io"
 # /workflows/ default page_size is 20; pull larger pages to cut round-trips on busy accounts.

@@ -5,14 +5,8 @@ import pytest
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jira import JiraSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.jira.jira import (
+from products.warehouse_sources.sources.jira._config import JiraSourceConfig
+from products.warehouse_sources.sources.jira.jira import (
     SPRINT_ISSUES_JQL,
     JiraResumeConfig,
     _format_jql_datetime,
@@ -20,7 +14,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.jira.jira 
     is_valid_subdomain,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.jira.source import JiraSource
+from products.warehouse_sources.sources.jira.source import JiraSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, route, scripted_network
 
 
 def _driver() -> SourceDriver:

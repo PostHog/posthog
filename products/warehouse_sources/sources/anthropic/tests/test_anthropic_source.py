@@ -2,14 +2,12 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.settings import ANTHROPIC_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.source import AnthropicSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.anthropic import (
-    AnthropicSourceConfig,
-)
+from products.warehouse_sources.sources.anthropic._config import AnthropicSourceConfig
+from products.warehouse_sources.sources.anthropic.settings import ANTHROPIC_ENDPOINTS
+from products.warehouse_sources.sources.anthropic.source import AnthropicSource
+from products.warehouse_sources.sources.sdk.testing import SourceDriver
 
-_SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.source"
+_SOURCE_MODULE = "products.warehouse_sources.sources.anthropic.source"
 _CHECK_ANALYTICS_ACCESS = f"{_SOURCE_MODULE}.check_analytics_access"
 _CHECK_RBAC_GROUP_ACCESS = f"{_SOURCE_MODULE}.check_rbac_group_access"
 _CHECK_RBAC_ROLE_ACCESS = f"{_SOURCE_MODULE}.check_rbac_role_access"

@@ -5,7 +5,7 @@ from urllib.parse import parse_qsl, urlsplit
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
     ScriptedResponse,
@@ -13,18 +13,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     UnexpectedRequest,
     always,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.todoist import (
-    TodoistSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.todoist.settings import (
-    INCREMENTAL_FIELDS,
-    TODOIST_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.todoist.source import TodoistSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.todoist.todoist import (
-    PAGE_LIMIT,
-    TodoistResumeConfig,
-)
+from products.warehouse_sources.sources.todoist._config import TodoistSourceConfig
+from products.warehouse_sources.sources.todoist.settings import INCREMENTAL_FIELDS, TODOIST_ENDPOINTS
+from products.warehouse_sources.sources.todoist.source import TodoistSource
+from products.warehouse_sources.sources.todoist.todoist import PAGE_LIMIT, TodoistResumeConfig
 
 BASE = "https://api.todoist.com/api/v1"
 

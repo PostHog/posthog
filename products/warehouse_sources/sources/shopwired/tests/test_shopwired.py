@@ -4,20 +4,11 @@ from typing import Any
 from parameterized import parameterized
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shopwired import (
-    ShopWiredSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopwired.settings import PAGE_SIZE
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopwired.shopwired import (
-    ShopWiredResumeConfig,
-    to_unix_timestamp,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopwired.source import ShopWiredSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always
+from products.warehouse_sources.sources.shopwired._config import ShopWiredSourceConfig
+from products.warehouse_sources.sources.shopwired.settings import PAGE_SIZE
+from products.warehouse_sources.sources.shopwired.shopwired import ShopWiredResumeConfig, to_unix_timestamp
+from products.warehouse_sources.sources.shopwired.source import ShopWiredSource
 
 
 def _driver() -> SourceDriver:

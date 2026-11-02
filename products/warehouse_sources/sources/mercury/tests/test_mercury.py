@@ -3,20 +3,15 @@ from typing import Any, cast
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mercury import (
-    MercurySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.mercury.mercury import (
+from products.warehouse_sources.sources.mercury._config import MercurySourceConfig
+from products.warehouse_sources.sources.mercury.mercury import (
     MercuryResumeConfig,
     format_incremental_value,
     get_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.mercury.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.mercury.source import MercurySource
+from products.warehouse_sources.sources.mercury.settings import ENDPOINTS
+from products.warehouse_sources.sources.mercury.source import MercurySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 class TestFormatIncrementalValue:

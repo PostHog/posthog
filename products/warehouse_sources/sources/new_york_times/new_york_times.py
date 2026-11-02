@@ -10,18 +10,16 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
-    make_tracked_session,
-    retry_with_deadline,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
-    interruptible_wait,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.new_york_times.settings import (
+from products.warehouse_sources.sources.new_york_times.settings import (
     NEW_YORK_TIMES_ENDPOINTS,
     NewYorkTimesEndpointConfig,
+)
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
+    interruptible_wait,
+    make_tracked_session,
+    retry_with_deadline,
 )
 
 NEW_YORK_TIMES_BASE_URL = "https://api.nytimes.com"

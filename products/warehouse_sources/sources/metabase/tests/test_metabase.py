@@ -6,19 +6,9 @@ import pytest
 import time_machine
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.metabase import (
-    MetabaseAuthMethodConfig,
-    MetabaseSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.metabase import metabase as metabase_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.metabase.metabase import (
+from products.warehouse_sources.sources.metabase import metabase as metabase_module
+from products.warehouse_sources.sources.metabase._config import MetabaseAuthMethodConfig, MetabaseSourceConfig
+from products.warehouse_sources.sources.metabase.metabase import (
     API_KEY_AUTH,
     SESSION_AUTH,
     SESSION_RESPONSE_NOT_JSON_ERROR,
@@ -32,7 +22,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.metabase.m
     query_execution_months,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.metabase.source import MetabaseSource
+from products.warehouse_sources.sources.metabase.source import MetabaseSource
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
 
 
 def _api_key_auth() -> MetabaseAuth:

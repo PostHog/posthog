@@ -2,27 +2,17 @@ import pytest
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+from products.warehouse_sources.sources.eventee._config import EventeeSourceConfig
+from products.warehouse_sources.sources.eventee.eventee import eventee_source, validate_credentials
+from products.warehouse_sources.sources.eventee.settings import ENDPOINTS, EVENTEE_ENDPOINTS
+from products.warehouse_sources.sources.eventee.source import EventeeSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import (
     DEFAULT_RETRY_ATTEMPTS,
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.eventee.eventee import (
-    eventee_source,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.eventee.settings import (
-    ENDPOINTS,
-    EVENTEE_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.eventee.source import EventeeSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.eventee import (
-    EventeeSourceConfig,
 )
 
 

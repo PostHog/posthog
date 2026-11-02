@@ -6,17 +6,8 @@ from unittest.mock import MagicMock
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pagerduty import (
-    PagerDutySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.pagerduty.pagerduty import (
+from products.warehouse_sources.sources.pagerduty._config import PagerDutySourceConfig
+from products.warehouse_sources.sources.pagerduty.pagerduty import (
     ANALYTICS_PERSONAL_KEY_ERROR,
     ANALYTICS_READ_ONLY_KEY_ERROR,
     PAGE_SIZE,
@@ -24,7 +15,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pagerduty.
     _format_incremental_value,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.pagerduty.source import PagerDutySource
+from products.warehouse_sources.sources.pagerduty.source import PagerDutySource
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
 
 
 def _driver() -> SourceDriver:

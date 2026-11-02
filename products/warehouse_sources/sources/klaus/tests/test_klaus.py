@@ -5,15 +5,8 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.klaus import KlausSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.klaus.klaus import (
+from products.warehouse_sources.sources.klaus._config import KlausSourceConfig
+from products.warehouse_sources.sources.klaus.klaus import (
     DEFAULT_FROM_DATE,
     KlausResumeConfig,
     _build_params,
@@ -23,10 +16,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.klaus.klau
     klaus_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.klaus.settings import KLAUS_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.klaus.source import KlausSource
+from products.warehouse_sources.sources.klaus.settings import KLAUS_ENDPOINTS
+from products.warehouse_sources.sources.klaus.source import KlausSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.klaus.klaus"
+MODULE = "products.warehouse_sources.sources.klaus.klaus"
 
 
 def _response(body: dict[str, Any], status: int = 200, headers: dict[str, str] | None = None) -> MagicMock:

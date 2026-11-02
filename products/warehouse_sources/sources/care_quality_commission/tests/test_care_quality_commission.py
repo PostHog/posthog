@@ -6,10 +6,9 @@ from unittest.mock import MagicMock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.care_quality_commission import (
-    care_quality_commission as cqc,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.care_quality_commission.care_quality_commission import (
+from products.warehouse_sources.sources.care_quality_commission import care_quality_commission as cqc
+from products.warehouse_sources.sources.care_quality_commission._config import CareQualityCommissionSourceConfig
+from products.warehouse_sources.sources.care_quality_commission.care_quality_commission import (
     CQC_BASE_URL,
     CQCResumeConfig,
     _build_url,
@@ -17,22 +16,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.care_quali
     _get_headers,
     get_rows,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.care_quality_commission.settings import (
-    CQC_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.care_quality_commission.source import (
-    CareQualityCommissionSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common import boundary_checkpoint
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.care_quality_commission.settings import CQC_ENDPOINTS
+from products.warehouse_sources.sources.care_quality_commission.source import CareQualityCommissionSource
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     ScriptedResponse,
     SourceDriver,
     always,
+    boundary_checkpoint,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.carequalitycommission import (
-    CareQualityCommissionSourceConfig,
 )
 
 

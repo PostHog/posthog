@@ -9,20 +9,7 @@ import pyarrow.compute as pc
 from pyarrow import csv as pa_csv
 from requests import Session
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponsePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.scarf.settings import (
+from products.warehouse_sources.sources.scarf.settings import (
     BASE_URL,
     BOOLEAN_COLUMNS,
     DEFAULT_BACKFILL_DAYS,
@@ -35,6 +22,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.scarf.sett
     REQUEST_TIMEOUT,
     TIMESTAMP_COLUMNS,
     ScarfEndpointConfig,
+)
+from products.warehouse_sources.sources.sdk import (
+    JSONResponsePaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceCursorManager,
+    SourceInputs,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    rest_api_resource,
 )
 
 INVALID_TOKEN_MESSAGE = "Scarf rejected your API token. Create a new token in Scarf and reconnect."

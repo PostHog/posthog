@@ -6,8 +6,8 @@ from unittest.mock import MagicMock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds import finnworlds
-from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds.finnworlds import (
+from products.warehouse_sources.sources.finnworlds import finnworlds
+from products.warehouse_sources.sources.finnworlds.finnworlds import (
     FinnworldsAuthError,
     FinnworldsRetryableError,
     _extract_rows,
@@ -19,7 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds
     parse_tickers,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds.settings import (
+from products.warehouse_sources.sources.finnworlds.settings import (
     FINNWORLDS_ENDPOINTS,
     FinnworldsEndpointConfig,
     ResponseMode,

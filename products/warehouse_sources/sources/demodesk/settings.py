@@ -1,12 +1,12 @@
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+from products.warehouse_sources.sources.sdk import (
     DependentEndpointConfig,
+    IncrementalField,
+    SortMode,
+    incremental_field,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
-from products.warehouse_sources.backend.types import IncrementalField
 
 # Documented default and maximum for the v2 `limit` param.
 PAGE_SIZE = 100

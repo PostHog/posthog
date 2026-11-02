@@ -2,14 +2,9 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lokalise import (
-    LokaliseSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.lokalise.source import LokaliseSource
+from products.warehouse_sources.sources.lokalise._config import LokaliseSourceConfig
+from products.warehouse_sources.sources.lokalise.source import LokaliseSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 def driver() -> SourceDriver:

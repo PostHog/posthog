@@ -1,9 +1,9 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.picqer import PicqerSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.picqer.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.picqer.source import PicqerSource
+from products.warehouse_sources.sources.picqer._config import PicqerSourceConfig
+from products.warehouse_sources.sources.picqer.settings import ENDPOINTS
+from products.warehouse_sources.sources.picqer.source import PicqerSource
 
 # Endpoints whose Picqer list action exposes a genuine update-based `updated_after` filter.
 _INCREMENTAL_ENDPOINTS = {"purchaseorders", "returns"}
@@ -30,9 +30,7 @@ class TestPicqerSource:
             ((False, None), False, "Could not connect to Picqer with the provided account name and API key"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.picqer.source.validate_picqer_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.picqer.source.validate_picqer_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
         mock_validate.return_value = mock_return
 
@@ -42,9 +40,7 @@ class TestPicqerSource:
         assert error_message == expected_message
         mock_validate.assert_called_once_with("acme", "key")
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.picqer.source.validate_picqer_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.picqer.source.validate_picqer_credentials")
     def test_validate_credentials_surfaces_bad_account(self, mock_validate):
         mock_validate.side_effect = ValueError("Invalid Picqer account: 'a/b'.")
 

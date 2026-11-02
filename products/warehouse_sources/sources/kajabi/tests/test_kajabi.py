@@ -3,17 +3,10 @@ from urllib.parse import parse_qs
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    RunStopped,
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kajabi import KajabiSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.kajabi.kajabi import (
-    KajabiResumeConfig,
-    flatten_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.kajabi.source import KajabiSource
+from products.warehouse_sources.sources.kajabi._config import KajabiSourceConfig
+from products.warehouse_sources.sources.kajabi.kajabi import KajabiResumeConfig, flatten_resource
+from products.warehouse_sources.sources.kajabi.source import KajabiSource
+from products.warehouse_sources.sources.sdk.testing import RunStopped, ScriptedResponse, SourceDriver
 
 
 def token() -> ScriptedResponse:

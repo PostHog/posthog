@@ -1,8 +1,6 @@
-from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, ReleaseStatus
-from products.warehouse_sources.backend.temporal.data_imports.sources.dovetail.source import DovetailSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dovetail import (
-    DovetailSourceConfig,
-)
+from products.warehouse_sources.sources.dovetail._config import DovetailSourceConfig
+from products.warehouse_sources.sources.dovetail.source import DovetailSource
+from products.warehouse_sources.sources.sdk import DataWarehouseSourceCategory, ReleaseStatus
 
 
 class TestDovetailSource:

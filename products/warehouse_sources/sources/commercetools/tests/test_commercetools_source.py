@@ -1,17 +1,10 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.commercetools.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.commercetools.settings import (
-    COMMERCETOOLS_ENDPOINTS,
-    ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.commercetools.source import CommercetoolsSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.commercetools import (
-    CommercetoolsSourceConfig,
-)
+from products.warehouse_sources.sources.commercetools._config import CommercetoolsSourceConfig
+from products.warehouse_sources.sources.commercetools.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.commercetools.settings import COMMERCETOOLS_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.sources.commercetools.source import CommercetoolsSource
 
 
 class TestCommercetoolsSource:
@@ -43,9 +36,7 @@ class TestCommercetoolsSource:
             (False, False, "Invalid commercetools API client credentials"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.commercetools.source.validate_commercetools_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.commercetools.source.validate_commercetools_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
         mock_validate.return_value = mock_return
 

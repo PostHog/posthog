@@ -8,18 +8,18 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
-    make_tracked_session,
-    retry_with_deadline,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.monte_carlo.settings import (
+from products.warehouse_sources.sources.monte_carlo.settings import (
     MONITOR_UUIDS_QUERY,
     MONTE_CARLO_ENDPOINTS,
     VALIDATE_CREDENTIALS_QUERY,
     WAREHOUSES_QUERY,
     MonteCarloEndpointConfig,
+)
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
+    make_tracked_session,
+    retry_with_deadline,
 )
 
 MONTE_CARLO_GRAPHQL_URL = "https://api.getmontecarlo.com/graphql"

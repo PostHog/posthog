@@ -1,32 +1,25 @@
 import re
 from typing import Any, Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    build_dependent_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    HeaderLinkPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-    ClientConfig,
-    EndpointResource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.megaphone.settings import (
+from products.warehouse_sources.sources.megaphone.settings import (
     MEGAPHONE_BASE_URL,
     MEGAPHONE_ENDPOINTS,
     MEGAPHONE_HOST,
     MegaphoneEndpointConfig,
+)
+from products.warehouse_sources.sources.sdk import (
+    ClientConfig,
+    EndpointResource,
+    HeaderLinkPaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    build_dependent_resource,
+    frozen,
+    make_tracked_session,
+    parse_datetime_value,
+    rest_api_resource,
+    validate_via_probe,
 )
 
 # The organization id goes into the request path, so it must stay a single path segment.

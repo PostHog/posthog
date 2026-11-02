@@ -10,8 +10,8 @@ import requests
 from parameterized import parameterized
 from tenacity import stop_after_attempt, wait_none
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.bugsnag import bugsnag
-from products.warehouse_sources.backend.temporal.data_imports.sources.bugsnag.bugsnag import (
+from products.warehouse_sources.sources.bugsnag import bugsnag
+from products.warehouse_sources.sources.bugsnag.bugsnag import (
     BUGSNAG_ENDPOINTS,
     BugsnagResumeConfig,
     BugsnagRetryableError,

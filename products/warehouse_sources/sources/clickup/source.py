@@ -1,38 +1,30 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.clickup.clickup import (
+from products.warehouse_sources.sources.clickup._config import ClickUpSourceConfig
+from products.warehouse_sources.sources.clickup.clickup import (
     ClickUpResumeConfig,
     clickup_source,
     validate_credentials as validate_clickup_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.clickup.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-    SHOULD_SYNC_DEFAULTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+from products.warehouse_sources.sources.clickup.settings import ENDPOINTS, INCREMENTAL_FIELDS, SHOULD_SYNC_DEFAULTS
+from products.warehouse_sources.sources.sdk import (
     CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clickup import (
-    ClickUpSourceConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -105,9 +97,7 @@ The **Workspace ID** is the numeric ID in your ClickUp URL: `https://app.clickup
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.clickup.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.clickup.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

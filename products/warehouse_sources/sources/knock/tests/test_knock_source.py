@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.knock.source import KnockSource
+from products.warehouse_sources.sources.knock.source import KnockSource
 
 
 def _config(api_key: str = "sk_test", object_collections: str | None = None, audience_keys: str | None = None) -> Any:

@@ -2,43 +2,30 @@ from typing import cast
 
 from requests.exceptions import RequestException
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.kajabi._config import KajabiSourceConfig
+from products.warehouse_sources.sources.kajabi.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.kajabi.kajabi import KajabiResumeConfig, kajabi_source, probe_credentials
+from products.warehouse_sources.sources.kajabi.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.sdk import (
+    OAUTH2_PERMANENT_ERROR_MARKER,
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    OAuth2AuthRequestError,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
-    OAUTH2_PERMANENT_ERROR_MARKER,
-    OAuth2AuthRequestError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kajabi import KajabiSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.kajabi.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.kajabi.kajabi import (
-    KajabiResumeConfig,
-    kajabi_source,
-    probe_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.kajabi.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register

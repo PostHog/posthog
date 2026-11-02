@@ -2,21 +2,11 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.easypromos.easypromos import (
-    EasypromosResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.easypromos.settings import EASYPROMOS_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.easypromos.source import EasypromosSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.easypromos import (
-    EasypromosSourceConfig,
-)
+from products.warehouse_sources.sources.easypromos._config import EasypromosSourceConfig
+from products.warehouse_sources.sources.easypromos.easypromos import EasypromosResumeConfig, validate_credentials
+from products.warehouse_sources.sources.easypromos.settings import EASYPROMOS_ENDPOINTS
+from products.warehouse_sources.sources.easypromos.source import EasypromosSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _body(items: list[dict[str, Any]], next_cursor: int | None) -> dict[str, Any]:

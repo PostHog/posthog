@@ -4,22 +4,17 @@ from typing import Any, cast
 import pytest
 from unittest.mock import MagicMock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.maxio import MaxioSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.maxio.maxio import (
+from products.warehouse_sources.sources.maxio._config import MaxioSourceConfig
+from products.warehouse_sources.sources.maxio.maxio import (
     MaxioPaginator,
     MaxioResumeConfig,
     format_start_datetime,
     get_resource,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.maxio.settings import PAGE_SIZE
-from products.warehouse_sources.backend.temporal.data_imports.sources.maxio.source import MaxioSource
+from products.warehouse_sources.sources.maxio.settings import PAGE_SIZE
+from products.warehouse_sources.sources.maxio.source import MaxioSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _customer_page(count: int, start_id: int = 1) -> list[dict[str, Any]]:

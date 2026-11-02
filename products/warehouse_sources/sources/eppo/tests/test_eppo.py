@@ -3,20 +3,11 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.eppo.eppo import (
-    BASE_URL,
-    _build_params,
-    _format_since,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.eppo.settings import PAGE_LIMIT
-from products.warehouse_sources.backend.temporal.data_imports.sources.eppo.source import EppoSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.eppo import EppoSourceConfig
+from products.warehouse_sources.sources.eppo._config import EppoSourceConfig
+from products.warehouse_sources.sources.eppo.eppo import BASE_URL, _build_params, _format_since, validate_credentials
+from products.warehouse_sources.sources.eppo.settings import PAGE_LIMIT
+from products.warehouse_sources.sources.eppo.source import EppoSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 class TestFormatSince:

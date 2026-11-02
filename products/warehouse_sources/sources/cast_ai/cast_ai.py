@@ -3,36 +3,28 @@ from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.cast_ai.settings import (
+from products.warehouse_sources.sources.cast_ai.settings import (
     CASTAI_BASE_URL,
     CASTAI_ENDPOINTS,
     DEFAULT_LOOKBACK_DAYS,
     CastAiEndpointConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
-    coerce_datetime_to_utc,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    build_dependent_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from products.warehouse_sources.sources.sdk import (
     BasePaginator,
-    JSONResponseCursorPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
     Endpoint,
     EndpointResource,
     IncrementalConfig,
+    JSONResponseCursorPaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceResponse,
+    build_dependent_resource,
+    coerce_datetime_to_utc,
+    make_tracked_session,
+    rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 
 @dataclasses.dataclass(frozen=True)

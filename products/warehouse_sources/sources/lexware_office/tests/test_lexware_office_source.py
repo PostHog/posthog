@@ -2,16 +2,10 @@ import pytest
 
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lexwareoffice import (
-    LexwareOfficeSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.lexware_office.source import LexwareOfficeSource
+from products.warehouse_sources.sources.lexware_office._config import LexwareOfficeSourceConfig
+from products.warehouse_sources.sources.lexware_office.source import LexwareOfficeSource
+from products.warehouse_sources.sources.sdk import UnknownResourceError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, route, scripted_network
 
 
 @pytest.mark.parametrize(

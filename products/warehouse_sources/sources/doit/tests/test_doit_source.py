@@ -1,22 +1,13 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import DEFAULT_RETRY
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.doit.doit import (
-    DOIT_RETRY,
-    DoItReport,
-    doit_list_reports,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.doit.source import DoItSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.doit import DoItSourceConfig
+from products.warehouse_sources.sources.doit._config import DoItSourceConfig
+from products.warehouse_sources.sources.doit.doit import DOIT_RETRY, DoItReport, doit_list_reports
+from products.warehouse_sources.sources.doit.source import DoItSource
+from products.warehouse_sources.sources.sdk import DEFAULT_RETRY, SourceInputs
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, error_message_matches, scripted_network
 
-_SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.doit.source"
+_SOURCE_MODULE = "products.warehouse_sources.sources.doit.source"
 
 CONFIG = DoItSourceConfig(api_key="key")
 

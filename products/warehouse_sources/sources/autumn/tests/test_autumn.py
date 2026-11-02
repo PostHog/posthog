@@ -3,19 +3,15 @@ from typing import Any, Optional
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.autumn.autumn import (
+from products.warehouse_sources.sources.autumn._config import AutumnSourceConfig
+from products.warehouse_sources.sources.autumn.autumn import (
     AutumnResumeConfig,
     _build_request_body,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.autumn.settings import AUTUMN_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.autumn.source import AutumnSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.autumn import AutumnSourceConfig
+from products.warehouse_sources.sources.autumn.settings import AUTUMN_ENDPOINTS
+from products.warehouse_sources.sources.autumn.source import AutumnSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 WATERMARK_MS = 1704067200000
 

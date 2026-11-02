@@ -1,29 +1,26 @@
 import datetime as dt
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.singular import (
-    SingularSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.singular.settings import (
+from products.warehouse_sources.sources.singular._config import SingularSourceConfig
+from products.warehouse_sources.sources.singular.settings import (
     DAILY_REPORT,
     DEFAULT_DIMENSIONS,
     DEFAULT_METRICS,
@@ -34,7 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.singular.s
     LOOKUPS,
     REPORT_LOOKBACK_SECONDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.singular.singular import (
+from products.warehouse_sources.sources.singular.singular import (
     ACCESS_ERROR,
     AUTH_ERROR,
     QUOTA_ERROR,
@@ -47,7 +44,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.singular.s
     singular_source,
     validate_credentials as validate_singular_credentials,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_CAPTION = """Enter your Singular API key to sync campaign reports into the PostHog Data warehouse. You can find the key in Singular under **Developer Tools > API Keys**.
 
@@ -174,8 +170,8 @@ class SingularSource(ResumableSource[SingularSourceConfig, SingularResumeConfig]
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.singular.canonical_descriptions import (  # noqa: PLC0415
-            CANONICAL_DESCRIPTIONS,
+        from products.warehouse_sources.sources.singular.canonical_descriptions import (
+            CANONICAL_DESCRIPTIONS,  # noqa: PLC0415
         )
 
         return CANONICAL_DESCRIPTIONS

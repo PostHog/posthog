@@ -5,25 +5,21 @@ from urllib.parse import urlsplit
 
 from requests import Response
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import rest_api_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    OffsetPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import RESTAPIConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.microsoftdefendercloudapps import (
+from products.warehouse_sources.sources.microsoft_defender_cloud_apps._config import (
     MicrosoftDefenderCloudAppsSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_defender_cloud_apps.settings import (
-    ENDPOINTS,
-    PAGE_SIZE,
-    PRIMARY_KEYS,
+from products.warehouse_sources.sources.microsoft_defender_cloud_apps.settings import ENDPOINTS, PAGE_SIZE, PRIMARY_KEYS
+from products.warehouse_sources.sources.sdk import (
+    APIKeyAuth,
+    OffsetPaginator,
+    RESTAPIConfig,
+    RESTClient,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceInputs,
+    SourceResponse,
+    frozen,
+    rest_api_resource,
 )
 
 
@@ -69,7 +65,7 @@ class DefenderClient:
         return f"https://{parsed.hostname}"
 
     def __init__(self, config: MicrosoftDefenderCloudAppsSourceConfig, team_id: int, api_version: str) -> None:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (  # noqa: PLC0415 -- keeps Django models off the config import path
+        from products.warehouse_sources.sources.sdk import (  # noqa: PLC0415 -- keeps Django models off the config import path
             ValidateDatabaseHostMixin,
         )
 

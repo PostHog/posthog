@@ -5,17 +5,17 @@ from typing import Any
 import pytest
 import time_machine
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     route,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.xsolla import XsollaSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.xsolla.settings import AUTH_ERROR
-from products.warehouse_sources.backend.temporal.data_imports.sources.xsolla.source import XsollaSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.xsolla.xsolla import XsollaResumeConfig
+from products.warehouse_sources.sources.xsolla._config import XsollaSourceConfig
+from products.warehouse_sources.sources.xsolla.settings import AUTH_ERROR
+from products.warehouse_sources.sources.xsolla.source import XsollaSource
+from products.warehouse_sources.sources.xsolla.xsolla import XsollaResumeConfig
 
 
 def transaction(transaction_id: int, created: str) -> dict[str, Any]:

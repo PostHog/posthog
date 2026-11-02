@@ -3,13 +3,8 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.oura import OuraSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.oura.oura import (
+from products.warehouse_sources.sources.oura._config import OuraSourceConfig
+from products.warehouse_sources.sources.oura.oura import (
     DEFAULT_START_DATE,
     DEFAULT_START_DATETIME,
     OuraResumeConfig,
@@ -17,7 +12,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.oura.oura 
     _format_datetime,
     probe_endpoint,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.oura.source import OuraSource
+from products.warehouse_sources.sources.oura.source import OuraSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _collection(

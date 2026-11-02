@@ -1,13 +1,9 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.marketo import (
-    MarketoSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.marketo.settings import MARKETO_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.marketo.source import MarketoSource
+from products.warehouse_sources.sources.marketo._config import MarketoSourceConfig
+from products.warehouse_sources.sources.marketo.settings import MARKETO_ENDPOINTS
+from products.warehouse_sources.sources.marketo.source import MarketoSource
 
-VALIDATE_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.marketo.source.validate_marketo_credentials"
-)
-SOURCE_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.marketo.source.marketo_source"
+VALIDATE_PATCH = "products.warehouse_sources.sources.marketo.source.validate_marketo_credentials"
+SOURCE_PATCH = "products.warehouse_sources.sources.marketo.source.marketo_source"
 
 INCREMENTAL_ENDPOINTS = sorted(name for name, c in MARKETO_ENDPOINTS.items() if c.incremental_field)
 FULL_REFRESH_ENDPOINTS = sorted(name for name, c in MARKETO_ENDPOINTS.items() if not c.incremental_field)

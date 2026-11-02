@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 
 # Descriptions sourced from the official 1Password Events API reference:
 # https://developer.1password.com/docs/events-api/reference

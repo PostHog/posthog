@@ -5,7 +5,8 @@ from typing import Any, Literal, cast
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.coingecko import (
+from products.warehouse_sources.sources.coingecko._config import CoinGeckoSourceConfig
+from products.warehouse_sources.sources.coingecko.coingecko import (
     DEMO_BASE_URL,
     NO_COINS_ERROR,
     PLAN_DEMO,
@@ -14,21 +15,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.
     CoinGeckoResumeConfig,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.settings import (
+from products.warehouse_sources.sources.coingecko.settings import (
     CHART_WINDOW_DAYS,
     DEFAULT_HISTORY_DAYS,
     MAX_COINS,
     TICKERS_PAGE_SIZE,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.source import CoinGeckoSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coingecko import (
-    CoinGeckoSourceConfig,
-)
+from products.warehouse_sources.sources.coingecko.source import CoinGeckoSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver(

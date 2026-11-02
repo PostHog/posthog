@@ -1,30 +1,25 @@
 from typing import cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.azure_api_management._config import AzureApiManagementSourceConfig
+from products.warehouse_sources.sources.sdk import (
+    NOT_DETECTABLE,
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSourceManager,
     SourceConfig,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.azure_log_analytics.azure_log_analytics import (
+from products.warehouse_sources.sources.sdk.internals import (
+    WORKSPACE_FIELDS,
     AzureLogAnalyticsResumeConfig,
+    LogAnalyticsWorkspaceSource,
     WorkspaceCredentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.azure_log_analytics.source import (
-    WORKSPACE_FIELDS,
-    LogAnalyticsWorkspaceSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.azureapimanagement import (
-    AzureApiManagementSourceConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # The resource-specific tables API Management writes when its diagnostic setting sends logs to a
 # Log Analytics workspace.
@@ -78,7 +73,7 @@ Register an app in Microsoft Entra ID, create a client secret for it, and give i
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.azure_api_management.canonical_descriptions import (
+        from products.warehouse_sources.sources.azure_api_management.canonical_descriptions import (
             CANONICAL_DESCRIPTIONS,
         )
 

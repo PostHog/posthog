@@ -6,9 +6,8 @@ from urllib.parse import urlencode
 
 from requests import Response, Session
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.us_bea.settings import (
+from products.warehouse_sources.sources.sdk import SourceResponse, make_tracked_session
+from products.warehouse_sources.sources.us_bea.settings import (
     BEA_API_BASE_URL,
     VALIDATION_DATASET_NAME,
     BeaEndpointConfig,

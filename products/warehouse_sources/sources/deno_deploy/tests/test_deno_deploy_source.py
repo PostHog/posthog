@@ -4,8 +4,8 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.deno_deploy import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.deno_deploy.source import DenoDeploySource
+from products.warehouse_sources.sources.deno_deploy import source as source_module
+from products.warehouse_sources.sources.deno_deploy.source import DenoDeploySource
 
 
 def _config() -> Any:

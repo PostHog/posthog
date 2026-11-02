@@ -1,35 +1,28 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
-    SourceSchema,
-    build_endpoint_schemas,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.debugbear.debugbear import (
+from products.warehouse_sources.sources.debugbear._config import DebugbearSourceConfig
+from products.warehouse_sources.sources.debugbear.debugbear import (
     debugbear_source,
     validate_credentials as validate_debugbear_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.debugbear.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
+from products.warehouse_sources.sources.debugbear.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    SimpleSource,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.debugbear import (
-    DebugbearSourceConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -56,7 +49,7 @@ class DebugbearSource(SimpleSource[DebugbearSourceConfig]):
         # `_session`'s `make_tracked_session()` already retries 429/5xx, including the Cloudflare
         # 52x/530 family DebugBear can surface on an edge/origin blip, at the urllib3 layer before
         # `_get_json`'s `raise_for_status()` can even raise (see `DEFAULT_RETRY` in
-        # sources/common/http/transport.py). A response that still exhausts that budget is a
+        # products/warehouse_sources/sources/common/http/transport.py). A response that still exhausts that budget is a
         # transient DebugBear/edge issue, not a bug, so Temporal's activity retry recovers once it
         # clears rather than surfacing it as tracked exception noise. `raise_for_status` derives
         # these prefixes from the status code alone, not the vendor's reason text, so they're
@@ -70,9 +63,7 @@ class DebugbearSource(SimpleSource[DebugbearSourceConfig]):
         return {"Server Error", "429 Client Error", "Max retries exceeded with url"}
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.debugbear.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.debugbear.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

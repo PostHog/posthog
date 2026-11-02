@@ -6,29 +6,24 @@ from unittest.mock import MagicMock, patch
 import pyarrow as pa
 from databricks.sql.exc import RequestError
 
-from posthog.models.integration.databricks import NOT_A_DATABRICKS_HOST_MESSAGE
-
-from products.warehouse_sources.backend.temporal.data_imports.discover_schemas_workflow import (
-    DISCOVER_SCHEMAS_ACTIVITY_TIMEOUT,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import HostNotAllowedError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.databricks.databricks import (
+from products.warehouse_sources.sources.databricks._config import DatabricksSourceConfig
+from products.warehouse_sources.sources.databricks.databricks import (
     DATABRICKS_SCHEMA_DISCOVERY_DEADLINE_SECONDS,
     DatabricksImplementation,
     DatabricksMetadataTimeoutError,
     filter_databricks_incremental_fields,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.databricks.source import DatabricksSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.databricks import (
-    DatabricksSourceConfig,
+from products.warehouse_sources.sources.databricks.source import DatabricksSource
+from products.warehouse_sources.sources.sdk import (
+    NOT_A_DATABRICKS_HOST_MESSAGE,
+    HostNotAllowedError,
+    IncrementalFieldType,
+    SourceInputs,
 )
-from products.warehouse_sources.backend.types import IncrementalFieldType
+from products.warehouse_sources.sources.sdk.internals import DISCOVER_SCHEMAS_ACTIVITY_TIMEOUT
 
-_CONNECT_PATH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.databricks.databricks.databricks_sql.connect"
-)
-_SLEEP_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.databricks.databricks.time.sleep"
+_CONNECT_PATH = "products.warehouse_sources.sources.databricks.databricks.databricks_sql.connect"
+_SLEEP_PATH = "products.warehouse_sources.sources.databricks.databricks.time.sleep"
 
 _SSL_EOF_ERROR_MSG = (
     "Error during request to server: HTTPSConnectionPool(host='x', port=443): Max retries exceeded"
@@ -471,8 +466,7 @@ class TestGetSchemasDeadline:
         release = threading.Event()
         mocker.patch(_CONNECT_PATH, side_effect=lambda **kwargs: release.wait())
         mocker.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.databricks.source"
-            ".DATABRICKS_SCHEMA_DISCOVERY_DEADLINE_SECONDS",
+            "products.warehouse_sources.sources.databricks.source.DATABRICKS_SCHEMA_DISCOVERY_DEADLINE_SECONDS",
             0.05,
         )
 

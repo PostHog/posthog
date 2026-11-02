@@ -3,23 +3,15 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.recreation import (
-    RecreationSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.recreation.recreation import (
-    RecreationResumeConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.recreation.settings import (
+from products.warehouse_sources.sources.recreation._config import RecreationSourceConfig
+from products.warehouse_sources.sources.recreation.recreation import RecreationResumeConfig
+from products.warehouse_sources.sources.recreation.settings import (
     PAGE_LIMIT,
     RESERVATIONS_FORWARD_DAYS,
     RESERVATIONS_LOOKBACK_DAYS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.recreation.source import RecreationSource
+from products.warehouse_sources.sources.recreation.source import RecreationSource
+from products.warehouse_sources.sources.sdk.testing import DriveResult, ScriptedResponse, SourceDriver
 
 
 def _ridb_response(records: list[dict[str, Any]], total_count: int, offset: int) -> ScriptedResponse:

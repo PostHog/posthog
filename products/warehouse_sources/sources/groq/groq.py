@@ -1,18 +1,13 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from products.warehouse_sources.sources.groq.settings import GROQ_ENDPOINTS, GroqEndpointConfig
+from products.warehouse_sources.sources.sdk import (
     BasePaginator,
     JSONResponseCursorPaginator,
+    RESTAPIConfig,
     SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.groq.settings import (
-    GROQ_ENDPOINTS,
-    GroqEndpointConfig,
+    SourceResponse,
+    make_tracked_session,
+    rest_api_resource,
+    validate_via_probe,
 )
 
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"

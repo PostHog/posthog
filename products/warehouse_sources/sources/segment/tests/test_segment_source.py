@@ -2,15 +2,10 @@ from typing import Literal, cast
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.segment import (
-    SegmentSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.segment.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.segment.source import SegmentSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
+from products.warehouse_sources.sources.segment._config import SegmentSourceConfig
+from products.warehouse_sources.sources.segment.settings import ENDPOINTS
+from products.warehouse_sources.sources.segment.source import SegmentSource
 
 
 def _config(region: str = "api", api_token: str = "tok") -> SegmentSourceConfig:

@@ -1,7 +1,7 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.drip.source import DripSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.drip import DripSourceConfig
+from products.warehouse_sources.sources.drip._config import DripSourceConfig
+from products.warehouse_sources.sources.drip.source import DripSource
 
 
 class TestDripSource:

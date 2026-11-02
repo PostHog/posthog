@@ -12,20 +12,19 @@ from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2.credentials import Credentials as OAuthCredentials
 
-from posthog.dataclasses import frozen
-from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
-
-from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.sources.common import credentials_service
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_adapter
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleanalytics import (
-    GoogleAnalyticsSourceConfig,
+from products.warehouse_sources.sources.google_analytics._config import GoogleAnalyticsSourceConfig
+from products.warehouse_sources.sources.google_analytics.settings import build_report_schemas
+from products.warehouse_sources.sources.sdk import (
+    IntegrationManager,
+    IntegrationNotFound,
+    IntegrationRecord,
+    ResumableSourceManager,
+    SourceResponse,
+    credentials_service,
+    frozen,
+    make_tracked_adapter,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.settings import (
-    build_report_schemas,
-)
+from products.warehouse_sources.sources.sdk.internals import NamingConvention
 
 logger = structlog.get_logger(__name__)
 

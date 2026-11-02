@@ -1,42 +1,33 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    OAUTH2_PERMANENT_ERROR_MARKER,
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
-    OAUTH2_PERMANENT_ERROR_MARKER,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.trustpilot import (
-    TrustPilotSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.trustpilot.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.trustpilot.trustpilot import (
+from products.warehouse_sources.sources.trustpilot._config import TrustPilotSourceConfig
+from products.warehouse_sources.sources.trustpilot.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.trustpilot.trustpilot import (
     BUSINESS_UNIT_NOT_FOUND_ERROR,
     CREDENTIALS_REJECTED_ERROR,
     TrustpilotResumeConfig,
     trustpilot_source,
     validate_credentials as validate_trustpilot_credentials,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -96,9 +87,7 @@ Create an API application in your Trustpilot Business account to get the key (cl
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.trustpilot.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.trustpilot.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

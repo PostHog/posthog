@@ -7,29 +7,24 @@ from google.auth.transport.requests import Request as GoogleRequest
 from google.oauth2 import service_account
 from requests import PreparedRequest
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import AuthConfigBase
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    build_dependent_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.gcp_cloud_billing.settings import (
+from products.warehouse_sources.sources.gcp_cloud_billing._config import GcpCloudBillingKeyFileConfig
+from products.warehouse_sources.sources.gcp_cloud_billing.settings import (
     CLOUD_BILLING_URL,
     ENDPOINTS,
     SCOPES,
     TOKEN_URL,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gcpcloudbilling import (
-    GcpCloudBillingKeyFileConfig,
+from products.warehouse_sources.sources.sdk import (
+    AuthConfigBase,
+    ClientConfig,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    build_dependent_resource,
+    frozen,
+    make_tracked_session,
+    rest_api_resource,
+    schema_for_resource,
 )
 
 

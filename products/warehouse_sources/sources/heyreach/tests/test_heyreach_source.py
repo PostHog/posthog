@@ -2,7 +2,7 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.heyreach.source import HeyReachSource
+from products.warehouse_sources.sources.heyreach.source import HeyReachSource
 
 
 class TestHeyReachSourceErrorClassification:

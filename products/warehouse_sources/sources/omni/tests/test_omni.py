@@ -6,16 +6,9 @@ from unittest import mock
 
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.omni import OmniSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.omni import omni as omni_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.omni.omni import (
+from products.warehouse_sources.sources.omni import omni as omni_module
+from products.warehouse_sources.sources.omni._config import OmniSourceConfig
+from products.warehouse_sources.sources.omni.omni import (
     OmniDocumentsPaginator,
     OmniResumeConfig,
     OmniScimPaginator,
@@ -25,12 +18,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.omni.omni 
     normalize_host,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.omni.settings import (
-    FANOUT_ENDPOINTS,
-    PARTITION_KEYS,
-    PRIMARY_KEYS,
+from products.warehouse_sources.sources.omni.settings import FANOUT_ENDPOINTS, PARTITION_KEYS, PRIMARY_KEYS
+from products.warehouse_sources.sources.omni.source import OmniSource
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.omni.source import OmniSource
 
 
 def _make_response(body: dict[str, Any], status_code: int = 200) -> Response:

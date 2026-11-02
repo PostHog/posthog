@@ -6,18 +6,9 @@ import time_machine
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientNonRetryableError,
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.elasticemail import elasticemail
-from products.warehouse_sources.backend.temporal.data_imports.sources.elasticemail.elasticemail import (
+from products.warehouse_sources.sources.elasticemail import elasticemail
+from products.warehouse_sources.sources.elasticemail._config import ElasticemailSourceConfig
+from products.warehouse_sources.sources.elasticemail.elasticemail import (
     AUTH_ERROR_MARKER,
     ElasticEmailResumeConfig,
     _clamp_future_value_to_now,
@@ -26,13 +17,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.elasticema
     _static_params,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.elasticemail.settings import (
-    ELASTICEMAIL_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.elasticemail.source import ElasticemailSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.elasticemail import (
-    ElasticemailSourceConfig,
-)
+from products.warehouse_sources.sources.elasticemail.settings import ELASTICEMAIL_ENDPOINTS
+from products.warehouse_sources.sources.elasticemail.source import ElasticemailSource
+from products.warehouse_sources.sources.sdk import RESTClientNonRetryableError, RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

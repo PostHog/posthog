@@ -2,22 +2,16 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.assemblyai.assemblyai import (
+from products.warehouse_sources.sources.assemblyai._config import AssemblyAISourceConfig
+from products.warehouse_sources.sources.assemblyai.assemblyai import (
     AssemblyAIResumeConfig,
     _pinned_url,
     base_url_for_region,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.assemblyai.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.assemblyai.source import AssemblyAISource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.assemblyai import (
-    AssemblyAISourceConfig,
-)
+from products.warehouse_sources.sources.assemblyai.settings import ENDPOINTS
+from products.warehouse_sources.sources.assemblyai.source import AssemblyAISource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 US_LIST_URL = "https://api.assemblyai.com/v2/transcript?limit=200"
 

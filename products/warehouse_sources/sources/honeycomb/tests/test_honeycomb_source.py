@@ -2,15 +2,10 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.honeycomb import (
-    HoneycombSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.honeycomb.settings import (
-    HONEYCOMB_ENDPOINTS,
-    HoneycombScope,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.honeycomb.source import HoneycombSource
+from products.warehouse_sources.sources.honeycomb._config import HoneycombSourceConfig
+from products.warehouse_sources.sources.honeycomb.settings import HONEYCOMB_ENDPOINTS, HoneycombScope
+from products.warehouse_sources.sources.honeycomb.source import HoneycombSource
+from products.warehouse_sources.sources.sdk import SourceInputs
 
 
 def _source_inputs(schema_name: str = "datasets") -> SourceInputs:

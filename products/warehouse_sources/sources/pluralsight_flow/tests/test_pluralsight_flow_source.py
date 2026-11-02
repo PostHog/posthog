@@ -1,12 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pluralsightflow import (
-    PluralsightFlowSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.pluralsight_flow.source import (
-    PluralsightFlowSource,
-)
+from products.warehouse_sources.sources.pluralsight_flow._config import PluralsightFlowSourceConfig
+from products.warehouse_sources.sources.pluralsight_flow.source import PluralsightFlowSource
 
 
 class TestPluralsightFlowSource:
@@ -29,10 +25,7 @@ class TestPluralsightFlowSource:
             ((False, None), False, "Invalid credentials"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.pluralsight_flow.source"
-        ".validate_pluralsight_flow_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.pluralsight_flow.source.validate_pluralsight_flow_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
         mock_validate.return_value = mock_return
 
@@ -42,10 +35,7 @@ class TestPluralsightFlowSource:
         assert error_message == expected_message
         mock_validate.assert_called_once_with("key", "acme")
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.pluralsight_flow.source"
-        ".validate_pluralsight_flow_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.pluralsight_flow.source.validate_pluralsight_flow_credentials")
     def test_validate_credentials_surfaces_bad_workspace(self, mock_validate):
         mock_validate.side_effect = ValueError("Invalid Flow workspace: 'a/b'.")
 

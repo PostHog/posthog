@@ -3,22 +3,15 @@ from typing import Optional
 import pytest
 from unittest.mock import patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.razorpay import (
-    RazorpaySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.razorpay.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.razorpay.razorpay import (
+from products.warehouse_sources.sources.razorpay._config import RazorpaySourceConfig
+from products.warehouse_sources.sources.razorpay.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.razorpay.razorpay import (
     INCREMENTAL_LOOKBACK_SECONDS,
     MISSING_ACCOUNT_NUMBER_ERROR,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.razorpay.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.razorpay.source import RazorpaySource
+from products.warehouse_sources.sources.razorpay.settings import ENDPOINTS
+from products.warehouse_sources.sources.razorpay.source import RazorpaySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 class TestRazorpaySource:
@@ -32,7 +25,7 @@ class TestRazorpaySource:
     )
     def test_validate_credentials(self, is_valid: bool, expected_ok: bool) -> None:
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.razorpay.source.validate_razorpay_credentials",
+            "products.warehouse_sources.sources.razorpay.source.validate_razorpay_credentials",
             return_value=is_valid,
         ) as mock_validate:
             ok, message = self.source.validate_credentials(self.config, team_id=1)

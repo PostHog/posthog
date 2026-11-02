@@ -3,19 +3,12 @@ from typing import Any, Optional
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tavus import TavusSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.tavus import tavus
-from products.warehouse_sources.backend.temporal.data_imports.sources.tavus.settings import ENDPOINTS, TAVUS_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.tavus.source import TavusSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.tavus.tavus import (
-    TAVUS_BASE_URL,
-    TavusResumeConfig,
-)
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always
+from products.warehouse_sources.sources.tavus import tavus
+from products.warehouse_sources.sources.tavus._config import TavusSourceConfig
+from products.warehouse_sources.sources.tavus.settings import ENDPOINTS, TAVUS_ENDPOINTS
+from products.warehouse_sources.sources.tavus.source import TavusSource
+from products.warehouse_sources.sources.tavus.tavus import TAVUS_BASE_URL, TavusResumeConfig
 
 
 def _response(

@@ -1,7 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sumologic import (
-    SumoLogicSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.sumo_logic.source import SumoLogicSource
+from products.warehouse_sources.sources.sumo_logic._config import SumoLogicSourceConfig
+from products.warehouse_sources.sources.sumo_logic.source import SumoLogicSource
 
 
 class TestSumoLogicSource:

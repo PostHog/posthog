@@ -1,16 +1,9 @@
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    Script,
-    ScriptedResponse,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.northpasslms import (
-    NorthpassLMSSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.northpass_lms.source import NorthpassLMSSource
+from products.warehouse_sources.sources.northpass_lms._config import NorthpassLMSSourceConfig
+from products.warehouse_sources.sources.northpass_lms.source import NorthpassLMSSource
+from products.warehouse_sources.sources.sdk.testing import Script, ScriptedResponse, always, scripted_network
 
 
 class TestNorthpassLMSSource:

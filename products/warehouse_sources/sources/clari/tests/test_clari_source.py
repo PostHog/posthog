@@ -1,11 +1,8 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.clari.source import ClariSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clari import ClariSourceConfig
+from products.warehouse_sources.sources.clari._config import ClariSourceConfig
+from products.warehouse_sources.sources.clari.source import ClariSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 class TestClariSource:

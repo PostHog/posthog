@@ -4,10 +4,8 @@ from typing import Any, cast
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.safe_point import (
-    source_items_are_framework_output,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.anthropic import (
+from products.warehouse_sources.sources.anthropic._config import AnthropicSourceConfig
+from products.warehouse_sources.sources.anthropic.anthropic import (
     ANALYTICS_ACCESS_MISSING,
     ANTHROPIC_VERSION_2023_06_01,
     ANTHROPIC_VERSION_2026_10_21,
@@ -23,7 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.
     check_analytics_access,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.settings import (
+from products.warehouse_sources.sources.anthropic.settings import (
     ANALYTICS_ENGAGEMENT_LAG_DAYS,
     ANALYTICS_PATH_PREFIX,
     ANTHROPIC_ENDPOINTS,
@@ -32,18 +30,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.
     RBAC_ROLES_PATH,
     USAGE_GROUP_BY_FALLBACKS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.source import AnthropicSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.anthropic.source import AnthropicSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.internals import source_items_are_framework_output
+from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
+    error_message_matches,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.anthropic import (
-    AnthropicSourceConfig,
 )
 
 

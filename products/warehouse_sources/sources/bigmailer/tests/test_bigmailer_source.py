@@ -1,14 +1,8 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.bigmailer.source import BigMailerSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bigmailer import (
-    BigMailerSourceConfig,
-)
+from products.warehouse_sources.sources.bigmailer._config import BigMailerSourceConfig
+from products.warehouse_sources.sources.bigmailer.source import BigMailerSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 class TestCredentials:

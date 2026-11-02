@@ -1,9 +1,6 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.katana import KatanaSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.katana.source import KatanaSource
+from products.warehouse_sources.sources.katana._config import KatanaSourceConfig
+from products.warehouse_sources.sources.katana.source import KatanaSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 class TestKatanaSourceClass:

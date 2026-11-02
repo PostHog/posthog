@@ -2,12 +2,10 @@ from typing import Any, cast
 
 from unittest.mock import MagicMock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.dropbox_sign import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.dropbox_sign.source import DropboxSignSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dropboxsign import (
-    DropboxSignSourceConfig,
-)
+from products.warehouse_sources.sources.dropbox_sign import source as source_module
+from products.warehouse_sources.sources.dropbox_sign._config import DropboxSignSourceConfig
+from products.warehouse_sources.sources.dropbox_sign.source import DropboxSignSource
+from products.warehouse_sources.sources.sdk import SourceInputs
 
 
 def _inputs(schema_name: str = "templates") -> SourceInputs:

@@ -8,18 +8,18 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
-    make_tracked_session,
-    retry_with_deadline,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.error_tracking import search_issue_rows
-from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.settings import (
+from products.warehouse_sources.sources.datadog.error_tracking import search_issue_rows
+from products.warehouse_sources.sources.datadog.settings import (
     DATADOG_ENDPOINTS,
     DatadogEndpointConfig,
     TimestampFormat,
+)
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
+    make_tracked_session,
+    retry_with_deadline,
+    schema_for_resource,
 )
 
 # Datadog regional sites. The site selects which API host the credentials are sent to. The set is

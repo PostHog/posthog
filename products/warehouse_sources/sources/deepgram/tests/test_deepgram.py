@@ -6,13 +6,9 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.deepgram import deepgram as deepgram_mod
-from products.warehouse_sources.backend.temporal.data_imports.sources.deepgram.deepgram import (
+from products.warehouse_sources.sources.deepgram import deepgram as deepgram_mod
+from products.warehouse_sources.sources.deepgram._config import DeepgramSourceConfig
+from products.warehouse_sources.sources.deepgram.deepgram import (
     DEEPGRAM_BASE_URL,
     DeepgramResumeConfig,
     _format_start_date,
@@ -21,11 +17,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.deepgram.d
     _redact_url_userinfo,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.deepgram.settings import DEEPGRAM_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.deepgram.source import DeepgramSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.deepgram import (
-    DeepgramSourceConfig,
-)
+from products.warehouse_sources.sources.deepgram.settings import DEEPGRAM_ENDPOINTS
+from products.warehouse_sources.sources.deepgram.source import DeepgramSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 # The framework injects the parent project id under this key before the child data_map lifts it out.
 PARENT_KEY = "_projects_project_id"

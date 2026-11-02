@@ -3,24 +3,16 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.invoiceninja import (
-    InvoiceninjaSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.invoiceninja import (
-    invoiceninja as invoiceninja_module,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.invoiceninja.invoiceninja import (
+from products.warehouse_sources.sources.invoiceninja import invoiceninja as invoiceninja_module
+from products.warehouse_sources.sources.invoiceninja._config import InvoiceninjaSourceConfig
+from products.warehouse_sources.sources.invoiceninja.invoiceninja import (
     InvoiceNinjaHostNotAllowedError,
     InvoiceNinjaResumeConfig,
     normalize_base_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.invoiceninja.source import InvoiceninjaSource
+from products.warehouse_sources.sources.invoiceninja.source import InvoiceninjaSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _scripted_page(

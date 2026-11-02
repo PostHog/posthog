@@ -1,18 +1,9 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.circleci.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.circleci.source import CircleCISource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    RecordedRequest,
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.circleci import (
-    CircleCISourceConfig,
-)
+from products.warehouse_sources.sources.circleci._config import CircleCISourceConfig
+from products.warehouse_sources.sources.circleci.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.circleci.source import CircleCISource
+from products.warehouse_sources.sources.sdk.testing import RecordedRequest, ScriptedResponse, scripted_network
 
 
 class TestCircleCISource:

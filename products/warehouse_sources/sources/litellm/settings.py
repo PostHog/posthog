@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from datetime import timedelta
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
 # Every list endpoint, `/spend/logs/v2` included, caps its page size at 100 before LiteLLM 1.95.
 SPEND_LOGS_PAGE_SIZE = 100

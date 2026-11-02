@@ -5,18 +5,12 @@ from unittest import mock
 
 import structlog
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.transistor import (
-    TransistorSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.transistor.settings import (
-    ENDPOINTS,
-    TRANSISTOR_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.transistor.source import TransistorSource
+from products.warehouse_sources.sources.sdk import SourceFieldInputConfig, SourceFieldInputConfigType, SourceInputs
+from products.warehouse_sources.sources.transistor._config import TransistorSourceConfig
+from products.warehouse_sources.sources.transistor.settings import ENDPOINTS, TRANSISTOR_ENDPOINTS
+from products.warehouse_sources.sources.transistor.source import TransistorSource
 
-SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.transistor.source"
+SOURCE_MODULE = "products.warehouse_sources.sources.transistor.source"
 
 
 def _make_inputs(

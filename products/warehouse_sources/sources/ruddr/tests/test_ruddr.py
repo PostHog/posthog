@@ -3,18 +3,12 @@ from typing import Any
 from parameterized import parameterized
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ruddr import RuddrSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.ruddr.ruddr import PAGE_SIZE, RuddrResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.ruddr.settings import ENDPOINTS, RUDDR_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.ruddr.source import RuddrSource
+from products.warehouse_sources.sources.ruddr._config import RuddrSourceConfig
+from products.warehouse_sources.sources.ruddr.ruddr import PAGE_SIZE, RuddrResumeConfig
+from products.warehouse_sources.sources.ruddr.settings import ENDPOINTS, RUDDR_ENDPOINTS
+from products.warehouse_sources.sources.ruddr.source import RuddrSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always
 
 
 def _response(results: list[dict[str, Any]], *, has_more: bool = False, status_code: int = 200) -> ScriptedResponse:

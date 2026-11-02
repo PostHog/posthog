@@ -4,7 +4,7 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
@@ -13,13 +13,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     route,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sumologic import (
-    SumoLogicSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.sumo_logic import sumo_logic as sl
-from products.warehouse_sources.backend.temporal.data_imports.sources.sumo_logic.settings import SUMO_LOGIC_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.sumo_logic.source import SumoLogicSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.sumo_logic.sumo_logic import (
+from products.warehouse_sources.sources.sumo_logic import sumo_logic as sl
+from products.warehouse_sources.sources.sumo_logic._config import SumoLogicSourceConfig
+from products.warehouse_sources.sources.sumo_logic.settings import SUMO_LOGIC_ENDPOINTS
+from products.warehouse_sources.sources.sumo_logic.source import SumoLogicSource
+from products.warehouse_sources.sources.sumo_logic.sumo_logic import (
     SumoLogicResumeConfig,
     _message_row,
     _to_epoch_ms,

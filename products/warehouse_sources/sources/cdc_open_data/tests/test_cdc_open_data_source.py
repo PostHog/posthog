@@ -2,16 +2,14 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.cdc_open_data import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.cdc_open_data.settings import (
+from products.warehouse_sources.sources.cdc_open_data import source as source_module
+from products.warehouse_sources.sources.cdc_open_data._config import CdcOpenDataSourceConfig
+from products.warehouse_sources.sources.cdc_open_data.settings import (
     MAX_DATASET_IDS,
     SODA2_API_VERSION,
     SODA3_API_VERSION,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.cdc_open_data.source import CdcOpenDataSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cdcopendata import (
-    CdcOpenDataSourceConfig,
-)
+from products.warehouse_sources.sources.cdc_open_data.source import CdcOpenDataSource
 
 
 class TestCdcOpenDataSource:

@@ -13,22 +13,17 @@ from parameterized import parameterized
 from requests import PreparedRequest, Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.clover.clover import (
+from products.warehouse_sources.sources.clover.clover import (
     CloverResumeConfig,
     clover_source,
     endpoint_permissions,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.clover.settings import (
-    ENDPOINTS,
-    FILTER_WINDOW_MS,
-    PAGE_SIZE,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.sources.clover.settings import ENDPOINTS, FILTER_WINDOW_MS, PAGE_SIZE
+from products.warehouse_sources.sources.sdk import BearerTokenAuth, SourceResponse
 
 MERCHANT_ID = "6MRDFDQMRSSTZ"
-NOW_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.clover.clover._now_ms"
+NOW_PATCH = "products.warehouse_sources.sources.clover.clover._now_ms"
 
 
 def response(rows: list[dict[str, Any]], status: int = 200) -> Response:

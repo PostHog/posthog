@@ -1,23 +1,14 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-    SourceFieldSelectConfig,
-    SourceFieldSelectConfigOption,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.appdynamics import (
+from products.warehouse_sources.sources.appdynamics._config import AppdynamicsSourceConfig
+from products.warehouse_sources.sources.appdynamics.appdynamics import (
     OAUTH_FAILED_MESSAGE,
     AppdynamicsAuth,
     AppdynamicsResumeConfig,
     appdynamics_source,
     validate_credentials as validate_appdynamics_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.settings import (
+from products.warehouse_sources.sources.appdynamics.settings import (
     APPDYNAMICS_ENDPOINTS,
     DEFAULT_EVENT_TYPES,
     DEFAULT_METRIC_PATHS,
@@ -26,18 +17,25 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamic
     MAX_EVENT_TYPES,
     MAX_METRIC_PATHS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+from products.warehouse_sources.sources.sdk import (
     CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appdynamics import (
-    AppdynamicsSourceConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -186,9 +184,7 @@ You can create an API client in your controller under **Administration → API C
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.appdynamics.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

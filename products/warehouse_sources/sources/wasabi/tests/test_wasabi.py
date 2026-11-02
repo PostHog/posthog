@@ -7,18 +7,11 @@ from unittest import mock
 from parameterized import parameterized
 from requests import Request
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    route,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.wasabi import WasabiSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.wasabi.settings import (
-    DEFAULT_UTILIZATION_START_DATE,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.wasabi.source import WasabiSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.wasabi.wasabi import (
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, route
+from products.warehouse_sources.sources.wasabi._config import WasabiSourceConfig
+from products.warehouse_sources.sources.wasabi.settings import DEFAULT_UTILIZATION_START_DATE
+from products.warehouse_sources.sources.wasabi.source import WasabiSource
+from products.warehouse_sources.sources.wasabi.wasabi import (
     WasabiDateWindowPaginator,
     WasabiResumeConfig,
     _start_date,
@@ -100,7 +93,7 @@ class TestStartDate:
 
 
 class TestWasabiSourceTransport:
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.wasabi.wasabi.rest_api_resource")
+    @mock.patch("products.warehouse_sources.sources.wasabi.wasabi.rest_api_resource")
     def test_accounts_full_refresh(self, mock_rest_api_resource: mock.MagicMock) -> None:
         manager = _FakeResumableSourceManager()
         response = wasabi_source(
@@ -136,7 +129,7 @@ class TestWasabiSourceTransport:
             ("bucket_utilizations", ["BucketUtilizationNum"], "/v1/utilizations/buckets"),
         ]
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.wasabi.wasabi.rest_api_resource")
+    @mock.patch("products.warehouse_sources.sources.wasabi.wasabi.rest_api_resource")
     def test_utilization_endpoints_incremental_merge(
         self,
         endpoint: str,
@@ -193,7 +186,7 @@ class TestWasabiSourceTransport:
             WasabiResumeConfig(paginator_state={"next_from": (today - timedelta(days=10)).isoformat()})
         ]
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.wasabi.wasabi.rest_api_resources")
+    @mock.patch("products.warehouse_sources.sources.wasabi.wasabi.rest_api_resources")
     def test_sub_account_invoices_fans_out_from_accounts(self, mock_rest_api_resources: mock.MagicMock) -> None:
         parent = mock.Mock()
         parent.name = "accounts"

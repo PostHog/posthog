@@ -1,10 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.usersnap import (
-    UsersnapSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.source import UsersnapSource
+from products.warehouse_sources.sources.usersnap._config import UsersnapSourceConfig
+from products.warehouse_sources.sources.usersnap.source import UsersnapSource
 
 
 class TestUsersnapSource:
@@ -20,9 +18,7 @@ class TestUsersnapSource:
             (False, False),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.source.validate_usersnap_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.usersnap.source.validate_usersnap_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid):
         mock_validate.return_value = mock_return
 

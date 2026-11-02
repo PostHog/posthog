@@ -7,22 +7,17 @@ import time_machine
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.openai_ads._config import OpenAIAdsSourceConfig
+from products.warehouse_sources.sources.openai_ads.openai_ads import OpenAIAdsResumeConfig, validate_credentials
+from products.warehouse_sources.sources.openai_ads.source import OpenAIAdsSource
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
+    error_message_matches,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openaiads import (
-    OpenAIAdsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.openai_ads.openai_ads import (
-    OpenAIAdsResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.openai_ads.source import OpenAIAdsSource
 
 
 def _driver() -> SourceDriver:

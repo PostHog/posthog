@@ -3,18 +3,10 @@ from typing import Optional, cast
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mercury import (
-    MercurySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.mercury.source import MercurySource
+from products.warehouse_sources.sources.mercury._config import MercurySourceConfig
+from products.warehouse_sources.sources.mercury.source import MercurySource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceInputs, SourceResponse
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _make_inputs(
@@ -79,9 +71,7 @@ class TestMercurySourceForPipeline:
         self.manager = MagicMock(spec=ResumableSourceManager)
 
     def _run(self, inputs: SourceInputs) -> tuple[MagicMock, SourceResponse]:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.mercury.source.mercury_source"
-        ) as mock_source:
+        with patch("products.warehouse_sources.sources.mercury.source.mercury_source") as mock_source:
             mock_source.return_value.name = inputs.schema_name
             mock_source.return_value.column_hints = None
             response = self.source.source_for_pipeline(self.config, self.manager, inputs)

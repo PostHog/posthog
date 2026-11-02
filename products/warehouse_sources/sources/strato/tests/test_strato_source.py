@@ -1,5 +1,5 @@
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus
-from products.warehouse_sources.backend.temporal.data_imports.sources.strato.source import StratoSource
+from products.warehouse_sources.sources.sdk import ReleaseStatus
+from products.warehouse_sources.sources.strato.source import StratoSource
 
 
 class TestStratoSourceConfig:

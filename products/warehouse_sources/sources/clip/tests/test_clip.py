@@ -6,18 +6,10 @@ from time_machine import travel
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.clip.clip import (
-    ClipResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.clip.source import ClipSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clip import ClipSourceConfig
+from products.warehouse_sources.sources.clip._config import ClipSourceConfig
+from products.warehouse_sources.sources.clip.clip import ClipResumeConfig, validate_credentials
+from products.warehouse_sources.sources.clip.source import ClipSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 BASE = "https://api-gw.payclip.com"
 AUTH = "Basic " + base64.b64encode(b"test-key:test-secret").decode()

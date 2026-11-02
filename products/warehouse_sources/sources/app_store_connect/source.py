@@ -2,15 +2,8 @@ from typing import Optional, cast
 
 import structlog
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.app_store_connect import (
+from products.warehouse_sources.sources.app_store_connect._config import AppStoreConnectSourceConfig
+from products.warehouse_sources.sources.app_store_connect.app_store_connect import (
     APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR,
     APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR,
     APP_STORE_CONNECT_INVALID_REPORT_ERROR,
@@ -23,27 +16,30 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_
     check_app_ids,
     check_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.settings import (
+from products.warehouse_sources.sources.app_store_connect.settings import (
     APP_STORE_CONNECT_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     REPORT_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+from products.warehouse_sources.sources.sdk import (
     CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appstoreconnect import (
-    AppStoreConnectSourceConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
 
@@ -68,9 +64,7 @@ class AppStoreConnectSource(ResumableSource[AppStoreConnectSourceConfig, AppStor
 
     @property
     def get_source_config(self) -> SourceConfig:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.restatements import (
-            restatement_caption,
-        )
+        from products.warehouse_sources.sources.app_store_connect.restatements import restatement_caption
 
         caption = """Pull your App Store apps, versions, builds, reviews and sales reports into the PostHog Data warehouse.
 
@@ -143,24 +137,16 @@ Leave **app IDs** blank to sync every app the key can read. To sync only some of
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
-        from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.restatements import (
-            with_restatement_guidance,
-        )
+        from products.warehouse_sources.sources.app_store_connect.canonical_descriptions import CANONICAL_DESCRIPTIONS
+        from products.warehouse_sources.sources.app_store_connect.restatements import with_restatement_guidance
 
         # Applied at read time so every analytics stream in the catalog carries its restatement
         # dedup query, wherever in the module its entry was added.
         return with_restatement_guidance(CANONICAL_DESCRIPTIONS)
 
     def get_canonical_descriptions_for_table_prefix(self, table_prefix: str) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
-        from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.restatements import (
-            with_restatement_guidance,
-        )
+        from products.warehouse_sources.sources.app_store_connect.canonical_descriptions import CANONICAL_DESCRIPTIONS
+        from products.warehouse_sources.sources.app_store_connect.restatements import with_restatement_guidance
 
         # The dedup queries name a physical table, so they are rebuilt for this source's prefix.
         return with_restatement_guidance(CANONICAL_DESCRIPTIONS, table_prefix=table_prefix)

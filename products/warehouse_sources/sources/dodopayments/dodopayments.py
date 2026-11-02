@@ -4,30 +4,24 @@ from typing import Any, Optional
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-    rest_api_resources,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    rename_parent_fields,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    PageNumberPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-    Endpoint,
-    EndpointResource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.dodopayments.settings import (
+from products.warehouse_sources.sources.dodopayments.settings import (
     DODOPAYMENTS_ENDPOINTS,
     MODE_HOSTS,
     PAGE_SIZE,
     REQUEST_TIMEOUT_SECONDS,
+)
+from products.warehouse_sources.sources.sdk import (
+    Endpoint,
+    EndpointResource,
+    PageNumberPaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    make_tracked_session,
+    rename_parent_fields,
+    rest_api_resource,
+    rest_api_resources,
+    validate_via_probe,
 )
 
 

@@ -1,10 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.settings import (
-    AUTH_TENANT_USERS_TABLE,
-    AUTH_USERS_TABLE,
-)
+from products.warehouse_sources.sources.firebase.settings import AUTH_TENANT_USERS_TABLE, AUTH_USERS_TABLE
+from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 
 _AUTH_USER_COLUMNS: dict[str, str] = {
     "localId": "Immutable unique ID of the account.",

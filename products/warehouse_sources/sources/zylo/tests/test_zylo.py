@@ -3,15 +3,10 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zylo import ZyloSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.zylo.source import ZyloSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.zylo.zylo import (
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.zylo._config import ZyloSourceConfig
+from products.warehouse_sources.sources.zylo.source import ZyloSource
+from products.warehouse_sources.sources.zylo.zylo import (
     INITIAL_INCREMENTAL_VALUE,
     ZyloResumeConfig,
     _format_zylo_filter_date,

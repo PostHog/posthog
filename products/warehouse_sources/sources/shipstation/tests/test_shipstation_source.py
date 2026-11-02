@@ -1,16 +1,14 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import VersionDeprecation
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shipstation import (
-    ShipStationSourceConfig,
+from products.warehouse_sources.sources.sdk import (
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    VersionDeprecation,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.shipstation.settings import (
-    SHIPSTATION_V1,
-    SHIPSTATION_V2,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.shipstation.source import ShipStationSource
+from products.warehouse_sources.sources.shipstation._config import ShipStationSourceConfig
+from products.warehouse_sources.sources.shipstation.settings import SHIPSTATION_V1, SHIPSTATION_V2
+from products.warehouse_sources.sources.shipstation.source import ShipStationSource
 
 
 class TestShipStationSource:
@@ -60,9 +58,7 @@ class TestShipStationSource:
             ((False, None), False, "Invalid ShipStation API credentials"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.shipstation.source.validate_shipstation_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.shipstation.source.validate_shipstation_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
         mock_validate.return_value = mock_return
 
@@ -73,9 +69,7 @@ class TestShipStationSource:
         # Pre-creation validation probes the default version (new sources are stamped v2).
         mock_validate.assert_called_once_with(self.config.api_key, self.config.api_secret, SHIPSTATION_V2)
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.shipstation.source.shipstation_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.shipstation.source.shipstation_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_shipstation_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "orders"
@@ -96,9 +90,7 @@ class TestShipStationSource:
         assert kwargs["db_incremental_field_last_value"] == "2024-01-02T03:04:05.0000000"
         assert kwargs["incremental_field"] == "modifyDate"
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.shipstation.source.shipstation_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.shipstation.source.shipstation_source")
     def test_source_for_pipeline_omits_last_value_on_full_refresh(self, mock_shipstation_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "stores"

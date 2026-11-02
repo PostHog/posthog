@@ -1,39 +1,35 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.streamelements import (
-    StreamElementsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.streamelements.settings import (
+from products.warehouse_sources.sources.streamelements._config import StreamElementsSourceConfig
+from products.warehouse_sources.sources.streamelements.settings import (
     DEFAULT_VERSION,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     SUPPORTED_VERSIONS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.streamelements.streamelements import (
+from products.warehouse_sources.sources.streamelements.streamelements import (
     StreamElementsResumeConfig,
     streamelements_source,
     validate_credentials as validate_streamelements_credentials,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -86,9 +82,7 @@ Use the channel JWT token from your StreamElements dashboard: open your account 
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.streamelements.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.streamelements.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

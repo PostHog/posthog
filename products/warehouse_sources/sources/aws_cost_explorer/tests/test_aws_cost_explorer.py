@@ -10,8 +10,8 @@ import requests
 import structlog
 from tenacity import wait_none
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_explorer import aws_cost_explorer
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_explorer.aws_cost_explorer import (
+from products.warehouse_sources.sources.aws_cost_explorer import aws_cost_explorer
+from products.warehouse_sources.sources.aws_cost_explorer.aws_cost_explorer import (
     GENERIC_VALIDATION_ERROR,
     TRANSIENT_VALIDATION_ERROR,
     VALIDATION_ERROR_MESSAGES,
@@ -25,10 +25,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_e
     send_operation,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_explorer.settings import (
-    AWS_COST_EXPLORER_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.sources.aws_cost_explorer.settings import AWS_COST_EXPLORER_ENDPOINTS
+from products.warehouse_sources.sources.sdk import ResumableSourceManager
 
 LOGGER = structlog.get_logger()
 

@@ -1,35 +1,27 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.folk._config import FolkSourceConfig
+from products.warehouse_sources.sources.folk.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.folk.folk import FolkResumeConfig, folk_source, probe_credentials
+from products.warehouse_sources.sources.folk.settings import ENDPOINTS
+from products.warehouse_sources.sources.sdk import (
+    NOT_DETECTABLE,
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.folk.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.folk.folk import (
-    FolkResumeConfig,
-    folk_source,
-    probe_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.folk.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.folk import FolkSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register

@@ -3,16 +3,11 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stytch import StytchSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.stytch.settings import ENDPOINTS, STYTCH_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.stytch.source import StytchSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.stytch.stytch import (
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, route, scripted_network
+from products.warehouse_sources.sources.stytch._config import StytchSourceConfig
+from products.warehouse_sources.sources.stytch.settings import ENDPOINTS, STYTCH_ENDPOINTS
+from products.warehouse_sources.sources.stytch.source import StytchSource
+from products.warehouse_sources.sources.stytch.stytch import (
     StytchAPIError,
     StytchResumeConfig,
     build_users_search_body,

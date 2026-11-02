@@ -4,29 +4,22 @@ from typing import Any
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
+from products.warehouse_sources.sources.flutterwave._config import FlutterwaveSourceConfig
+from products.warehouse_sources.sources.flutterwave.flutterwave import (
+    NOT_ON_V4_ERROR,
+    FlutterwaveResumeConfig,
+    validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.flutterwave.settings import FLUTTERWAVE_API_V3, FLUTTERWAVE_API_V4
+from products.warehouse_sources.sources.flutterwave.source import FlutterwaveSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     ScriptedResponse,
     SourceDriver,
     always,
     route,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.flutterwave.flutterwave import (
-    NOT_ON_V4_ERROR,
-    FlutterwaveResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.flutterwave.settings import (
-    FLUTTERWAVE_API_V3,
-    FLUTTERWAVE_API_V4,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.flutterwave.source import FlutterwaveSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.flutterwave import (
-    FlutterwaveSourceConfig,
 )
 
 TOKEN_PATH = "/realms/flutterwave/protocol/openid-connect/token"

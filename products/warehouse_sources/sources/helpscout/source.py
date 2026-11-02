@@ -1,42 +1,37 @@
 from typing import Optional, cast
 
-from posthog.integrations import IntegrationKind
-from posthog.models.integration import OauthIntegration
-
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldOauthConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import OAuthMixin
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
-    SourceSchema,
-    build_endpoint_schemas,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.helpscout import (
-    HelpScoutSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.helpscout.helpscout import (
+from products.warehouse_sources.sources.helpscout._config import HelpScoutSourceConfig
+from products.warehouse_sources.sources.helpscout.helpscout import (
     HelpScoutResumeConfig,
     helpscout_source,
     validate_credentials as validate_helpscout_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.helpscout.settings import (
+from products.warehouse_sources.sources.helpscout.settings import (
     ENDPOINTS,
     HELP_SCOUT_API_VERSION_V2,
     HELP_SCOUT_API_VERSION_V3,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    IntegrationKind,
+    OauthIntegration,
+    OAuthMixin,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldOauthConfig,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    build_endpoint_schemas,
+    detect,
+)
 
 
 @SourceRegistry.register
@@ -59,9 +54,7 @@ class HelpScoutSource(OAuthMixin, ResumableSource[HelpScoutSourceConfig, HelpSco
         return ExternalDataSourceType.HELPSCOUT
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.helpscout.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.helpscout.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

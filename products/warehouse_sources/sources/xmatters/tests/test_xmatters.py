@@ -3,18 +3,16 @@ from typing import Any, Optional
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
     route,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.xmatters import (
-    XmattersSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.xmatters.source import XmattersSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.xmatters.xmatters import (
+from products.warehouse_sources.sources.xmatters._config import XmattersSourceConfig
+from products.warehouse_sources.sources.xmatters.source import XmattersSource
+from products.warehouse_sources.sources.xmatters.xmatters import (
     PAGE_SIZE,
     XmattersResumeConfig,
     _base_url,

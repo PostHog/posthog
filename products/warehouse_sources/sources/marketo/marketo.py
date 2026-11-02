@@ -11,10 +11,7 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.marketo.settings import (
+from products.warehouse_sources.sources.marketo.settings import (
     ASSET_MAX_RETURN,
     BULK_WINDOW_DAYS,
     MARKETO_ENDPOINTS,
@@ -22,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.marketo.se
     REST_BATCH_SIZE,
     MarketoEndpointConfig,
 )
+from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceResponse, make_tracked_session
 
 # Every Marketo instance is reachable at <munchkin id>.mktorest.com — the host is not
 # customer-supplied, so there is no credential-retargeting surface here.

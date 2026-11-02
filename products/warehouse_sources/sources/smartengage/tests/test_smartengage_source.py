@@ -1,9 +1,7 @@
-from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, ReleaseStatus
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.smartengage import (
-    SmartEngageSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.smartengage.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.smartengage.source import SmartEngageSource
+from products.warehouse_sources.sources.sdk import DataWarehouseSourceCategory, ReleaseStatus
+from products.warehouse_sources.sources.smartengage._config import SmartEngageSourceConfig
+from products.warehouse_sources.sources.smartengage.settings import ENDPOINTS
+from products.warehouse_sources.sources.smartengage.source import SmartEngageSource
 
 
 class TestSmartEngageSource:

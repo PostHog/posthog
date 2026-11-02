@@ -4,24 +4,17 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    RecordedRequest,
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shopify import (
-    ShopifyAuthMethodConfig,
-    ShopifySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify import (
+from products.warehouse_sources.sources.sdk.testing import RecordedRequest, ScriptedResponse, scripted_network
+from products.warehouse_sources.sources.shopify._config import ShopifyAuthMethodConfig, ShopifySourceConfig
+from products.warehouse_sources.sources.shopify.shopify import (
     SHOPIFY_ACCESS_TOKEN_REJECTED_ERROR,
     SHOPIFY_CREDENTIALS_CHECK_ERROR,
     SHOPIFY_STORE_FROZEN_ERROR,
     SHOPIFY_STORE_NOT_FOUND_ERROR,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.source import ShopifySource
+from products.warehouse_sources.sources.shopify.source import ShopifySource
 
-_SHOPIFY_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify"
+_SHOPIFY_MODULE = "products.warehouse_sources.sources.shopify.shopify"
 TOKEN_PATH = "/admin/oauth/access_token"
 TOKEN_RESPONSE = ScriptedResponse(json={"access_token": "tok"})
 

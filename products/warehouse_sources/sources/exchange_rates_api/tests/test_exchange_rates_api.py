@@ -7,13 +7,9 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.exchange_rates_api import exchange_rates_api
-from products.warehouse_sources.backend.temporal.data_imports.sources.exchange_rates_api.exchange_rates_api import (
+from products.warehouse_sources.sources.exchange_rates_api import exchange_rates_api
+from products.warehouse_sources.sources.exchange_rates_api._config import ExchangeRatesApiSourceConfig
+from products.warehouse_sources.sources.exchange_rates_api.exchange_rates_api import (
     BASE_URL,
     MAX_RANGE_DAYS,
     ExchangeRatesApiError,
@@ -25,12 +21,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.exchange_r
     get_rows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.exchange_rates_api.source import (
-    ExchangeRatesApiSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.exchangeratesapi import (
-    ExchangeRatesApiSourceConfig,
-)
+from products.warehouse_sources.sources.exchange_rates_api.source import ExchangeRatesApiSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 class _FakeResponse:

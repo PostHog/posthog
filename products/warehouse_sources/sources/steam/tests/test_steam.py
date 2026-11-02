@@ -11,15 +11,10 @@ from requests import (
     HTTPError,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-    always,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.steam import SteamSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.steam.source import SteamSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.steam.steam import parse_steam_ids, player_key
+from products.warehouse_sources.sources.sdk.testing import RecordedRequest, ScriptedResponse, SourceDriver, always
+from products.warehouse_sources.sources.steam._config import SteamSourceConfig
+from products.warehouse_sources.sources.steam.source import SteamSource
+from products.warehouse_sources.sources.steam.steam import parse_steam_ids, player_key
 
 ADA = "76561197960287930"
 GRACE = "76561197960435530"
@@ -122,9 +117,7 @@ class TestSteam:
     def test_credentials_check_reports_what_to_fix(
         self, status: int, steam_ids: str, valid: bool, message: str | None
     ) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.steam.source.probe_api_key"
-        ) as probe:
+        with patch("products.warehouse_sources.sources.steam.source.probe_api_key") as probe:
             probe.return_value = status
             result = SteamSource().validate_credentials(SteamSourceConfig(api_key="key", steam_ids=steam_ids), 1)
 

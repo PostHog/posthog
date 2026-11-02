@@ -7,7 +7,8 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.bing_webmaster_tools.bing_webmaster_tools import (
+from products.warehouse_sources.sources.bing_webmaster_tools._config import BingWebmasterToolsSourceConfig
+from products.warehouse_sources.sources.bing_webmaster_tools.bing_webmaster_tools import (
     BingWebmasterToolsError,
     _request,
     _stats_row,
@@ -16,18 +17,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bing_webma
     select_site_urls,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.bing_webmaster_tools.settings import BASE_URL
-from products.warehouse_sources.backend.temporal.data_imports.sources.bing_webmaster_tools.source import (
-    BingWebmasterToolsSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bingwebmastertools import (
-    BingWebmasterToolsSourceConfig,
-)
+from products.warehouse_sources.sources.bing_webmaster_tools.settings import BASE_URL
+from products.warehouse_sources.sources.bing_webmaster_tools.source import BingWebmasterToolsSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 _SITES = [
     {

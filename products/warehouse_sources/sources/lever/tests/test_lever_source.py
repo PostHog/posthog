@@ -1,7 +1,7 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lever import LeverSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.lever.source import LeverSource
+from products.warehouse_sources.sources.lever._config import LeverSourceConfig
+from products.warehouse_sources.sources.lever.source import LeverSource
 
 INCREMENTAL_ENDPOINTS = {"opportunities"}
 

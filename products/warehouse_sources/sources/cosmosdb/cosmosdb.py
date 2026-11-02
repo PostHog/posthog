@@ -15,20 +15,19 @@ import structlog
 from structlog.types import FilteringBoundLogger
 from urllib3.util.retry import Retry
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
-    interruptible_wait,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.cosmosdb.settings import (
+from products.warehouse_sources.sources.cosmosdb.settings import (
     PAGE_SIZE,
     PARTITION_KEY_COLUMN,
     PRIMARY_KEYS,
     TIMESTAMP_FIELD,
+)
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceCursorManager,
+    SourceResponse,
+    frozen,
+    interruptible_wait,
+    make_tracked_session,
 )
 
 REQUEST_TIMEOUT_SECONDS = (30, 120)

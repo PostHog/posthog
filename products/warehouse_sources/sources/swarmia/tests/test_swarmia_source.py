@@ -2,16 +2,12 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.swarmia import (
-    SwarmiaSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.swarmia.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.swarmia.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.swarmia.source import SwarmiaSource
+from products.warehouse_sources.sources.swarmia._config import SwarmiaSourceConfig
+from products.warehouse_sources.sources.swarmia.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.swarmia.settings import ENDPOINTS
+from products.warehouse_sources.sources.swarmia.source import SwarmiaSource
 
-_SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.swarmia.source"
+_SOURCE_MODULE = "products.warehouse_sources.sources.swarmia.source"
 
 
 class TestSwarmiaSource:

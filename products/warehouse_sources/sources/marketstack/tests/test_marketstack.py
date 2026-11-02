@@ -6,19 +6,8 @@ import pytest
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.marketstack import (
-    MarketstackSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.marketstack.marketstack import (
+from products.warehouse_sources.sources.marketstack._config import MarketstackSourceConfig
+from products.warehouse_sources.sources.marketstack.marketstack import (
     MARKETSTACK_API_VERSION_V1,
     MARKETSTACK_API_VERSION_V2,
     MarketstackResumeConfig,
@@ -26,7 +15,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.marketstac
     marketstack_base_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.marketstack.source import MarketstackSource
+from products.warehouse_sources.sources.marketstack.source import MarketstackSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver(

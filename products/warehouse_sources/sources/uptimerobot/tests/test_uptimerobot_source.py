@@ -1,9 +1,7 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.uptimerobot import (
-    UptimerobotSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.uptimerobot.source import UptimerobotSource
+from products.warehouse_sources.sources.uptimerobot._config import UptimerobotSourceConfig
+from products.warehouse_sources.sources.uptimerobot.source import UptimerobotSource
 
 
 class TestUptimerobotSource:

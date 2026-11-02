@@ -4,10 +4,16 @@ import pytest
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
+from products.warehouse_sources.sources.recruitee._config import RecruiteeSourceConfig
+from products.warehouse_sources.sources.recruitee.recruitee import (
+    PAGE_SIZE,
+    RecruiteeResumeConfig,
+    base_url,
+    validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.recruitee.source import RecruiteeSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     Script,
     ScriptedResponse,
@@ -16,16 +22,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     route,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.recruitee import (
-    RecruiteeSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.recruitee.recruitee import (
-    PAGE_SIZE,
-    RecruiteeResumeConfig,
-    base_url,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.recruitee.source import RecruiteeSource
 
 
 def _response(

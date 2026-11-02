@@ -15,16 +15,8 @@ from requests.exceptions import (
     ReadTimeout,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import activate_safe_point
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex import (
+from products.warehouse_sources.sources.convex._config import ConvexSourceConfig
+from products.warehouse_sources.sources.convex.convex import (
     _CONVEX_RETRY,
     ConvexDataSyncCursor,
     ConvexResumeConfig,
@@ -41,8 +33,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.convex.con
     validate_deploy_key,
     validate_deploy_url,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.convex.source import ConvexSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.convex import ConvexSourceConfig
+from products.warehouse_sources.sources.convex.source import ConvexSource
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceCursorManager,
+    SourceInputs,
+    SourceResponse,
+)
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    activate_safe_point,
+    error_message_matches,
+    scripted_network,
+)
 
 
 def _make_response(json_data: dict[str, Any], status_code: int = 200) -> Mock:
@@ -391,9 +394,7 @@ def redis_boundary() -> Iterator[Mock]:
 
 @pytest.fixture
 def http_boundary() -> Iterator[Mock]:
-    with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session"
-    ) as factory:
+    with patch("products.warehouse_sources.sources.convex.convex.make_tracked_session") as factory:
         yield factory.return_value
 
 
@@ -551,9 +552,7 @@ def test_refused_legacy_conversion_requests_reset(
     else:
         http_boundary.post.return_value = _make_response({})
     with (
-        patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.update_sync_type_config_keys"
-        ) as reset,
+        patch("products.warehouse_sources.sources.convex.convex.update_sync_type_config_keys") as reset,
         patch.object(_convex_post_retry, "stop", return_value=True),
         pytest.raises(ConvexResyncRequiredError, match="legacy sync position") as error,
     ):
@@ -580,9 +579,7 @@ def test_transient_legacy_conversion_failure_retries_without_reset(
         http_boundary.post.side_effect = RequestsConnectionError("unavailable")
         expected = RequestsConnectionError
     with (
-        patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.update_sync_type_config_keys"
-        ) as reset,
+        patch("products.warehouse_sources.sources.convex.convex.update_sync_type_config_keys") as reset,
         patch.object(_convex_post_retry, "stop", return_value=True),
         patch.object(_convex_post_retry, "sleep"),
         pytest.raises(expected),
@@ -618,9 +615,7 @@ def test_truncates_and_expiry_reset_only_when_required(
         [_make_response({"cursor": "converted"}), page] if origin == "converted" else [page]
     )
     requires_reset = event == "expired" or origin in ("stored", "converted", "in_run")
-    with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.update_sync_type_config_keys"
-    ) as reset:
+    with patch("products.warehouse_sources.sources.convex.convex.update_sync_type_config_keys") as reset:
         if requires_reset:
             with pytest.raises(ConvexResyncRequiredError) as error:
                 list(_items(_resource(inputs, manager)))

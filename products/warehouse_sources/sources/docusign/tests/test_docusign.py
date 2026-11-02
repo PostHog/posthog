@@ -9,12 +9,8 @@ from unittest import mock
 import requests
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.docusign.docusign import (
+from products.warehouse_sources.sources.docusign._config import DocusignAuthTypeConfig, DocusignSourceConfig
+from products.warehouse_sources.sources.docusign.docusign import (
     PAGE_SIZE,
     DocusignAuthError,
     DocusignCredentials,
@@ -26,19 +22,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.docusign.d
     resolve_account,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.docusign.source import DocusignSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.docusign.tests.conftest import (
+from products.warehouse_sources.sources.docusign.source import DocusignSource
+from products.warehouse_sources.sources.docusign.tests.conftest import (
     PRIVATE_KEY_PEM,
     FakeResponse,
     FakeResumeManager,
     FakeSession,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.docusign import (
-    DocusignAuthTypeConfig,
-    DocusignSourceConfig,
-)
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
-_DOCUSIGN_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.docusign.docusign"
+_DOCUSIGN_MODULE = "products.warehouse_sources.sources.docusign.docusign"
 _SESSION_FACTORY = f"{_DOCUSIGN_MODULE}.make_tracked_session"
 
 USERINFO_PAYLOAD: dict[str, Any] = {

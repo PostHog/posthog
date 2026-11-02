@@ -1,7 +1,6 @@
 from datetime import timedelta
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import Endpoint, IncrementalField, IncrementalFieldType
 
 API_VERSION = "v2"
 BASE_URL = f"https://api.axiom.co/{API_VERSION}/"

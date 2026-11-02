@@ -9,9 +9,8 @@ from unittest.mock import MagicMock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
-from products.warehouse_sources.backend.temporal.data_imports.sources.sage_hr import sage_hr
-from products.warehouse_sources.backend.temporal.data_imports.sources.sage_hr.sage_hr import (
+from products.warehouse_sources.sources.sage_hr import sage_hr
+from products.warehouse_sources.sources.sage_hr.sage_hr import (
     SageHRResumeConfig,
     SageHRRetryableError,
     check_access,
@@ -20,10 +19,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sage_hr.sa
     sage_hr_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.sage_hr.settings import (
-    ENDPOINTS,
-    SAGE_HR_ENDPOINTS,
-)
+from products.warehouse_sources.sources.sage_hr.settings import ENDPOINTS, SAGE_HR_ENDPOINTS
+from products.warehouse_sources.sources.sdk import SyncWindow
 
 # Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
 _fetch_page_unwrapped = sage_hr._fetch_page.__wrapped__  # type: ignore[attr-defined]

@@ -4,16 +4,15 @@ from typing import Any, Optional, cast
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.dovetail.dovetail import (
+from products.warehouse_sources.sources.dovetail.dovetail import (
     DovetailResumeConfig,
     _format_incremental_value,
     dovetail_source,
     get_resource,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.dovetail.settings import DOVETAIL_BASE_URL
+from products.warehouse_sources.sources.dovetail.settings import DOVETAIL_BASE_URL
+from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceResponse
 
 BASE_URL = DOVETAIL_BASE_URL
 

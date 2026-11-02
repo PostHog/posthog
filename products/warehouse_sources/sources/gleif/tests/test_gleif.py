@@ -2,24 +2,15 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gleif import GleifSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.gleif.gleif import (
+from products.warehouse_sources.sources.gleif._config import GleifSourceConfig
+from products.warehouse_sources.sources.gleif.gleif import (
     GleifResumeConfig,
     _flatten_json_api_item,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.gleif.settings import (
-    COUNTRIES,
-    LEI_RECORDS,
-    REGIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.gleif.source import GleifSource
+from products.warehouse_sources.sources.gleif.settings import COUNTRIES, LEI_RECORDS, REGIONS
+from products.warehouse_sources.sources.gleif.source import GleifSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 _LEI_ITEM: dict[str, Any] = {
     "type": "lei-records",

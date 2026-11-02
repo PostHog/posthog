@@ -7,16 +7,9 @@ import time_machine
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.concord import concord as concord_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.concord.concord import (
+from products.warehouse_sources.sources.concord import concord as concord_module
+from products.warehouse_sources.sources.concord._config import ConcordSourceConfig
+from products.warehouse_sources.sources.concord.concord import (
     ConcordResumeConfig,
     _agreement_incremental_params,
     _flatten_folder_tree,
@@ -25,10 +18,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.concord.co
     base_url_for_environment,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.concord.settings import CONCORD_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.concord.source import ConcordSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.concord import (
-    ConcordSourceConfig,
+from products.warehouse_sources.sources.concord.settings import CONCORD_ENDPOINTS
+from products.warehouse_sources.sources.concord.source import ConcordSource
+from products.warehouse_sources.sources.sdk.internals import Batcher
+from products.warehouse_sources.sources.sdk.testing import (
+    DriveResult,
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
 )
 
 

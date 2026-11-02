@@ -5,8 +5,8 @@ from unittest.mock import patch
 import structlog
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.front import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.front.source import FrontSource
+from products.warehouse_sources.sources.front import source as source_module
+from products.warehouse_sources.sources.front.source import FrontSource
 
 logger = structlog.get_logger()
 

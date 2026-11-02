@@ -7,19 +7,11 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    Script,
-    ScriptedResponse,
-    SourceDriver,
-    always,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.triggerdev import (
-    TriggerDevSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.trigger_dev import trigger_dev
-from products.warehouse_sources.backend.temporal.data_imports.sources.trigger_dev.source import TriggerDevSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.trigger_dev.trigger_dev import (
+from products.warehouse_sources.sources.sdk.testing import DriveResult, Script, ScriptedResponse, SourceDriver, always
+from products.warehouse_sources.sources.trigger_dev import trigger_dev
+from products.warehouse_sources.sources.trigger_dev._config import TriggerDevSourceConfig
+from products.warehouse_sources.sources.trigger_dev.source import TriggerDevSource
+from products.warehouse_sources.sources.trigger_dev.trigger_dev import (
     TriggerDevResumeConfig,
     _format_incremental_value,
     _should_stop_desc,

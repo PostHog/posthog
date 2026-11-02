@@ -10,34 +10,33 @@ from unittest.mock import MagicMock
 import responses
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.cisco_meraki.cisco_meraki import (
+from products.warehouse_sources.sources.cisco_meraki._config import CiscoMerakiSourceConfig
+from products.warehouse_sources.sources.cisco_meraki.cisco_meraki import (
     CiscoMerakiResumeConfig,
     cisco_meraki_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.cisco_meraki.settings import (
+from products.warehouse_sources.sources.cisco_meraki.settings import (
     AUTH_ERROR,
     NOT_FOUND_ERROR,
     ORGANIZATION_ERROR,
     PERMISSION_ERROR,
     REGION_ERROR,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.cisco_meraki.source import CiscoMerakiSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+from products.warehouse_sources.sources.cisco_meraki.source import CiscoMerakiSource
+from products.warehouse_sources.sources.sdk import (
     RESTClientRetryableError,
+    ResumableSourceManager,
+    SourceInputs,
+    SourceResponse,
+    UnknownResourceError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ciscomeraki import (
-    CiscoMerakiSourceConfig,
 )
 
 API_URL = "https://api.meraki.com/api/v1"

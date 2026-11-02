@@ -4,13 +4,8 @@ from typing import Any
 import pytest
 import time_machine
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.everhour.everhour import (
+from products.warehouse_sources.sources.everhour._config import EverhourSourceConfig
+from products.warehouse_sources.sources.everhour.everhour import (
     EARLIEST_FROM_DATE,
     EVERHOUR_BASE_URL,
     EverhourResumeConfig,
@@ -19,14 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.everhour.e
     _with_query,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.everhour.settings import (
-    ENDPOINTS,
-    EVERHOUR_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.everhour.source import EverhourSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.everhour import (
-    EverhourSourceConfig,
-)
+from products.warehouse_sources.sources.everhour.settings import ENDPOINTS, EVERHOUR_ENDPOINTS
+from products.warehouse_sources.sources.everhour.source import EverhourSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

@@ -1,12 +1,14 @@
 from typing import cast
 
-from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, SourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cleartax import (
-    CleartaxSourceConfig,
+from products.warehouse_sources.sources.cleartax._config import CleartaxSourceConfig
+from products.warehouse_sources.sources.sdk import (
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    SimpleSource,
+    SourceConfig,
+    SourceRegistry,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register

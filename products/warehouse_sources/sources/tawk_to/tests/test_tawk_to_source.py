@@ -3,14 +3,11 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tawkto import TawkToSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.tawk_to.source import TawkToSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.tawk_to.tawk_to import (
-    TawkToCredentialsError,
-    TawkToRetryableError,
-)
+from products.warehouse_sources.sources.tawk_to._config import TawkToSourceConfig
+from products.warehouse_sources.sources.tawk_to.source import TawkToSource
+from products.warehouse_sources.sources.tawk_to.tawk_to import TawkToCredentialsError, TawkToRetryableError
 
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.tawk_to.source"
+MODULE = "products.warehouse_sources.sources.tawk_to.source"
 
 
 class TestTawkToSource:

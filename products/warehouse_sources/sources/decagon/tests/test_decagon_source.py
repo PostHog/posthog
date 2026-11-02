@@ -1,14 +1,8 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.decagon.source import DecagonSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.decagon import (
-    DecagonSourceConfig,
-)
+from products.warehouse_sources.sources.decagon._config import DecagonSourceConfig
+from products.warehouse_sources.sources.decagon.source import DecagonSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, error_message_matches, scripted_network
 
 
 class TestDecagonSource:

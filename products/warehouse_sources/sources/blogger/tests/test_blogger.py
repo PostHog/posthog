@@ -4,21 +4,14 @@ from typing import Any
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.blogger.blogger import (
+from products.warehouse_sources.sources.blogger._config import BloggerSourceConfig
+from products.warehouse_sources.sources.blogger.blogger import (
     BloggerResumeConfig,
     _format_rfc3339,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.blogger.source import BloggerSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.blogger import (
-    BloggerSourceConfig,
-)
+from products.warehouse_sources.sources.blogger.source import BloggerSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver(api_key: str = "K") -> SourceDriver:

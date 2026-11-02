@@ -4,11 +4,9 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.terraformcloud import (
-    TerraformCloudSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.terraform_cloud.source import TerraformCloudSource
+from products.warehouse_sources.sources.sdk import SourceInputs
+from products.warehouse_sources.sources.terraform_cloud._config import TerraformCloudSourceConfig
+from products.warehouse_sources.sources.terraform_cloud.source import TerraformCloudSource
 
 
 def _config(api_token: str = "test-token", organization: str = "acme") -> TerraformCloudSourceConfig:
@@ -43,7 +41,7 @@ class TestTerraformCloudSource:
     def test_validate_credentials_rejects_invalid_org_names_without_network(self, organization: str, _: bool) -> None:
         # The org name lands in a URL path; a malformed value must be rejected before any request.
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.terraform_cloud.source.validate_terraform_cloud_credentials"
+            "products.warehouse_sources.sources.terraform_cloud.source.validate_terraform_cloud_credentials"
         ) as probe:
             ok, message = TerraformCloudSource().validate_credentials(_config(organization=organization), team_id=1)
         assert ok is False
@@ -52,7 +50,7 @@ class TestTerraformCloudSource:
 
     def test_validate_credentials_delegates_probe(self) -> None:
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.terraform_cloud.source.validate_terraform_cloud_credentials",
+            "products.warehouse_sources.sources.terraform_cloud.source.validate_terraform_cloud_credentials",
             return_value=(True, None),
         ) as probe:
             assert TerraformCloudSource().validate_credentials(_config(), team_id=1) == (True, None)
@@ -63,7 +61,7 @@ class TestTerraformCloudSource:
         sentinel = object()
         manager = MagicMock()
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.terraform_cloud.source.terraform_cloud_source",
+            "products.warehouse_sources.sources.terraform_cloud.source.terraform_cloud_source",
             return_value=sentinel,
         ) as mock_source:
             inputs = _inputs("runs", should_use_incremental_field=should_use_incremental)

@@ -1,28 +1,20 @@
 from dataclasses import replace
 from typing import Any, cast
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    build_dependent_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+from products.warehouse_sources.sources.sdk import (
     ClientConfig,
     Endpoint,
     EndpointResource,
     JSONResponseCursorPaginatorConfig,
     ResponseAction,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    build_dependent_resource,
+    frozen,
+    rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_data.settings import (
-    ENDPOINTS,
-    FANOUT_PARENTS,
-)
+from products.warehouse_sources.sources.youtube_data.settings import ENDPOINTS, FANOUT_PARENTS
 
 AUTH_ERROR = "YouTube credentials are invalid or expired. Check your Google API key."
 ACCESS_ERROR = "YouTube access was denied. Enable YouTube Data API v3 and check your API key restrictions."

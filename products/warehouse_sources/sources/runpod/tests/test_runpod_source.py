@@ -2,7 +2,7 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.runpod.source import RunPodSource
+from products.warehouse_sources.sources.runpod.source import RunPodSource
 
 _BILLING_ENDPOINTS = ["billing_pods", "billing_endpoints", "billing_network_volumes"]
 _INVENTORY_ENDPOINTS = ["pods", "endpoints", "templates", "network_volumes"]

@@ -4,22 +4,11 @@ import pytest
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stackoverflowforteams import (
-    StackOverflowForTeamsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.stack_overflow_for_teams.settings import (
-    STACK_OVERFLOW_FOR_TEAMS_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.stack_overflow_for_teams.source import (
-    StackOverflowForTeamsSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.stack_overflow_for_teams.stack_overflow_for_teams import (
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, route, scripted_network
+from products.warehouse_sources.sources.stack_overflow_for_teams._config import StackOverflowForTeamsSourceConfig
+from products.warehouse_sources.sources.stack_overflow_for_teams.settings import STACK_OVERFLOW_FOR_TEAMS_ENDPOINTS
+from products.warehouse_sources.sources.stack_overflow_for_teams.source import StackOverflowForTeamsSource
+from products.warehouse_sources.sources.stack_overflow_for_teams.stack_overflow_for_teams import (
     StackOverflowForTeamsResumeConfig,
     normalize_team,
     validate_credentials,

@@ -3,18 +3,16 @@ from typing import Any, cast
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     Script,
     ScriptedResponse,
     SourceDriver,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.twelvelabs import (
-    TwelveLabsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.twelve_labs.source import TwelveLabsSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.twelve_labs.twelve_labs import (
+from products.warehouse_sources.sources.twelve_labs._config import TwelveLabsSourceConfig
+from products.warehouse_sources.sources.twelve_labs.source import TwelveLabsSource
+from products.warehouse_sources.sources.twelve_labs.twelve_labs import (
     TwelveLabsResumeConfig,
     _format_incremental_value,
     validate_credentials,

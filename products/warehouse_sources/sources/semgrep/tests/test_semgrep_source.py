@@ -4,11 +4,9 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.semgrep.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.semgrep.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.semgrep.source import (
+from products.warehouse_sources.sources.semgrep.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.semgrep.settings import ENDPOINTS
+from products.warehouse_sources.sources.semgrep.source import (
     INVALID_TOKEN_MESSAGE,
     MISSING_SCOPE_MESSAGE,
     UNREACHABLE_MESSAGE,
@@ -25,7 +23,7 @@ def _config(api_token: str = "token") -> Any:
 class TestValidateCredentials:
     def test_success(self) -> None:
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.semgrep.source.validate_semgrep_credentials",
+            "products.warehouse_sources.sources.semgrep.source.validate_semgrep_credentials",
             return_value=(True, 200),
         ) as mocked:
             ok, error = SemgrepSource().validate_credentials(_config(), team_id=1)
@@ -43,7 +41,7 @@ class TestValidateCredentials:
     )
     def test_failure(self, _name: str, status: int | None, expected_error: str) -> None:
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.semgrep.source.validate_semgrep_credentials",
+            "products.warehouse_sources.sources.semgrep.source.validate_semgrep_credentials",
             return_value=(False, status),
         ):
             ok, error = SemgrepSource().validate_credentials(_config(), team_id=1, schema_name="sast_findings")

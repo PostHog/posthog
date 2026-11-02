@@ -4,23 +4,23 @@ from typing import Any, cast
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openai import OpenAISourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.openai.openai import (
+from products.warehouse_sources.sources.openai._config import OpenAISourceConfig
+from products.warehouse_sources.sources.openai.openai import (
     PROJECT_KEY_MISSING_MESSAGE,
     OpenAIResumeConfig,
     _flatten_bucket_result,
     _normalize_audit_log,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.openai.settings import OPENAI_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.openai.source import OpenAISource
+from products.warehouse_sources.sources.openai.settings import OPENAI_ENDPOINTS
+from products.warehouse_sources.sources.openai.source import OpenAISource
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 
 PROJECT_USERS_PATH = "/v1/organization/projects/{project_id}/users"
 

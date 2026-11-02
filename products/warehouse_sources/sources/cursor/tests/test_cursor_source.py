@@ -2,9 +2,9 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.cursor.cursor import KEY_REJECTED_MESSAGE
-from products.warehouse_sources.backend.temporal.data_imports.sources.cursor.source import CursorSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cursor import CursorSourceConfig
+from products.warehouse_sources.sources.cursor._config import CursorSourceConfig
+from products.warehouse_sources.sources.cursor.cursor import KEY_REJECTED_MESSAGE
+from products.warehouse_sources.sources.cursor.source import CursorSource
 
 
 class TestCursorSource:
@@ -46,7 +46,7 @@ class TestCursorSource:
     @parameterized.expand([((True, None),), ((False, KEY_REJECTED_MESSAGE),)])
     def test_validate_credentials(self, probe_result):
         with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.cursor.source.validate_cursor_credentials",
+            "products.warehouse_sources.sources.cursor.source.validate_cursor_credentials",
             return_value=probe_result,
         ):
             assert self.source.validate_credentials(self.config, self.team_id) == probe_result

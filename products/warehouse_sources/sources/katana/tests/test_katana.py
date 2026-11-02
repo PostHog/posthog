@@ -4,19 +4,15 @@ from typing import Any
 from parameterized import parameterized
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.katana import KatanaSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.katana.katana import (
+from products.warehouse_sources.sources.katana._config import KatanaSourceConfig
+from products.warehouse_sources.sources.katana.katana import (
     PAGE_SIZE,
     KatanaResumeConfig,
     _format_incremental_value,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.katana.source import KatanaSource
+from products.warehouse_sources.sources.katana.source import KatanaSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 _SECRET_KEY = "katana-secret-key-abcdef123456"
 

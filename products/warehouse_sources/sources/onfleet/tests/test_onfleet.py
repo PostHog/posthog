@@ -4,23 +4,17 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.onfleet import onfleet as onfleet_module
+from products.warehouse_sources.sources.onfleet._config import OnfleetSourceConfig
+from products.warehouse_sources.sources.onfleet.onfleet import OnfleetResumeConfig, _to_epoch_ms, get_credentials_status
+from products.warehouse_sources.sources.onfleet.source import OnfleetSource
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.onfleet import (
-    OnfleetSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.onfleet import onfleet as onfleet_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.onfleet.onfleet import (
-    OnfleetResumeConfig,
-    _to_epoch_ms,
-    get_credentials_status,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.onfleet.source import OnfleetSource
 
 
 def _driver() -> SourceDriver:

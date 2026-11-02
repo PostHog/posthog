@@ -3,24 +3,15 @@ from typing import Any
 from parameterized import parameterized
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.huggingface import (
-    HuggingFaceSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.hugging_face.hugging_face import (
+from products.warehouse_sources.sources.hugging_face._config import HuggingFaceSourceConfig
+from products.warehouse_sources.sources.hugging_face.hugging_face import (
     HUGGING_FACE_BASE_URL,
     _build_initial_params,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.hugging_face.settings import (
-    HUGGING_FACE_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.hugging_face.source import HuggingFaceSource
+from products.warehouse_sources.sources.hugging_face.settings import HUGGING_FACE_ENDPOINTS
+from products.warehouse_sources.sources.hugging_face.source import HuggingFaceSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, route, scripted_network
 
 
 def _driver() -> SourceDriver:

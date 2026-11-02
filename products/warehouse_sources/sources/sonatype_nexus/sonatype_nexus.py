@@ -9,15 +9,14 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from posthog.cloud_utils import is_cloud
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
+    is_cloud,
     make_tracked_session,
     retry_with_deadline,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.sonatype_nexus.settings import (
+from products.warehouse_sources.sources.sonatype_nexus.settings import (
     NEXUS_API_PATH,
     NEXUS_DEFAULT_USER_SOURCE,
     NEXUS_USER_SEARCH_LIMIT,

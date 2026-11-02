@@ -1,7 +1,7 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.smaily import SmailySourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.smaily.source import SmailySource
+from products.warehouse_sources.sources.smaily._config import SmailySourceConfig
+from products.warehouse_sources.sources.smaily.source import SmailySource
 
 
 class TestSmailySource:
@@ -15,7 +15,7 @@ class TestSmailySource:
         # without re-entering the password would let an editor replay the credential elsewhere.
         assert self.source.connection_host_fields == ["subdomain"]
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.smaily.source.validate_credentials")
+    @mock.patch("products.warehouse_sources.sources.smaily.source.validate_credentials")
     def test_validate_credentials_delegates_with_config_values(self, mock_validate: mock.MagicMock) -> None:
         # The status-to-message mapping lives in smaily.validate_credentials; here we only assert
         # the source probes with the configured credentials and returns the verdict unchanged.
@@ -24,7 +24,7 @@ class TestSmailySource:
         mock_validate.assert_called_once_with("acme", "user", "pass")
         assert result == (False, "Invalid Smaily credentials")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.smaily.source.smaily_source")
+    @mock.patch("products.warehouse_sources.sources.smaily.source.smaily_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "campaigns"

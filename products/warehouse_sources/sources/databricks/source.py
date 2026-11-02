@@ -1,33 +1,31 @@
 from typing import Optional, cast
 
-from posthog.exceptions_capture import capture_exception
-from posthog.models.integration.databricks import NOT_A_DATABRICKS_HOST_MESSAGE, is_databricks_workspace_host
-
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.databricks._config import DatabricksSourceConfig
+from products.warehouse_sources.sources.databricks.databricks import (
+    DATABRICKS_SCHEMA_DISCOVERY_DEADLINE_SECONDS,
+    DatabricksImplementation,
+    clean_databricks_host,
+    run_schema_discovery_with_deadline,
+)
+from products.warehouse_sources.sources.sdk import (
+    NOT_A_DATABRICKS_HOST_MESSAGE,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
+    SourceRegistry,
+    SourceSchema,
+    SQLSource,
+    ValidateDatabaseHostMixin,
+    capture_exception,
+    detect,
+    is_databricks_workspace_host,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.databricks.databricks import (
-    DATABRICKS_SCHEMA_DISCOVERY_DEADLINE_SECONDS,
-    DatabricksImplementation,
-    clean_databricks_host,
-    run_schema_discovery_with_deadline,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.databricks import (
-    DatabricksSourceConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _DATABRICKS_IMPLEMENTATION = DatabricksImplementation()
 

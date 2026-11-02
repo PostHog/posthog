@@ -1,13 +1,8 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.eventee.source import EventeeSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.eventee import (
-    EventeeSourceConfig,
-)
+from products.warehouse_sources.sources.eventee._config import EventeeSourceConfig
+from products.warehouse_sources.sources.eventee.source import EventeeSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 class TestEventeeSource:

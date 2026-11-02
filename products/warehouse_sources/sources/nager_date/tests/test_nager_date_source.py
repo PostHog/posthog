@@ -3,16 +3,10 @@ import time_machine
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.nagerdate import (
-    NagerDateSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.nager_date.settings import ENDPOINTS, PRIMARY_KEYS
-from products.warehouse_sources.backend.temporal.data_imports.sources.nager_date.source import NagerDateSource
+from products.warehouse_sources.sources.nager_date._config import NagerDateSourceConfig
+from products.warehouse_sources.sources.nager_date.settings import ENDPOINTS, PRIMARY_KEYS
+from products.warehouse_sources.sources.nager_date.source import NagerDateSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always
 
 
 class TestNagerDateSource:

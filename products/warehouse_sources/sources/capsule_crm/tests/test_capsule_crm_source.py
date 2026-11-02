@@ -2,14 +2,9 @@ from typing import Any
 
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.capsule_crm.source import CapsuleCRMSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.capsulecrm import (
-    CapsuleCRMSourceConfig,
-)
+from products.warehouse_sources.sources.capsule_crm._config import CapsuleCRMSourceConfig
+from products.warehouse_sources.sources.capsule_crm.source import CapsuleCRMSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 class TestCapsuleCRMSource:
@@ -20,14 +15,14 @@ class TestCapsuleCRMSource:
 
     def test_validate_credentials_success(self) -> None:
         with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.capsule_crm.source.validate_capsule_crm_credentials",
+            "products.warehouse_sources.sources.capsule_crm.source.validate_capsule_crm_credentials",
             return_value=True,
         ):
             assert self.source.validate_credentials(self.config, self.team_id) == (True, None)
 
     def test_validate_credentials_failure(self) -> None:
         with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.capsule_crm.source.validate_capsule_crm_credentials",
+            "products.warehouse_sources.sources.capsule_crm.source.validate_capsule_crm_credentials",
             return_value=False,
         ):
             ok, message = self.source.validate_credentials(self.config, self.team_id)
@@ -44,7 +39,7 @@ class TestCapsuleCRMSource:
         captured: dict[str, Any] = {}
 
         with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.capsule_crm.source.capsule_crm_source",
+            "products.warehouse_sources.sources.capsule_crm.source.capsule_crm_source",
             side_effect=lambda **kwargs: captured.update(kwargs),
         ):
             self.source.source_for_pipeline(self.config, manager, inputs)

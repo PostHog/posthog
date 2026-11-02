@@ -5,10 +5,8 @@ from typing import Any, Optional
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.checkout_com import (
-    CheckoutComResumeConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.reports import (
+from products.warehouse_sources.sources.checkout_com.checkout_com import CheckoutComResumeConfig
+from products.warehouse_sources.sources.checkout_com.reports import (
     MAX_DISCOVERY_PAGES,
     CheckoutComReportKeyError,
     CheckoutComReportParseError,
@@ -18,11 +16,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_c
     discover_report_types,
     report_type_table_name,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.sources.sdk import ResumableSourceManager
 
-SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.reports.make_tracked_session"
-)
+SESSION_PATCH = "products.warehouse_sources.sources.checkout_com.reports.make_tracked_session"
 
 
 class _FakeRaw:
@@ -315,9 +311,7 @@ class TestReportsMetadataTable:
 
         assert _rows(_source("reports")) == []
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.reports.MAX_LIST_PAGES", 2
-    )
+    @mock.patch("products.warehouse_sources.sources.checkout_com.reports.MAX_LIST_PAGES", 2)
     @mock.patch(SESSION_PATCH)
     def test_sync_fails_loudly_when_listing_exceeds_page_cap(self, mock_make_session):
         api_session = _FakeSession(

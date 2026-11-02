@@ -1,37 +1,29 @@
 from typing import cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.acast.acast import (
+from products.warehouse_sources.sources.acast._config import AcastSourceConfig
+from products.warehouse_sources.sources.acast.acast import (
     acast_source,
     validate_credentials as validate_acast_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.acast.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.acast.settings import (
-    AUTH_ERROR,
-    ENDPOINTS,
-    PERMISSION_ERROR,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+from products.warehouse_sources.sources.acast.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.acast.settings import AUTH_ERROR, ENDPOINTS, PERMISSION_ERROR
+from products.warehouse_sources.sources.sdk import (
     CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    SimpleSource,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.acast import AcastSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register

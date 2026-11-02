@@ -7,20 +7,10 @@ import pytest
 from parameterized import parameterized
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.chess_com.chess_com import (
-    opaque_key,
-    parse_usernames,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.chess_com.source import ChessComSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.chesscom import (
-    ChessComSourceConfig,
-)
+from products.warehouse_sources.sources.chess_com._config import ChessComSourceConfig
+from products.warehouse_sources.sources.chess_com.chess_com import opaque_key, parse_usernames
+from products.warehouse_sources.sources.chess_com.source import ChessComSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 API = "https://api.chess.com/pub"
 TEAM_ID = 1

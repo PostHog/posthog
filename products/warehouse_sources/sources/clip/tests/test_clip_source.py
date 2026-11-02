@@ -1,12 +1,9 @@
 import pytest
 from time_machine import travel
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.clip.source import ClipSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clip import ClipSourceConfig
+from products.warehouse_sources.sources.clip._config import ClipSourceConfig
+from products.warehouse_sources.sources.clip.source import ClipSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 @travel("2026-07-03", tick=False)

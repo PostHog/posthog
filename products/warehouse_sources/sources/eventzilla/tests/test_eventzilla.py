@@ -2,20 +2,18 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.eventzilla.eventzilla import (
+from products.warehouse_sources.sources.eventzilla._config import EventzillaSourceConfig
+from products.warehouse_sources.sources.eventzilla.eventzilla import (
     PAGE_SIZE,
     EventzillaResumeConfig,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.eventzilla.source import EventzillaSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.eventzilla import (
-    EventzillaSourceConfig,
+from products.warehouse_sources.sources.eventzilla.source import EventzillaSource
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
 )
 
 

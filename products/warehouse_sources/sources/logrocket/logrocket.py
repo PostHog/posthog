@@ -10,37 +10,25 @@ from urllib.parse import parse_qsl, quote, urlsplit
 from requests import Response
 from requests.exceptions import HTTPError, RequestException
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+from products.warehouse_sources.sources.logrocket._config import LogrocketSourceConfig
+from products.warehouse_sources.sources.logrocket.settings import BASE_URL, ENDPOINTS, LogrocketEndpoint
+from products.warehouse_sources.sources.sdk import (
     DEFAULT_RETRY,
-    make_tracked_session,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    RESTClient,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import create_auth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponseCursorPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
     Endpoint,
     EndpointResource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.logrocket import (
-    LogrocketSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.logrocket.settings import (
-    BASE_URL,
-    ENDPOINTS,
-    LogrocketEndpoint,
+    JSONResponseCursorPaginator,
+    RESTAPIConfig,
+    RESTClient,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceInputs,
+    SourceResponse,
+    create_auth,
+    frozen,
+    make_tracked_session,
+    rest_api_resource,
+    schema_for_resource,
 )
 
 

@@ -6,7 +6,8 @@ from unittest import mock
 
 from tenacity import Future, RetryCallState
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.apollo.apollo import (
+from products.warehouse_sources.sources.apollo._config import ApolloSourceConfig
+from products.warehouse_sources.sources.apollo.apollo import (
     MAX_PAGES,
     MAX_RETRY_AFTER_SECONDS,
     PAGE_SIZE,
@@ -17,14 +18,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.apollo.apo
     _wait_apollo,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.apollo.settings import APOLLO_ENDPOINTS, ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.apollo.source import ApolloSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.apollo import ApolloSourceConfig
+from products.warehouse_sources.sources.apollo.settings import APOLLO_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.sources.apollo.source import ApolloSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver() -> SourceDriver:

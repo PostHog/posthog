@@ -5,19 +5,17 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     Script,
     ScriptedResponse,
     SourceDriver,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.twelvedata import (
-    TwelveDataSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.twelve_data import twelve_data
-from products.warehouse_sources.backend.temporal.data_imports.sources.twelve_data.source import TwelveDataSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.twelve_data.twelve_data import (
+from products.warehouse_sources.sources.twelve_data import twelve_data
+from products.warehouse_sources.sources.twelve_data._config import TwelveDataSourceConfig
+from products.warehouse_sources.sources.twelve_data.source import TwelveDataSource
+from products.warehouse_sources.sources.twelve_data.twelve_data import (
     TwelveDataError,
     TwelveDataResumeConfig,
     _format_time_bound,

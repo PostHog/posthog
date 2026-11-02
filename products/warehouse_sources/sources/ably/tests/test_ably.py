@@ -4,7 +4,8 @@ import pytest
 
 from requests.exceptions import ConnectionError as RequestsConnectionError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.ably.ably import (
+from products.warehouse_sources.sources.ably._config import AblySourceConfig
+from products.warehouse_sources.sources.ably.ably import (
     ABLY_VERSION_2,
     AblyResumeConfig,
     _add_channel_path,
@@ -16,15 +17,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ably.ably 
     validate_credentials,
     version_header,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.ably.source import AblySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ably import AblySourceConfig
+from products.warehouse_sources.sources.ably.source import AblySource
+from products.warehouse_sources.sources.sdk import UNVERSIONED_API_VERSION
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

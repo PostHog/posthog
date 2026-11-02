@@ -1,15 +1,10 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.bill_com.source import BillComSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.billcom import (
-    BillComSourceConfig,
-)
+from products.warehouse_sources.sources.bill_com._config import BillComSourceConfig
+from products.warehouse_sources.sources.bill_com.source import BillComSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.bill_com.source"
+_MODULE = "products.warehouse_sources.sources.bill_com.source"
 
 
 class TestBillComSource:

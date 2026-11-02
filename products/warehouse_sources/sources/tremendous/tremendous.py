@@ -6,21 +6,19 @@ from typing import Any, Optional
 
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from products.warehouse_sources.sources.sdk import (
     Endpoint,
     EndpointResource,
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     OffsetPaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
     SinglePagePaginator,
+    SourceResponse,
+    make_tracked_session,
+    rest_api_resource,
+    validate_via_probe,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.tremendous.settings import TREMENDOUS_ENDPOINTS
+from products.warehouse_sources.sources.tremendous.settings import TREMENDOUS_ENDPOINTS
 
 # Sandbox and production are separate hosts with separate API keys.
 TREMENDOUS_BASE_URLS: dict[str, str] = {

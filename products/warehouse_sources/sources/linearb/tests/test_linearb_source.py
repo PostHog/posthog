@@ -1,13 +1,8 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.linearb import (
-    LinearbSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.linearb.source import LinearbSource
+from products.warehouse_sources.sources.linearb._config import LinearbSourceConfig
+from products.warehouse_sources.sources.linearb.source import LinearbSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 class TestLinearbSource:

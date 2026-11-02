@@ -3,20 +3,10 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.chargebee.chargebee import (
-    ChargebeePaginator,
-    ChargebeeResumeConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.chargebee.source import ChargebeeSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.chargebee import (
-    ChargebeeSourceConfig,
-)
+from products.warehouse_sources.sources.chargebee._config import ChargebeeSourceConfig
+from products.warehouse_sources.sources.chargebee.chargebee import ChargebeePaginator, ChargebeeResumeConfig
+from products.warehouse_sources.sources.chargebee.source import ChargebeeSource
+from products.warehouse_sources.sources.sdk.testing import DriveResult, ScriptedResponse, SourceDriver, scripted_network
 
 
 class TestChargebeePaginator:

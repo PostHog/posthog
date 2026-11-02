@@ -2,8 +2,8 @@ from typing import Any
 
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.nocrm import NoCRMSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.nocrm.source import NoCRMSource
+from products.warehouse_sources.sources.nocrm._config import NoCRMSourceConfig
+from products.warehouse_sources.sources.nocrm.source import NoCRMSource
 
 
 class TestNoCRMSource:
@@ -18,14 +18,14 @@ class TestNoCRMSource:
 
     def test_validate_credentials_success(self) -> None:
         with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.nocrm.source.validate_nocrm_credentials",
+            "products.warehouse_sources.sources.nocrm.source.validate_nocrm_credentials",
             return_value=True,
         ):
             assert self.source.validate_credentials(self.config, self.team_id) == (True, None)
 
     def test_validate_credentials_failure(self) -> None:
         with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.nocrm.source.validate_nocrm_credentials",
+            "products.warehouse_sources.sources.nocrm.source.validate_nocrm_credentials",
             return_value=False,
         ):
             ok, message = self.source.validate_credentials(self.config, self.team_id)
@@ -41,7 +41,7 @@ class TestNoCRMSource:
 
         captured: dict[str, Any] = {}
         with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.nocrm.source.nocrm_source",
+            "products.warehouse_sources.sources.nocrm.source.nocrm_source",
             side_effect=lambda **kwargs: captured.update(kwargs),
         ):
             self.source.source_for_pipeline(self.config, manager, inputs)
@@ -63,7 +63,7 @@ class TestNoCRMSource:
 
         captured: dict[str, Any] = {}
         with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.nocrm.source.nocrm_source",
+            "products.warehouse_sources.sources.nocrm.source.nocrm_source",
             side_effect=lambda **kwargs: captured.update(kwargs),
         ):
             self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)

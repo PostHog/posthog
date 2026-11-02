@@ -2,8 +2,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.alguna.source import AlgunaSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.alguna import AlgunaSourceConfig
+from products.warehouse_sources.sources.alguna._config import AlgunaSourceConfig
+from products.warehouse_sources.sources.alguna.source import AlgunaSource
 
 
 class TestAlgunaSource:
@@ -29,7 +29,7 @@ class TestAlgunaSource:
     )
     def test_validate_credentials(self, _name, mock_return, expected_valid, expected_message):
         with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.alguna.source.validate_alguna_credentials"
+            "products.warehouse_sources.sources.alguna.source.validate_alguna_credentials"
         ) as mock_validate:
             mock_validate.return_value = mock_return
 

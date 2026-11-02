@@ -5,22 +5,15 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.octolens import (
-    OctolensSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.octolens.octolens import (
+from products.warehouse_sources.sources.octolens._config import OctolensSourceConfig
+from products.warehouse_sources.sources.octolens.octolens import (
     OCTOLENS_BASE_URL,
     PAGE_SIZE,
     OctolensResumeConfig,
     check_access,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.octolens.source import OctolensSource
+from products.warehouse_sources.sources.octolens.source import OctolensSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

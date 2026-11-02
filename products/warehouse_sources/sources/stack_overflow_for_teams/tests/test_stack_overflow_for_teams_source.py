@@ -1,12 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stackoverflowforteams import (
-    StackOverflowForTeamsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.stack_overflow_for_teams.source import (
-    StackOverflowForTeamsSource,
-)
+from products.warehouse_sources.sources.stack_overflow_for_teams._config import StackOverflowForTeamsSourceConfig
+from products.warehouse_sources.sources.stack_overflow_for_teams.source import StackOverflowForTeamsSource
 
 
 class TestStackOverflowForTeamsSource:
@@ -38,7 +34,7 @@ class TestStackOverflowForTeamsSource:
         ],
     )
     @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.stack_overflow_for_teams.source.validate_stack_overflow_for_teams_credentials"
+        "products.warehouse_sources.sources.stack_overflow_for_teams.source.validate_stack_overflow_for_teams_credentials"
     )
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
         mock_validate.return_value = mock_return
@@ -50,7 +46,7 @@ class TestStackOverflowForTeamsSource:
         mock_validate.assert_called_once_with("engineering", "tok")
 
     @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.stack_overflow_for_teams.source.validate_stack_overflow_for_teams_credentials"
+        "products.warehouse_sources.sources.stack_overflow_for_teams.source.validate_stack_overflow_for_teams_credentials"
     )
     def test_validate_credentials_surfaces_bad_team(self, mock_validate):
         mock_validate.side_effect = ValueError("Invalid Stack Overflow for Teams team name: 'a/b'.")

@@ -5,21 +5,17 @@ import pytest
 
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.guru import GuruSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.guru.guru import (
+from products.warehouse_sources.sources.guru._config import GuruSourceConfig
+from products.warehouse_sources.sources.guru.guru import (
     GuruResumeConfig,
     _ensure_event_id,
     _format_last_modified,
     _normalize_member,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.guru.settings import GURU_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.guru.source import GuruSource
+from products.warehouse_sources.sources.guru.settings import GURU_ENDPOINTS
+from products.warehouse_sources.sources.guru.source import GuruSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver() -> SourceDriver:

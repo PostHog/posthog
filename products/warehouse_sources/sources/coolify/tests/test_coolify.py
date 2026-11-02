@@ -4,13 +4,8 @@ from unittest.mock import MagicMock, patch
 from requests import Response
 from requests.exceptions import ConnectionError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.coolify.coolify import (
+from products.warehouse_sources.sources.coolify._config import CoolifySourceConfig
+from products.warehouse_sources.sources.coolify.coolify import (
     AUDIT_EVENTS_FORBIDDEN_ERROR,
     AuditEventsPaginationTruncatedError,
     CoolifyHostNotAllowedError,
@@ -23,14 +18,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coolify.co
     normalize_base_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.coolify.settings import (
-    COOLIFY_ENDPOINTS,
-    DEPLOYMENTS_PAGE_SIZE,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.coolify.source import CoolifySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coolify import (
-    CoolifySourceConfig,
-)
+from products.warehouse_sources.sources.coolify.settings import COOLIFY_ENDPOINTS, DEPLOYMENTS_PAGE_SIZE
+from products.warehouse_sources.sources.coolify.source import CoolifySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 BASE_URL = "https://coolify.example.com"
 API_BASE = f"{BASE_URL}/api/v1"
@@ -78,7 +68,7 @@ class TestCoolifyHostnameValidation:
         assert hostname_of(url) is None
 
     @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.coolify.coolify.is_cloud",
+        "products.warehouse_sources.sources.coolify.coolify.is_cloud",
         return_value=True,
     )
     def test_rejects_plain_http_on_cloud(self, _mock: MagicMock) -> None:
@@ -165,7 +155,7 @@ class TestCoolifyDeploymentsFanout:
         # complete table for an incomplete one; it must raise instead.
         page = [{"deployment_uuid": f"dep-{i}"} for i in range(DEPLOYMENTS_PAGE_SIZE)]
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.coolify.coolify.MAX_DEPLOYMENTS_OFFSET",
+            "products.warehouse_sources.sources.coolify.coolify.MAX_DEPLOYMENTS_OFFSET",
             DEPLOYMENTS_PAGE_SIZE,
         ):
             result = _driver().run(
@@ -404,7 +394,7 @@ class TestCoolifyAuditEvents:
 
     def test_a_page_count_past_the_safety_cap_fails_the_table_instead_of_truncating_it(self) -> None:
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.coolify.coolify.MAX_AUDIT_EVENTS_PAGES",
+            "products.warehouse_sources.sources.coolify.coolify.MAX_AUDIT_EVENTS_PAGES",
             2,
         ):
             result = _driver().run(

@@ -1,16 +1,11 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.confluent_cloud.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.confluent_cloud.source import ConfluentCloudSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.confluentcloud import (
-    ConfluentCloudSourceConfig,
-)
+from products.warehouse_sources.sources.confluent_cloud._config import ConfluentCloudSourceConfig
+from products.warehouse_sources.sources.confluent_cloud.settings import ENDPOINTS
+from products.warehouse_sources.sources.confluent_cloud.source import ConfluentCloudSource
 
-_VALIDATE_PATH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.confluent_cloud.source."
-    "validate_confluent_cloud_credentials"
-)
+_VALIDATE_PATH = "products.warehouse_sources.sources.confluent_cloud.source.validate_confluent_cloud_credentials"
 
 
 class TestConfluentCloudSource:
@@ -65,9 +60,7 @@ class TestConfluentCloudSource:
         assert is_valid is True
         assert error_message is None
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.confluent_cloud.source.confluent_cloud_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.confluent_cloud.source.confluent_cloud_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "kafka_metrics"
@@ -85,9 +78,7 @@ class TestConfluentCloudSource:
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["db_incremental_field_last_value"] == "2026-07-14T00:00:00Z"
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.confluent_cloud.source.confluent_cloud_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.confluent_cloud.source.confluent_cloud_source")
     def test_source_for_pipeline_omits_cursor_when_not_incremental(self, mock_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "metric_descriptors"

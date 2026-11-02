@@ -1,8 +1,8 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.dixa.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.dixa.source import DixaSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dixa import DixaSourceConfig
+from products.warehouse_sources.sources.dixa._config import DixaSourceConfig
+from products.warehouse_sources.sources.dixa.settings import ENDPOINTS
+from products.warehouse_sources.sources.dixa.source import DixaSource
 
 
 class TestDixaSource:

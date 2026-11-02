@@ -1,10 +1,8 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.source import DockerhubSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dockerhub import (
-    DockerhubSourceConfig,
-)
+from products.warehouse_sources.sources.dockerhub._config import DockerhubSourceConfig
+from products.warehouse_sources.sources.dockerhub.settings import ENDPOINTS
+from products.warehouse_sources.sources.dockerhub.source import DockerhubSource
 
 
 class TestDockerhubSource:
@@ -20,7 +18,7 @@ class TestDockerhubSource:
 
     def test_org_scoped_endpoints_report_why_they_are_unavailable(self) -> None:
         with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.source.check_endpoint_access",
+            "products.warehouse_sources.sources.dockerhub.source.check_endpoint_access",
             return_value=dict.fromkeys(ENDPOINTS),
         ) as probe:
             self.source.get_endpoint_permissions(self.config, self.team_id, list(ENDPOINTS))
@@ -28,7 +26,7 @@ class TestDockerhubSource:
         # A blank namespace means the user's own, so the probe must run against the username.
         assert probe.call_args.args == ("tom", "dckr_pat_token", "tom", list(ENDPOINTS))
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.source.dockerhub_source")
+    @mock.patch("products.warehouse_sources.sources.dockerhub.source.dockerhub_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "repositories"

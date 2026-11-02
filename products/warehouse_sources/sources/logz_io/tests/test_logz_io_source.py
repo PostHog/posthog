@@ -1,7 +1,7 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.logzio import LogzIOSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.logz_io.source import LogzIOSource
+from products.warehouse_sources.sources.logz_io._config import LogzIOSourceConfig
+from products.warehouse_sources.sources.logz_io.source import LogzIOSource
 
-SOURCE = "products.warehouse_sources.backend.temporal.data_imports.sources.logz_io.source"
+SOURCE = "products.warehouse_sources.sources.logz_io.source"
 
 
 class TestLogzIOSource:

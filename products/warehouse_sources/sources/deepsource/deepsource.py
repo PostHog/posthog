@@ -6,13 +6,7 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
-    make_tracked_session,
-    retry_with_deadline,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.deepsource.queries import (
+from products.warehouse_sources.sources.deepsource.queries import (
     ANALYSIS_RUN_CHECKS_QUERY,
     CONNECTION_QUERIES,
     PER_REPOSITORY_QUERIES,
@@ -21,13 +15,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.deepsource
     ROOT_CONNECTION_QUERIES,
     VALIDATE_QUERY,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.deepsource.settings import (
+from products.warehouse_sources.sources.deepsource.settings import (
     DEEPSOURCE_API_URL,
     DEEPSOURCE_CHECKS_PER_RUN_PAGE_SIZE,
     DEEPSOURCE_DEFAULT_PAGE_SIZE,
     DEEPSOURCE_ENDPOINTS,
     DEEPSOURCE_MAX_PAGES_PER_CONNECTION,
     DEEPSOURCE_REPOSITORY_LIST_PAGE_SIZE,
+)
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
+    make_tracked_session,
+    retry_with_deadline,
 )
 
 DEEPSOURCE_MAX_RETRY_ATTEMPTS = 8

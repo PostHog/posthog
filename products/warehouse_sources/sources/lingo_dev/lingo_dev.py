@@ -4,23 +4,16 @@ from typing import Any, Optional
 from requests import Request
 from requests.exceptions import RequestException
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponseCursorPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+from products.warehouse_sources.sources.lingo_dev.settings import LINGO_DEV_BASE_URL, LINGO_DEV_ENDPOINTS
+from products.warehouse_sources.sources.sdk import (
     Endpoint,
     EndpointResource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.lingo_dev.settings import (
-    LINGO_DEV_BASE_URL,
-    LINGO_DEV_ENDPOINTS,
+    JSONResponseCursorPaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    make_tracked_session,
+    rest_api_resource,
 )
 
 

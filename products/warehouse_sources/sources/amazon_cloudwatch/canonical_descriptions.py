@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 
 _LOGS_API = "https://docs.aws.amazon.com/AmazonCloudWatchLogs/latest/APIReference/"
 _MONITORING_API = "https://docs.aws.amazon.com/AmazonCloudWatch/latest/APIReference/"

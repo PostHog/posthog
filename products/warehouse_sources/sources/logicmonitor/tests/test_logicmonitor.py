@@ -4,23 +4,17 @@ import pytest
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.logicmonitor import (
-    LogicmonitorSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.logicmonitor.logicmonitor import (
+from products.warehouse_sources.sources.logicmonitor._config import LogicmonitorSourceConfig
+from products.warehouse_sources.sources.logicmonitor.logicmonitor import (
     AUTH_ERROR,
     PERMISSION_ERROR,
     LogicMonitorClient,
     LogicMonitorResumeConfig,
     portal_url,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.logicmonitor.settings import FIELDS
-from products.warehouse_sources.backend.temporal.data_imports.sources.logicmonitor.source import LogicmonitorSource
+from products.warehouse_sources.sources.logicmonitor.settings import FIELDS
+from products.warehouse_sources.sources.logicmonitor.source import LogicmonitorSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 BASE_PATH = "/santaba/rest/device/devices"
 

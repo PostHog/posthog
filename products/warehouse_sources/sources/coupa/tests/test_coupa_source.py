@@ -1,11 +1,8 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.coupa.source import CoupaSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coupa import CoupaSourceConfig
+from products.warehouse_sources.sources.coupa._config import CoupaSourceConfig
+from products.warehouse_sources.sources.coupa.source import CoupaSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 class TestCoupaSource:
@@ -20,9 +17,7 @@ class TestCoupaSource:
         # The instance URL decides where the stored credentials get sent.
         assert self.source.connection_host_fields == ["instance_url"]
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.coupa.source.validate_coupa_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.coupa.source.validate_coupa_credentials")
     @mock.patch.object(CoupaSource, "is_database_host_valid")
     def test_validate_credentials_happy_path(self, mock_host_valid, mock_validate):
         mock_host_valid.return_value = (True, None)
@@ -52,9 +47,7 @@ class TestCoupaSource:
         assert is_valid is False
         assert error_message == "Invalid Coupa instance URL"
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.coupa.source.validate_coupa_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.coupa.source.validate_coupa_credentials")
     @mock.patch.object(CoupaSource, "is_database_host_valid")
     def test_validate_credentials_bad_secret(self, mock_host_valid, mock_validate):
         mock_host_valid.return_value = (True, None)
@@ -65,7 +58,7 @@ class TestCoupaSource:
         assert is_valid is False
         assert "Invalid Coupa credentials" in (error_message or "")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.coupa.source.coupa_source")
+    @mock.patch("products.warehouse_sources.sources.coupa.source.coupa_source")
     @mock.patch.object(CoupaSource, "is_database_host_valid")
     def test_source_for_pipeline_plumbs_arguments(self, mock_host_valid, mock_coupa_source):
         mock_host_valid.return_value = (True, None)

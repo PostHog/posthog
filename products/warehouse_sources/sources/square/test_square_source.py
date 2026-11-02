@@ -1,9 +1,9 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.square import SquareSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.square.source import SquareSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.square.square import SquareCredentialProbe
+from products.warehouse_sources.sources.square._config import SquareSourceConfig
+from products.warehouse_sources.sources.square.source import SquareSource
+from products.warehouse_sources.sources.square.square import SquareCredentialProbe
 
 
 class TestSquareSource:
@@ -22,9 +22,7 @@ class TestSquareSource:
             ((False, True), "payments", None, False, True, "2026-09-16"),  # 403 for a specific schema -> rejected
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.square.source.validate_square_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.square.source.validate_square_credentials")
     def test_validate_credentials(
         self,
         mock_validate: mock.MagicMock,

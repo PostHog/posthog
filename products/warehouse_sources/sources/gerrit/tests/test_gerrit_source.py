@@ -1,5 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gerrit import GerritSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.gerrit.source import GerritSource
+from products.warehouse_sources.sources.gerrit._config import GerritSourceConfig
+from products.warehouse_sources.sources.gerrit.source import GerritSource
 
 
 class TestGerritSource:

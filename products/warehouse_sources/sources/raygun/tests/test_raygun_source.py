@@ -1,10 +1,10 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.raygun import RaygunSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.raygun.source import RaygunSource
+from products.warehouse_sources.sources.raygun._config import RaygunSourceConfig
+from products.warehouse_sources.sources.raygun.source import RaygunSource
 
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.raygun.source"
+MODULE = "products.warehouse_sources.sources.raygun.source"
 
 
 def _config() -> RaygunSourceConfig:

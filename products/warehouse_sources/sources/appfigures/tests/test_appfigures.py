@@ -4,23 +4,16 @@ from typing import Any
 import pytest
 import time_machine
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.appfigures.appfigures import (
+from products.warehouse_sources.sources.appfigures._config import AppfiguresSourceConfig
+from products.warehouse_sources.sources.appfigures.appfigures import (
     AppfiguresResumeConfig,
     _flatten_ranks,
     _flatten_report,
     _to_date_str,
     check_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.appfigures.source import AppfiguresSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appfigures import (
-    AppfiguresSourceConfig,
-)
+from products.warehouse_sources.sources.appfigures.source import AppfiguresSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 _PAGE_LIMIT_REASON = (
     "page * count must be less than or equal to 10000. Please request fewer products or a smaller date range."

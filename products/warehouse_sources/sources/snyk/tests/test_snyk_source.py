@@ -4,10 +4,10 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.snyk import SnykSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.snyk.settings import SNYK_ENDPOINTS, SnykScope
-from products.warehouse_sources.backend.temporal.data_imports.sources.snyk.source import SnykSource
+from products.warehouse_sources.sources.sdk import SourceInputs
+from products.warehouse_sources.sources.snyk._config import SnykSourceConfig
+from products.warehouse_sources.sources.snyk.settings import SNYK_ENDPOINTS, SnykScope
+from products.warehouse_sources.sources.snyk.source import SnykSource
 
 
 def _source_inputs(

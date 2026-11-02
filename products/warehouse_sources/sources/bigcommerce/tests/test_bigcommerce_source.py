@@ -2,22 +2,15 @@ import pytest
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.bigcommerce.settings import (
+from products.warehouse_sources.sources.bigcommerce._config import BigCommerceSourceConfig
+from products.warehouse_sources.sources.bigcommerce.settings import (
     ENDPOINTS,
     ORDER_FAN_OUT_ENDPOINTS,
     PARTITION_FIELDS,
     V2_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.bigcommerce.source import BigCommerceSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bigcommerce import (
-    BigCommerceSourceConfig,
-)
+from products.warehouse_sources.sources.bigcommerce.source import BigCommerceSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 class TestBigCommerceSource:

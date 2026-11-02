@@ -18,7 +18,7 @@ from botocore.credentials import Credentials
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_budgets.settings import (
+from products.warehouse_sources.sources.aws_budgets.settings import (
     AWS_BUDGETS_ENDPOINTS,
     AWS_JSON_CONTENT_TYPE,
     BUDGETS_ENDPOINT_URL,
@@ -36,12 +36,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_budget
     STS_SIGNING_REGION,
     AwsBudgetsEndpointConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+from products.warehouse_sources.sources.sdk import (
     BoundedRetry,
+    ResumableSourceManager,
+    SourceResponse,
     make_tracked_session,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 LOGGER = structlog.get_logger(__name__)
 

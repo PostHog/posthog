@@ -7,7 +7,8 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare_d1.cloudflare_d1 import (
+from products.warehouse_sources.sources.cloudflare_d1._config import CloudflareD1SourceConfig
+from products.warehouse_sources.sources.cloudflare_d1.cloudflare_d1 import (
     INVALID_ID_MESSAGE,
     INVALID_TOKEN_MESSAGE,
     NOT_FOUND_MESSAGE,
@@ -15,18 +16,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare
     D1QueryError,
     D1ResumeConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare_d1.source import CloudflareD1Source
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.cloudflare_d1.source import CloudflareD1Source
+from products.warehouse_sources.sources.sdk import IncrementalFieldType
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cloudflared1 import (
-    CloudflareD1SourceConfig,
-)
-from products.warehouse_sources.backend.types import IncrementalFieldType
 
 CONFIG = CloudflareD1SourceConfig(api_token="cf-token", account_id="0123456789abcdef", database_id="db-00000000")
 

@@ -6,23 +6,11 @@ import time_machine
 
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.checkly.checkly import (
-    ChecklyResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.checkly.source import ChecklySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.checkly import (
-    ChecklySourceConfig,
-)
+from products.warehouse_sources.sources.checkly._config import ChecklySourceConfig
+from products.warehouse_sources.sources.checkly.checkly import ChecklyResumeConfig, validate_credentials
+from products.warehouse_sources.sources.checkly.source import ChecklySource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError, ResumableSourceManager
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 CONFIG = ChecklySourceConfig(api_key="fake-checkly-key", account_id="00000000-0000-0000-0000-000000000001")
 NOW = datetime(2026, 6, 1, tzinfo=UTC)

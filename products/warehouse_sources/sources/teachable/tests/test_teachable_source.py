@@ -1,12 +1,7 @@
-from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, ReleaseStatus
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.teachable import (
-    TeachableSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.teachable.settings import (
-    ENDPOINTS,
-    TRANSACTIONS_INCREMENTAL_LOOKBACK_SECONDS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.teachable.source import TeachableSource
+from products.warehouse_sources.sources.sdk import DataWarehouseSourceCategory, ReleaseStatus
+from products.warehouse_sources.sources.teachable._config import TeachableSourceConfig
+from products.warehouse_sources.sources.teachable.settings import ENDPOINTS, TRANSACTIONS_INCREMENTAL_LOOKBACK_SECONDS
+from products.warehouse_sources.sources.teachable.source import TeachableSource
 
 
 class TestTeachableSource:

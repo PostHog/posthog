@@ -11,18 +11,9 @@ import requests
 from google.auth.exceptions import RefreshError
 from google.oauth2.credentials import Credentials as OAuthCredentials
 
-from posthog.integrations import IntegrationNotFound
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleanalytics import (
-    GoogleAnalyticsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics import google_analytics as ga
-from products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.google_analytics import (
+from products.warehouse_sources.sources.google_analytics import google_analytics as ga
+from products.warehouse_sources.sources.google_analytics._config import GoogleAnalyticsSourceConfig
+from products.warehouse_sources.sources.google_analytics.google_analytics import (
     LOOKBACK_DAYS,
     RUNREPORT_MAX_RETRIES,
     GoogleAnalyticsQuotaExceededError,
@@ -39,9 +30,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ana
     _runreport_backoff_seconds,
     google_analytics_source,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source import (
-    GoogleAnalyticsSource,
-)
+from products.warehouse_sources.sources.google_analytics.source import GoogleAnalyticsSource
+from products.warehouse_sources.sources.sdk import IntegrationNotFound
+from products.warehouse_sources.sources.sdk.testing import RecordedRequest, ScriptedResponse, SourceDriver
 
 TODAY = dt.date(2026, 4, 30)
 
@@ -123,16 +114,10 @@ def test_credentials_refreshes_stale_db_connection_before_query(monkeypatch):
 
 
 _INTEGRATION_GET_PATH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.google_analytics."
-    "IntegrationManager.google_analytics.oauth.get"
+    "products.warehouse_sources.sources.google_analytics.google_analytics.IntegrationManager.google_analytics.oauth.get"
 )
-_CLOSE_CONNECTIONS_PATH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.google_analytics."
-    "close_old_connections"
-)
-_SLEEP_PATH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.google_analytics.time.sleep"
-)
+_CLOSE_CONNECTIONS_PATH = "products.warehouse_sources.sources.google_analytics.google_analytics.close_old_connections"
+_SLEEP_PATH = "products.warehouse_sources.sources.google_analytics.google_analytics.time.sleep"
 
 
 class TestGetIntegrationDbResilience:
@@ -393,7 +378,7 @@ def _report_payload(dates: list[str], users: list[int], row_count: int | None = 
 
 def _patch_session(monkeypatch):
     monkeypatch.setattr(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.google_analytics.google_analytics_session",
+        "products.warehouse_sources.sources.google_analytics.google_analytics.google_analytics_session",
         lambda *a, **kw: mock.MagicMock(),
     )
 

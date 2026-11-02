@@ -4,24 +4,21 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.azure_application_insights.settings import (
+from products.warehouse_sources.sources.azure_application_insights._config import AzureApplicationInsightsSourceConfig
+from products.warehouse_sources.sources.azure_application_insights.settings import (
     API_BASE_URL,
     ENDPOINTS,
     LATE_ARRIVAL_OVERLAP,
     PAGE_SIZE,
     SYNC_WINDOW,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from products.warehouse_sources.sources.sdk import (
+    OAuth2Auth,
     RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
     rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import OAuth2Auth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.azureapplicationinsights import (
-    AzureApplicationInsightsSourceConfig,
 )
 
 

@@ -4,8 +4,8 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.together_ai import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.together_ai.source import TogetherAISource
+from products.warehouse_sources.sources.together_ai import source as source_module
+from products.warehouse_sources.sources.together_ai.source import TogetherAISource
 
 
 def _config(api_key: str = "together_test") -> Any:

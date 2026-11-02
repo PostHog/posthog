@@ -1,35 +1,33 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.splunkobservabilitycloud import (
-    SplunkObservabilityCloudSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.splunk_observability_cloud.settings import (
+from products.warehouse_sources.sources.splunk_observability_cloud._config import SplunkObservabilityCloudSourceConfig
+from products.warehouse_sources.sources.splunk_observability_cloud.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     SPLUNK_OBSERVABILITY_CLOUD_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.splunk_observability_cloud.splunk_observability_cloud import (
+from products.warehouse_sources.sources.splunk_observability_cloud.splunk_observability_cloud import (
     SplunkObservabilityCloudResumeConfig,
     splunk_observability_cloud_source,
     validate_credentials as validate_splunk_observability_cloud_credentials,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -112,7 +110,7 @@ To sync the optional `metric_time_series` table, also provide a [SignalFlow prog
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.splunk_observability_cloud.canonical_descriptions import (
+        from products.warehouse_sources.sources.splunk_observability_cloud.canonical_descriptions import (
             CANONICAL_DESCRIPTIONS,
         )
 

@@ -6,17 +6,13 @@ from unittest import mock
 
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_anomaly_detection import (
+from products.warehouse_sources.sources.aws_cost_anomaly_detection import (
     aws_cost_anomaly_detection as transport_module,
     source as source_module,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_anomaly_detection.source import (
-    AwsCostAnomalyDetectionSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awscostanomalydetection import (
-    AwsCostAnomalyDetectionSourceConfig,
-)
+from products.warehouse_sources.sources.aws_cost_anomaly_detection._config import AwsCostAnomalyDetectionSourceConfig
+from products.warehouse_sources.sources.aws_cost_anomaly_detection.source import AwsCostAnomalyDetectionSource
+from products.warehouse_sources.sources.sdk import SourceInputs
 
 
 def make_inputs(

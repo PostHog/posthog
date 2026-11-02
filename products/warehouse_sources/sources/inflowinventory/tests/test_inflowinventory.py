@@ -3,15 +3,8 @@ from typing import Any
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.inflowinventory import (
-    InflowinventorySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.inflowinventory.inflowinventory import (
+from products.warehouse_sources.sources.inflowinventory._config import InflowinventorySourceConfig
+from products.warehouse_sources.sources.inflowinventory.inflowinventory import (
     INFLOWINVENTORY_API_VERSION_2023_04_01,
     INFLOWINVENTORY_API_VERSION_2026_07_10,
     INFLOWINVENTORY_API_VERSION_2026_09_29,
@@ -20,13 +13,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.inflowinve
     InflowInventoryResumeConfig,
     check_access,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.inflowinventory.settings import (
-    ENDPOINTS,
-    INFLOWINVENTORY_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.inflowinventory.source import (
-    InflowinventorySource,
-)
+from products.warehouse_sources.sources.inflowinventory.settings import ENDPOINTS, INFLOWINVENTORY_ENDPOINTS
+from products.warehouse_sources.sources.inflowinventory.source import InflowinventorySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver() -> SourceDriver:

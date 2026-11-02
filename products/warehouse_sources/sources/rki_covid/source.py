@@ -1,29 +1,24 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.rki_covid._config import RKICovidSourceConfig
+from products.warehouse_sources.sources.rki_covid.rki_covid import rki_covid_source, validate_connection
+from products.warehouse_sources.sources.rki_covid.settings import RKI_COVID_ENDPOINTS
+from products.warehouse_sources.sources.sdk import (
+    NOT_DETECTABLE,
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    SimpleSource,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rkicovid import (
-    RKICovidSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.rki_covid.rki_covid import (
-    rki_covid_source,
-    validate_connection,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.rki_covid.settings import RKI_COVID_ENDPOINTS
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def validate_history_days(history_days: Optional[int]) -> str | None:
@@ -52,9 +47,7 @@ class RKICovidSource(SimpleSource[RKICovidSourceConfig]):
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.rki_covid.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.rki_covid.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

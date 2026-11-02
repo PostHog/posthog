@@ -3,7 +3,7 @@ from typing import Any, Optional
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     Script,
     ScriptedResponse,
@@ -12,23 +12,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     route,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.solarwindsservicedesk import (
-    SolarwindsServiceDeskSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.solarwinds_service_desk.settings import (
+from products.warehouse_sources.sources.solarwinds_service_desk._config import SolarwindsServiceDeskSourceConfig
+from products.warehouse_sources.sources.solarwinds_service_desk.settings import (
     ENDPOINTS,
     SOLARWINDS_SERVICE_DESK_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.solarwinds_service_desk.solarwinds_service_desk import (
+from products.warehouse_sources.sources.solarwinds_service_desk.solarwinds_service_desk import (
     SolarwindsServiceDeskResumeConfig,
     _format_updated_from,
     _unwrap_row,
     base_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.solarwinds_service_desk.source import (
-    SolarwindsServiceDeskSource,
-)
+from products.warehouse_sources.sources.solarwinds_service_desk.source import SolarwindsServiceDeskSource
 
 
 def _response(items: Optional[list[Any]], *, total_pages: Optional[int] = None) -> ScriptedResponse:

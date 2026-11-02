@@ -1,11 +1,8 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.ahrefs.source import AhrefsSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ahrefs import AhrefsSourceConfig
+from products.warehouse_sources.sources.ahrefs._config import AhrefsSourceConfig
+from products.warehouse_sources.sources.ahrefs.source import AhrefsSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 @pytest.mark.parametrize("project_id", ["", "0", "-1", "1.5", "https://example.com/123", "１２３", " 123 "])

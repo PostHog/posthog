@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     Script,
     ScriptedResponse,
@@ -12,21 +12,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     route,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.smartsheet import (
-    SmartsheetSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.smartsheet.settings import (
+from products.warehouse_sources.sources.smartsheet._config import SmartsheetSourceConfig
+from products.warehouse_sources.sources.smartsheet.settings import (
     ENDPOINTS,
     EVENTS_MAX_COUNT,
     PAGE_SIZE,
     ROWS_PAGE_SIZE,
     SMARTSHEET_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.smartsheet.smartsheet import (
-    SmartsheetResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.smartsheet.source import SmartsheetSource
+from products.warehouse_sources.sources.smartsheet.smartsheet import SmartsheetResumeConfig, validate_credentials
+from products.warehouse_sources.sources.smartsheet.source import SmartsheetSource
 
 
 def _response(items: list[dict[str, Any]], total_pages: int) -> ScriptedResponse:

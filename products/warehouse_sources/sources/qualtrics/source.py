@@ -1,30 +1,7 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-    SourceFieldSelectConfig,
-    SourceFieldSelectConfigOption,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
-    SourceSchema,
-    build_endpoint_schemas,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.qualtrics import (
-    QualtricsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.qualtrics.qualtrics import (
+from products.warehouse_sources.sources.qualtrics._config import QualtricsSourceConfig
+from products.warehouse_sources.sources.qualtrics.qualtrics import (
     EXPORT_FAILED_ERROR,
     HOST_NOT_ALLOWED_ERROR,
     INCOMPLETE_CREDENTIALS_ERROR,
@@ -33,12 +10,27 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.qualtrics.
     qualtrics_source,
     validate_credentials as validate_qualtrics_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.qualtrics.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-    QUALTRICS_API_VERSION,
+from products.warehouse_sources.sources.qualtrics.settings import ENDPOINTS, INCREMENTAL_FIELDS, QUALTRICS_API_VERSION
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _credentials_from_config(config: QualtricsSourceConfig) -> QualtricsCredentials:
@@ -163,9 +155,7 @@ Survey responses sync incrementally on `recordedDate`. Every other table is a fu
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.qualtrics.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.qualtrics.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

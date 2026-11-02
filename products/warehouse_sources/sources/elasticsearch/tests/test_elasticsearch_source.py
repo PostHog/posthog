@@ -1,16 +1,13 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.elasticsearch.source import (
-    ElasticsearchSource,
-    _auth_from_config,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.elasticsearch import (
+from products.warehouse_sources.sources.elasticsearch._config import (
     ElasticsearchAuthMethodConfig,
     ElasticsearchSourceConfig,
 )
+from products.warehouse_sources.sources.elasticsearch.source import ElasticsearchSource, _auth_from_config
 
-_SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.elasticsearch.source"
+_SOURCE_MODULE = "products.warehouse_sources.sources.elasticsearch.source"
 
 
 def _config(selection: str = "basic") -> ElasticsearchSourceConfig:

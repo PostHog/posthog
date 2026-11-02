@@ -4,24 +4,17 @@ from typing import Any
 import pyarrow as pa
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.crossref import crossref
-from products.warehouse_sources.backend.temporal.data_imports.sources.crossref.crossref import (
+from products.warehouse_sources.sources.crossref import crossref
+from products.warehouse_sources.sources.crossref._config import CrossrefSourceConfig
+from products.warehouse_sources.sources.crossref.crossref import (
     CrossrefResumeConfig,
     _build_params,
     _build_scope_filter,
     _format_filter_value,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.crossref.source import CrossrefSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.crossref import (
-    CrossrefSourceConfig,
-)
+from products.warehouse_sources.sources.crossref.source import CrossrefSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 class _FakeBatcher:

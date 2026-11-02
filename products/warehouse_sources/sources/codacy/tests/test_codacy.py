@@ -8,29 +8,24 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.codacy import codacy
-from products.warehouse_sources.backend.temporal.data_imports.sources.codacy.codacy import (
+from products.warehouse_sources.sources.codacy import codacy
+from products.warehouse_sources.sources.codacy._config import CodacySourceConfig
+from products.warehouse_sources.sources.codacy.codacy import (
     CodacyRetryableError,
     _fetch_page,
     codacy_source,
     get_rows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.codacy.settings import (
+from products.warehouse_sources.sources.codacy.settings import (
     CODACY_ENDPOINTS,
     COMMIT_STATISTICS_DAYS,
     ENDPOINTS,
     METRICS_LOOKBACK_DAYS,
     METRICS_PERIOD,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.codacy.source import CodacySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.codacy import CodacySourceConfig
+from products.warehouse_sources.sources.codacy.source import CodacySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 BASE = "https://api.codacy.com/api/v3"
 REPOS_URL = f"{BASE}/organizations/gh/acme/repositories?limit=100"

@@ -2,8 +2,8 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
-from products.warehouse_sources.backend.temporal.data_imports.sources.scale_ai.source import ScaleAISource
+from products.warehouse_sources.sources.scale_ai.source import ScaleAISource
+from products.warehouse_sources.sources.sdk import SourceFieldInputConfig, SourceFieldInputConfigType
 
 
 class TestScaleAISourceConfig:
@@ -42,7 +42,7 @@ class TestScaleAICredentials:
     def test_validate_credentials(self, _name: str, probe_result: bool, expected: tuple[bool, str | None]) -> None:
         config = MagicMock(api_key="live_key")
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.scale_ai.source.validate_scale_ai_credentials",
+            "products.warehouse_sources.sources.scale_ai.source.validate_scale_ai_credentials",
             return_value=probe_result,
         ):
             assert ScaleAISource().validate_credentials(config, team_id=1) == expected
@@ -59,9 +59,7 @@ class TestScaleAIPipelineWiring:
             db_incremental_field_last_value="2026-01-01T00:00:00+00:00",
             incremental_field=None,
         )
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.scale_ai.source.scale_ai_source"
-        ) as mock_source:
+        with patch("products.warehouse_sources.sources.scale_ai.source.scale_ai_source") as mock_source:
             ScaleAISource().source_for_pipeline(config, MagicMock(), inputs)
 
         assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None

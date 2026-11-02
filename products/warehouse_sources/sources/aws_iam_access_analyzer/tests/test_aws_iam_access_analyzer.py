@@ -10,32 +10,19 @@ from unittest.mock import patch
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_iam_access_analyzer import (
-    aws_iam_access_analyzer as transport,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_iam_access_analyzer.aws_iam_access_analyzer import (
+from products.warehouse_sources.sources.aws_iam_access_analyzer import aws_iam_access_analyzer as transport
+from products.warehouse_sources.sources.aws_iam_access_analyzer._config import AwsIamAccessAnalyzerSourceConfig
+from products.warehouse_sources.sources.aws_iam_access_analyzer.aws_iam_access_analyzer import (
     AwsIamAccessAnalyzerClient,
     AwsIamAccessAnalyzerError,
     AwsIamAccessAnalyzerResumeConfig,
     aws_iam_access_analyzer_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_iam_access_analyzer.settings import (
-    API_VERSION,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_iam_access_analyzer.source import (
-    AwsIamAccessAnalyzerSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsiamaccessanalyzer import (
-    AwsIamAccessAnalyzerSourceConfig,
-)
+from products.warehouse_sources.sources.aws_iam_access_analyzer.settings import API_VERSION
+from products.warehouse_sources.sources.aws_iam_access_analyzer.source import AwsIamAccessAnalyzerSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 CONFIG = AwsIamAccessAnalyzerSourceConfig(
     aws_access_key_id="AKIAEXAMPLE",

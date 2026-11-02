@@ -4,14 +4,9 @@ import time_machine
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.cimis.source import CimisSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cimis import CimisSourceConfig
+from products.warehouse_sources.sources.cimis._config import CimisSourceConfig
+from products.warehouse_sources.sources.cimis.source import CimisSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _config(app_key: str = "key", targets: str | None = "2", unit: Literal["E", "M"] = "E") -> CimisSourceConfig:

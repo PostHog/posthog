@@ -4,8 +4,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.trello.source import TrelloSource
+from products.warehouse_sources.sources.sdk import SourceInputs
+from products.warehouse_sources.sources.trello.source import TrelloSource
 
 
 def _config() -> Any:
@@ -48,9 +48,7 @@ class TestSourceForPipeline:
         expected_last_value: str | None,
     ) -> None:
         manager = mock.Mock()
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.trello.source.trello_source"
-        ) as trello_source:
+        with mock.patch("products.warehouse_sources.sources.trello.source.trello_source") as trello_source:
             TrelloSource().source_for_pipeline(
                 _config(),
                 manager,

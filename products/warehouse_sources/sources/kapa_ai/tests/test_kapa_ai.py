@@ -4,17 +4,10 @@ import pytest
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kapaai import KapaAISourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.kapa_ai.kapa_ai import (
-    KapaResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.kapa_ai.source import KapaAISource
+from products.warehouse_sources.sources.kapa_ai._config import KapaAISourceConfig
+from products.warehouse_sources.sources.kapa_ai.kapa_ai import KapaResumeConfig, validate_credentials
+from products.warehouse_sources.sources.kapa_ai.source import KapaAISource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 PROJECT_ID = "00000000-0000-4000-8000-000000000001"
 API_KEY = "test-kapa-key"

@@ -5,36 +5,29 @@ from urllib.parse import urlsplit
 from requests import Request
 from requests.exceptions import HTTPError
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.braintrust.settings import (
+from products.warehouse_sources.sources.braintrust._config import BraintrustSourceConfig
+from products.warehouse_sources.sources.braintrust.settings import (
     AUTH_ERRORS,
     ENDPOINTS,
     PAGE_SIZE,
     S3_HOST_PATTERN,
     BraintrustEndpoint,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    build_dependent_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from products.warehouse_sources.sources.sdk import (
+    BearerTokenAuth,
+    ClientConfig,
     JSONResponseCursorPaginator,
+    Resource,
+    RESTAPIConfig,
+    RESTClient,
+    ResumableSourceManager,
     SinglePagePaginator,
+    SourceResponse,
+    build_dependent_resource,
+    frozen,
+    rest_api_resource,
+    schema_for_resource,
     set_json_param,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.braintrust import (
-    BraintrustSourceConfig,
 )
 
 
@@ -92,8 +85,8 @@ class LatestEventVersionFilter:
 
 
 def validated_api_url(api_url: str, team_id: int) -> str:
-    from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (  # noqa: PLC0415 -- Keep Django models off the config import path.
-        ValidateDatabaseHostMixin,
+    from products.warehouse_sources.sources.sdk import (
+        ValidateDatabaseHostMixin,  # noqa: PLC0415 -- Keep Django models off the config import path.
     )
 
     error = "Enter an HTTPS API URL without a path, query, or credentials."

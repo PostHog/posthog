@@ -1,7 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.confluence.source import ConfluenceSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.confluence import (
-    ConfluenceSourceConfig,
-)
+from products.warehouse_sources.sources.confluence._config import ConfluenceSourceConfig
+from products.warehouse_sources.sources.confluence.source import ConfluenceSource
 
 
 class TestConfluenceSource:

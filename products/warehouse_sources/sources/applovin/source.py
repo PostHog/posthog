@@ -1,14 +1,7 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.applovin.applovin import (
+from products.warehouse_sources.sources.applovin._config import AppLovinSourceConfig
+from products.warehouse_sources.sources.applovin.applovin import (
     AUTH_ERROR_PREFIX,
     BAD_REQUEST_ERROR_PREFIX,
     MANAGEMENT_AUTH_ERROR_PREFIX,
@@ -18,28 +11,31 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.applovin.a
     validate_credentials as validate_applovin_credentials,
     validate_management_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.applovin.settings import (
+from products.warehouse_sources.sources.applovin.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     MANAGEMENT_ENDPOINTS,
     MERGE_ONLY_ENDPOINTS,
     PRIMARY_KEYS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+from products.warehouse_sources.sources.sdk import (
     CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.applovin import (
-    AppLovinSourceConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -104,9 +100,7 @@ class AppLovinSource(ResumableSource[AppLovinSourceConfig, AppLovinResumeConfig]
         return ExternalDataSourceType.APPLOVIN
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.applovin.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.applovin.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

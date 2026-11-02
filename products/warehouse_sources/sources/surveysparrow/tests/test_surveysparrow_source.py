@@ -2,13 +2,8 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.surveysparrow import (
-    SurveySparrowSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.surveysparrow.source import (
-    SurveySparrowSource,
-    _base_url_for,
-)
+from products.warehouse_sources.sources.surveysparrow._config import SurveySparrowSourceConfig
+from products.warehouse_sources.sources.surveysparrow.source import SurveySparrowSource, _base_url_for
 
 
 def _config(access_token: str = "token", data_center: str = "us") -> SurveySparrowSourceConfig:

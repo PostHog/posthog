@@ -9,9 +9,7 @@ from unittest.mock import MagicMock
 from requests import PreparedRequest, Response, Session
 from urllib3.response import HTTPResponse
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.azureapplicationinsights import (
-    AzureApplicationInsightsSourceConfig,
-)
+from products.warehouse_sources.sources.azure_application_insights._config import AzureApplicationInsightsSourceConfig
 
 
 @pytest.fixture

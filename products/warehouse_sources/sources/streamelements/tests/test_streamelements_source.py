@@ -1,10 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.streamelements import (
-    StreamElementsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.streamelements.source import StreamElementsSource
+from products.warehouse_sources.sources.streamelements._config import StreamElementsSourceConfig
+from products.warehouse_sources.sources.streamelements.source import StreamElementsSource
 
 
 class TestStreamElementsSource:
@@ -20,9 +18,7 @@ class TestStreamElementsSource:
             (False, "Invalid StreamElements token"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.streamelements.source.validate_streamelements_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.streamelements.source.validate_streamelements_credentials")
     def test_validate_credentials(self, mock_validate: mock.MagicMock, mock_return: tuple[bool, str | None]) -> None:
         mock_validate.return_value = mock_return
 
@@ -30,9 +26,7 @@ class TestStreamElementsSource:
         # No pin passed -> resolves to default_version (what new rows are stamped with).
         mock_validate.assert_called_once_with(self.config.api_token, "v3")
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.streamelements.source.streamelements_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.streamelements.source.streamelements_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "tips"
@@ -51,9 +45,7 @@ class TestStreamElementsSource:
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == 1567780450202
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.streamelements.source.streamelements_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.streamelements.source.streamelements_source")
     def test_source_for_pipeline_omits_last_value_on_full_refresh(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "store_items"

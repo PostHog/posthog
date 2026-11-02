@@ -12,10 +12,9 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics import (
-    appdynamics as appdynamics_module,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.appdynamics import (
+from products.warehouse_sources.sources.appdynamics import appdynamics as appdynamics_module
+from products.warehouse_sources.sources.appdynamics._config import AppdynamicsAuthMethodConfig, AppdynamicsSourceConfig
+from products.warehouse_sources.sources.appdynamics.appdynamics import (
     AppdynamicsAuth,
     AppdynamicsClient,
     AppdynamicsError,
@@ -23,24 +22,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamic
     normalize_host,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.settings import (
+from products.warehouse_sources.sources.appdynamics.settings import (
     ANOMALIES_PAGE_SIZE,
     APPDYNAMICS_ENDPOINTS,
     MAX_METRIC_PATHS,
     MAX_ROWS_PER_TIME_WINDOW,
     METRIC_TREE_MAX_REQUESTS_PER_APPLICATION,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.source import AppdynamicsSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.appdynamics.source import AppdynamicsSource
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appdynamics import (
-    AppdynamicsAuthMethodConfig,
-    AppdynamicsSourceConfig,
 )
 
 BASE_URL = "https://acme.saas.appdynamics.com"

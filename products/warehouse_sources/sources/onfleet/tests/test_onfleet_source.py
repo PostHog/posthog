@@ -1,18 +1,11 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.onfleet import (
-    OnfleetSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.onfleet.source import OnfleetSource
+from products.warehouse_sources.sources.onfleet._config import OnfleetSourceConfig
+from products.warehouse_sources.sources.onfleet.source import OnfleetSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
-_TRANSPORT_STATUS = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.onfleet.source.get_credentials_status"
-)
+_TRANSPORT_STATUS = "products.warehouse_sources.sources.onfleet.source.get_credentials_status"
 
 
 class TestOnfleetSource:

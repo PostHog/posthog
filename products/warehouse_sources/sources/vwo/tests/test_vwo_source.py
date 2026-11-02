@@ -1,11 +1,8 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vwo import VWOSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.vwo.source import VWOSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
+from products.warehouse_sources.sources.vwo._config import VWOSourceConfig
+from products.warehouse_sources.sources.vwo.source import VWOSource
 
 
 @pytest.mark.parametrize(

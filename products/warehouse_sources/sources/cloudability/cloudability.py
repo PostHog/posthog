@@ -1,26 +1,23 @@
 from datetime import date, timedelta
 from typing import Any, Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.cloudability.settings import (
+from products.warehouse_sources.sources.cloudability.settings import (
     ANOMALIES_LOOKBACK_DAYS,
     COST_REPORT_DIMENSIONS,
     COST_REPORT_LOOKBACK_DAYS,
     COST_REPORT_METRICS,
     PRIMARY_KEYS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from products.warehouse_sources.sources.sdk import (
+    EndpointResource,
+    JSONResponseCursorPaginator,
     RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
     rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponseCursorPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 
 @frozen

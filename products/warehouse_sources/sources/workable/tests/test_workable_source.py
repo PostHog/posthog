@@ -4,17 +4,10 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.workable import (
-    WorkableSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.workable import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.workable.source import WorkableSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.workable import source as source_module
+from products.warehouse_sources.sources.workable._config import WorkableSourceConfig
+from products.warehouse_sources.sources.workable.source import WorkableSource
 
 
 def _config() -> WorkableSourceConfig:

@@ -7,7 +7,8 @@ from unittest import mock
 import requests
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_analytics.adobe_analytics import (
+from products.warehouse_sources.sources.adobe_analytics._config import AdobeAnalyticsSourceConfig
+from products.warehouse_sources.sources.adobe_analytics.adobe_analytics import (
     AdobeAnalyticsClient,
     AdobeAnalyticsResumeConfig,
     metric_column_names,
@@ -17,17 +18,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_anal
     resolve_window,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_analytics.source import AdobeAnalyticsSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.adobeanalytics import (
-    AdobeAnalyticsSourceConfig,
-)
+from products.warehouse_sources.sources.adobe_analytics.source import AdobeAnalyticsSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.adobe_analytics.adobe_analytics"
+_MODULE = "products.warehouse_sources.sources.adobe_analytics.adobe_analytics"
 
 _LOGGER = cast(FilteringBoundLogger, mock.MagicMock())
 

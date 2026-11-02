@@ -9,16 +9,8 @@ from unittest import mock
 import requests
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    Script,
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pardot import PardotSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.pardot.pardot import (
+from products.warehouse_sources.sources.pardot._config import PardotSourceConfig
+from products.warehouse_sources.sources.pardot.pardot import (
     PardotPageTokenExpiredError,
     PardotQueryRejectedError,
     PardotResumeConfig,
@@ -27,13 +19,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pardot.par
     pardot_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.pardot.settings import PARDOT_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.pardot.source import PardotSource
-
-SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.pardot.pardot.make_tracked_session"
-REFRESH_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.pardot.pardot.salesforce_refresh_access_token"
+from products.warehouse_sources.sources.pardot.settings import PARDOT_ENDPOINTS
+from products.warehouse_sources.sources.pardot.source import PardotSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager
+from products.warehouse_sources.sources.sdk.testing import (
+    DriveResult,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
 )
+
+SESSION_PATCH = "products.warehouse_sources.sources.pardot.pardot.make_tracked_session"
+REFRESH_PATCH = "products.warehouse_sources.sources.pardot.pardot.salesforce_refresh_access_token"
 
 CREDENTIALS: dict[str, Any] = {
     "environment": "production",

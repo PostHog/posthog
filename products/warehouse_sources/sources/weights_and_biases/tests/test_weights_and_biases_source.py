@@ -1,15 +1,8 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.weightsandbiases import (
-    WeightsAndBiasesSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.weights_and_biases.source import (
-    WeightsAndBiasesSource,
-)
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
+from products.warehouse_sources.sources.weights_and_biases._config import WeightsAndBiasesSourceConfig
+from products.warehouse_sources.sources.weights_and_biases.source import WeightsAndBiasesSource
 
 
 class TestWeightsAndBiasesSource:

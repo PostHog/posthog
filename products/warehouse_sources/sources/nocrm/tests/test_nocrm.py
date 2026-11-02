@@ -5,14 +5,8 @@ import pytest
 from parameterized import parameterized
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.nocrm import NoCRMSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.nocrm.nocrm import (
+from products.warehouse_sources.sources.nocrm._config import NoCRMSourceConfig
+from products.warehouse_sources.sources.nocrm.nocrm import (
     PAGE_SIZE,
     NoCRMConfigError,
     NoCRMResumeConfig,
@@ -23,8 +17,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.nocrm.nocr
     normalize_subdomain,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.nocrm.settings import NOCRM_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.nocrm.source import NoCRMSource
+from products.warehouse_sources.sources.nocrm.settings import NOCRM_ENDPOINTS
+from products.warehouse_sources.sources.nocrm.source import NoCRMSource
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 
 
 class TestNormalizeSubdomain:

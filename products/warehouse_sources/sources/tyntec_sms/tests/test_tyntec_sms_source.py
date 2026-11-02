@@ -3,10 +3,8 @@ from unittest.mock import patch
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tyntecsms import (
-    TyntecSMSSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.tyntec_sms.source import TyntecSMSSource
+from products.warehouse_sources.sources.tyntec_sms._config import TyntecSMSSourceConfig
+from products.warehouse_sources.sources.tyntec_sms.source import TyntecSMSSource
 
 
 class TestTyntecSMSSource:
@@ -14,9 +12,7 @@ class TestTyntecSMSSource:
         self.source = TyntecSMSSource()
 
     def test_validate_credentials_rejects_empty_key_without_network(self) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.tyntec_sms.source.validate_tyntec_credentials"
-        ) as mock_validate:
+        with patch("products.warehouse_sources.sources.tyntec_sms.source.validate_tyntec_credentials") as mock_validate:
             valid, error = self.source.validate_credentials(TyntecSMSSourceConfig(api_key=""), team_id=1)
 
         assert valid is False
@@ -26,7 +22,7 @@ class TestTyntecSMSSource:
     @pytest.mark.parametrize(("api_accepts_key", "expected_valid"), [(True, True), (False, False)])
     def test_validate_credentials_maps_helper_result(self, api_accepts_key: bool, expected_valid: bool) -> None:
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.tyntec_sms.source.validate_tyntec_credentials",
+            "products.warehouse_sources.sources.tyntec_sms.source.validate_tyntec_credentials",
             return_value=api_accepts_key,
         ):
             valid, error = self.source.validate_credentials(TyntecSMSSourceConfig(api_key="key"), team_id=1)

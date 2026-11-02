@@ -9,17 +9,8 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kernel import KernelSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.kernel.kernel import (
+from products.warehouse_sources.sources.kernel._config import KernelSourceConfig
+from products.warehouse_sources.sources.kernel.kernel import (
     AUDIT_LOG_MAX_WINDOW,
     PAGE_SIZE,
     KernelRetryableError,
@@ -29,8 +20,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kernel.ker
     kernel_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.kernel.settings import ENDPOINTS, KERNEL_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.kernel.source import KernelSource
+from products.warehouse_sources.sources.kernel.settings import ENDPOINTS, KERNEL_ENDPOINTS
+from products.warehouse_sources.sources.kernel.source import KernelSource
+from products.warehouse_sources.sources.sdk.testing import (
+    DriveResult,
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
 
 
 def _driver() -> SourceDriver:

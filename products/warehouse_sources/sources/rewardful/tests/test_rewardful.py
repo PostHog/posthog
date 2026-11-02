@@ -3,21 +3,14 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rewardful import (
-    RewardfulSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.rewardful.rewardful import (
+from products.warehouse_sources.sources.rewardful._config import RewardfulSourceConfig
+from products.warehouse_sources.sources.rewardful.rewardful import (
     RewardfulResumeConfig,
     format_updated_since,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.rewardful.source import RewardfulSource
+from products.warehouse_sources.sources.rewardful.source import RewardfulSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

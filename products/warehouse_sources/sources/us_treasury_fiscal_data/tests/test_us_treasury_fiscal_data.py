@@ -5,7 +5,8 @@ import pytest
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk import IncrementalFieldType
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     Script,
     ScriptedResponse,
@@ -13,17 +14,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ustreasuryfiscaldata import (
-    UsTreasuryFiscalDataSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.us_treasury_fiscal_data.source import (
-    UsTreasuryFiscalDataSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.us_treasury_fiscal_data.us_treasury_fiscal_data import (
+from products.warehouse_sources.sources.us_treasury_fiscal_data._config import UsTreasuryFiscalDataSourceConfig
+from products.warehouse_sources.sources.us_treasury_fiscal_data.source import UsTreasuryFiscalDataSource
+from products.warehouse_sources.sources.us_treasury_fiscal_data.us_treasury_fiscal_data import (
     FiscalDataResumeConfig,
     validate_credentials,
 )
-from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
 def run(

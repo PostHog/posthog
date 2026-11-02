@@ -1,18 +1,9 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.buildium.settings import (
-    AUTH_ERROR,
-    PERMISSION_ERROR,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.buildium.source import BuildiumSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.buildium import (
-    BuildiumSourceConfig,
-)
+from products.warehouse_sources.sources.buildium._config import BuildiumSourceConfig
+from products.warehouse_sources.sources.buildium.settings import AUTH_ERROR, PERMISSION_ERROR
+from products.warehouse_sources.sources.buildium.source import BuildiumSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, always, scripted_network
 
 
 @pytest.mark.parametrize(

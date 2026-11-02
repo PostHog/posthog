@@ -2,18 +2,12 @@ from typing import Optional
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.adyen.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.adyen.settings import (
-    ADYEN_ENDPOINTS,
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.adyen.source import AdyenSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.adyen import AdyenSourceConfig
+from products.warehouse_sources.sources.adyen._config import AdyenSourceConfig
+from products.warehouse_sources.sources.adyen.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.adyen.settings import ADYEN_ENDPOINTS, ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.adyen.source import AdyenSource
 
-SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.adyen.source"
+SOURCE_MODULE = "products.warehouse_sources.sources.adyen.source"
 
 
 class TestAdyenSource:

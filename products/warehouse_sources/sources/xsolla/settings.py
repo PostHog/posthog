@@ -1,10 +1,7 @@
 from datetime import date
 from typing import Literal
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ResponseAction
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, ResponseAction, frozen
 
 API_BASE_URL = "https://api.xsolla.com/merchant"
 # Xsolla documents the transaction registry on v3 only, while the other merchant endpoints stay on v2.

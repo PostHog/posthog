@@ -3,36 +3,24 @@ from collections.abc import Callable
 from typing import Any, Optional, cast
 from urllib.parse import quote
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-    rest_api_resources,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
-    OAuth2Auth,
-    OAuth2GrantType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import (
-    make_parent_key_name,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponseCursorPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+from products.warehouse_sources.sources.sdk import (
     ClientConfig,
     Endpoint,
     EndpointResource,
+    JSONResponseCursorPaginator,
+    OAuth2Auth,
+    OAuth2GrantType,
+    Resource,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    make_parent_key_name,
+    make_tracked_session,
+    rest_api_resource,
+    rest_api_resources,
+    validate_via_probe,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.zoom.settings import (
-    ZOOM_ENDPOINTS,
-    ZOOM_PARENT_ENDPOINTS,
-    ZoomEndpointConfig,
-)
+from products.warehouse_sources.sources.zoom.settings import ZOOM_ENDPOINTS, ZOOM_PARENT_ENDPOINTS, ZoomEndpointConfig
 
 ZOOM_API_BASE = "https://api.zoom.us/v2"
 ZOOM_OAUTH_URL = "https://zoom.us/oauth/token"

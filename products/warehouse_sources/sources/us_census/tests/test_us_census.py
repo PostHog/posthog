@@ -3,29 +3,24 @@ from typing import Any
 import pytest
 from unittest.mock import patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.uscensus import (
-    USCensusSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.us_census.settings import (
-    CUSTOM_QUERY_ENDPOINT,
-    MAX_VARIABLES_PER_QUERY,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.us_census.source import USCensusSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.us_census.us_census import (
+from products.warehouse_sources.sources.us_census._config import USCensusSourceConfig
+from products.warehouse_sources.sources.us_census.settings import CUSTOM_QUERY_ENDPOINT, MAX_VARIABLES_PER_QUERY
+from products.warehouse_sources.sources.us_census.source import USCensusSource
+from products.warehouse_sources.sources.us_census.us_census import (
     build_query_url,
     rows_from_payload,
     validate_credentials,
     validate_custom_query,
 )
 
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.us_census.us_census"
+_MODULE = "products.warehouse_sources.sources.us_census.us_census"
 
 
 def _run_query(api_key: str, variables: str, script: Any) -> DriveResult:

@@ -2,24 +2,21 @@ from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.noaacdo import (
-    NoaaCdoSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.noaa_cdo.settings import (
+from products.warehouse_sources.sources.noaa_cdo._config import NoaaCdoSourceConfig
+from products.warehouse_sources.sources.noaa_cdo.settings import (
     API_BASE_URL,
     AUTH_ERROR,
     ENDPOINTS,
     PAGE_SIZE,
     REQUEST_ERROR,
     RESPONSE_ACTIONS,
+)
+from products.warehouse_sources.sources.sdk import (
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
+    rest_api_resource,
 )
 
 

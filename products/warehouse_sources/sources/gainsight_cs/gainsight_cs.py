@@ -8,13 +8,7 @@ from urllib.parse import urlencode
 
 import requests
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_cs.settings import (
+from products.warehouse_sources.sources.gainsight_cs.settings import (
     COCKPIT_PRIMARY_KEYS,
     CTA_CONFIGURATION,
     CTA_OBJECT_NAME,
@@ -33,6 +27,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_
     TASK_CTA_ID,
     TASK_LIST_PATH,
     TASK_PAGE_SIZE,
+)
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
+    _is_host_safe,
+    frozen,
+    make_tracked_session,
 )
 
 REQUEST_TIMEOUT = 60

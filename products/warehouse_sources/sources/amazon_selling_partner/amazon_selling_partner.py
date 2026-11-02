@@ -16,9 +16,7 @@ import structlog
 from requests import PreparedRequest
 from urllib3.util.retry import Retry
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_selling_partner.settings import (
+from products.warehouse_sources.sources.amazon_selling_partner.settings import (
     DEFERRED_RELEASE_SWEEP_DAYS,
     EARLIEST_START,
     INVENTORY_SUMMARIES,
@@ -46,22 +44,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_sel
     VENDOR_SALES,
     VendorReport,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
-    interruptible_wait,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
+from products.warehouse_sources.sources.sdk import (
     OAuth2Auth,
     OAuth2AuthRequestError,
+    Resource,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
+    interruptible_wait,
+    make_tracked_session,
+    parse_datetime_value,
+    rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 logger = structlog.get_logger(__name__)
 

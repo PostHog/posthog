@@ -5,19 +5,11 @@ import pytest
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sageintacct import (
-    SageIntacctSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.sage_intacct.sage_intacct import (
-    SageIntacctResumeConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.sage_intacct.source import SageIntacctSource
+from products.warehouse_sources.sources.sage_intacct._config import SageIntacctSourceConfig
+from products.warehouse_sources.sources.sage_intacct.sage_intacct import SageIntacctResumeConfig
+from products.warehouse_sources.sources.sage_intacct.source import SageIntacctSource
+from products.warehouse_sources.sources.sdk import UnknownResourceError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def config() -> SageIntacctSourceConfig:

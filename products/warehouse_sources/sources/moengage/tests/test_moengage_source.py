@@ -2,14 +2,9 @@ from typing import Any, cast
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.moengage import (
-    MoEngageSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.moengage.source import MoEngageSource
+from products.warehouse_sources.sources.moengage._config import MoEngageSourceConfig
+from products.warehouse_sources.sources.moengage.source import MoEngageSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 def _config(data_center: str = "01", start_date: str | None = None) -> MoEngageSourceConfig:

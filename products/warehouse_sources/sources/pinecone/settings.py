@@ -1,10 +1,9 @@
 from typing import TYPE_CHECKING, Literal
 
-from posthog.dataclasses import frozen
+from products.warehouse_sources.sources.sdk import frozen
 
 if TYPE_CHECKING:
-    from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import PartitionMode
-    from products.warehouse_sources.backend.types import IncrementalField
+    from products.warehouse_sources.sources.sdk import IncrementalField, PartitionMode
 
 
 BASE_URL = "https://api.pinecone.io"

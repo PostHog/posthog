@@ -2,12 +2,9 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.cody.cody import (
-    CodyCredentialsError,
-    CodyRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.cody.source import CodySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cody import CodySourceConfig
+from products.warehouse_sources.sources.cody._config import CodySourceConfig
+from products.warehouse_sources.sources.cody.cody import CodyCredentialsError, CodyRetryableError
+from products.warehouse_sources.sources.cody.source import CodySource
 
 
 class TestCodySource:
@@ -23,7 +20,7 @@ class TestCodySource:
 
     def test_validate_credentials_success(self):
         with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.cody.source.validate_cody_credentials",
+            "products.warehouse_sources.sources.cody.source.validate_cody_credentials",
             return_value=True,
         ) as validate:
             assert self.source.validate_credentials(self.config, self.team_id) == (True, None)
@@ -38,7 +35,7 @@ class TestCodySource:
     )
     def test_validate_credentials_failure_messages(self, raised, expected_prefix):
         with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.cody.source.validate_cody_credentials",
+            "products.warehouse_sources.sources.cody.source.validate_cody_credentials",
             side_effect=raised,
         ):
             valid, message = self.source.validate_credentials(self.config, self.team_id)

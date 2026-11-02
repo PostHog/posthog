@@ -1,9 +1,7 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.configcat.source import ConfigCatSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.configcat import (
-    ConfigCatSourceConfig,
-)
+from products.warehouse_sources.sources.configcat._config import ConfigCatSourceConfig
+from products.warehouse_sources.sources.configcat.source import ConfigCatSource
 
 
 class TestConfigCatSource:
@@ -12,7 +10,7 @@ class TestConfigCatSource:
         self.team_id = 123
         self.config = ConfigCatSourceConfig(basic_auth_username="user", basic_auth_password="pass")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.configcat.source.configcat_source")
+    @mock.patch("products.warehouse_sources.sources.configcat.source.configcat_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "products"

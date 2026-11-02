@@ -4,18 +4,16 @@ import pytest
 
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
     source_inputs,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.synthesia import (
-    SynthesiaSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.synthesia.source import SynthesiaSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.synthesia.synthesia import (
+from products.warehouse_sources.sources.synthesia._config import SynthesiaSourceConfig
+from products.warehouse_sources.sources.synthesia.source import SynthesiaSource
+from products.warehouse_sources.sources.synthesia.synthesia import (
     SynthesiaResumeConfig,
     synthesia_source,
     validate_credentials,

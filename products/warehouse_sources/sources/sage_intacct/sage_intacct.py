@@ -4,22 +4,15 @@ from urllib.parse import quote
 
 from requests import Request, Response
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import OAuth2Auth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from products.warehouse_sources.sources.sage_intacct._config import SageIntacctSourceConfig
+from products.warehouse_sources.sources.sage_intacct.settings import BASE_URL, PAGE_SIZE, TOKEN_URL
+from products.warehouse_sources.sources.sdk import (
     BasePaginator,
+    OAuth2Auth,
+    RESTClient,
+    ResumableSourceManager,
     SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sageintacct import (
-    SageIntacctSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.sage_intacct.settings import (
-    BASE_URL,
-    PAGE_SIZE,
-    TOKEN_URL,
+    frozen,
 )
 
 

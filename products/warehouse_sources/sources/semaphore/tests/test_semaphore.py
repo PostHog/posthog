@@ -7,17 +7,11 @@ import pytest
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.semaphore import (
-    SemaphoreSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.semaphore.semaphore import SemaphoreResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.semaphore.settings import NOT_FOUND_ERROR
-from products.warehouse_sources.backend.temporal.data_imports.sources.semaphore.source import SemaphoreSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
+from products.warehouse_sources.sources.semaphore._config import SemaphoreSourceConfig
+from products.warehouse_sources.sources.semaphore.semaphore import SemaphoreResumeConfig
+from products.warehouse_sources.sources.semaphore.settings import NOT_FOUND_ERROR
+from products.warehouse_sources.sources.semaphore.source import SemaphoreSource
 
 BASE_URL = "https://example.semaphoreci.com/api/v1alpha/"
 PROJECT_ID = "00000000-0000-4000-8000-000000000001"

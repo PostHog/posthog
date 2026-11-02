@@ -6,22 +6,18 @@ import pytest
 from requests.exceptions import HTTPError
 from structlog.testing import capture_logs
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.rapid7_insightvm._config import Rapid7InsightvmSourceConfig
+from products.warehouse_sources.sources.rapid7_insightvm.rapid7_insightvm import (
+    Rapid7InsightvmResumeConfig,
+    validate_credentials,
+)
+from products.warehouse_sources.sources.rapid7_insightvm.source import Rapid7InsightvmSource
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rapid7insightvm import (
-    Rapid7InsightvmSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.rapid7_insightvm.rapid7_insightvm import (
-    Rapid7InsightvmResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.rapid7_insightvm.source import (
-    Rapid7InsightvmSource,
 )
 
 

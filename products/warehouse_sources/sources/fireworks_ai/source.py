@@ -1,36 +1,31 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.fireworks_ai.fireworks_ai import (
+from products.warehouse_sources.sources.fireworks_ai._config import FireworksAISourceConfig
+from products.warehouse_sources.sources.fireworks_ai.fireworks_ai import (
     FireworksAIResumeConfig,
     fireworks_ai_source,
     get_status_code,
     is_valid_account_id,
     normalize_account_id,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.fireworks_ai.settings import (
-    ENDPOINTS,
-    FIREWORKS_AI_ENDPOINTS,
+from products.warehouse_sources.sources.fireworks_ai.settings import ENDPOINTS, FIREWORKS_AI_ENDPOINTS
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fireworksai import (
-    FireworksAISourceConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -88,7 +83,7 @@ You can find or create an API key in your [Fireworks AI account settings](https:
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.fireworks_ai.canonical_descriptions import (  # noqa: PLC0415 — lazy import per the source architecture contract
+        from products.warehouse_sources.sources.fireworks_ai.canonical_descriptions import (  # noqa: PLC0415 — lazy import per the source architecture contract
             CANONICAL_DESCRIPTIONS,
         )
 

@@ -1,12 +1,6 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rkicovid import (
-    RKICovidSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.rki_covid.source import RKICovidSource
+from products.warehouse_sources.sources.rki_covid._config import RKICovidSourceConfig
+from products.warehouse_sources.sources.rki_covid.source import RKICovidSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _make_config(history_days: int | None = None) -> RKICovidSourceConfig:

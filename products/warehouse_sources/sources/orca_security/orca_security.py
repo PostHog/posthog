@@ -4,21 +4,21 @@ from typing import Any, Optional
 
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.orca_security.settings import (
+from products.warehouse_sources.sources.orca_security.settings import (
     DEFAULT_REGION,
     ORCA_ENDPOINTS,
     ORCA_REGION_HOSTS,
     PAGE_SIZE,
     QUERY_PATH,
     OrcaEndpointConfig,
+)
+from products.warehouse_sources.sources.sdk import (
+    BasePaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    make_tracked_session,
+    rest_api_resource,
 )
 
 

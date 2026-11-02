@@ -6,30 +6,19 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shopify import (
-    ShopifyAuthMethodConfig,
-    ShopifySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.constants import (
-    ABANDONED_CHECKOUTS,
-    SHOPIFY_GRAPHQL_OBJECTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.parallel import ReadWindow, _split
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify import (
+from products.warehouse_sources.sources.sdk.testing import DriveResult, RecordedRequest, ScriptedResponse, SourceDriver
+from products.warehouse_sources.sources.shopify._config import ShopifyAuthMethodConfig, ShopifySourceConfig
+from products.warehouse_sources.sources.shopify.constants import ABANDONED_CHECKOUTS, SHOPIFY_GRAPHQL_OBJECTS
+from products.warehouse_sources.sources.shopify.parallel import ReadWindow, _split
+from products.warehouse_sources.sources.shopify.shopify import (
     PHASE_PARALLEL,
     ShopifyReadStopped,
     ShopifyResumeConfig,
     iter_shopify_pages,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.source import ShopifySource
+from products.warehouse_sources.sources.shopify.source import ShopifySource
 
-_SHOPIFY = "products.warehouse_sources.backend.temporal.data_imports.sources.shopify"
+_SHOPIFY = "products.warehouse_sources.sources.shopify"
 _CLUSTER_START = datetime(2022, 6, 20, tzinfo=UTC)
 
 

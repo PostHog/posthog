@@ -6,11 +6,13 @@ import requests
 import structlog
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.url_utils import redact_literal_values
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.expo.settings import EXPO_ENDPOINTS, build_query
+from products.warehouse_sources.sources.expo.settings import EXPO_ENDPOINTS, build_query
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
+    make_tracked_session,
+    redact_literal_values,
+)
 
 EXPO_GRAPHQL_URL = "https://api.expo.dev/graphql"
 PAGE_SIZE = 100

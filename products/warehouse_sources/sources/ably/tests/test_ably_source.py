@@ -1,17 +1,13 @@
 import pytest
 
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.ably._config import AblySourceConfig
+from products.warehouse_sources.sources.ably.source import AblySource
+from products.warehouse_sources.sources.sdk import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSelectConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.ably.source import AblySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ably import AblySourceConfig
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 class TestAblySource:

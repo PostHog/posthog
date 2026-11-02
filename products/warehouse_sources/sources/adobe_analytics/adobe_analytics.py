@@ -8,7 +8,7 @@ from typing import Any, Optional
 import requests
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_analytics.settings import (
+from products.warehouse_sources.sources.adobe_analytics.settings import (
     ADOBE_ANALYTICS_ENDPOINTS,
     DEFAULT_REPORT_DIMENSION,
     DEFAULT_REPORT_METRICS,
@@ -16,10 +16,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_anal
     REPORT_ENDPOINT,
     REPORT_PAGE_SIZE,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
+    SyncWindow,
+    make_tracked_session,
+)
 
 # Rows created before this source declared versions carry the framework default "v1", which
 # maps to Adobe's legacy 1.4 API (vendor end-of-life 2026-08-12). This client has only ever

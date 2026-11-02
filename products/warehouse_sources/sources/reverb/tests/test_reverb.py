@@ -3,20 +3,16 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    route,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.reverb import ReverbSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.reverb.reverb import (
+from products.warehouse_sources.sources.reverb._config import ReverbSourceConfig
+from products.warehouse_sources.sources.reverb.reverb import (
     ReverbResumeConfig,
     _format_datetime,
     _inject_payment_id,
     _inject_payout_id,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.reverb.settings import PER_PAGE
-from products.warehouse_sources.backend.temporal.data_imports.sources.reverb.source import ReverbSource
+from products.warehouse_sources.sources.reverb.settings import PER_PAGE
+from products.warehouse_sources.sources.reverb.source import ReverbSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, route
 
 
 class TestFormatDatetime:

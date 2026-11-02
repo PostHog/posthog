@@ -5,21 +5,12 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openrouter import (
-    OpenRouterSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.openrouter import openrouter
-from products.warehouse_sources.backend.temporal.data_imports.sources.openrouter.openrouter import (
-    OpenRouterResumeConfig,
-    _to_date,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.openrouter.settings import ACTIVITY_RETENTION_DAYS
-from products.warehouse_sources.backend.temporal.data_imports.sources.openrouter.source import OpenRouterSource
+from products.warehouse_sources.sources.openrouter import openrouter
+from products.warehouse_sources.sources.openrouter._config import OpenRouterSourceConfig
+from products.warehouse_sources.sources.openrouter.openrouter import OpenRouterResumeConfig, _to_date
+from products.warehouse_sources.sources.openrouter.settings import ACTIVITY_RETENTION_DAYS
+from products.warehouse_sources.sources.openrouter.source import OpenRouterSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _response(status_code: int, body: dict | None = None, text: str = "") -> mock.Mock:

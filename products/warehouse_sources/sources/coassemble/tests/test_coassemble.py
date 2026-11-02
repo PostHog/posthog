@@ -5,28 +5,17 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.coassemble import coassemble
-from products.warehouse_sources.backend.temporal.data_imports.sources.coassemble.coassemble import (
+from products.warehouse_sources.sources.coassemble import coassemble
+from products.warehouse_sources.sources.coassemble._config import CoassembleSourceConfig
+from products.warehouse_sources.sources.coassemble.coassemble import (
     COASSEMBLE_BASE_URL,
     PAGE_SIZE,
     CoassembleResumeConfig,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.coassemble.settings import (
-    COASSEMBLE_ENDPOINTS,
-    ENDPOINTS,
-    USAGE_PAGE_SIZE,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.coassemble.source import CoassembleSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coassemble import (
-    CoassembleSourceConfig,
-)
+from products.warehouse_sources.sources.coassemble.settings import COASSEMBLE_ENDPOINTS, ENDPOINTS, USAGE_PAGE_SIZE
+from products.warehouse_sources.sources.coassemble.source import CoassembleSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

@@ -10,15 +10,9 @@ import requests
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.coralogix import coralogix as coralogix_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.coralogix.coralogix import (
+from products.warehouse_sources.sources.coralogix import coralogix as coralogix_module
+from products.warehouse_sources.sources.coralogix._config import CoralogixSourceConfig
+from products.warehouse_sources.sources.coralogix.coralogix import (
     CoralogixResumeConfig,
     CoralogixRetryableError,
     _format_datetime,
@@ -27,9 +21,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coralogix.
     _run_query,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.coralogix.source import CoralogixSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coralogix import (
-    CoralogixSourceConfig,
+from products.warehouse_sources.sources.coralogix.source import CoralogixSource
+from products.warehouse_sources.sources.sdk.testing import (
+    DriveResult,
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
 )
 
 NOW = datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC)

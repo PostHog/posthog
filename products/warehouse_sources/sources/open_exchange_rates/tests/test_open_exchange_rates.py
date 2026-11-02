@@ -7,17 +7,9 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openexchangerates import (
-    OpenExchangeRatesSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates import open_exchange_rates
-from products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates.open_exchange_rates import (
+from products.warehouse_sources.sources.open_exchange_rates import open_exchange_rates
+from products.warehouse_sources.sources.open_exchange_rates._config import OpenExchangeRatesSourceConfig
+from products.warehouse_sources.sources.open_exchange_rates.open_exchange_rates import (
     BASE_URL,
     OpenExchangeRatesResumeConfig,
     OpenExchangeRatesRetryableError,
@@ -29,9 +21,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.open_excha
     get_rows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates.source import (
-    OpenExchangeRatesSource,
-)
+from products.warehouse_sources.sources.open_exchange_rates.source import OpenExchangeRatesSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 class _FakeResponse:
@@ -107,9 +98,7 @@ class TestValidateCredentials:
             assert validate_credentials("key") == expected
         assert {request.path for request in network.requests_log} == {"/api/usage.json"}
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates.open_exchange_rates.capture_exception"
-    )
+    @mock.patch("products.warehouse_sources.sources.open_exchange_rates.open_exchange_rates.capture_exception")
     def test_network_error_does_not_blame_the_app_id(self, mock_capture: mock.MagicMock) -> None:
         with scripted_network(always(ConnectionError("boom"))):
             assert validate_credentials("key") == (False, open_exchange_rates.VALIDATION_UNAVAILABLE_ERROR)

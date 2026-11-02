@@ -4,19 +4,8 @@ from typing import Any
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.partnerize import (
-    PartnerizeSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.partnerize.partnerize import (
+from products.warehouse_sources.sources.partnerize._config import PartnerizeSourceConfig
+from products.warehouse_sources.sources.partnerize.partnerize import (
     DEFAULT_START_DATE,
     PARTNERIZE_BASE_URL,
     PartnerizeResumeConfig,
@@ -24,11 +13,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.partnerize
     _make_unwrap,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.partnerize.settings import (
-    ENDPOINTS,
-    PARTNERIZE_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.partnerize.source import PartnerizeSource
+from products.warehouse_sources.sources.partnerize.settings import ENDPOINTS, PARTNERIZE_ENDPOINTS
+from products.warehouse_sources.sources.partnerize.source import PartnerizeSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

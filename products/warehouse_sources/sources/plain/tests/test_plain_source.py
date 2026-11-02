@@ -1,6 +1,6 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.plain import PlainSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.plain.source import PlainSource
+from products.warehouse_sources.sources.plain._config import PlainSourceConfig
+from products.warehouse_sources.sources.plain.source import PlainSource
+from products.warehouse_sources.sources.sdk.testing import error_message_matches
 
 
 class TestPlainSource:

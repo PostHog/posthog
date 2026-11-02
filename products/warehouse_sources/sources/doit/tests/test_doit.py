@@ -4,24 +4,24 @@ from typing import Any, cast
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.doit.doit import (
+from products.warehouse_sources.sources.doit._config import DoItSourceConfig
+from products.warehouse_sources.sources.doit.doit import (
     LIST_REPORTS_TIMEOUT_SECONDS,
     REPORT_TIMEOUT_SECONDS,
     doit_list_reports,
     doit_source,
     resolve_report_id,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.doit.source import DoItSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.doit import DoItSourceConfig
+from products.warehouse_sources.sources.doit.source import DoItSource
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    error_message_matches,
+    scripted_network,
+)
 
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.doit.doit"
+_MODULE = "products.warehouse_sources.sources.doit.doit"
 
 CONFIG = DoItSourceConfig(api_key="key")
 

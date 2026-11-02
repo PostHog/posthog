@@ -2,19 +2,11 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.loops import LoopsSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.loops.loops import (
-    LoopsResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.loops.settings import LOOPS_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.loops.source import LoopsSource
+from products.warehouse_sources.sources.loops._config import LoopsSourceConfig
+from products.warehouse_sources.sources.loops.loops import LoopsResumeConfig, validate_credentials
+from products.warehouse_sources.sources.loops.settings import LOOPS_ENDPOINTS
+from products.warehouse_sources.sources.loops.source import LoopsSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _page(rows: list[dict[str, Any]], next_cursor: str | None) -> ScriptedResponse:

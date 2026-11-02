@@ -1,11 +1,8 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.nuntly import NuntlySourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.nuntly.source import NuntlySource
+from products.warehouse_sources.sources.nuntly._config import NuntlySourceConfig
+from products.warehouse_sources.sources.nuntly.source import NuntlySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 class TestNuntlySource:

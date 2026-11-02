@@ -1,10 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rollbar import (
-    RollbarSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.rollbar.source import RollbarSource
+from products.warehouse_sources.sources.rollbar._config import RollbarSourceConfig
+from products.warehouse_sources.sources.rollbar.source import RollbarSource
 
 
 class TestRollbarSource:
@@ -33,9 +31,7 @@ class TestRollbarSource:
             ((False, "Rollbar rejected your access token."), False, "Rollbar rejected your access token."),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.rollbar.source.validate_rollbar_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.rollbar.source.validate_rollbar_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
         mock_validate.return_value = mock_return
 

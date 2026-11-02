@@ -2,42 +2,33 @@ from typing import cast
 
 from requests import HTTPError
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldFileUploadConfig,
-    SourceFieldFileUploadJsonFormatConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
-    SourceSchema,
-    build_endpoint_schemas,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.gcp_cloud_billing.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.gcp_cloud_billing.gcp_cloud_billing import (
+from products.warehouse_sources.sources.gcp_cloud_billing._config import GcpCloudBillingSourceConfig
+from products.warehouse_sources.sources.gcp_cloud_billing.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.gcp_cloud_billing.gcp_cloud_billing import (
     GcpCloudBillingCredentialsError,
     GcpCloudBillingResumeConfig,
     gcp_cloud_billing_source,
     probe_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.gcp_cloud_billing.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
+from products.warehouse_sources.sources.gcp_cloud_billing.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldFileUploadConfig,
+    SourceFieldFileUploadJsonFormatConfig,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gcpcloudbilling import (
-    GcpCloudBillingSourceConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register

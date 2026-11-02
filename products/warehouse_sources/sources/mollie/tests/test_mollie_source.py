@@ -1,11 +1,8 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mollie import MollieSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.mollie.source import MollieSource
+from products.warehouse_sources.sources.mollie._config import MollieSourceConfig
+from products.warehouse_sources.sources.mollie.source import MollieSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 class TestMollieSource:

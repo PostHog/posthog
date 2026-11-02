@@ -6,23 +6,17 @@ import pytest
 from parameterized import parameterized
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.charthop.charthop import (
+from products.warehouse_sources.sources.charthop._config import ChartHopSourceConfig
+from products.warehouse_sources.sources.charthop.charthop import (
     CHARTHOP_BASE_URL,
     ChartHopAPIError,
     ChartHopResumeConfig,
     _to_charthop_date,
     resolve_org_id,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.charthop.settings import CHARTHOP_V1, CHARTHOP_V2
-from products.warehouse_sources.backend.temporal.data_imports.sources.charthop.source import ChartHopSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.charthop import (
-    ChartHopSourceConfig,
-)
+from products.warehouse_sources.sources.charthop.settings import CHARTHOP_V1, CHARTHOP_V2
+from products.warehouse_sources.sources.charthop.source import ChartHopSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver(org_id: str = "org-1") -> SourceDriver:

@@ -3,19 +3,17 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.dynamics_365_business_central.settings import (
+from products.warehouse_sources.sources.dynamics_365_business_central._config import (
+    Dynamics365BusinessCentralSourceConfig,
+)
+from products.warehouse_sources.sources.dynamics_365_business_central.settings import (
     BUSINESS_CENTRAL_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.dynamics_365_business_central.source import (
-    Dynamics365BusinessCentralSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dynamics365businesscentral import (
-    Dynamics365BusinessCentralSourceConfig,
-)
+from products.warehouse_sources.sources.dynamics_365_business_central.source import Dynamics365BusinessCentralSource
 
-SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.dynamics_365_business_central.source"
+SOURCE_MODULE = "products.warehouse_sources.sources.dynamics_365_business_central.source"
 
 
 class TestDynamics365BusinessCentralSource:

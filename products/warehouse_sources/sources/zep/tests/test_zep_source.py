@@ -2,8 +2,8 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zep import ZepSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.zep.source import ZepSource
+from products.warehouse_sources.sources.zep._config import ZepSourceConfig
+from products.warehouse_sources.sources.zep.source import ZepSource
 
 
 class TestZepSource:
@@ -15,7 +15,7 @@ class TestZepSource:
     def test_validate_credentials(self, _name: str, probe_ok: bool, expected: tuple[bool, str | None]) -> None:
         config = ZepSourceConfig(api_key="z_test")
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.zep.source.validate_zep_credentials",
+            "products.warehouse_sources.sources.zep.source.validate_zep_credentials",
             return_value=probe_ok,
         ):
             assert self.source.validate_credentials(config, self.team_id) == expected

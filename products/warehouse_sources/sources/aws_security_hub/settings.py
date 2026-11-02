@@ -1,8 +1,6 @@
 from typing import Any
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
+from products.warehouse_sources.sources.sdk import frozen, incremental_field
 
 SECURITY_HUB_API_VERSION = "2018-10-26"
 API_DOCS_URL = "https://docs.aws.amazon.com/securityhub/1.0/APIReference/"

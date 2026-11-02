@@ -3,22 +3,14 @@ import datetime
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lightspeedretail import (
-    LightspeedRetailSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.constants import (
+from products.warehouse_sources.sources.lightspeed_retail._config import LightspeedRetailSourceConfig
+from products.warehouse_sources.sources.lightspeed_retail.constants import (
     LIGHTSPEED_RETAIL_API_VERSION_2_0,
     LIGHTSPEED_RETAIL_API_VERSION_2026_01,
     LIGHTSPEED_RETAIL_API_VERSION_2026_07,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.source import (
-    LightspeedRetailSource,
-)
+from products.warehouse_sources.sources.lightspeed_retail.source import LightspeedRetailSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 class TestLightspeedRetailSource:
@@ -65,9 +57,7 @@ class TestLightspeedRetailSource:
         assert network.requests_log[0].path == f"/api/{LIGHTSPEED_RETAIL_API_VERSION_2026_07}/outlets"
         assert network.requests_log[0].headers["authorization"] == "Bearer api-token"
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.source.lightspeed_retail_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.lightspeed_retail.source.lightspeed_retail_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_lightspeed_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "sales"

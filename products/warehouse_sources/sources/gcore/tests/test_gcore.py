@@ -6,21 +6,18 @@ from unittest.mock import MagicMock, patch
 
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.gcore._config import GcoreSourceConfig
+from products.warehouse_sources.sources.gcore.gcore import GcoreCheckpoint, validate_credentials
+from products.warehouse_sources.sources.gcore.source import GcoreSource
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.gcore.gcore import (
-    GcoreCheckpoint,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.gcore.source import GcoreSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gcore import GcoreSourceConfig
 
-TRANSPORT = "products.warehouse_sources.backend.temporal.data_imports.sources.gcore.gcore"
+TRANSPORT = "products.warehouse_sources.sources.gcore.gcore"
 NOW = datetime(2026, 1, 5, 12, 30, tzinfo=UTC)
 
 

@@ -6,16 +6,11 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.statuscake import (
-    StatuscakeSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.statuscake.settings import STATUSCAKE_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.statuscake.source import StatuscakeSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.statuscake.statuscake import (
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
+from products.warehouse_sources.sources.statuscake._config import StatuscakeSourceConfig
+from products.warehouse_sources.sources.statuscake.settings import STATUSCAKE_ENDPOINTS
+from products.warehouse_sources.sources.statuscake.source import StatuscakeSource
+from products.warehouse_sources.sources.statuscake.statuscake import (
     StatusCakeResumeConfig,
     StatusCakeRetryableError,
     _fetch_page,

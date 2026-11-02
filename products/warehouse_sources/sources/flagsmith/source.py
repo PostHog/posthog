@@ -1,41 +1,34 @@
 from typing import Optional, cast
 
-from posthog.cloud_utils import is_cloud
-from posthog.schema_enums import ProductKey
-
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.flagsmith import (
+from products.warehouse_sources.sources.flagsmith._config import FlagsmithSourceConfig
+from products.warehouse_sources.sources.flagsmith.flagsmith import (
     FlagsmithResumeConfig,
     flagsmith_source,
     hostname_of,
     scheme_of,
     validate_credentials as validate_flagsmith_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.settings import (
-    ENDPOINTS,
-    FLAGSMITH_ENDPOINTS,
-    INCREMENTAL_FIELDS,
+from products.warehouse_sources.sources.flagsmith.settings import ENDPOINTS, FLAGSMITH_ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ProductKey,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    ValidateDatabaseHostMixin,
+    detect,
+    is_cloud,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.flagsmith import (
-    FlagsmithSourceConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # Fan-out endpoints can't be probed without a parent id, so scope checks probe the root
 # listing their parent enumeration starts from.
@@ -153,9 +146,7 @@ Leave the API URL blank for Flagsmith SaaS, or set it to your API host (for exam
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.flagsmith.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

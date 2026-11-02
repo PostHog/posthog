@@ -3,24 +3,11 @@ from typing import Any
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.optimizely import (
-    OptimizelySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.optimizely.optimizely import (
-    optimizely_source,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.optimizely.settings import (
-    ENDPOINTS,
-    OPTIMIZELY_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.optimizely.source import OptimizelySource
+from products.warehouse_sources.sources.optimizely._config import OptimizelySourceConfig
+from products.warehouse_sources.sources.optimizely.optimizely import optimizely_source, validate_credentials
+from products.warehouse_sources.sources.optimizely.settings import ENDPOINTS, OPTIMIZELY_ENDPOINTS
+from products.warehouse_sources.sources.optimizely.source import OptimizelySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, route, scripted_network
 
 
 def _driver() -> SourceDriver:

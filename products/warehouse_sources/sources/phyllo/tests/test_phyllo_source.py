@@ -2,8 +2,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.phyllo import PhylloSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.phyllo.source import PhylloSource
+from products.warehouse_sources.sources.phyllo._config import PhylloSourceConfig
+from products.warehouse_sources.sources.phyllo.source import PhylloSource
 
 
 class TestPhylloSource:
@@ -22,7 +22,7 @@ class TestPhylloSource:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.phyllo.source.validate_credentials")
+    @mock.patch("products.warehouse_sources.sources.phyllo.source.validate_credentials")
     def test_validate_credentials_delegates_to_shared_helper(self, mock_validate: mock.MagicMock) -> None:
         # The source method forwards the credentials and environment to the shared validator and
         # returns its result verbatim.
@@ -31,7 +31,7 @@ class TestPhylloSource:
         assert result == (False, "Invalid Phyllo client ID or secret for the selected environment")
         mock_validate.assert_called_once_with("cid", "cs-secret", "production")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.phyllo.source.phyllo_source")
+    @mock.patch("products.warehouse_sources.sources.phyllo.source.phyllo_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "social_contents"

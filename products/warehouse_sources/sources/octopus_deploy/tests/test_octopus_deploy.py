@@ -6,28 +6,18 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.octopusdeploy import (
-    OctopusDeploySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.octopus_deploy import (
-    octopus_deploy as octopus_deploy_module,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.octopus_deploy.octopus_deploy import (
+from products.warehouse_sources.sources.octopus_deploy import octopus_deploy as octopus_deploy_module
+from products.warehouse_sources.sources.octopus_deploy._config import OctopusDeploySourceConfig
+from products.warehouse_sources.sources.octopus_deploy.octopus_deploy import (
     OctopusDeployResumeConfig,
     _build_params,
     _format_incremental_value,
     _parse_retry_after,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.octopus_deploy.settings import (
-    OCTOPUS_DEPLOY_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.octopus_deploy.source import OctopusDeploySource
+from products.warehouse_sources.sources.octopus_deploy.settings import OCTOPUS_DEPLOY_ENDPOINTS
+from products.warehouse_sources.sources.octopus_deploy.source import OctopusDeploySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _page(items: list[dict[str, Any]], has_next: bool) -> ScriptedResponse:

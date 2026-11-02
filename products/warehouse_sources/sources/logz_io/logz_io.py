@@ -10,17 +10,17 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
-    make_tracked_session,
-    retry_with_deadline,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.logz_io.settings import (
+from products.warehouse_sources.sources.logz_io.settings import (
     DEFAULT_REGION,
     LOGZIO_ENDPOINTS,
     REGION_BASE_URLS,
     LogzIOEndpointConfig,
+)
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
+    make_tracked_session,
+    retry_with_deadline,
 )
 
 REQUEST_TIMEOUT_SECONDS = 60

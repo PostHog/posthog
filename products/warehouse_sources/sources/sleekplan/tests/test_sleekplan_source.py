@@ -2,9 +2,9 @@ from unittest.mock import Mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.sleekplan.source import SleekplanSource
+from products.warehouse_sources.sources.sleekplan.source import SleekplanSource
 
-SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.sleekplan.source"
+SOURCE_MODULE = "products.warehouse_sources.sources.sleekplan.source"
 
 
 class TestSleekplanSourceConfig:

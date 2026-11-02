@@ -1,14 +1,8 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.newsapi import (
-    NewsApiSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.news_api.source import NewsApiSource
+from products.warehouse_sources.sources.news_api._config import NewsApiSourceConfig
+from products.warehouse_sources.sources.news_api.source import NewsApiSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _config(language: str | None = None) -> NewsApiSourceConfig:

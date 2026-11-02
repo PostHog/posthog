@@ -1,15 +1,11 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.cloudflare import TokenCheck
-from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.source import CloudflareSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cloudflare import (
-    CloudflareSourceConfig,
-)
+from products.warehouse_sources.sources.cloudflare._config import CloudflareSourceConfig
+from products.warehouse_sources.sources.cloudflare.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.cloudflare.cloudflare import TokenCheck
+from products.warehouse_sources.sources.cloudflare.settings import ENDPOINTS
+from products.warehouse_sources.sources.cloudflare.source import CloudflareSource
 
 
 class TestCloudflareSource:
@@ -41,9 +37,7 @@ class TestCloudflareSource:
             (TokenCheck(is_valid=False, status=429), False, "Couldn't reach Cloudflare"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.source.validate_cloudflare_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.cloudflare.source.validate_cloudflare_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_substring):
         mock_validate.return_value = mock_return
 

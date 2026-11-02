@@ -2,43 +2,34 @@ from typing import cast
 
 from requests.exceptions import HTTPError
 
-from posthog.schema_enums import ProductKey
-
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
-    SourceSchema,
-    build_endpoint_schemas,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.growthbook import (
-    GrowthBookSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.growthbook.growthbook import (
+from products.warehouse_sources.sources.growthbook._config import GrowthBookSourceConfig
+from products.warehouse_sources.sources.growthbook.growthbook import (
     INVALID_URL,
     UNSAFE_HOST,
     GrowthBookResumeConfig,
     growthbook_source,
     probe_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.growthbook.settings import (
-    DEFAULT_BASE_URL,
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
+from products.warehouse_sources.sources.growthbook.settings import DEFAULT_BASE_URL, ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ProductKey,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INVALID_CREDENTIALS = "Your GrowthBook API key is invalid or expired. Update the key and reconnect."
 MISSING_PERMISSIONS = "Your GrowthBook API key lacks read access to this table. Update its permissions and try again."
@@ -120,9 +111,7 @@ class GrowthBookSource(ResumableSource[GrowthBookSourceConfig, GrowthBookResumeC
         return ["base_url"]
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.growthbook.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.growthbook.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

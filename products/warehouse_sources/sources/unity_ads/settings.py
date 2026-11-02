@@ -1,6 +1,4 @@
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 UNITY_STATS_URL = (
     "https://services.api.unity.com/advertise/stats/v2/organizations/{organization_id}/reports/acquisitions"

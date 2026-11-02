@@ -5,21 +5,21 @@ import time_machine
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gong import GongSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong import (
+from products.warehouse_sources.sources.gong._config import GongSourceConfig
+from products.warehouse_sources.sources.gong.gong import (
     GONG_BASE_URL,
     GongResumeConfig,
     _format_datetime,
     _to_datetime,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.gong.source import GongSource
+from products.warehouse_sources.sources.gong.source import GongSource
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    error_message_matches,
+    scripted_network,
+)
 
 
 def _driver() -> SourceDriver:
@@ -152,7 +152,7 @@ class TestWindowedCalls:
 
 class TestLibraryFolders400IsNonRetryable:
     # 401/403/429/500/timeout are already covered for every source, Gong included, by
-    # `sources/tests/test_source_error_contract.py`. Only the library_folders-specific 400 needs a
+    # `products/warehouse_sources/sources/tests/test_source_error_contract.py`. Only the library_folders-specific 400 needs a
     # test here.
     @parameterized.expand(
         [

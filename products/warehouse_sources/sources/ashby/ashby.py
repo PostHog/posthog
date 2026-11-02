@@ -4,21 +4,15 @@ from typing import Any, Optional
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.ashby.settings import (
-    ASHBY_ENDPOINTS,
-    PAGE_SIZE,
-    AshbyEndpointConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from products.warehouse_sources.sources.ashby.settings import ASHBY_ENDPOINTS, PAGE_SIZE, AshbyEndpointConfig
+from products.warehouse_sources.sources.sdk import (
+    JSONResponseCursorPaginator,
     RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    make_tracked_session,
     rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponseCursorPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 ASHBY_BASE_URL = "https://api.ashbyhq.com"
 # Cheap endpoint to confirm a key is genuine when no specific schema is being validated.

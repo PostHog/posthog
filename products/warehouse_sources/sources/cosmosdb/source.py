@@ -2,22 +2,8 @@ from typing import Optional, cast
 
 import structlog
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import CursorSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.cosmosdb.cosmosdb import (
+from products.warehouse_sources.sources.cosmosdb._config import CosmosDBSourceConfig
+from products.warehouse_sources.sources.cosmosdb.cosmosdb import (
     FORBIDDEN_MESSAGE,
     CosmosDBClient,
     CosmosDBResumeConfig,
@@ -26,14 +12,25 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cosmosdb.c
     hostname_of,
     validate_credentials as validate_cosmosdb_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.cosmosdb.settings import (
-    API_VERSION,
-    INCREMENTAL_FIELDS,
+from products.warehouse_sources.sources.cosmosdb.settings import API_VERSION, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.sdk import (
+    CursorSource,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    ValidateDatabaseHostMixin,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cosmosdb import (
-    CosmosDBSourceConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register

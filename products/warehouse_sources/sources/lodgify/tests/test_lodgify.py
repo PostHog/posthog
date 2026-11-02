@@ -5,23 +5,11 @@ import time_machine
 
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lodgify import (
-    LodgifySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.lodgify.lodgify import (
-    LodgifyResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.lodgify.settings import (
-    AUTH_ERROR,
-    PERMISSION_ERROR,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.lodgify.source import LodgifySource
+from products.warehouse_sources.sources.lodgify._config import LodgifySourceConfig
+from products.warehouse_sources.sources.lodgify.lodgify import LodgifyResumeConfig, validate_credentials
+from products.warehouse_sources.sources.lodgify.settings import AUTH_ERROR, PERMISSION_ERROR
+from products.warehouse_sources.sources.lodgify.source import LodgifySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def driver() -> SourceDriver:

@@ -2,13 +2,9 @@ import pytest
 
 from requests.exceptions import ConnectTimeout
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    RecordedRequest,
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.looker import LookerSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.looker.source import LookerSource
+from products.warehouse_sources.sources.looker._config import LookerSourceConfig
+from products.warehouse_sources.sources.looker.source import LookerSource
+from products.warehouse_sources.sources.sdk.testing import RecordedRequest, ScriptedResponse, scripted_network
 
 
 @pytest.mark.parametrize(

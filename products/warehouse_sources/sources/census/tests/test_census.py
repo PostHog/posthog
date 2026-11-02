@@ -5,27 +5,17 @@ from unittest.mock import Mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.census.census import (
+from products.warehouse_sources.sources.census._config import CensusSourceConfig
+from products.warehouse_sources.sources.census.census import (
     CensusResumeConfig,
     get_endpoint_permissions,
     get_resource,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.census.settings import (
-    CENSUS_API_V1,
-    CENSUS_API_V2,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.census.source import CensusSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    PageNumberPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.census import CensusSourceConfig
+from products.warehouse_sources.sources.census.settings import CENSUS_API_V1, CENSUS_API_V2
+from products.warehouse_sources.sources.census.source import CensusSource
+from products.warehouse_sources.sources.sdk import PageNumberPaginator
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

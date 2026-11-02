@@ -4,16 +4,9 @@ from typing import Any, Optional
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.langfuse import (
-    LangfuseSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse import langfuse as langfuse_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.langfuse import (
+from products.warehouse_sources.sources.langfuse import langfuse as langfuse_module
+from products.warehouse_sources.sources.langfuse._config import LangfuseSourceConfig
+from products.warehouse_sources.sources.langfuse.langfuse import (
     HOST_NOT_ALLOWED_ERROR,
     HTTP_NOT_ALLOWED_ERROR,
     LangfuseResumeConfig,
@@ -24,8 +17,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.l
     normalize_host,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.settings import LANGFUSE_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.source import LangfuseSource
+from products.warehouse_sources.sources.langfuse.settings import LANGFUSE_ENDPOINTS
+from products.warehouse_sources.sources.langfuse.source import LangfuseSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _response(*, status_code: int = 200, headers: Any = None) -> mock.MagicMock:

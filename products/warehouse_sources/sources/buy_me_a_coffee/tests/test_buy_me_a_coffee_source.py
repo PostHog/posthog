@@ -7,12 +7,10 @@ from parameterized import parameterized
 from requests import Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.buy_me_a_coffee.source import BuyMeACoffeeSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.buymeacoffee import (
-    BuyMeACoffeeSourceConfig,
-)
+from products.warehouse_sources.sources.buy_me_a_coffee._config import BuyMeACoffeeSourceConfig
+from products.warehouse_sources.sources.buy_me_a_coffee.source import BuyMeACoffeeSource
+from products.warehouse_sources.sources.sdk import SourceInputs
+from products.warehouse_sources.sources.sdk.testing import error_message_matches
 
 
 class TestBuyMeACoffeeSource(SimpleTestCase):

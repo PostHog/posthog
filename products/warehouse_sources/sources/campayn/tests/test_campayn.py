@@ -2,29 +2,17 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.campayn.campayn import (
+from products.warehouse_sources.sources.campayn._config import CampaynSourceConfig
+from products.warehouse_sources.sources.campayn.campayn import (
     base_url,
     campayn_source,
     is_subdomain_valid,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.campayn.settings import (
-    CAMPAYN_ENDPOINTS,
-    ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.campayn.source import CampaynSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.campayn import (
-    CampaynSourceConfig,
-)
+from products.warehouse_sources.sources.campayn.settings import CAMPAYN_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.sources.campayn.source import CampaynSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

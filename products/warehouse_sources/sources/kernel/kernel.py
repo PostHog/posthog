@@ -11,13 +11,7 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
-    make_tracked_session,
-    retry_with_deadline,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.kernel.settings import (
+from products.warehouse_sources.sources.kernel.settings import (
     BROWSER_TELEMETRY_EVENTS,
     KERNEL_ENDPOINTS,
     SENSITIVE_FIELDS,
@@ -25,6 +19,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kernel.set
     TELEMETRY_RETENTION_DAYS,
     KernelEndpointConfig,
 )
+from products.warehouse_sources.sources.sdk import SourceResponse, make_tracked_session, retry_with_deadline
+from products.warehouse_sources.sources.sdk.internals import Batcher
 
 KERNEL_BASE_URL = "https://api.onkernel.com"
 

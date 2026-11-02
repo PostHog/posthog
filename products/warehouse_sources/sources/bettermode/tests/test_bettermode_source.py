@@ -1,10 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.bettermode.source import BettermodeSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bettermode import (
-    BettermodeSourceConfig,
-)
+from products.warehouse_sources.sources.bettermode._config import BettermodeSourceConfig
+from products.warehouse_sources.sources.bettermode.source import BettermodeSource
 
 
 class TestBettermodeSource:
@@ -30,9 +28,7 @@ class TestBettermodeSource:
             ((False, None), False, "Invalid Bettermode credentials"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.bettermode.source.validate_bettermode_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.bettermode.source.validate_bettermode_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
         mock_validate.return_value = mock_return
 

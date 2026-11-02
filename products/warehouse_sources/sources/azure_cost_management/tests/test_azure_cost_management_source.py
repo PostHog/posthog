@@ -4,28 +4,18 @@ from typing import Any, Optional
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.azure_cost_management.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.azure_cost_management.settings import (
+from products.warehouse_sources.sources.azure_cost_management._config import AzureCostManagementSourceConfig
+from products.warehouse_sources.sources.azure_cost_management.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.azure_cost_management.settings import (
     AZURE_COST_MANAGEMENT_ENDPOINTS,
     COST_LOOKBACK_SECONDS,
     ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.azure_cost_management.source import (
-    AzureCostManagementSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.azurecostmanagement import (
-    AzureCostManagementSourceConfig,
-)
+from products.warehouse_sources.sources.azure_cost_management.source import AzureCostManagementSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceInputs
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
-SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.azure_cost_management.source"
+SOURCE_MODULE = "products.warehouse_sources.sources.azure_cost_management.source"
 
 COST_ENDPOINTS = ("cost_by_service", "cost_by_resource_group", "cost_by_resource", "amortized_cost_by_service")
 

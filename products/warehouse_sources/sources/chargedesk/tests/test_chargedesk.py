@@ -6,20 +6,11 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.chargedesk.chargedesk import (
-    ChargedeskResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.chargedesk.settings import CHARGEDESK_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.chargedesk.source import ChargedeskSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.chargedesk import (
-    ChargedeskSourceConfig,
-)
+from products.warehouse_sources.sources.chargedesk._config import ChargedeskSourceConfig
+from products.warehouse_sources.sources.chargedesk.chargedesk import ChargedeskResumeConfig, validate_credentials
+from products.warehouse_sources.sources.chargedesk.settings import CHARGEDESK_ENDPOINTS
+from products.warehouse_sources.sources.chargedesk.source import ChargedeskSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _small_charges_cfg(**overrides: Any) -> dict[str, Any]:

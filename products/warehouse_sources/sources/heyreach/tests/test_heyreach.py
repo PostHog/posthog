@@ -7,22 +7,20 @@ import pytest
 import requests
 from dateutil import parser
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.heyreach._config import HeyReachSourceConfig
+from products.warehouse_sources.sources.heyreach.heyreach import (
+    STATS_START_DATE,
+    HeyReachResumeConfig,
+    validate_credentials,
+)
+from products.warehouse_sources.sources.heyreach.source import HeyReachSource
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.heyreach import (
-    HeyReachSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.heyreach.heyreach import (
-    STATS_START_DATE,
-    HeyReachResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.heyreach.source import HeyReachSource
 
 
 def _driver() -> SourceDriver:

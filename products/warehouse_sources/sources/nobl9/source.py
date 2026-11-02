@@ -1,10 +1,14 @@
 from typing import cast
 
-from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, SourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.nobl9 import Nobl9SourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.sources.nobl9._config import Nobl9SourceConfig
+from products.warehouse_sources.sources.sdk import (
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    SimpleSource,
+    SourceConfig,
+    SourceRegistry,
+)
 
 
 @SourceRegistry.register

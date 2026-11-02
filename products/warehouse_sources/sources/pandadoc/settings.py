@@ -1,13 +1,13 @@
 from dataclasses import field
 from typing import Literal, Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+from products.warehouse_sources.sources.sdk import (
     DependentEndpointConfig,
+    IncrementalField,
+    IncrementalFieldType,
+    ResponseAction,
+    frozen,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ResponseAction
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 # PandaDoc list pages cap at 100 items.
 PAGE_SIZE = 100

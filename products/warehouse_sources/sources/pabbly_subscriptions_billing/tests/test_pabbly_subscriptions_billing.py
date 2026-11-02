@@ -4,28 +4,18 @@ from typing import Any
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pabblysubscriptionsbilling import (
+from products.warehouse_sources.sources.pabbly_subscriptions_billing._config import (
     PabblySubscriptionsBillingSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.pabbly_subscriptions_billing.pabbly_subscriptions_billing import (
+from products.warehouse_sources.sources.pabbly_subscriptions_billing.pabbly_subscriptions_billing import (
     PAGE_SIZE,
     PabblyResumeConfig,
     PabblyRetryableError,
     check_access,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.pabbly_subscriptions_billing.settings import (
-    ENDPOINTS,
-    PABBLY_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.pabbly_subscriptions_billing.source import (
-    PabblySubscriptionsBillingSource,
-)
+from products.warehouse_sources.sources.pabbly_subscriptions_billing.settings import ENDPOINTS, PABBLY_ENDPOINTS
+from products.warehouse_sources.sources.pabbly_subscriptions_billing.source import PabblySubscriptionsBillingSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

@@ -4,20 +4,13 @@ from typing import Any
 import pytest
 from unittest.mock import patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.serpstat import (
-    SerpstatSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.serpstat.settings import AUTH_ERROR, QUOTA_ERROR
-from products.warehouse_sources.backend.temporal.data_imports.sources.serpstat.source import SerpstatSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
+from products.warehouse_sources.sources.serpstat._config import SerpstatSourceConfig
+from products.warehouse_sources.sources.serpstat.settings import AUTH_ERROR, QUOTA_ERROR
+from products.warehouse_sources.sources.serpstat.source import SerpstatSource
 
-RESOURCE = "products.warehouse_sources.backend.temporal.data_imports.sources.serpstat.source.serpstat_resource"
+RESOURCE = "products.warehouse_sources.sources.serpstat.source.serpstat_resource"
 
 
 @pytest.mark.parametrize("field", ["project_id", "project_region_id"])

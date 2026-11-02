@@ -4,16 +4,8 @@ from datetime import UTC, date, datetime
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.greenhouse import (
-    GreenhouseSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse.greenhouse import (
+from products.warehouse_sources.sources.greenhouse._config import GreenhouseSourceConfig
+from products.warehouse_sources.sources.greenhouse.greenhouse import (
     GREENHOUSE_ENDPOINTS,
     PAGE_SIZE,
     V3_ONLY_ENDPOINT_ERROR,
@@ -23,12 +15,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse
     _format_datetime,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse.settings import (
-    ENDPOINTS,
-    GREENHOUSE_V1,
-    GREENHOUSE_V3,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse.source import GreenhouseSource
+from products.warehouse_sources.sources.greenhouse.settings import ENDPOINTS, GREENHOUSE_V1, GREENHOUSE_V3
+from products.warehouse_sources.sources.greenhouse.source import GreenhouseSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

@@ -1,10 +1,7 @@
 from dataclasses import field
 from typing import Any, Literal
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
-from products.warehouse_sources.backend.temporal.data_imports.sources.dagster_cloud.queries import (
+from products.warehouse_sources.sources.dagster_cloud.queries import (
     ASSET_MATERIALIZATIONS_QUERY,
     ASSET_NODES_QUERY,
     ASSET_OBSERVATIONS_QUERY,
@@ -28,7 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dagster_cl
     TEAM_PERMISSIONS_QUERY,
     USERS_QUERY,
 )
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, SortMode, frozen
 
 # Dagster's runsOrError caps well below 100 in practice; 100 is a safe request size across the
 # runs/backfills/assets list resolvers.

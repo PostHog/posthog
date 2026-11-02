@@ -4,24 +4,11 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mintlify import (
-    MintlifySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.mintlify.mintlify import (
-    MintlifyResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.mintlify.source import MintlifySource
+from products.warehouse_sources.sources.mintlify._config import MintlifySourceConfig
+from products.warehouse_sources.sources.mintlify.mintlify import MintlifyResumeConfig, validate_credentials
+from products.warehouse_sources.sources.mintlify.source import MintlifySource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError, UnknownResourceError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 @pytest.fixture
@@ -149,7 +136,7 @@ def test_source_adapter_delegates_to_mintlify_transport(config: MintlifySourceCo
     manager = source.get_resumable_source_manager(inputs)
 
     with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.mintlify.source.validate_credentials",
+        "products.warehouse_sources.sources.mintlify.source.validate_credentials",
         return_value=(True, None),
     ) as validate:
         assert source.validate_credentials(config, 1, "feedback") == (True, None)
@@ -157,7 +144,7 @@ def test_source_adapter_delegates_to_mintlify_transport(config: MintlifySourceCo
 
     expected = MagicMock()
     with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.mintlify.source.mintlify_source",
+        "products.warehouse_sources.sources.mintlify.source.mintlify_source",
         return_value=expected,
     ) as build_source:
         assert source.source_for_pipeline(config, manager, inputs) is expected

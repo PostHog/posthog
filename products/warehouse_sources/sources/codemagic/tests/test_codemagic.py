@@ -3,25 +3,15 @@ from unittest.mock import MagicMock
 
 from requests import Request
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.codemagic.codemagic import (
+from products.warehouse_sources.sources.codemagic._config import CodemagicSourceConfig
+from products.warehouse_sources.sources.codemagic.codemagic import (
     CodemagicBuildsPaginator,
     CodemagicResumeConfig,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.codemagic.settings import (
-    CODEMAGIC_V1,
-    CODEMAGIC_V3,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.codemagic.source import CodemagicSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.codemagic import (
-    CodemagicSourceConfig,
-)
+from products.warehouse_sources.sources.codemagic.settings import CODEMAGIC_V1, CODEMAGIC_V3
+from products.warehouse_sources.sources.codemagic.source import CodemagicSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, route, scripted_network
 
 
 def _driver() -> SourceDriver:

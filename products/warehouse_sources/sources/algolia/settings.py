@@ -2,13 +2,13 @@ from dataclasses import field
 from enum import Enum
 from typing import Any, Literal
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+from products.warehouse_sources.sources.sdk import (
     DependentEndpointConfig,
+    IncrementalField,
+    IncrementalFieldType,
+    frozen,
+    incremental_field,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
 class PaginationStyle(Enum):

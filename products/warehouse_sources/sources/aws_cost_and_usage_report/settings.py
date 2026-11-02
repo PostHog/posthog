@@ -1,6 +1,6 @@
 import re
 
-from products.warehouse_sources.backend.types import IncrementalField
+from products.warehouse_sources.sources.sdk import IncrementalField
 
 S3_NAMESPACE = "{http://s3.amazonaws.com/doc/2006-03-01/}"
 S3_SIGNING_NAME = "s3"

@@ -7,29 +7,24 @@ from typing import Any
 from requests import Session
 from requests.exceptions import RequestException
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.clover.settings import (
+from products.warehouse_sources.sources.clover.settings import (
     CLOVER_ENDPOINTS,
     CLOVER_REGION_HOSTS,
     FILTER_WINDOW_MS,
     CloverEndpointConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import AuthConfigBase
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    build_dependent_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+from products.warehouse_sources.sources.sdk import (
+    AuthConfigBase,
     ClientConfig,
     Endpoint,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    build_dependent_resource,
+    frozen,
+    make_tracked_session,
+    rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 MERCHANT_ID_PATTERN = re.compile(r"[A-Za-z0-9]+")
 CONNECT_TIMEOUT_SECONDS = 10

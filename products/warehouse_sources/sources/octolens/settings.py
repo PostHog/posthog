@@ -1,10 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-)
-from products.warehouse_sources.backend.types import IncrementalField
+from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField
 
 # Documented maximum page size on the cursor-paginated feeds (1-100, default 20).
 PAGE_SIZE = 100

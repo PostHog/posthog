@@ -8,19 +8,17 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.teamcity import (
-    TeamcitySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.teamcity import teamcity
-from products.warehouse_sources.backend.temporal.data_imports.sources.teamcity.source import TeamcitySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.teamcity.teamcity import (
+from products.warehouse_sources.sources.teamcity import teamcity
+from products.warehouse_sources.sources.teamcity._config import TeamcitySourceConfig
+from products.warehouse_sources.sources.teamcity.source import TeamcitySource
+from products.warehouse_sources.sources.teamcity.teamcity import (
     TeamCityResumeConfig,
     _format_teamcity_datetime,
     _parse_teamcity_datetime,

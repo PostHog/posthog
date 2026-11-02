@@ -1,18 +1,9 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rocketlane import (
-    RocketlaneSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.rocketlane.rocketlane import (
-    RocketlaneResumeConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.rocketlane.source import RocketlaneSource
+from products.warehouse_sources.sources.rocketlane._config import RocketlaneSourceConfig
+from products.warehouse_sources.sources.rocketlane.rocketlane import RocketlaneResumeConfig
+from products.warehouse_sources.sources.rocketlane.source import RocketlaneSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 class TestRocketlaneSource:

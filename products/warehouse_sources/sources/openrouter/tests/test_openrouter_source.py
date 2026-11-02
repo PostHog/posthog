@@ -3,11 +3,9 @@ from typing import Optional
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openrouter import (
-    OpenRouterSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.openrouter import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.openrouter.source import OpenRouterSource
+from products.warehouse_sources.sources.openrouter import source as source_module
+from products.warehouse_sources.sources.openrouter._config import OpenRouterSourceConfig
+from products.warehouse_sources.sources.openrouter.source import OpenRouterSource
 
 MANAGEMENT_ENDPOINTS = ["activity", "api_keys", "credits", "end_users", "organization_members", "workspaces"]
 CATALOG_ENDPOINTS = ["models", "providers"]

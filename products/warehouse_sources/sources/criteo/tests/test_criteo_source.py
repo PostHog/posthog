@@ -3,13 +3,9 @@ from typing import Any
 import pytest
 import time_machine
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.criteo.source import CriteoSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.criteo import CriteoSourceConfig
+from products.warehouse_sources.sources.criteo._config import CriteoSourceConfig
+from products.warehouse_sources.sources.criteo.source import CriteoSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def config(**overrides: str) -> CriteoSourceConfig:

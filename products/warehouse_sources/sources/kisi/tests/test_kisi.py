@@ -4,19 +4,9 @@ import pytest
 
 from requests.exceptions import ConnectionError, HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing.fake_network import RecordedRequest
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kisi import KisiSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.kisi.kisi import (
-    KisiEventSetError,
-    KisiResumeConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.kisi.settings import (
+from products.warehouse_sources.sources.kisi._config import KisiSourceConfig
+from products.warehouse_sources.sources.kisi.kisi import KisiEventSetError, KisiResumeConfig
+from products.warehouse_sources.sources.kisi.settings import (
     AUTH_ERROR,
     EVENT_SET_CURSOR_ERROR,
     EVENT_SET_FAILED_ERROR,
@@ -24,7 +14,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kisi.setti
     OFFSET_ERROR,
     PERMISSION_ERROR,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.kisi.source import KisiSource
+from products.warehouse_sources.sources.kisi.source import KisiSource
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 
 
 @pytest.fixture

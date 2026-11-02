@@ -1,12 +1,12 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+from products.warehouse_sources.sources.sdk import (
     DependentEndpointConfig,
+    IncrementalField,
+    ResponseAction,
+    incremental_field,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ResponseAction
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.types import IncrementalField
 
 # Harvest exposes exactly one generally-available API version, addressed by the `/v2` path
 # segment on a single global host. The base URL below is what the transport actually calls.

@@ -2,8 +2,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rss import RssSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.rss.source import RssSource
+from products.warehouse_sources.sources.rss._config import RssSourceConfig
+from products.warehouse_sources.sources.rss.source import RssSource
 
 
 class TestRssSource:
@@ -24,7 +24,7 @@ class TestRssSource:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.rss.source.validate_credentials")
+    @mock.patch("products.warehouse_sources.sources.rss.source.validate_credentials")
     def test_validate_credentials_delegates_with_api_key(self, mock_validate: mock.MagicMock) -> None:
         # The status-to-message mapping lives in rss.validate_credentials; here we only assert the
         # source probes with the configured key and returns the delegate's verdict unchanged.
@@ -33,7 +33,7 @@ class TestRssSource:
         mock_validate.assert_called_once_with("rss-key")
         assert result == (False, "Invalid RSS.com API key")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.rss.source.rss_source")
+    @mock.patch("products.warehouse_sources.sources.rss.source.rss_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "episodes"

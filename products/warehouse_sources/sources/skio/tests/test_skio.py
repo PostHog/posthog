@@ -8,17 +8,17 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     Script,
     ScriptedResponse,
     SourceDriver,
     always,
+    error_message_matches,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.skio import SkioSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.skio.skio import (
+from products.warehouse_sources.sources.skio._config import SkioSourceConfig
+from products.warehouse_sources.sources.skio.skio import (
     SkioAPIError,
     SkioResumeConfig,
     _build_where,
@@ -26,7 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.skio.skio 
     get_rows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.skio.source import SkioSource
+from products.warehouse_sources.sources.skio.source import SkioSource
 
 # Verbatim message shape `requests`/urllib3 raise for a read timeout or a dropped connection
 # against the live host; both are the transient failures `_post_query` retries.
@@ -197,7 +197,7 @@ def test_get_rows_is_a_generator_and_defers_requests() -> None:
     # SourceResponse.items is called lazily; building the iterator must not hit the API.
     session = MagicMock()
     with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.skio.skio.make_tracked_session",
+        "products.warehouse_sources.sources.skio.skio.make_tracked_session",
         return_value=session,
     ):
         generator = get_rows(

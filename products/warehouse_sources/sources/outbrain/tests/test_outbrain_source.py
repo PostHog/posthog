@@ -3,14 +3,9 @@ from base64 import b64encode
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.outbrain import (
-    OutbrainSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.outbrain.source import OutbrainSource
+from products.warehouse_sources.sources.outbrain._config import OutbrainSourceConfig
+from products.warehouse_sources.sources.outbrain.source import OutbrainSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 class TestOutbrainSource:
@@ -27,9 +22,7 @@ class TestOutbrainSource:
         ],
     )
     def test_validate_credentials(self, mock_return: bool, expected_valid: bool) -> None:
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.outbrain.outbrain.cache"
-        ) as mock_cache:
+        with mock.patch("products.warehouse_sources.sources.outbrain.outbrain.cache") as mock_cache:
             mock_cache.get.return_value = None
             response = ScriptedResponse(json={"OB-TOKEN-V1": "tok"} if mock_return else {"message": "nope"})
             with scripted_network([response]) as network:

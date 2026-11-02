@@ -3,14 +3,9 @@ from time_machine import travel
 
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.triplewhale import (
-    TripleWhaleSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.triple_whale.source import TripleWhaleSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
+from products.warehouse_sources.sources.triple_whale._config import TripleWhaleSourceConfig
+from products.warehouse_sources.sources.triple_whale.source import TripleWhaleSource
 
 
 @travel("2024-03-02T12:34:56+00:00", tick=False)

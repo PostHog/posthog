@@ -2,21 +2,11 @@ import pytest
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.agilecrm.agilecrm import (
-    AgileCRMResumeConfig,
-    base_url,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.agilecrm.settings import AGILECRM_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.agilecrm.source import AgileCRMSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.agilecrm import (
-    AgileCRMSourceConfig,
-)
+from products.warehouse_sources.sources.agilecrm._config import AgileCRMSourceConfig
+from products.warehouse_sources.sources.agilecrm.agilecrm import AgileCRMResumeConfig, base_url, validate_credentials
+from products.warehouse_sources.sources.agilecrm.settings import AGILECRM_ENDPOINTS
+from products.warehouse_sources.sources.agilecrm.source import AgileCRMSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 PAGE_SIZE = AGILECRM_ENDPOINTS["contacts"].page_size
 

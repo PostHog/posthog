@@ -10,16 +10,15 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from posthog.cloud_utils import is_cloud
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
+    _is_host_safe,
+    is_cloud,
     make_tracked_session,
     retry_with_deadline,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.teamcity.settings import (
+from products.warehouse_sources.sources.teamcity.settings import (
     DOWNLOAD_CHUNK_BYTES,
     FAN_OUT_BUILD_FINISH_DATE_FIELD,
     FAN_OUT_BUILD_ID_FIELD,

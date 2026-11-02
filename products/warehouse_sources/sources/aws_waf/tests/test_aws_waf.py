@@ -8,7 +8,8 @@ from unittest.mock import MagicMock, patch
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_waf.aws_waf import (
+from products.warehouse_sources.sources.aws_waf._config import AwsWafSourceConfig
+from products.warehouse_sources.sources.aws_waf.aws_waf import (
     AwsWafClient,
     AwsWafError,
     AwsWafResumeConfig,
@@ -17,17 +18,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_waf.aw
     error_for_response,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_waf.source import AwsWafSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awswaf import AwsWafSourceConfig
+from products.warehouse_sources.sources.aws_waf.source import AwsWafSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.aws_waf.aws_waf"
+MODULE = "products.warehouse_sources.sources.aws_waf.aws_waf"
 
 
 def config(**overrides: Any) -> AwsWafSourceConfig:

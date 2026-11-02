@@ -5,7 +5,8 @@ import pytest
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.better_stack.better_stack import (
+from products.warehouse_sources.sources.better_stack._config import BetterStackSourceConfig
+from products.warehouse_sources.sources.better_stack.better_stack import (
     BETTER_STACK_BASE_URL,
     BetterStackResumeConfig,
     BetterStackUntrustedURLError,
@@ -14,18 +15,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.better_sta
     _validate_pagination_url,
     probe_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.better_stack.settings import (
-    BETTER_STACK_ORG_BASE_URL,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.better_stack.source import BetterStackSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.betterstack import (
-    BetterStackSourceConfig,
-)
+from products.warehouse_sources.sources.better_stack.settings import BETTER_STACK_ORG_BASE_URL
+from products.warehouse_sources.sources.better_stack.source import BetterStackSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _response(

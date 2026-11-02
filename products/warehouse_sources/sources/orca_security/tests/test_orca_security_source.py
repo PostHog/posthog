@@ -1,4 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.orca_security.source import OrcaSecuritySource
+from products.warehouse_sources.sources.orca_security.source import OrcaSecuritySource
 
 
 class TestOrcaSecuritySource:

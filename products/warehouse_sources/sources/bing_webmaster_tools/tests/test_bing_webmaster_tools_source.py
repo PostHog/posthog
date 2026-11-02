@@ -2,18 +2,11 @@ import pytest
 
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.bing_webmaster_tools.settings import (
-    ENDPOINT_CONFIGS,
-    ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.bing_webmaster_tools.source import (
-    BingWebmasterToolsSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bingwebmastertools import (
-    BingWebmasterToolsSourceConfig,
-)
+from products.warehouse_sources.sources.bing_webmaster_tools._config import BingWebmasterToolsSourceConfig
+from products.warehouse_sources.sources.bing_webmaster_tools.settings import ENDPOINT_CONFIGS, ENDPOINTS
+from products.warehouse_sources.sources.bing_webmaster_tools.source import BingWebmasterToolsSource
+from products.warehouse_sources.sources.sdk import SourceInputs
+from products.warehouse_sources.sources.sdk.testing import error_message_matches
 
 
 def _make_inputs(schema_name: str) -> SourceInputs:

@@ -3,20 +3,11 @@ from typing import Any
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.simplecast import (
-    SimpleCastSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.simplecast.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.simplecast.simplecast import (
-    PAGE_SIZE,
-    SimpleCastResumeConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.simplecast.source import SimpleCastSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always
+from products.warehouse_sources.sources.simplecast._config import SimpleCastSourceConfig
+from products.warehouse_sources.sources.simplecast.settings import ENDPOINTS
+from products.warehouse_sources.sources.simplecast.simplecast import PAGE_SIZE, SimpleCastResumeConfig
+from products.warehouse_sources.sources.simplecast.source import SimpleCastSource
 
 
 def _envelope(items: list[dict[str, Any]], *, total: int = 1, current: int = 1) -> ScriptedResponse:

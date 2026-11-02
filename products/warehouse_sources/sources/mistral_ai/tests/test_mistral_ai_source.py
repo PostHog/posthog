@@ -1,15 +1,9 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mistralai import (
-    MistralAISourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.mistral_ai.source import MistralAISource
+from products.warehouse_sources.sources.mistral_ai._config import MistralAISourceConfig
+from products.warehouse_sources.sources.mistral_ai.source import MistralAISource
+from products.warehouse_sources.sources.sdk import SourceFieldInputConfig, SourceFieldInputConfigType
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _config() -> MistralAISourceConfig:

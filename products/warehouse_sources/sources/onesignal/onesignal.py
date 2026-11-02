@@ -4,33 +4,22 @@ from uuid import UUID
 from requests import Response
 from requests.exceptions import HTTPError, RequestException
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from products.warehouse_sources.sources.onesignal.settings import BASE_URL, INITIAL_TIME_OFFSET, ONESIGNAL_ENDPOINTS
+from products.warehouse_sources.sources.sdk import (
+    APIKeyAuth,
+    Endpoint,
+    EndpointResource,
     JSONResponseCursorPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTAPIConfig,
     RESTClient,
     RESTClientNonRetryableError,
     RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-    Endpoint,
-    EndpointResource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.onesignal.settings import (
-    BASE_URL,
-    INITIAL_TIME_OFFSET,
-    ONESIGNAL_ENDPOINTS,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceResponse,
+    frozen,
+    rest_api_resource,
+    schema_for_resource,
 )
 
 

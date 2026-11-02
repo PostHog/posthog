@@ -1,15 +1,10 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kustomer import (
-    KustomerSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.kustomer.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.kustomer.source import KustomerSource
+from products.warehouse_sources.sources.kustomer._config import KustomerSourceConfig
+from products.warehouse_sources.sources.kustomer.settings import ENDPOINTS
+from products.warehouse_sources.sources.kustomer.source import KustomerSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 EXPECTED_PATHS = {
     "customers": "/v1/customers",
@@ -52,9 +47,7 @@ class TestKustomerSource:
             (False, False, "Invalid Kustomer API credentials"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.kustomer.source.validate_kustomer_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.kustomer.source.validate_kustomer_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
         mock_validate.return_value = mock_return
 

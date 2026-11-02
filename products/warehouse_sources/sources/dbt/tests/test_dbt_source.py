@@ -1,7 +1,7 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
-from products.warehouse_sources.backend.temporal.data_imports.sources.dbt.settings import DBT_API_VERSION_V3
-from products.warehouse_sources.backend.temporal.data_imports.sources.dbt.source import DbtSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dbt import DbtSourceConfig
+from products.warehouse_sources.sources.dbt._config import DbtSourceConfig
+from products.warehouse_sources.sources.dbt.settings import DBT_API_VERSION_V3
+from products.warehouse_sources.sources.dbt.source import DbtSource
+from products.warehouse_sources.sources.sdk import UNVERSIONED_API_VERSION
 
 
 class TestDbtSource:

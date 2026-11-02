@@ -4,16 +4,8 @@ from typing import Any
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gitguardian import (
-    GitguardianSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.gitguardian.gitguardian import (
+from products.warehouse_sources.sources.gitguardian._config import GitguardianSourceConfig
+from products.warehouse_sources.sources.gitguardian.gitguardian import (
     GitGuardianResumeConfig,
     GitGuardianRetryableError,
     check_endpoint_access,
@@ -21,7 +13,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gitguardia
     validate_base_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.gitguardian.source import GitguardianSource
+from products.warehouse_sources.sources.gitguardian.source import GitguardianSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 BASE_URL = "https://api.gitguardian.com"
 
@@ -279,7 +272,7 @@ class TestResumeCheckpoints:
         assert result.final_state is None
 
     def test_full_refresh_endpoints_never_checkpoint(self) -> None:
-        # sources/members/teams merge nothing on resume, so a restart re-reads from page one.
+        # products/warehouse_sources/sources/members/teams merge nothing on resume, so a restart re-reads from page one.
         previous = GitGuardianResumeConfig(url=f"{BASE_URL}/v1/sources?cursor=old")
         result = _driver().run("sources", [_page([{"id": 1}])], resume_state=previous)
         assert result.raised is None

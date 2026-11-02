@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     Script,
     ScriptedResponse,
@@ -14,11 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.terraformcloud import (
-    TerraformCloudSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.terraform_cloud.source import TerraformCloudSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.terraform_cloud.terraform_cloud import (
+from products.warehouse_sources.sources.terraform_cloud._config import TerraformCloudSourceConfig
+from products.warehouse_sources.sources.terraform_cloud.source import TerraformCloudSource
+from products.warehouse_sources.sources.terraform_cloud.terraform_cloud import (
     TerraformCloudResumeConfig,
     TerraformCloudRetryableError,
     _flatten_item,

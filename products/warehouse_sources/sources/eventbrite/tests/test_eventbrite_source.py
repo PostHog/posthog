@@ -1,10 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.eventbrite.source import EventbriteSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.eventbrite import (
-    EventbriteSourceConfig,
-)
+from products.warehouse_sources.sources.eventbrite._config import EventbriteSourceConfig
+from products.warehouse_sources.sources.eventbrite.source import EventbriteSource
 
 
 class TestEventbriteSource:
@@ -20,9 +18,7 @@ class TestEventbriteSource:
             (False, False, "Invalid Eventbrite private token"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.eventbrite.source.validate_eventbrite_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.eventbrite.source.validate_eventbrite_credentials")
     def test_validate_credentials(self, mock_validate, credentials_valid, expected_valid, expected_message):
         mock_validate.return_value = credentials_valid
 

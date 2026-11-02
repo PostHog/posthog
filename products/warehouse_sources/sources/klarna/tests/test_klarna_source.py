@@ -2,14 +2,10 @@ import pytest
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.klarna import KlarnaSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.klarna.source import KlarnaSource
+from products.warehouse_sources.sources.klarna._config import KlarnaSourceConfig
+from products.warehouse_sources.sources.klarna.source import KlarnaSource
+from products.warehouse_sources.sources.sdk import UnknownResourceError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 @pytest.mark.parametrize(

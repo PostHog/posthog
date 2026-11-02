@@ -7,17 +7,13 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+from products.warehouse_sources.sources.hyperspell.settings import HYPERSPELL_ENDPOINTS, HyperspellEndpointConfig
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
     make_tracked_session,
     retry_with_deadline,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.hyperspell.settings import (
-    HYPERSPELL_ENDPOINTS,
-    HyperspellEndpointConfig,
 )
 
 # Hyperspell runs two isolated regions; API keys are only valid in the region they were

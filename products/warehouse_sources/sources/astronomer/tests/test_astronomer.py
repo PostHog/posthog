@@ -2,24 +2,11 @@ import pytest
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.astronomer.astronomer import (
-    AstronomerResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.astronomer.source import AstronomerSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.astronomer import (
-    AstronomerSourceConfig,
-)
+from products.warehouse_sources.sources.astronomer._config import AstronomerSourceConfig
+from products.warehouse_sources.sources.astronomer.astronomer import AstronomerResumeConfig, validate_credentials
+from products.warehouse_sources.sources.astronomer.source import AstronomerSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError, UnknownResourceError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 BASE = "https://api.astronomer.io/v1/organizations/example-org"
 CONFIG = AstronomerSourceConfig(api_token="test-token", organization_id="example-org")

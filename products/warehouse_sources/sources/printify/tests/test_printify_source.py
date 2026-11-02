@@ -1,9 +1,7 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.printify import (
-    PrintifySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.printify.source import PrintifySource
+from products.warehouse_sources.sources.printify._config import PrintifySourceConfig
+from products.warehouse_sources.sources.printify.source import PrintifySource
 
 
 class TestPrintifySource:
@@ -12,7 +10,7 @@ class TestPrintifySource:
         self.team_id = 123
         self.config = PrintifySourceConfig(api_key="printify-key")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.printify.source.validate_credentials")
+    @mock.patch("products.warehouse_sources.sources.printify.source.validate_credentials")
     def test_validate_credentials_delegates_with_api_key(self, mock_validate: mock.MagicMock) -> None:
         # The status-to-message mapping lives in printify.validate_credentials; here we only assert
         # the source probes with the configured token and returns the delegate's verdict unchanged.
@@ -21,7 +19,7 @@ class TestPrintifySource:
         mock_validate.assert_called_once_with("printify-key")
         assert result == (False, "Invalid Printify API token")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.printify.source.printify_source")
+    @mock.patch("products.warehouse_sources.sources.printify.source.printify_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "orders"

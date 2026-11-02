@@ -8,22 +8,20 @@ import requests
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.opencorporates._config import OpencorporatesSourceConfig
+from products.warehouse_sources.sources.opencorporates.opencorporates import (
+    OpencorporatesResumeConfig,
+    _format_incremental_filter,
+    validate_credentials,
+)
+from products.warehouse_sources.sources.opencorporates.source import OpencorporatesSource
+from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
     route,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.opencorporates import (
-    OpencorporatesSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.opencorporates.opencorporates import (
-    OpencorporatesResumeConfig,
-    _format_incremental_filter,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.opencorporates.source import OpencorporatesSource
 
 
 def _driver(*, jurisdiction_code: str | None = None) -> SourceDriver:
@@ -246,9 +244,7 @@ class TestRequestParams:
 
 class TestPageCap:
     def test_maximum_page_cap_stops_pagination(self, caplog: pytest.LogCaptureFixture) -> None:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.opencorporates.opencorporates import (
-            OpencorporatesPaginator,
-        )
+        from products.warehouse_sources.sources.opencorporates.opencorporates import OpencorporatesPaginator
 
         paginator = OpencorporatesPaginator()
         paginator.page = 100

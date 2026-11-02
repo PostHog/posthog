@@ -1,14 +1,9 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldSelectConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.coralogix.source import CoralogixSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coralogix import (
-    CoralogixSourceConfig,
-)
+from products.warehouse_sources.sources.coralogix._config import CoralogixSourceConfig
+from products.warehouse_sources.sources.coralogix.source import CoralogixSource
+from products.warehouse_sources.sources.sdk import SourceFieldSelectConfig
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 def _config(
@@ -22,9 +17,7 @@ class TestCoralogixSource:
         # The transport rejects domains outside CORALOGIX_DOMAINS, so an option added to the
         # form without extending the allowlist would break that region at sync time (and an
         # allowlist entry without an option would be unreachable).
-        from products.warehouse_sources.backend.temporal.data_imports.sources.coralogix.settings import (
-            CORALOGIX_DOMAINS,
-        )
+        from products.warehouse_sources.sources.coralogix.settings import CORALOGIX_DOMAINS
 
         domain_field = CoralogixSource().get_source_config.fields[0]
         assert isinstance(domain_field, SourceFieldSelectConfig)

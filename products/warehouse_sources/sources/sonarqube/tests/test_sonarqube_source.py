@@ -1,11 +1,9 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sonarqube import (
-    SonarqubeSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.sonarqube.sonarqube import SONARQUBE_CLOUD_ERROR
-from products.warehouse_sources.backend.temporal.data_imports.sources.sonarqube.source import SonarqubeSource
+from products.warehouse_sources.sources.sonarqube._config import SonarqubeSourceConfig
+from products.warehouse_sources.sources.sonarqube.sonarqube import SONARQUBE_CLOUD_ERROR
+from products.warehouse_sources.sources.sonarqube.source import SonarqubeSource
 
 
 class TestSonarqubeSource:
@@ -24,9 +22,7 @@ class TestSonarqubeSource:
         ],
     )
     @mock.patch.object(SonarqubeSource, "is_database_host_valid", return_value=(True, None))
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.sonarqube.source.validate_sonarqube_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.sonarqube.source.validate_sonarqube_credentials")
     def test_validate_credentials(self, mock_validate, _mock_host, mock_return, expected_valid, expected_message):
         mock_validate.return_value = mock_return
 
@@ -37,9 +33,7 @@ class TestSonarqubeSource:
         mock_validate.assert_called_once_with("https://sonar.example.com", "tok")
 
     @mock.patch.object(SonarqubeSource, "is_database_host_valid", return_value=(True, None))
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.sonarqube.source.validate_sonarqube_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.sonarqube.source.validate_sonarqube_credentials")
     def test_validate_credentials_rejects_sonarqube_cloud(self, mock_validate, _mock_host):
         # Cloud answers the credential probe with 200, so setup used to pass and every sync then
         # failed with an unexplained 400.
@@ -52,9 +46,7 @@ class TestSonarqubeSource:
         mock_validate.assert_not_called()
 
     @mock.patch.object(SonarqubeSource, "is_database_host_valid", return_value=(False, "Blocked internal host"))
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.sonarqube.source.validate_sonarqube_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.sonarqube.source.validate_sonarqube_credentials")
     def test_validate_credentials_rejects_unsafe_host_without_probing(self, mock_validate, _mock_host):
         is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
@@ -63,7 +55,7 @@ class TestSonarqubeSource:
         mock_validate.assert_not_called()
 
     @mock.patch.object(SonarqubeSource, "is_database_host_valid", return_value=(True, None))
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.sonarqube.source.sonarqube_source")
+    @mock.patch("products.warehouse_sources.sources.sonarqube.source.sonarqube_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_sonarqube_source, _mock_host):
         inputs = mock.MagicMock()
         inputs.schema_name = "issues"
@@ -82,7 +74,7 @@ class TestSonarqubeSource:
         assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00+0000"
 
     @mock.patch.object(SonarqubeSource, "is_database_host_valid", return_value=(True, None))
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.sonarqube.source.sonarqube_source")
+    @mock.patch("products.warehouse_sources.sources.sonarqube.source.sonarqube_source")
     def test_source_for_pipeline_omits_cursor_when_not_incremental(self, mock_sonarqube_source, _mock_host):
         inputs = mock.MagicMock()
         inputs.schema_name = "projects"

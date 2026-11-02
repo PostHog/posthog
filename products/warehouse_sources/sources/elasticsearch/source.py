@@ -1,21 +1,7 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-    SourceFieldSelectConfig,
-    SourceFieldSelectConfigOption,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.elasticsearch.elasticsearch import (
+from products.warehouse_sources.sources.elasticsearch._config import ElasticsearchSourceConfig
+from products.warehouse_sources.sources.elasticsearch.elasticsearch import (
     NON_JSON_RESPONSE_ERROR,
     ElasticsearchAuth,
     elasticsearch_source,
@@ -24,10 +10,24 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.elasticsea
     list_indices,
     validate_credentials as validate_elasticsearch_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.elasticsearch import (
-    ElasticsearchSourceConfig,
+from products.warehouse_sources.sources.sdk import (
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    SimpleSource,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    ValidateDatabaseHostMixin,
+    detect,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _auth_from_config(config: ElasticsearchSourceConfig) -> ElasticsearchAuth:

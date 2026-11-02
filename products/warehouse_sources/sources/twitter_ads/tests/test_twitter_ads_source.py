@@ -5,25 +5,17 @@ from django.test import override_settings
 
 import requests
 
-from posthog.models.integration.model import Integration
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
-    IntegrationAccountListingError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.twitterads import (
-    TwitterAdsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.twitter_ads.settings import (
+from products.warehouse_sources.sources.sdk import IntegrationAccountListingError
+from products.warehouse_sources.sources.sdk.testing import Integration
+from products.warehouse_sources.sources.twitter_ads._config import TwitterAdsSourceConfig
+from products.warehouse_sources.sources.twitter_ads.settings import (
     ACCOUNT_ACCESS_DENIED,
     MISSING_APP,
     MISSING_INTEGRATION,
     REVOKED_GRANT,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.twitter_ads.source import TwitterAdsSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.twitter_ads.twitter_ads import (
-    TwitterAdsClient,
-    twitter_ads_source,
-)
+from products.warehouse_sources.sources.twitter_ads.source import TwitterAdsSource
+from products.warehouse_sources.sources.twitter_ads.twitter_ads import TwitterAdsClient, twitter_ads_source
 
 
 @pytest.mark.parametrize(
@@ -104,9 +96,7 @@ def test_account_listing_preserves_names_and_omits_deleted() -> None:
     source = TwitterAdsSource()
     with (
         patch.object(source, "get_oauth_integration", return_value=MagicMock()),
-        patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.twitter_ads.source.TwitterAdsClient"
-        ) as client,
+        patch("products.warehouse_sources.sources.twitter_ads.source.TwitterAdsClient") as client,
     ):
         client.return_value.pages.return_value = iter(
             [

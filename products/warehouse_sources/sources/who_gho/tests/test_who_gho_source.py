@@ -2,19 +2,12 @@ import datetime
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.whogho import WhoGhoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.who_gho.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.who_gho.settings import ENDPOINTS, PRIMARY_KEYS
-from products.warehouse_sources.backend.temporal.data_imports.sources.who_gho.source import WhoGhoSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.who_gho.who_gho import MAX_INDICATOR_CODES
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, error_message_matches
+from products.warehouse_sources.sources.who_gho._config import WhoGhoSourceConfig
+from products.warehouse_sources.sources.who_gho.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.who_gho.settings import ENDPOINTS, PRIMARY_KEYS
+from products.warehouse_sources.sources.who_gho.source import WhoGhoSource
+from products.warehouse_sources.sources.who_gho.who_gho import MAX_INDICATOR_CODES
 
 
 class TestWhoGhoSource:

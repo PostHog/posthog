@@ -3,7 +3,7 @@ from typing import Any
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     Script,
     ScriptedResponse,
@@ -11,14 +11,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.smartreach import (
-    SmartreachSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.smartreach.settings import (
-    ENDPOINTS,
-    SMARTREACH_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.smartreach.smartreach import (
+from products.warehouse_sources.sources.smartreach._config import SmartreachSourceConfig
+from products.warehouse_sources.sources.smartreach.settings import ENDPOINTS, SMARTREACH_ENDPOINTS
+from products.warehouse_sources.sources.smartreach.smartreach import (
     SMARTREACH_API_V1,
     SMARTREACH_API_V3,
     SMARTREACH_BASE_URL,
@@ -26,7 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.smartreach
     SmartreachResumeConfig,
     check_access,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.smartreach.source import SmartreachSource
+from products.warehouse_sources.sources.smartreach.source import SmartreachSource
 
 
 def _response(

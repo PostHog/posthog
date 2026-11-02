@@ -4,27 +4,19 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shutterstock import (
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.shutterstock._config import (
     ShutterstockAuthMethodConfig,
     ShutterstockSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.shutterstock.settings import (
-    ENDPOINTS,
-    SHUTTERSTOCK_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.shutterstock.shutterstock import (
+from products.warehouse_sources.sources.shutterstock.settings import ENDPOINTS, SHUTTERSTOCK_ENDPOINTS
+from products.warehouse_sources.sources.shutterstock.shutterstock import (
     ShutterstockAuth,
     ShutterstockResumeConfig,
     _format_start_date,
     check_endpoint_access,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.shutterstock.source import ShutterstockSource
+from products.warehouse_sources.sources.shutterstock.source import ShutterstockSource
 
 BASIC_AUTH = ShutterstockAuth(consumer_key="ck", consumer_secret="cs")
 TOKEN_AUTH = ShutterstockAuth(access_token="tok")

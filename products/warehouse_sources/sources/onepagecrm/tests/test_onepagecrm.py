@@ -3,23 +3,15 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.onepagecrm import (
-    OnepagecrmSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.onepagecrm.onepagecrm import (
+from products.warehouse_sources.sources.onepagecrm._config import OnepagecrmSourceConfig
+from products.warehouse_sources.sources.onepagecrm.onepagecrm import (
     OnepagecrmResumeConfig,
     _to_epoch,
     modified_since_anchor,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.onepagecrm.settings import (
-    ENDPOINTS,
-    ONEPAGECRM_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.onepagecrm.source import OnepagecrmSource
+from products.warehouse_sources.sources.onepagecrm.settings import ENDPOINTS, ONEPAGECRM_ENDPOINTS
+from products.warehouse_sources.sources.onepagecrm.source import OnepagecrmSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 def _driver() -> SourceDriver:

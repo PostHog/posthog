@@ -7,24 +7,18 @@ from unittest.mock import MagicMock
 from parameterized import parameterized
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponseCursorPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk import JSONResponseCursorPaginator
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sprig import SprigSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.sprig.settings import (
-    ENDPOINTS,
-    SPRIG_API_BASE_URL,
-    SPRIG_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.sprig.source import SprigSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.sprig.sprig import (
+from products.warehouse_sources.sources.sprig._config import SprigSourceConfig
+from products.warehouse_sources.sources.sprig.settings import ENDPOINTS, SPRIG_API_BASE_URL, SPRIG_ENDPOINTS
+from products.warehouse_sources.sources.sprig.source import SprigSource
+from products.warehouse_sources.sources.sprig.sprig import (
     SprigRedirectError,
     SprigResumeConfig,
     _format_incremental_value,

@@ -9,19 +9,9 @@ from unittest import mock
 import requests
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.langsmith import (
-    LangSmithSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith import langsmith as langsmith_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.langsmith import (
+from products.warehouse_sources.sources.langsmith import langsmith as langsmith_module
+from products.warehouse_sources.sources.langsmith._config import LangSmithSourceConfig
+from products.warehouse_sources.sources.langsmith.langsmith import (
     MAX_CURSOR_BYTES,
     LangSmithHostNotAllowedError,
     LangSmithPageLimitError,
@@ -37,21 +27,29 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.
     normalize_base_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.settings import (
+from products.warehouse_sources.sources.langsmith.settings import (
     LANGSMITH_ENDPOINTS,
     RUNS_HEAVY_SELECT_FIELDS,
     RUNS_SELECT_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.source import LangSmithSource
+from products.warehouse_sources.sources.langsmith.source import LangSmithSource
+from products.warehouse_sources.sources.sdk.testing import (
+    DriveResult,
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 
 logger = structlog.get_logger()
 
 BASE_URL = "https://api.smith.langchain.com"
 
-_FETCH_PAGE = "products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.langsmith._fetch_page"
-_IS_HOST_SAFE = "products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.langsmith._is_host_safe"
-_IS_CLOUD = "products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.langsmith.is_cloud"
-_MAX_PAGES = "products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.langsmith.MAX_PAGES_PER_RUN"
+_FETCH_PAGE = "products.warehouse_sources.sources.langsmith.langsmith._fetch_page"
+_IS_HOST_SAFE = "products.warehouse_sources.sources.langsmith.langsmith._is_host_safe"
+_IS_CLOUD = "products.warehouse_sources.sources.langsmith.langsmith.is_cloud"
+_MAX_PAGES = "products.warehouse_sources.sources.langsmith.langsmith.MAX_PAGES_PER_RUN"
 
 
 class FakeManager:

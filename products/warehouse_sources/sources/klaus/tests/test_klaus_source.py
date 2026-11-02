@@ -1,5 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.klaus import KlausSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.klaus.source import KlausSource
+from products.warehouse_sources.sources.klaus._config import KlausSourceConfig
+from products.warehouse_sources.sources.klaus.source import KlausSource
 
 
 class TestKlausSource:

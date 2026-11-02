@@ -1,12 +1,12 @@
 from dataclasses import field
 from datetime import UTC, datetime
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+from products.warehouse_sources.sources.sdk import (
     DependentEndpointConfig,
+    IncrementalField,
+    IncrementalFieldType,
+    frozen,
 )
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 REGION_HOSTS = {
     "global": "api.meraki.com",

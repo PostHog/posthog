@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.replicate.source import ReplicateSource
+from products.warehouse_sources.sources.replicate.source import ReplicateSource
 
 
 def _config(api_key: str = "r8_test") -> MagicMock:
@@ -41,7 +41,7 @@ class TestReplicateSource:
     @parameterized.expand([("valid", True, True, None), ("invalid", False, False, "Invalid Replicate API token")])
     def test_validate_credentials(self, _name: str, api_ok: bool, expected_ok: bool, expected_msg: str | None) -> None:
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.replicate.source.validate_replicate_credentials",
+            "products.warehouse_sources.sources.replicate.source.validate_replicate_credentials",
             return_value=api_ok,
         ):
             ok, msg = ReplicateSource().validate_credentials(_config(), team_id=1)
@@ -57,9 +57,7 @@ class TestReplicateSource:
         inputs.db_incremental_field_last_value = "2026-03-04T00:00:00Z"
         inputs.incremental_field = "created_at"
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.replicate.source.replicate_source"
-        ) as mock_source:
+        with patch("products.warehouse_sources.sources.replicate.source.replicate_source") as mock_source:
             ReplicateSource().source_for_pipeline(_config(), MagicMock(), inputs)
 
         _, kwargs = mock_source.call_args

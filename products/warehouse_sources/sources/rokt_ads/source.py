@@ -1,34 +1,13 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
-    SourceSchema,
-    build_endpoint_schemas,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.roktads import (
-    RoktAdsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.rokt_ads.rokt_ads import (
+from products.warehouse_sources.sources.rokt_ads._config import RoktAdsSourceConfig
+from products.warehouse_sources.sources.rokt_ads.rokt_ads import (
     RoktAdsClient,
     RoktAdsResumeConfig,
     rokt_ads_source,
     validate_credentials as validate_rokt_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.rokt_ads.settings import (
+from products.warehouse_sources.sources.rokt_ads.settings import (
     ACCOUNTS_ENDPOINT,
     DESCRIPTIONS,
     INCREMENTAL_FIELDS,
@@ -36,7 +15,24 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.rokt_ads.s
     PRIMARY_KEYS,
     SCHEMA_NAMES,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    build_endpoint_schemas,
+    detect,
+)
 
 
 @SourceRegistry.register
@@ -93,9 +89,7 @@ class RoktAdsSource(ResumableSource[RoktAdsSourceConfig, RoktAdsResumeConfig]):
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.rokt_ads.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.rokt_ads.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

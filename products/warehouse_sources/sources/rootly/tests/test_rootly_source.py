@@ -3,9 +3,9 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.rootly import source as rootly_source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.rootly.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.rootly.source import RootlySource
+from products.warehouse_sources.sources.rootly import source as rootly_source_module
+from products.warehouse_sources.sources.rootly.settings import ENDPOINTS
+from products.warehouse_sources.sources.rootly.source import RootlySource
 
 
 class TestRootlyGetSchemas:

@@ -9,8 +9,8 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.financial_modelling import financial_modelling
-from products.warehouse_sources.backend.temporal.data_imports.sources.financial_modelling.financial_modelling import (
+from products.warehouse_sources.sources.financial_modelling import financial_modelling
+from products.warehouse_sources.sources.financial_modelling.financial_modelling import (
     FinancialModellingError,
     FinancialModellingResumeConfig,
     _extract_rows,
@@ -23,9 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.financial_
     get_rows,
     parse_symbols,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.financial_modelling.settings import (
-    FINANCIAL_MODELLING_ENDPOINTS,
-)
+from products.warehouse_sources.sources.financial_modelling.settings import FINANCIAL_MODELLING_ENDPOINTS
 
 
 class TestParseSymbols:

@@ -13,17 +13,13 @@ from requests.exceptions import (
 from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+from products.warehouse_sources.sources.freshsales.settings import FRESHSALES_ENDPOINTS, FreshsalesEndpointConfig
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
     make_tracked_session,
     retry_with_deadline,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.freshsales.settings import (
-    FRESHSALES_ENDPOINTS,
-    FreshsalesEndpointConfig,
 )
 
 # Freshsales bundles live at https://<alias>.myfreshworks.com/crm/sales/api. We always template the

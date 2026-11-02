@@ -4,22 +4,15 @@ from typing import Any
 import pytest
 import time_machine
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.litellm import (
-    LiteLLMSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.litellm.litellm import (
+from products.warehouse_sources.sources.litellm._config import LiteLLMSourceConfig
+from products.warehouse_sources.sources.litellm.litellm import (
     SPEND_LOGS_UNAVAILABLE_MESSAGE,
     LiteLLMResumeConfig,
     LiteLLMSpendLogsUnavailableError,
     normalize_base_url,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.litellm.source import LiteLLMSource
+from products.warehouse_sources.sources.litellm.source import LiteLLMSource
+from products.warehouse_sources.sources.sdk.testing import DriveResult, RecordedRequest, ScriptedResponse, SourceDriver
 
 NOW = datetime(2026, 1, 3, 0, 0, tzinfo=UTC)
 

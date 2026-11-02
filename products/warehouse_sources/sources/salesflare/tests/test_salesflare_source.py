@@ -1,9 +1,7 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.salesflare import (
-    SalesflareSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.salesflare.source import SalesflareSource
+from products.warehouse_sources.sources.salesflare._config import SalesflareSourceConfig
+from products.warehouse_sources.sources.salesflare.source import SalesflareSource
 
 
 class TestSalesflareSource:
@@ -12,7 +10,7 @@ class TestSalesflareSource:
         self.team_id = 123
         self.config = SalesflareSourceConfig(api_key="sf-key")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.salesflare.source.salesflare_source")
+    @mock.patch("products.warehouse_sources.sources.salesflare.source.salesflare_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "contacts"

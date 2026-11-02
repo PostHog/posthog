@@ -1,13 +1,8 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.descope.source import DescopeSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.descope import (
-    DescopeSourceConfig,
-)
+from products.warehouse_sources.sources.descope._config import DescopeSourceConfig
+from products.warehouse_sources.sources.descope.source import DescopeSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 class TestDescopeSource:

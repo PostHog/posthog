@@ -1,10 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.cronitor.source import CronitorSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cronitor import (
-    CronitorSourceConfig,
-)
+from products.warehouse_sources.sources.cronitor._config import CronitorSourceConfig
+from products.warehouse_sources.sources.cronitor.source import CronitorSource
 
 
 class TestCronitorSource:
@@ -30,9 +28,7 @@ class TestCronitorSource:
             ((False, None), False, "Could not connect to Cronitor with the provided API key"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.cronitor.source.validate_cronitor_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.cronitor.source.validate_cronitor_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
         mock_validate.return_value = mock_return
 

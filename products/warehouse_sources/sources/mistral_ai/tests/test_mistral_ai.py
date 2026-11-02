@@ -6,16 +6,8 @@ import pytest
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    route,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mistralai import (
-    MistralAISourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.mistral_ai.mistral_ai import (
+from products.warehouse_sources.sources.mistral_ai._config import MistralAISourceConfig
+from products.warehouse_sources.sources.mistral_ai.mistral_ai import (
     MistralAIResumeConfig,
     MistralAIRetryableError,
     MistralAIUnexpectedResponseError,
@@ -23,8 +15,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mistral_ai
     _extract_rows,
     _format_created_after,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.mistral_ai.settings import MISTRAL_AI_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.mistral_ai.source import MistralAISource
+from products.warehouse_sources.sources.mistral_ai.settings import MISTRAL_AI_ENDPOINTS
+from products.warehouse_sources.sources.mistral_ai.source import MistralAISource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, route
 
 
 def _driver() -> SourceDriver:

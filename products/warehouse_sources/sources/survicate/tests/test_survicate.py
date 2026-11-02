@@ -7,8 +7,8 @@ import pytest
 
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk import UnknownResourceError
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
     ScriptedResponse,
@@ -17,11 +17,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.survicate import (
-    SurvicateSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.survicate.source import SurvicateSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.survicate.survicate import SurvicateResumeConfig
+from products.warehouse_sources.sources.survicate._config import SurvicateSourceConfig
+from products.warehouse_sources.sources.survicate.source import SurvicateSource
+from products.warehouse_sources.sources.survicate.survicate import SurvicateResumeConfig
 
 ORIGIN = "https://data-api.survicate.com"
 BASE = ORIGIN + "/v2"

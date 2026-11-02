@@ -5,12 +5,8 @@ import requests
 import structlog
 from urllib3.util.retry import Retry
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_clarity.settings import (
-    ENDPOINT_NAME,
-    NO_DIMENSION,
-)
+from products.warehouse_sources.sources.microsoft_clarity.settings import ENDPOINT_NAME, NO_DIMENSION
+from products.warehouse_sources.sources.sdk import SourceResponse, make_tracked_session
 
 BASE_URL = "https://www.clarity.ms"
 INSIGHTS_PATH = "/export-data/api/v1/project-live-insights"

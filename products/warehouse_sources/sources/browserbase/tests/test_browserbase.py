@@ -1,23 +1,11 @@
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.browserbase.browserbase import (
-    BROWSERBASE_BASE_URL,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.browserbase.source import BrowserbaseSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.browserbase import (
-    BrowserbaseSourceConfig,
-)
+from products.warehouse_sources.sources.browserbase._config import BrowserbaseSourceConfig
+from products.warehouse_sources.sources.browserbase.browserbase import BROWSERBASE_BASE_URL, validate_credentials
+from products.warehouse_sources.sources.browserbase.source import BrowserbaseSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver(api_key: str = "bb_key") -> SourceDriver:

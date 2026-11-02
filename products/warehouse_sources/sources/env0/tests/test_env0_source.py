@@ -1,8 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.env0.source import Env0Source
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.env0 import Env0SourceConfig
+from products.warehouse_sources.sources.env0._config import Env0SourceConfig
+from products.warehouse_sources.sources.env0.source import Env0Source
 
 
 class TestEnv0Source:
@@ -18,9 +18,7 @@ class TestEnv0Source:
             (False, False, "Invalid env0 API key credentials"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.env0.source.validate_env0_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.env0.source.validate_env0_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
         mock_validate.return_value = mock_return
 

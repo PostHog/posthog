@@ -1,39 +1,32 @@
-from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+from products.warehouse_sources.sources.sdk import (
+    NOT_DETECTABLE,
     CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ustreasuryfiscaldata import (
-    UsTreasuryFiscalDataSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.us_treasury_fiscal_data.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.us_treasury_fiscal_data.settings import (
+from products.warehouse_sources.sources.us_treasury_fiscal_data._config import UsTreasuryFiscalDataSourceConfig
+from products.warehouse_sources.sources.us_treasury_fiscal_data.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.us_treasury_fiscal_data.settings import (
     ACCESS_ERROR,
     API_DOCS_URL,
     BASE_URL,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.us_treasury_fiscal_data.us_treasury_fiscal_data import (
+from products.warehouse_sources.sources.us_treasury_fiscal_data.us_treasury_fiscal_data import (
     FiscalDataResumeConfig,
     fiscal_data_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register

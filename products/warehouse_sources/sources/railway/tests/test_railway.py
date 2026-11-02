@@ -6,23 +6,21 @@ import time_machine
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.railway import railway
+from products.warehouse_sources.sources.railway._config import RailwaySourceConfig
+from products.warehouse_sources.sources.railway.railway import (
+    RailwayResumeConfig,
+    RailwayRetryableError,
+    validate_credentials,
+)
+from products.warehouse_sources.sources.railway.source import RailwaySource
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.railway import (
-    RailwaySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.railway import railway
-from products.warehouse_sources.backend.temporal.data_imports.sources.railway.railway import (
-    RailwayResumeConfig,
-    RailwayRetryableError,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.railway.source import RailwaySource
 
 
 def _connection(path: tuple[str, ...], nodes: list[dict[str, Any]], end_cursor: str | None = None) -> dict[str, Any]:

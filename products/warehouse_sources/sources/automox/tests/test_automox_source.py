@@ -1,14 +1,9 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.automox.automox import (
-    MULTIPLE_ORGS_ERROR,
-    ORG_NOT_FOUND_ERROR,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.automox.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.automox.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.automox.source import AutomoxSource
+from products.warehouse_sources.sources.automox.automox import MULTIPLE_ORGS_ERROR, ORG_NOT_FOUND_ERROR
+from products.warehouse_sources.sources.automox.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.automox.settings import ENDPOINTS
+from products.warehouse_sources.sources.automox.source import AutomoxSource
 
 
 class TestSourceConfig:

@@ -3,28 +3,21 @@ from typing import Any
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.bluetally.bluetally import (
+from products.warehouse_sources.sources.bluetally._config import BluetallySourceConfig
+from products.warehouse_sources.sources.bluetally.bluetally import (
     PAGE_SIZE,
     BluetallyResumeConfig,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.bluetally.settings import (
-    BLUETALLY_ENDPOINTS,
-    ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.bluetally.source import BluetallySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+from products.warehouse_sources.sources.bluetally.settings import BLUETALLY_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.sources.bluetally.source import BluetallySource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import (
     DEFAULT_RETRY_ATTEMPTS,
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bluetally import (
-    BluetallySourceConfig,
 )
 
 

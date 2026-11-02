@@ -2,22 +2,11 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.instatus import (
-    InstatusSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.instatus.instatus import (
-    InstatusResumeConfig,
-    _child_path,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.instatus.settings import INSTATUS_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.instatus.source import InstatusSource
+from products.warehouse_sources.sources.instatus._config import InstatusSourceConfig
+from products.warehouse_sources.sources.instatus.instatus import InstatusResumeConfig, _child_path, validate_credentials
+from products.warehouse_sources.sources.instatus.settings import INSTATUS_ENDPOINTS
+from products.warehouse_sources.sources.instatus.source import InstatusSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

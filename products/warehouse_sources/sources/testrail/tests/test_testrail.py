@@ -8,13 +8,9 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.testrail import testrail
-from products.warehouse_sources.backend.temporal.data_imports.sources.testrail.settings import (
-    ENDPOINTS,
-    PAGE_SIZE,
-    TESTRAIL_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.testrail.testrail import (
+from products.warehouse_sources.sources.testrail import testrail
+from products.warehouse_sources.sources.testrail.settings import ENDPOINTS, PAGE_SIZE, TESTRAIL_ENDPOINTS
+from products.warehouse_sources.sources.testrail.testrail import (
     TestrailResumeConfig,
     TestrailRetryableError,
     _extract_items,

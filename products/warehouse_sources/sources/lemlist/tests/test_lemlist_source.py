@@ -4,19 +4,12 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lemlist import (
-    LemlistSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.lemlist import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.lemlist.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.lemlist.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.lemlist.source import LemlistSource
+from products.warehouse_sources.sources.lemlist import source as source_module
+from products.warehouse_sources.sources.lemlist._config import LemlistSourceConfig
+from products.warehouse_sources.sources.lemlist.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.lemlist.settings import ENDPOINTS
+from products.warehouse_sources.sources.lemlist.source import LemlistSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 def _config(api_key: str = "key") -> Any:

@@ -1,7 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.typeform import (
-    TypeformSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.typeform.source import TypeformSource
+from products.warehouse_sources.sources.typeform._config import TypeformSourceConfig
+from products.warehouse_sources.sources.typeform.source import TypeformSource
 
 
 class TestTypeformSource:

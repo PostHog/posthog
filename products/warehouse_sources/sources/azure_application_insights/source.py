@@ -2,45 +2,39 @@ from typing import cast
 
 from requests import HTTPError
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.azure_application_insights.azure_application_insights import (
+from products.warehouse_sources.sources.azure_application_insights._config import AzureApplicationInsightsSourceConfig
+from products.warehouse_sources.sources.azure_application_insights.azure_application_insights import (
     AzureApplicationInsightsClient,
     AzureApplicationInsightsResumeConfig,
     azure_application_insights_source,
     validate_config,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.azure_application_insights.settings import (
+from products.warehouse_sources.sources.azure_application_insights.settings import (
     API_DOCS_URL,
     AUTH_DOCS_URL,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
+from products.warehouse_sources.sources.sdk import (
     OAUTH2_PERMANENT_ERROR_MARKER,
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     OAuth2AuthRequestError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.azureapplicationinsights import (
-    AzureApplicationInsightsSourceConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 AUTH_ERROR = "Azure authentication failed. Check the tenant ID, client ID, and client secret."
 PERMISSION_ERROR = "Grant your Microsoft Entra app the Reader role on this Application Insights resource."
@@ -118,7 +112,7 @@ class AzureApplicationInsightsSource(
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.azure_application_insights.canonical_descriptions import (
+        from products.warehouse_sources.sources.azure_application_insights.canonical_descriptions import (
             CANONICAL_DESCRIPTIONS,
         )
 

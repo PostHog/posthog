@@ -3,13 +3,10 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.qualtrics import (
-    QualtricsAuthMethodConfig,
-    QualtricsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.qualtrics import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.qualtrics.qualtrics import QualtricsCredentials
+from products.warehouse_sources.sources.qualtrics import source as source_module
+from products.warehouse_sources.sources.qualtrics._config import QualtricsAuthMethodConfig, QualtricsSourceConfig
+from products.warehouse_sources.sources.qualtrics.qualtrics import QualtricsCredentials
+from products.warehouse_sources.sources.sdk import SourceInputs
 
 
 def _config(selection: str = "api_token") -> QualtricsSourceConfig:

@@ -1,7 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.octopusdeploy import (
-    OctopusDeploySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.octopus_deploy.source import OctopusDeploySource
+from products.warehouse_sources.sources.octopus_deploy._config import OctopusDeploySourceConfig
+from products.warehouse_sources.sources.octopus_deploy.source import OctopusDeploySource
 
 
 class TestOctopusDeploySource:

@@ -5,16 +5,8 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.healthchecks import (
-    HealthchecksSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.healthchecks.healthchecks import (
+from products.warehouse_sources.sources.healthchecks._config import HealthchecksSourceConfig
+from products.warehouse_sources.sources.healthchecks.healthchecks import (
     DEFAULT_BASE_URL,
     HealthchecksResumeConfig,
     HealthchecksRetryableError,
@@ -22,7 +14,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.healthchec
     normalize_base_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.healthchecks.source import HealthchecksSource
+from products.warehouse_sources.sources.healthchecks.source import HealthchecksSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

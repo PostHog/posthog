@@ -6,29 +6,23 @@ import time_machine
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.clockodo.clockodo import (
+from products.warehouse_sources.sources.clockodo._config import ClockodoSourceConfig
+from products.warehouse_sources.sources.clockodo.clockodo import (
     EXTERNAL_APPLICATION_NAME,
     ClockodoResumeConfig,
     _endpoint_params,
     _format_z,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.clockodo.settings import (
+from products.warehouse_sources.sources.clockodo.settings import (
     CLOCKODO_API_VERSION_V2,
     CLOCKODO_API_VERSION_V3,
     CLOCKODO_ENDPOINTS_V2,
     USER_REPORTS_FIRST_YEAR,
     endpoints_for_version,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.clockodo.source import ClockodoSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clockodo import (
-    ClockodoSourceConfig,
-)
+from products.warehouse_sources.sources.clockodo.source import ClockodoSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver() -> SourceDriver:

@@ -6,9 +6,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import structlog
 from requests import Response
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.settings import (
+from products.warehouse_sources.sources.cloudflare.settings import (
     ACCOUNTS_PARENT,
     CLOUDFLARE_ENDPOINTS,
     CURSOR_PAGINATION,
@@ -18,30 +16,25 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare
     ZONES_PARENT,
     CloudflareEndpointConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-    rest_api_resources,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.jsonpath_utils import (
-    find_values,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from products.warehouse_sources.sources.sdk import (
     BasePaginator,
-    JSONResponseCursorPaginator,
-    PageNumberPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    BearerTokenAuth,
     ClientConfig,
     Endpoint,
     EndpointResource,
+    JSONResponseCursorPaginator,
+    PageNumberPaginator,
+    Resource,
+    RESTAPIConfig,
+    RESTClient,
+    SinglePagePaginator,
+    SourceResponse,
+    find_values,
+    frozen,
+    make_tracked_session,
+    rest_api_resource,
+    rest_api_resources,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 logger = structlog.get_logger(__name__)
 

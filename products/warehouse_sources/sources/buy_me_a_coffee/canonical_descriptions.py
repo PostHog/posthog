@@ -1,7 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.buy_me_a_coffee.settings import API_DOCS_URL
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from products.warehouse_sources.sources.buy_me_a_coffee.settings import API_DOCS_URL
+from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "supporters": {

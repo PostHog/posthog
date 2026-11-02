@@ -5,12 +5,10 @@ from unittest import mock
 import structlog
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.twelvedata import (
-    TwelveDataSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.twelve_data import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.twelve_data.source import TwelveDataSource
+from products.warehouse_sources.sources.sdk import SourceInputs
+from products.warehouse_sources.sources.twelve_data import source as source_module
+from products.warehouse_sources.sources.twelve_data._config import TwelveDataSourceConfig
+from products.warehouse_sources.sources.twelve_data.source import TwelveDataSource
 
 
 def _config(**overrides: Any) -> TwelveDataSourceConfig:

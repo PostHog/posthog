@@ -5,22 +5,22 @@ import requests
 import structlog
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.notion import NotionSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.notion.notion import (
+from products.warehouse_sources.sources.notion._config import NotionSourceConfig
+from products.warehouse_sources.sources.notion.notion import (
     ADMIN_TOKEN_INVALID_ERROR,
     ADMIN_TOKEN_MISSING_ERROR,
     NOTION_VERSION_2025_09_03,
     NOTION_VERSION_2026_03_11,
     NotionAdminTokenMissingError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.notion.source import NotionSource
+from products.warehouse_sources.sources.notion.source import NotionSource
+from products.warehouse_sources.sources.sdk import SourceInputs
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    error_message_matches,
+    scripted_network,
+)
 
 
 def _make_inputs(schema_name: str = "pages", api_version: str | None = None) -> SourceInputs:
@@ -63,9 +63,7 @@ class TestNotionSource:
     ) -> None:
         inputs = _make_inputs("pages", api_version=pin)
         manager = self.source.get_resumable_source_manager(inputs)
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.notion.source.notion_source"
-        ) as notion_source_mock:
+        with mock.patch("products.warehouse_sources.sources.notion.source.notion_source") as notion_source_mock:
             self.source.source_for_pipeline(NotionSourceConfig(api_key="tok"), manager, inputs)
         assert notion_source_mock.call_args.kwargs["api_version"] == expected_version
 
@@ -189,9 +187,7 @@ class TestValidateCredentialsResolvedPin:
             (None, NOTION_VERSION_2026_03_11),
         ]
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.notion.source.validate_notion_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.notion.source.validate_notion_credentials")
     def test_probe_receives_resolved_pin(self, pin, expected, mock_validate: mock.Mock) -> None:
         # The probe sends the `Notion-Version` header, so a pinned source must revalidate
         # under its own version rather than always the default.

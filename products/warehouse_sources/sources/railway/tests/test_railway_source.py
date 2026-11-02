@@ -1,9 +1,7 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.railway import (
-    RailwaySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.railway.source import RailwaySource
+from products.warehouse_sources.sources.railway._config import RailwaySourceConfig
+from products.warehouse_sources.sources.railway.source import RailwaySource
 
 
 class TestRailwaySource:

@@ -9,15 +9,15 @@ from unittest.mock import MagicMock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.cronitor import cronitor
-from products.warehouse_sources.backend.temporal.data_imports.sources.cronitor.cronitor import (
+from products.warehouse_sources.sources.cronitor import cronitor
+from products.warehouse_sources.sources.cronitor.cronitor import (
     CronitorResumeConfig,
     _coerce_epoch,
     _flatten_metrics_response,
     cronitor_source,
     get_rows,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.cronitor.settings import ENDPOINTS, PAGE_SIZE
+from products.warehouse_sources.sources.cronitor.settings import ENDPOINTS, PAGE_SIZE
 
 NOW = 1_750_000_000
 

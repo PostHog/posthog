@@ -1,12 +1,7 @@
 from dataclasses import field
 from typing import Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-)
-from products.warehouse_sources.backend.types import IncrementalField
+from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField, frozen
 
 # The Vantage API caps `limit` at 1000 on most list endpoints; use the max to minimise the number of
 # paginated requests (and thus stay well under the ~1,000 requests/hour and ~20 requests/minute

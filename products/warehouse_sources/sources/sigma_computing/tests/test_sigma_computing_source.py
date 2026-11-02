@@ -1,14 +1,9 @@
 import pytest
 
-from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, ReleaseStatus
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sigmacomputing import (
-    SigmaComputingSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.sigma_computing.settings import REGION_HOSTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.sigma_computing.source import (
-    REGION_OPTIONS,
-    SigmaComputingSource,
-)
+from products.warehouse_sources.sources.sdk import DataWarehouseSourceCategory, ReleaseStatus
+from products.warehouse_sources.sources.sigma_computing._config import SigmaComputingSourceConfig
+from products.warehouse_sources.sources.sigma_computing.settings import REGION_HOSTS
+from products.warehouse_sources.sources.sigma_computing.source import REGION_OPTIONS, SigmaComputingSource
 
 
 class TestSigmaComputingSource:

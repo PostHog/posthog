@@ -9,15 +9,8 @@ import structlog
 from parameterized import parameterized
 from structlog.testing import capture_logs
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-    source_inputs,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gusto import GustoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.gusto.gusto import (
+from products.warehouse_sources.sources.gusto._config import GustoSourceConfig
+from products.warehouse_sources.sources.gusto.gusto import (
     DEFAULT_WINDOW_START,
     GUSTO_API_VERSION_2024_04_01,
     GUSTO_API_VERSION_2026_06_15,
@@ -30,8 +23,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gusto.gust
     list_companies,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.gusto.settings import ENDPOINTS, GUSTO_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.gusto.source import GustoSource
+from products.warehouse_sources.sources.gusto.settings import ENDPOINTS, GUSTO_ENDPOINTS
+from products.warehouse_sources.sources.gusto.source import GustoSource
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+    source_inputs,
+)
 
 
 class _FakeResponse:

@@ -1,37 +1,31 @@
 from typing import Optional, cast
 
-from posthog.schema_enums import ProductKey
-
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ProductKey,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.unleash import (
-    UnleashSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.unleash.settings import (
-    ENDPOINTS,
-    UNLEASH_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.unleash.unleash import (
+from products.warehouse_sources.sources.unleash._config import UnleashSourceConfig
+from products.warehouse_sources.sources.unleash.settings import ENDPOINTS, UNLEASH_ENDPOINTS
+from products.warehouse_sources.sources.unleash.unleash import (
     UnleashResumeConfig,
     check_endpoint_permissions,
     unleash_source,
     validate_credentials as validate_unleash_credentials,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -166,8 +160,8 @@ The instance URL is where you open the Unleash UI — for Unleash cloud it inclu
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.unleash.canonical_descriptions import (  # noqa: PLC0415
-            CANONICAL_DESCRIPTIONS,
+        from products.warehouse_sources.sources.unleash.canonical_descriptions import (
+            CANONICAL_DESCRIPTIONS,  # noqa: PLC0415
         )
 
         return CANONICAL_DESCRIPTIONS

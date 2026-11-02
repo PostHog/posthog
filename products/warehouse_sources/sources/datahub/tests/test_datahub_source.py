@@ -2,14 +2,9 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.datahub.source import DatahubSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.datahub import (
-    DatahubSourceConfig,
-)
+from products.warehouse_sources.sources.datahub._config import DatahubSourceConfig
+from products.warehouse_sources.sources.datahub.source import DatahubSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 class TestDatahubSource:
@@ -23,9 +18,7 @@ class TestDatahubSource:
         # the URL must force the editor to re-enter the token.
         assert self.source.connection_host_fields == ["instance_url"]
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.datahub.source.check_endpoint_permissions"
-    )
+    @mock.patch("products.warehouse_sources.sources.datahub.source.check_endpoint_permissions")
     def test_get_endpoint_permissions_delegates_to_shared_helper(self, mock_check: mock.MagicMock) -> None:
         mock_check.return_value = {"users": "needs view privilege", "datasets": None}
         result = self.source.get_endpoint_permissions(self.config, self.team_id, ["users", "datasets"])

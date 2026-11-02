@@ -7,7 +7,8 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.circleci_insights.circleci_insights import (
+from products.warehouse_sources.sources.circleci_insights._config import CircleciInsightsSourceConfig
+from products.warehouse_sources.sources.circleci_insights.circleci_insights import (
     CircleciInsightsResumeConfig,
     CircleciInsightsRetryableError,
     _format_start_date,
@@ -16,14 +17,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.circleci_i
     parse_project_slugs,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.circleci_insights.settings import (
-    CIRCLECI_INSIGHTS_ENDPOINTS,
-    ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.circleci_insights.source import (
-    CircleciInsightsSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.circleci_insights.settings import CIRCLECI_INSIGHTS_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.sources.circleci_insights.source import CircleciInsightsSource
+from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
@@ -31,11 +27,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     scripted_network,
     source_inputs,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.circleciinsights import (
-    CircleciInsightsSourceConfig,
-)
 
-PATCH_SESSION = "products.warehouse_sources.backend.temporal.data_imports.sources.circleci_insights.circleci_insights.make_tracked_session"
+PATCH_SESSION = "products.warehouse_sources.sources.circleci_insights.circleci_insights.make_tracked_session"
 
 
 def _driver(

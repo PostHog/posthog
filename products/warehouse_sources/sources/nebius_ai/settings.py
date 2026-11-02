@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.types import IncrementalField
+from products.warehouse_sources.sources.sdk import IncrementalField
 
 # Nebius AI Studio (Token Factory) exposes an OpenAI-compatible REST API. The extractable metadata
 # streams mirror OpenAI's object-management endpoints; the chat/embeddings/rerank endpoints are

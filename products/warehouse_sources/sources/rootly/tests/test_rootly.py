@@ -3,20 +3,16 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rootly import RootlySourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.rootly.rootly import (
+from products.warehouse_sources.sources.rootly._config import RootlySourceConfig
+from products.warehouse_sources.sources.rootly.rootly import (
     ROOTLY_BASE_URL,
     _build_url,
     _clamp_future_value_to_now,
     _format_incremental_value,
     probe_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.rootly.source import RootlySource
+from products.warehouse_sources.sources.rootly.source import RootlySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _response(

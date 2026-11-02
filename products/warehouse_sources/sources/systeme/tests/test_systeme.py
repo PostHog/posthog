@@ -6,27 +6,23 @@ from unittest.mock import MagicMock, patch
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+from products.warehouse_sources.sources.sdk import (
     RESTClientRetryableError,
+    ResumableSourceManager,
+    SourceInputs,
+    SourceResponse,
+    UnknownResourceError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
     route,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.systeme import (
-    SystemeSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.systeme.source import SystemeSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.systeme.systeme import (
-    SystemeResumeConfig,
-    validate_credentials,
-)
+from products.warehouse_sources.sources.systeme._config import SystemeSourceConfig
+from products.warehouse_sources.sources.systeme.source import SystemeSource
+from products.warehouse_sources.sources.systeme.systeme import SystemeResumeConfig, validate_credentials
 
 
 def driver() -> SourceDriver:
@@ -223,15 +219,15 @@ def test_source_adapter_forwards_pipeline_inputs() -> None:
     resumable_manager = MagicMock(spec=ResumableSourceManager)
     with (
         patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.systeme.source.validate_systeme_credentials",
+            "products.warehouse_sources.sources.systeme.source.validate_systeme_credentials",
             return_value=(True, None),
         ) as mock_validate,
         patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.systeme.source.ResumableSourceManager",
+            "products.warehouse_sources.sources.systeme.source.ResumableSourceManager",
             return_value=resumable_manager,
         ) as mock_manager_class,
         patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.systeme.source.systeme_source",
+            "products.warehouse_sources.sources.systeme.source.systeme_source",
             return_value=MagicMock(spec=SourceResponse),
         ) as mock_source,
     ):

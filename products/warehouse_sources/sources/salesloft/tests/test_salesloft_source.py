@@ -1,11 +1,9 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.salesloft import (
-    SalesLoftSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.salesloft.settings import SALESLOFT_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.salesloft.source import SalesLoftSource
+from products.warehouse_sources.sources.salesloft._config import SalesLoftSourceConfig
+from products.warehouse_sources.sources.salesloft.settings import SALESLOFT_ENDPOINTS
+from products.warehouse_sources.sources.salesloft.source import SalesLoftSource
 
 INCREMENTAL_ENDPOINTS = sorted(name for name, c in SALESLOFT_ENDPOINTS.items() if c.incremental)
 FULL_REFRESH_ENDPOINTS = sorted(name for name, c in SALESLOFT_ENDPOINTS.items() if not c.incremental)
@@ -24,9 +22,7 @@ class TestSalesLoftSource:
             (False, False, "Invalid Salesloft API key"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.salesloft.source.validate_salesloft_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.salesloft.source.validate_salesloft_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
         mock_validate.return_value = mock_return
 

@@ -1,17 +1,12 @@
 import pytest
 from unittest.mock import patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.microsoftdefendercloudapps import (
+from products.warehouse_sources.sources.microsoft_defender_cloud_apps._config import (
     MicrosoftDefenderCloudAppsSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_defender_cloud_apps.source import (
-    MicrosoftDefenderCloudAppsSource,
-)
+from products.warehouse_sources.sources.microsoft_defender_cloud_apps.source import MicrosoftDefenderCloudAppsSource
+from products.warehouse_sources.sources.sdk import ValidateDatabaseHostMixin
+from products.warehouse_sources.sources.sdk.testing import SourceDriver, scripted_network
 
 
 @pytest.mark.parametrize(

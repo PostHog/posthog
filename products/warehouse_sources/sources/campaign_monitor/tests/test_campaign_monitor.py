@@ -2,25 +2,14 @@ from typing import Any, cast
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.campaign_monitor.campaign_monitor import (
+from products.warehouse_sources.sources.campaign_monitor._config import CampaignMonitorSourceConfig
+from products.warehouse_sources.sources.campaign_monitor.campaign_monitor import (
     CampaignMonitorResumeConfig,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.campaign_monitor.settings import (
-    CAMPAIGN_MONITOR_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.campaign_monitor.source import (
-    CampaignMonitorSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.campaignmonitor import (
-    CampaignMonitorSourceConfig,
-)
+from products.warehouse_sources.sources.campaign_monitor.settings import CAMPAIGN_MONITOR_ENDPOINTS
+from products.warehouse_sources.sources.campaign_monitor.source import CampaignMonitorSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

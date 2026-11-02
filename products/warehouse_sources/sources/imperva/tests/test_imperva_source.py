@@ -5,14 +5,9 @@ import pytest
 import requests_mock
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.imperva import (
-    ImpervaSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.imperva.settings import (
-    AUTH_ERROR,
-    PERMISSION_ERROR,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.imperva.source import ImpervaSource
+from products.warehouse_sources.sources.imperva._config import ImpervaSourceConfig
+from products.warehouse_sources.sources.imperva.settings import AUTH_ERROR, PERMISSION_ERROR
+from products.warehouse_sources.sources.imperva.source import ImpervaSource
 
 SITES_URL = "https://api.imperva.com/sites-mgmt/v3/sites"
 STATS_URL = "https://my.imperva.com/api/stats/v1"

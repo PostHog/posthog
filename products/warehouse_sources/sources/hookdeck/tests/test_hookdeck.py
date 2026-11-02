@@ -5,16 +5,8 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hookdeck import (
-    HookdeckSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.hookdeck.hookdeck import (
+from products.warehouse_sources.sources.hookdeck._config import HookdeckSourceConfig
+from products.warehouse_sources.sources.hookdeck.hookdeck import (
     REDACTED,
     HookdeckMetricsTruncatedError,
     HookdeckResumeConfig,
@@ -25,11 +17,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hookdeck.h
     build_params,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.hookdeck.settings import (
-    HOOKDECK_ENDPOINTS,
-    PAGE_SIZE,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.hookdeck.source import HookdeckSource
+from products.warehouse_sources.sources.hookdeck.settings import HOOKDECK_ENDPOINTS, PAGE_SIZE
+from products.warehouse_sources.sources.hookdeck.source import HookdeckSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 API_VERSION = "2026-09-01"
 SUPPORTED_VERSIONS = ["2025-07-01", "2026-09-01"]

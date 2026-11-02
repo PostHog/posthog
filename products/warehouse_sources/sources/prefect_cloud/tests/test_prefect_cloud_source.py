@@ -1,10 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.prefectcloud import (
-    PrefectCloudSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.prefect_cloud.source import PrefectCloudSource
+from products.warehouse_sources.sources.prefect_cloud._config import PrefectCloudSourceConfig
+from products.warehouse_sources.sources.prefect_cloud.source import PrefectCloudSource
 
 _ACCOUNT_ID = "11111111-2222-3333-4444-555555555555"
 _WORKSPACE_ID = "66666666-7777-8888-9999-aaaaaaaaaaaa"
@@ -37,9 +35,7 @@ class TestPrefectCloudSource:
             ),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.prefect_cloud.source.validate_prefect_cloud_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.prefect_cloud.source.validate_prefect_cloud_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
         mock_validate.return_value = mock_return
 
@@ -49,9 +45,7 @@ class TestPrefectCloudSource:
         assert error_message == expected_message
         mock_validate.assert_called_once_with(_ACCOUNT_ID, _WORKSPACE_ID, "pnu_key")
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.prefect_cloud.source.validate_prefect_cloud_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.prefect_cloud.source.validate_prefect_cloud_credentials")
     def test_validate_credentials_surfaces_malformed_ids(self, mock_validate):
         mock_validate.side_effect = ValueError("Invalid Prefect Cloud account ID: 'not-a-uuid'.")
 

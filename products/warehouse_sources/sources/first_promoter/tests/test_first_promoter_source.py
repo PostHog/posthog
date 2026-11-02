@@ -2,10 +2,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.first_promoter.source import FirstPromoterSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.firstpromoter import (
-    FirstPromoterSourceConfig,
-)
+from products.warehouse_sources.sources.first_promoter._config import FirstPromoterSourceConfig
+from products.warehouse_sources.sources.first_promoter.source import FirstPromoterSource
 
 FULL_REFRESH_ENDPOINTS = ("payouts", "promo_codes", "promoter_campaigns", "promoters", "referrals")
 
@@ -25,9 +23,7 @@ class TestFirstPromoterSource:
         assert schemas[name].incremental_fields == []
         assert schemas[name].default_incremental_lookback_seconds is None
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.first_promoter.source.first_promoter_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.first_promoter.source.first_promoter_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "commissions"
@@ -51,9 +47,7 @@ class TestFirstPromoterSource:
         assert kwargs["incremental_field"] == "created_at"
         assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.first_promoter.source.first_promoter_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.first_promoter.source.first_promoter_source")
     def test_source_for_pipeline_omits_watermark_when_not_incremental(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "commissions"

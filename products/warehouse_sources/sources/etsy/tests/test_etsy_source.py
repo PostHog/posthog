@@ -1,13 +1,10 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.etsy.etsy import (
-    DAILY_QUOTA_EXHAUSTED_ERROR,
-    RATE_LIMITED_ERROR,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.etsy.settings import ETSY_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.etsy.source import EtsySource
+from products.warehouse_sources.sources.etsy.etsy import DAILY_QUOTA_EXHAUSTED_ERROR, RATE_LIMITED_ERROR
+from products.warehouse_sources.sources.etsy.settings import ETSY_ENDPOINTS
+from products.warehouse_sources.sources.etsy.source import EtsySource
+from products.warehouse_sources.sources.sdk import SourceFieldInputConfig
+from products.warehouse_sources.sources.sdk.testing import error_message_matches
 
 _INCREMENTAL_ENDPOINTS = [name for name, cfg in ETSY_ENDPOINTS.items() if cfg.incremental_fields]
 _FULL_REFRESH_ENDPOINTS = [name for name, cfg in ETSY_ENDPOINTS.items() if not cfg.incremental_fields]

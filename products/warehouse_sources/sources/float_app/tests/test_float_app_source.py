@@ -1,10 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.float_app.source import FloatAppSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.floatapp import (
-    FloatAppSourceConfig,
-)
+from products.warehouse_sources.sources.float_app._config import FloatAppSourceConfig
+from products.warehouse_sources.sources.float_app.source import FloatAppSource
 
 
 class TestFloatAppSource:
@@ -22,9 +20,7 @@ class TestFloatAppSource:
             ((False, None), False, "Could not connect to Float with the provided access token"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.float_app.source.validate_float_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.float_app.source.validate_float_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
         mock_validate.return_value = mock_return
 

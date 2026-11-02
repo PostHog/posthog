@@ -6,9 +6,7 @@ Sourced from the official Confluence Cloud REST API v2 reference
 Confluence table. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 
 # Columns of a direct content permission entry, shared by every content type's permissions endpoint.
 _PERMISSION_COLUMNS = {

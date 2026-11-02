@@ -2,12 +2,9 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openai import OpenAISourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.openai.source import OpenAISource
+from products.warehouse_sources.sources.openai._config import OpenAISourceConfig
+from products.warehouse_sources.sources.openai.source import OpenAISource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 _USAGE_ENDPOINTS = [
     "usage_completions",

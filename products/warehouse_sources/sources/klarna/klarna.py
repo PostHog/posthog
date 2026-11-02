@@ -1,25 +1,18 @@
 from typing import Any
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
+from products.warehouse_sources.sources.klarna._config import KlarnaSourceConfig
+from products.warehouse_sources.sources.klarna.settings import BASE_URLS, ENDPOINTS, PAGE_SIZE
+from products.warehouse_sources.sources.sdk import (
     APIKeyAuth,
     AuthConfigBase,
     HttpBasicAuth,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.klarna import KlarnaSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.klarna.settings import (
-    BASE_URLS,
-    ENDPOINTS,
-    PAGE_SIZE,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    rest_api_resource,
+    schema_for_resource,
 )
 
 

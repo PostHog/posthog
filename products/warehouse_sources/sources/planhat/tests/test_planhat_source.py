@@ -1,9 +1,7 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.planhat import (
-    PlanhatSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.planhat.source import PlanhatSource
+from products.warehouse_sources.sources.planhat._config import PlanhatSourceConfig
+from products.warehouse_sources.sources.planhat.source import PlanhatSource
 
 
 class TestPlanhatSource:
@@ -12,7 +10,7 @@ class TestPlanhatSource:
         self.team_id = 123
         self.config = PlanhatSourceConfig(api_key="ph-token")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.planhat.source.validate_credentials")
+    @mock.patch("products.warehouse_sources.sources.planhat.source.validate_credentials")
     def test_validate_credentials_delegates_to_planhat(self, mock_validate: mock.MagicMock) -> None:
         # source.py owns no mapping logic — it forwards the account-wide token and returns the result verbatim.
         mock_validate.return_value = (False, "Invalid Planhat API token")
@@ -20,7 +18,7 @@ class TestPlanhatSource:
         mock_validate.assert_called_once_with("ph-token")
         assert result == (False, "Invalid Planhat API token")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.planhat.source.planhat_source")
+    @mock.patch("products.warehouse_sources.sources.planhat.source.planhat_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "companies"

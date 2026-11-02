@@ -4,22 +4,11 @@ from typing import Any
 import pytest
 import time_machine
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.arcade.arcade import (
-    ArcadeResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.arcade.settings import (
-    INSIGHTS_ERROR,
-    PERMISSION_ERROR,
-    PROVISIONING_ERROR,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.arcade.source import ArcadeSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.arcade import ArcadeSourceConfig
+from products.warehouse_sources.sources.arcade._config import ArcadeSourceConfig
+from products.warehouse_sources.sources.arcade.arcade import ArcadeResumeConfig, validate_credentials
+from products.warehouse_sources.sources.arcade.settings import INSIGHTS_ERROR, PERMISSION_ERROR, PROVISIONING_ERROR
+from products.warehouse_sources.sources.arcade.source import ArcadeSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 @pytest.fixture

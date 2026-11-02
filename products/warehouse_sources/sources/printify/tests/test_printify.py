@@ -7,7 +7,12 @@ from unittest.mock import MagicMock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.printify import printify
+from products.warehouse_sources.sources.printify._config import PrintifySourceConfig
+from products.warehouse_sources.sources.printify.printify import PrintifyResumeConfig, PrintifyRetryableError
+from products.warehouse_sources.sources.printify.settings import ENDPOINTS, PRINTIFY_ENDPOINTS
+from products.warehouse_sources.sources.printify.source import PrintifySource
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
     ScriptedResponse,
@@ -15,19 +20,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     UnexpectedRequest,
     always,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.printify import (
-    PrintifySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.printify import printify
-from products.warehouse_sources.backend.temporal.data_imports.sources.printify.printify import (
-    PrintifyResumeConfig,
-    PrintifyRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.printify.settings import (
-    ENDPOINTS,
-    PRINTIFY_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.printify.source import PrintifySource
 
 # Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
 _fetch_page_unwrapped = printify._fetch_page.__wrapped__  # type: ignore[attr-defined]

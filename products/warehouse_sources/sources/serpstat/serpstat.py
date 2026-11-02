@@ -5,21 +5,16 @@ from typing import Any
 import structlog
 from requests import Request, Response
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from products.warehouse_sources.sources.sdk import (
+    PageNumberPaginator,
+    Resource,
     RESTAPIConfig,
+    ResumableSourceManager,
+    frozen,
     rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    PageNumberPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.serpstat import (
-    SerpstatSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.serpstat.settings import (
+from products.warehouse_sources.sources.serpstat._config import SerpstatSourceConfig
+from products.warehouse_sources.sources.serpstat.settings import (
     DEFAULT_SEARCH_ENGINE,
     DOMAIN_ERROR,
     DOMAIN_HISTORY_PAGE_SIZE,

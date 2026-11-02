@@ -1,9 +1,7 @@
 from dataclasses import field
 from typing import Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 # Opaque vendor version labels — never parsed or ordered. Only the KnowledgeBase Vulnerability API
 # is versioned past 2.0: Qualys is retiring its 2.0 (EOS Dec 2025) in favor of 4.0, which serves the

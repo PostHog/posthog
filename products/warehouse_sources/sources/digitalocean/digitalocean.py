@@ -1,25 +1,21 @@
 from collections.abc import Callable
 from typing import Any, cast
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    ClientConfig,
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    build_dependent_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONLinkPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
-from products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.settings import (
+from products.warehouse_sources.sources.digitalocean.settings import (
     DIGITALOCEAN_ENDPOINTS,
     PAGE_SIZE,
     DigitalOceanEndpointConfig,
+)
+from products.warehouse_sources.sources.sdk import (
+    ClientConfig,
+    EndpointResource,
+    JSONLinkPaginator,
+    Resource,
+    RESTAPIConfig,
+    SinglePagePaginator,
+    build_dependent_resource,
+    make_tracked_session,
+    rest_api_resource,
 )
 
 DIGITALOCEAN_BASE_URL = "https://api.digitalocean.com"

@@ -4,36 +4,30 @@ from typing import Any
 
 from requests.exceptions import HTTPError
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.adapty.settings import (
+from products.warehouse_sources.sources.adapty._config import AdaptySourceConfig
+from products.warehouse_sources.sources.adapty.settings import (
     ANALYTICS_BASE_URL,
     CHART_IDS,
     ENDPOINTS,
     SERVER_BASE_URL,
     AdaptyEndpoint,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
-    interruptible_wait,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from products.warehouse_sources.sources.sdk import (
+    APIKeyAuth,
+    PageNumberPaginator,
     RESTAPIConfig,
     RESTClient,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    PageNumberPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientNonRetryableError,
     RESTClientRetryableError,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceInputs,
+    SourceResponse,
+    frozen,
+    interruptible_wait,
+    rest_api_resource,
+    schema_for_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.adapty import AdaptySourceConfig
 
 REQUEST_TIMEOUT = (10, 30)
 RETRY_BUDGET_SECONDS = 180

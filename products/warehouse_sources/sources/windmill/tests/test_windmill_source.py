@@ -1,7 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.windmill import (
-    WindmillSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.windmill.source import WindmillSource
+from products.warehouse_sources.sources.windmill._config import WindmillSourceConfig
+from products.warehouse_sources.sources.windmill.source import WindmillSource
 
 BASE_URL = "https://app.windmill.dev"
 WORKSPACE = "my-workspace"

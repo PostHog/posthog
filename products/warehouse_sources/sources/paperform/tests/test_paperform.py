@@ -4,26 +4,16 @@ from typing import Any
 from parameterized import parameterized
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.paperform import (
-    PaperformSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.paperform.paperform import (
+from products.warehouse_sources.sources.paperform._config import PaperformSourceConfig
+from products.warehouse_sources.sources.paperform.paperform import (
     PAGE_SIZE,
     PaperformResumeConfig,
     _format_after_date,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.paperform.settings import (
-    ENDPOINTS,
-    PAPERFORM_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.paperform.source import PaperformSource
+from products.warehouse_sources.sources.paperform.settings import ENDPOINTS, PAPERFORM_ENDPOINTS
+from products.warehouse_sources.sources.paperform.source import PaperformSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

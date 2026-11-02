@@ -3,16 +3,10 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.factorial.source import FactorialSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.factorial import (
-    FactorialSourceConfig,
-)
+from products.warehouse_sources.sources.factorial._config import FactorialSourceConfig
+from products.warehouse_sources.sources.factorial.source import FactorialSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceInputs
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 def _make_inputs(**overrides: Any) -> SourceInputs:
@@ -77,7 +71,7 @@ class TestFactorialSource:
             ("2026-07-01", "2026-07-01"),
         ],
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.factorial.source.factorial_source")
+    @mock.patch("products.warehouse_sources.sources.factorial.source.factorial_source")
     def test_source_for_pipeline_resolves_and_threads_version(
         self, mock_factorial_source: mock.MagicMock, pin: str | None, resolved: str
     ) -> None:

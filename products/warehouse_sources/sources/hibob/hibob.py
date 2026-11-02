@@ -3,19 +3,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import quote
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    Endpoint,
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    BasePaginator,
-    JSONResponseCursorPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.hibob.settings import (
+from products.warehouse_sources.sources.hibob.settings import (
     BULK_PAGE_LIMIT,
     EMPLOYERS,
     HIBOB_ENDPOINTS,
@@ -23,6 +11,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hibob.sett
     TIME_OFF_CALENDARS,
     WORK_LOCATIONS,
     HiBobEndpointConfig,
+)
+from products.warehouse_sources.sources.sdk import (
+    BasePaginator,
+    Endpoint,
+    JSONResponseCursorPaginator,
+    RESTAPIConfig,
+    SinglePagePaginator,
+    SourceResponse,
+    make_tracked_session,
+    rest_api_resource,
 )
 
 HIBOB_BASE_URL = "https://api.hibob.com"

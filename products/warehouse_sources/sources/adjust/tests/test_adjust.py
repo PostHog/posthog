@@ -7,9 +7,9 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import validate_incremental_sync
-from products.warehouse_sources.backend.temporal.data_imports.sources.adjust import adjust
-from products.warehouse_sources.backend.temporal.data_imports.sources.adjust.adjust import (
+from products.warehouse_sources.sources.adjust import adjust
+from products.warehouse_sources.sources.adjust._config import AdjustSourceConfig
+from products.warehouse_sources.sources.adjust.adjust import (
     MAX_HISTORY_DAYS,
     MAX_PAGES_PER_WINDOW,
     AdjustCredentialsError,
@@ -24,17 +24,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.adjust.adj
     resolve_start_date,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.adjust.settings import ADJUST_REPORTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.adjust.source import AdjustSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.adjust.settings import ADJUST_REPORTS
+from products.warehouse_sources.sources.adjust.source import AdjustSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager
+from products.warehouse_sources.sources.sdk.internals import validate_incremental_sync
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.adjust import AdjustSourceConfig
 
 TODAY = date(2024, 6, 30)
 

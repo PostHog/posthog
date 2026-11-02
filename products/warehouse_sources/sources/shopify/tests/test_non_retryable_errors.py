@@ -2,7 +2,7 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.source import ShopifySource
+from products.warehouse_sources.sources.shopify.source import ShopifySource
 
 
 def _http_error_message(status_code: int, reason: str) -> str:

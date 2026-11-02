@@ -4,7 +4,8 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.bettermode.bettermode import (
+from products.warehouse_sources.sources.bettermode._config import BettermodeSourceConfig
+from products.warehouse_sources.sources.bettermode.bettermode import (
     BettermodeGraphQLError,
     BettermodeResumeConfig,
     BettermodeRetryableError,
@@ -13,19 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bettermode
     _format_datetime,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.bettermode.settings import (
-    BETTERMODE_ENDPOINTS,
-    ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.bettermode.source import BettermodeSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bettermode import (
-    BettermodeSourceConfig,
-)
+from products.warehouse_sources.sources.bettermode.settings import BETTERMODE_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.sources.bettermode.source import BettermodeSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver() -> SourceDriver:

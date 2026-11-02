@@ -3,23 +3,17 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.orcasecurity import (
-    OrcaSecuritySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.orca_security.orca_security import (
+from products.warehouse_sources.sources.orca_security._config import OrcaSecuritySourceConfig
+from products.warehouse_sources.sources.orca_security.orca_security import (
     OrcaResumeConfig,
     _format_datetime,
     _host,
     _normalize_item,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.orca_security.settings import PAGE_SIZE
-from products.warehouse_sources.backend.temporal.data_imports.sources.orca_security.source import OrcaSecuritySource
+from products.warehouse_sources.sources.orca_security.settings import PAGE_SIZE
+from products.warehouse_sources.sources.orca_security.source import OrcaSecuritySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _response(items: list[dict[str, Any]], *, next_token: int | None = None) -> ScriptedResponse:

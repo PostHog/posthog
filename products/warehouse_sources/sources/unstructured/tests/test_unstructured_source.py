@@ -4,10 +4,8 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.unstructured import (
-    UnstructuredSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.unstructured.source import UnstructuredSource
+from products.warehouse_sources.sources.unstructured._config import UnstructuredSourceConfig
+from products.warehouse_sources.sources.unstructured.source import UnstructuredSource
 
 
 class TestUnstructuredSourceClass:
@@ -30,7 +28,7 @@ class TestUnstructuredSourceClass:
     ) -> None:
         config = UnstructuredSourceConfig(api_key="k", base_url="https://custom.example.com")
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.unstructured.source.validate_unstructured_credentials",
+            "products.warehouse_sources.sources.unstructured.source.validate_unstructured_credentials",
             return_value=backend_result,
         ) as mock_validate:
             ok, msg = self.source.validate_credentials(config, self.team_id)

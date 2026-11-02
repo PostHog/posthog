@@ -2,20 +2,10 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openweather import (
-    OpenWeatherSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.openweather.settings import (
-    API_VERSION_2_5,
-    API_VERSION_3_0,
-    API_VERSION_4_0,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.openweather.source import OpenWeatherSource
+from products.warehouse_sources.sources.openweather._config import OpenWeatherSourceConfig
+from products.warehouse_sources.sources.openweather.settings import API_VERSION_2_5, API_VERSION_3_0, API_VERSION_4_0
+from products.warehouse_sources.sources.openweather.source import OpenWeatherSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 class TestOpenWeatherSource:

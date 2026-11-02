@@ -2,7 +2,7 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     Script,
     ScriptedResponse,
@@ -10,13 +10,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tvmaze import TVMazeSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.tvmaze.source import TVMazeSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.tvmaze.tvmaze import (
-    UPDATES_CHUNK_SIZE,
-    TVMazeResumeConfig,
-    check_connection,
-)
+from products.warehouse_sources.sources.tvmaze._config import TVMazeSourceConfig
+from products.warehouse_sources.sources.tvmaze.source import TVMazeSource
+from products.warehouse_sources.sources.tvmaze.tvmaze import UPDATES_CHUNK_SIZE, TVMazeResumeConfig, check_connection
 
 
 def _run(endpoint: str, script: Script, resume_state: TVMazeResumeConfig | None = None) -> DriveResult:

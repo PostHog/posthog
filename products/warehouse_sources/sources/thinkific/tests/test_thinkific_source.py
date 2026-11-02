@@ -4,14 +4,10 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.thinkific import (
-    ThinkificSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.thinkific.source import ThinkificSource
+from products.warehouse_sources.sources.thinkific._config import ThinkificSourceConfig
+from products.warehouse_sources.sources.thinkific.source import ThinkificSource
 
-PATCH_VALIDATE = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.thinkific.source.validate_thinkific_credentials"
-)
+PATCH_VALIDATE = "products.warehouse_sources.sources.thinkific.source.validate_thinkific_credentials"
 
 
 def _config(api_key: str = "key", subdomain: str = "mycompany") -> ThinkificSourceConfig:

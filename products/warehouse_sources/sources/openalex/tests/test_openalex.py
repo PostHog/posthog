@@ -3,28 +3,23 @@ from typing import Any, Optional
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openalex import (
-    OpenalexSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.openalex.openalex import (
+from products.warehouse_sources.sources.openalex._config import OpenalexSourceConfig
+from products.warehouse_sources.sources.openalex.openalex import (
     PAGE_SIZE,
     OpenAlexResumeConfig,
     build_filter,
     utc_today,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.openalex.settings import (
-    ENDPOINTS,
-    OPENALEX_ENDPOINTS,
+from products.warehouse_sources.sources.openalex.settings import ENDPOINTS, OPENALEX_ENDPOINTS
+from products.warehouse_sources.sources.openalex.source import OpenalexSource
+from products.warehouse_sources.sources.sdk.testing import (
+    DriveResult,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.openalex.source import OpenalexSource
 
 INSTITUTION_FILTER = "authorships.institutions.lineage:i27837315"
 SOURCE_FILTER = "source_id:S4306400194"

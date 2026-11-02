@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 
 _ADMIN_API_DOCS = "https://platform.claude.com/docs/en/api/admin-api"
 _ANALYTICS_API_DOCS = "https://platform.claude.com/docs/en/api/admin/analytics"

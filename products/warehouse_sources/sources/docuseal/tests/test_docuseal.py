@@ -2,13 +2,8 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.docuseal.docuseal import (
+from products.warehouse_sources.sources.docuseal._config import DocusealSourceConfig
+from products.warehouse_sources.sources.docuseal.docuseal import (
     DEFAULT_REGION,
     DOCUSEAL_HOSTS,
     PAGE_SIZE,
@@ -16,10 +11,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.docuseal.d
     _base_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.docuseal.source import DocusealSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.docuseal import (
-    DocusealSourceConfig,
-)
+from products.warehouse_sources.sources.docuseal.source import DocusealSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _response(rows: list[dict[str, Any]], next_cursor: int | None) -> ScriptedResponse:

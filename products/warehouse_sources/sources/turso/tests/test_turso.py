@@ -7,10 +7,10 @@ import pytest
 from requests import HTTPError
 from requests_mock import Mocker
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.turso import TursoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.turso.source import TursoSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.turso.turso import get_resource
+from products.warehouse_sources.sources.sdk import SourceInputs
+from products.warehouse_sources.sources.turso._config import TursoSourceConfig
+from products.warehouse_sources.sources.turso.source import TursoSource
+from products.warehouse_sources.sources.turso.turso import get_resource
 
 BASE_URL = "https://api.turso.tech"
 ORG_URL = f"{BASE_URL}/v1/organizations/example-org"

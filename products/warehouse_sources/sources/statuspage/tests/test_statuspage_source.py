@@ -1,8 +1,6 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.statuspage import (
-    StatuspageSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.statuspage.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.statuspage.source import StatuspageSource
+from products.warehouse_sources.sources.statuspage._config import StatuspageSourceConfig
+from products.warehouse_sources.sources.statuspage.settings import ENDPOINTS
+from products.warehouse_sources.sources.statuspage.source import StatuspageSource
 
 
 class TestStatuspageSource:

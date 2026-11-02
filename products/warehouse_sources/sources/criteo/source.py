@@ -2,46 +2,40 @@ from typing import cast
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
-    OAUTH2_PERMANENT_ERROR_MARKER,
-    OAuth2AuthRequestError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
-    SourceSchema,
-    build_endpoint_schemas,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.criteo.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.criteo.criteo import (
+from products.warehouse_sources.sources.criteo._config import CriteoSourceConfig
+from products.warehouse_sources.sources.criteo.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.criteo.criteo import (
     CriteoClient,
     CriteoResumeConfig,
     criteo_source,
     report_start_date,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.criteo.settings import (
+from products.warehouse_sources.sources.criteo.settings import (
     API_VERSION,
     DEFAULT_LOOKBACK_SECONDS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.criteo import CriteoSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.sources.sdk import (
+    OAUTH2_PERMANENT_ERROR_MARKER,
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    OAuth2AuthRequestError,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    build_endpoint_schemas,
+    detect,
+)
 
 
 @SourceRegistry.register

@@ -1,8 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zuora import ZuoraSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.zuora.source import ZuoraSource
+from products.warehouse_sources.sources.zuora._config import ZuoraSourceConfig
+from products.warehouse_sources.sources.zuora.source import ZuoraSource
 
 
 class TestZuoraSource:
@@ -18,9 +18,7 @@ class TestZuoraSource:
             (False, False),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.zuora.source.validate_zuora_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.zuora.source.validate_zuora_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid):
         mock_validate.return_value = mock_return
 

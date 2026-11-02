@@ -3,22 +3,16 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.metaplane import (
-    MetaplaneSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.metaplane.metaplane import (
+from products.warehouse_sources.sources.metaplane._config import MetaplaneSourceConfig
+from products.warehouse_sources.sources.metaplane.metaplane import (
     EVALUATION_PAGE_LIMIT,
     MetaplaneResumeConfig,
     _format_datetime,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.metaplane.settings import METAPLANE_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.metaplane.source import MetaplaneSource
+from products.warehouse_sources.sources.metaplane.settings import METAPLANE_ENDPOINTS
+from products.warehouse_sources.sources.metaplane.source import MetaplaneSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver() -> SourceDriver:

@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
 # The reporting stream is the one endpoint that is a query rather than a listing, so it is
 # routed separately from the metadata catalog endpoints.

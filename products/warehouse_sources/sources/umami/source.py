@@ -2,38 +2,34 @@ from urllib.parse import urlsplit
 
 from requests.exceptions import HTTPError
 
-from posthog.schema_enums import ProductKey
-
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    ProductKey,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    ValidateDatabaseHostMixin,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.umami import UmamiSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.umami.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.umami.settings import DEFAULT_BASE_URL, ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.umami.umami import (
+from products.warehouse_sources.sources.umami._config import UmamiSourceConfig
+from products.warehouse_sources.sources.umami.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.umami.settings import DEFAULT_BASE_URL, ENDPOINTS
+from products.warehouse_sources.sources.umami.umami import (
     UmamiClient,
     UmamiError,
     UmamiResumeState,
     normalize_host,
     umami_source,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register

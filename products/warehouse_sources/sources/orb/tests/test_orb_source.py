@@ -1,12 +1,9 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.orb import OrbSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.orb.settings import ENDPOINTS, INCREMENTAL_FIELDS
-from products.warehouse_sources.backend.temporal.data_imports.sources.orb.source import OrbSource
+from products.warehouse_sources.sources.orb._config import OrbSourceConfig
+from products.warehouse_sources.sources.orb.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.orb.source import OrbSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 def _config() -> OrbSourceConfig:

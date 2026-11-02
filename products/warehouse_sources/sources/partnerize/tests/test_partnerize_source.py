@@ -4,16 +4,10 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.partnerize import (
-    PartnerizeSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.partnerize.partnerize import DEFAULT_START_DATE
-from products.warehouse_sources.backend.temporal.data_imports.sources.partnerize.source import PartnerizeSource
+from products.warehouse_sources.sources.partnerize._config import PartnerizeSourceConfig
+from products.warehouse_sources.sources.partnerize.partnerize import DEFAULT_START_DATE
+from products.warehouse_sources.sources.partnerize.source import PartnerizeSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 INCREMENTAL_ENDPOINTS = {"conversions", "clicks"}
 
@@ -51,7 +45,7 @@ class TestPartnerizeSource:
         assert [request.path for request in network.requests_log] == ["/user/publisher/111111l92"]
         assert network.requests_log[0].headers["authorization"] == f"Basic {b64encode(b'app-key:api-key').decode()}"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.partnerize.source.partnerize_source")
+    @mock.patch("products.warehouse_sources.sources.partnerize.source.partnerize_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "conversions"

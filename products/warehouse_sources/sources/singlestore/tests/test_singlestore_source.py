@@ -3,14 +3,10 @@ from typing import Any
 from unittest import mock
 from unittest.mock import MagicMock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.singlestore import (
-    SinglestoreSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.singlestore import (
-    source as singlestore_source_module,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.singlestore.source import SinglestoreSource
+from products.warehouse_sources.sources.sdk import SourceInputs
+from products.warehouse_sources.sources.singlestore import source as singlestore_source_module
+from products.warehouse_sources.sources.singlestore._config import SinglestoreSourceConfig
+from products.warehouse_sources.sources.singlestore.source import SinglestoreSource
 
 
 def _source_inputs(schema_name: str, **overrides: Any) -> SourceInputs:

@@ -2,35 +2,32 @@ from typing import Optional, cast
 
 import requests
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
-    UNVERSIONED_API_VERSION,
-    FieldType,
-    ResumableSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.polar import PolarSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.polar.polar import (
+from products.warehouse_sources.sources.polar._config import PolarSourceConfig
+from products.warehouse_sources.sources.polar.polar import (
     POLAR_VERSION_2026_10,
     PolarPermissionError,
     PolarResumeConfig,
     polar_source,
     validate_credentials as validate_polar_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.polar.settings import ENDPOINTS as POLAR_ENDPOINTS
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.sources.polar.settings import ENDPOINTS as POLAR_ENDPOINTS
+from products.warehouse_sources.sources.sdk import (
+    UNVERSIONED_API_VERSION,
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    detect,
+)
 
 
 @SourceRegistry.register
@@ -87,9 +84,7 @@ class PolarSource(ResumableSource[PolarSourceConfig, PolarResumeConfig]):
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.polar.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.polar.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

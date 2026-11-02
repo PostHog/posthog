@@ -4,15 +4,11 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mux import MuxSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.mux import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.mux.source import MuxSource
+from products.warehouse_sources.sources.mux import source as source_module
+from products.warehouse_sources.sources.mux._config import MuxSourceConfig
+from products.warehouse_sources.sources.mux.source import MuxSource
+from products.warehouse_sources.sources.sdk import SourceFieldInputConfig
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, always, scripted_network
 
 
 def _config() -> MuxSourceConfig:

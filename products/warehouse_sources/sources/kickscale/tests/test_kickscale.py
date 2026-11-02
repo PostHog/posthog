@@ -7,16 +7,8 @@ from unittest.mock import Mock
 from parameterized import parameterized
 from requests import Request
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kickscale import (
-    KickscaleSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.kickscale.kickscale import (
+from products.warehouse_sources.sources.kickscale._config import KickscaleSourceConfig
+from products.warehouse_sources.sources.kickscale.kickscale import (
     KickscaleAuth,
     KickscalePageNumberPaginator,
     KickscaleResumeConfig,
@@ -25,7 +17,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kickscale.
     get_resource,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.kickscale.source import KickscaleSource
+from products.warehouse_sources.sources.kickscale.source import KickscaleSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 class TestKickscaleAuth:

@@ -3,28 +3,7 @@ from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    Endpoint,
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponseCursorPaginator,
-    PageNumberPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-    BearerTokenAuthConfig,
-    ClientConfig,
-    EndpointResource,
-    OAuth2AuthConfig,
-    ResponseAction,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.flutterwave.settings import (
+from products.warehouse_sources.sources.flutterwave.settings import (
     BANK_COUNTRIES,
     BILL_PAYMENT_STATUSES,
     FLUTTERWAVE_API_V4,
@@ -32,6 +11,23 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.flutterwav
     FLUTTERWAVE_V4_ENDPOINTS,
     WALLET_STATEMENT_TYPES,
     FlutterwaveV4EndpointConfig,
+)
+from products.warehouse_sources.sources.sdk import (
+    BearerTokenAuthConfig,
+    ClientConfig,
+    Endpoint,
+    EndpointResource,
+    JSONResponseCursorPaginator,
+    OAuth2AuthConfig,
+    PageNumberPaginator,
+    ResponseAction,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceResponse,
+    make_tracked_session,
+    rest_api_resource,
+    validate_via_probe,
 )
 
 FLUTTERWAVE_API_HOST = "https://api.flutterwave.com"

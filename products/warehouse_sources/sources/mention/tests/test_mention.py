@@ -7,17 +7,9 @@ from unittest.mock import MagicMock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mention import (
-    MentionSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.mention import mention
-from products.warehouse_sources.backend.temporal.data_imports.sources.mention.mention import (
+from products.warehouse_sources.sources.mention import mention
+from products.warehouse_sources.sources.mention._config import MentionSourceConfig
+from products.warehouse_sources.sources.mention.mention import (
     MENTION_BASE_URL,
     MENTION_HOST,
     MentionResumeConfig,
@@ -27,11 +19,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mention.me
     get_rows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.mention.settings import (
-    ENDPOINTS,
-    MENTION_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.mention.source import MentionSource
+from products.warehouse_sources.sources.mention.settings import ENDPOINTS, MENTION_ENDPOINTS
+from products.warehouse_sources.sources.mention.source import MentionSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 # Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
 _fetch_page_unwrapped = mention._fetch_page.__wrapped__  # type: ignore[attr-defined]

@@ -2,24 +2,11 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.flexmail.flexmail import (
-    PAGE_SIZE,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.flexmail.settings import (
-    ENDPOINTS,
-    FLEXMAIL_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.flexmail.source import FlexmailSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.flexmail import (
-    FlexmailSourceConfig,
-)
+from products.warehouse_sources.sources.flexmail._config import FlexmailSourceConfig
+from products.warehouse_sources.sources.flexmail.flexmail import PAGE_SIZE, validate_credentials
+from products.warehouse_sources.sources.flexmail.settings import ENDPOINTS, FLEXMAIL_ENDPOINTS
+from products.warehouse_sources.sources.flexmail.source import FlexmailSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

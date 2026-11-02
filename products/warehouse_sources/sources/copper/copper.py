@@ -4,21 +4,7 @@ from typing import Any, Optional
 
 from requests import Request, Response, Session
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    BasePaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.copper.settings import (
+from products.warehouse_sources.sources.copper.settings import (
     COPPER_DEFAULT_PAGE_SIZE,
     COPPER_ENDPOINTS,
     DATE_CREATED,
@@ -28,6 +14,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.copper.set
     FIELD_LAYOUTS_ENDPOINT,
     RELATED_ITEM_PARENTS,
     CopperEndpointConfig,
+)
+from products.warehouse_sources.sources.sdk import (
+    BasePaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    rest_api_resource,
+    validate_via_probe,
 )
 
 COPPER_BASE_URL = "https://api.copper.com/developer_api/v1"

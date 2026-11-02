@@ -1,12 +1,8 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.roark import RoarkSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.roark.source import RoarkSource
+from products.warehouse_sources.sources.roark._config import RoarkSourceConfig
+from products.warehouse_sources.sources.roark.source import RoarkSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, always, scripted_network
 
 
 class TestRoarkSource:

@@ -1,11 +1,6 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.demodesk.source import DemodeskSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.demodesk import (
-    DemodeskSourceConfig,
-)
+from products.warehouse_sources.sources.demodesk._config import DemodeskSourceConfig
+from products.warehouse_sources.sources.demodesk.source import DemodeskSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 class TestDemodeskSourceValidateCredentials:

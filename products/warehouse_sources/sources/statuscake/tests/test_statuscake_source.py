@@ -2,10 +2,8 @@ from datetime import UTC, datetime
 
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.statuscake import (
-    StatuscakeSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.statuscake.source import StatuscakeSource
+from products.warehouse_sources.sources.statuscake._config import StatuscakeSourceConfig
+from products.warehouse_sources.sources.statuscake.source import StatuscakeSource
 
 
 class TestStatuscakeSource:
@@ -13,7 +11,7 @@ class TestStatuscakeSource:
         self.source = StatuscakeSource()
         self.team_id = 123
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.statuscake.source.statuscake_source")
+    @mock.patch("products.warehouse_sources.sources.statuscake.source.statuscake_source")
     def test_source_for_pipeline_drops_watermark_on_full_refresh(self, mock_statuscake_source):
         # A full refresh must not carry a stale watermark into the transport, or the sync would
         # silently skip history older than the last incremental run.

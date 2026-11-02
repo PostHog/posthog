@@ -4,21 +4,11 @@ from typing import Any, Optional
 from parameterized import parameterized
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.thinkificcourses import (
-    ThinkificCoursesSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.thinkific_courses.settings import (
-    THINKIFIC_COURSES_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.thinkific_courses.source import (
-    ThinkificCoursesSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.thinkific_courses.thinkific_courses import (
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
+from products.warehouse_sources.sources.thinkific_courses._config import ThinkificCoursesSourceConfig
+from products.warehouse_sources.sources.thinkific_courses.settings import THINKIFIC_COURSES_ENDPOINTS
+from products.warehouse_sources.sources.thinkific_courses.source import ThinkificCoursesSource
+from products.warehouse_sources.sources.thinkific_courses.thinkific_courses import (
     ThinkificCoursesResumeConfig,
     _format_incremental_date,
     validate_credentials,

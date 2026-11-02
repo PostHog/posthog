@@ -1,47 +1,37 @@
 from datetime import date
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
-    FieldType,
-    ResumableSource,
-    VersionDeprecation,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
-    SourceSchema,
-    build_endpoint_schemas,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lightspeedretail import (
-    LightspeedRetailSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.constants import (
+from products.warehouse_sources.sources.lightspeed_retail._config import LightspeedRetailSourceConfig
+from products.warehouse_sources.sources.lightspeed_retail.constants import (
     LIGHTSPEED_RETAIL_API_VERSION_2_0,
     LIGHTSPEED_RETAIL_API_VERSION_2026_01,
     LIGHTSPEED_RETAIL_API_VERSION_2026_07,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.lightspeed_retail import (
+from products.warehouse_sources.sources.lightspeed_retail.lightspeed_retail import (
     LightspeedRetailResumeConfig,
     lightspeed_retail_source,
     validate_credentials as validate_lightspeed_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
+from products.warehouse_sources.sources.lightspeed_retail.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    VersionDeprecation,
+    build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -77,9 +67,7 @@ class LightspeedRetailSource(ResumableSource[LightspeedRetailSourceConfig, Light
         return ["domain_prefix"]
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.lightspeed_retail.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

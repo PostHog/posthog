@@ -4,25 +4,17 @@ import pytest
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    PageNumberPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk import PageNumberPaginator, SinglePagePaginator
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tinyemail import (
-    TinyemailSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.tinyemail.source import TinyemailSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.tinyemail.tinyemail import (
-    get_resource,
-    validate_credentials,
-)
+from products.warehouse_sources.sources.tinyemail._config import TinyemailSourceConfig
+from products.warehouse_sources.sources.tinyemail.source import TinyemailSource
+from products.warehouse_sources.sources.tinyemail.tinyemail import get_resource, validate_credentials
 
 
 def _members_walk(request: RecordedRequest) -> ScriptedResponse:

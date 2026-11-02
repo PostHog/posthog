@@ -9,14 +9,8 @@ from unittest import mock
 import urllib3
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gladly import GladlySourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.gladly import (
+from products.warehouse_sources.sources.gladly._config import GladlySourceConfig
+from products.warehouse_sources.sources.gladly.gladly import (
     CHUNK_SIZE,
     GladlyReportHeaderError,
     GladlyReportNotAvailableForAccountError,
@@ -28,10 +22,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.gla
     get_rows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.settings import ENDPOINTS, GLADLY_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.source import GladlySource
+from products.warehouse_sources.sources.gladly.settings import ENDPOINTS, GLADLY_ENDPOINTS
+from products.warehouse_sources.sources.gladly.source import GladlySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.gladly.gladly"
+_MODULE = "products.warehouse_sources.sources.gladly.gladly"
 
 
 def _make_manager(resume_state: GladlyResumeConfig | None = None) -> mock.MagicMock:

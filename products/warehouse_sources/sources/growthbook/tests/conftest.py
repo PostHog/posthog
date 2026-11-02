@@ -6,11 +6,8 @@ from unittest.mock import MagicMock, patch
 import responses
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.growthbook import (
-    GrowthBookSourceConfig,
-)
+from products.warehouse_sources.sources.growthbook._config import GrowthBookSourceConfig
+from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceInputs
 
 
 @pytest.fixture
@@ -52,7 +49,7 @@ def http() -> Iterator[responses.RequestsMock]:
 @pytest.fixture(autouse=True)
 def safe_host() -> Iterator[MagicMock]:
     with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.growthbook.growthbook._is_host_safe",
+        "products.warehouse_sources.sources.growthbook.growthbook._is_host_safe",
         return_value=(True, None),
     ) as safe:
         yield safe

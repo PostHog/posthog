@@ -8,33 +8,24 @@ import requests
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.singlestore import (
-    SinglestoreSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.singlestore.settings import (
+from products.warehouse_sources.sources.sdk import Resource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.singlestore._config import SinglestoreSourceConfig
+from products.warehouse_sources.sources.singlestore.settings import (
     BILLING_USAGE_ENDPOINT,
     ORGANIZATION_ENDPOINT,
     REGIONS_ENDPOINT,
     WORKSPACE_GROUPS_ENDPOINT,
     WORKSPACES_ENDPOINT,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.singlestore.singlestore import (
+from products.warehouse_sources.sources.singlestore.singlestore import (
     SINGLESTORE_BASE_URL,
     singlestore_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.singlestore.source import SinglestoreSource
+from products.warehouse_sources.sources.singlestore.source import SinglestoreSource
 
-SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.singlestore.singlestore.make_tracked_session"
-)
+SESSION_PATCH = "products.warehouse_sources.sources.singlestore.singlestore.make_tracked_session"
 
 
 def _driver() -> SourceDriver:

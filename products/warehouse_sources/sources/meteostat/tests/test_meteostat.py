@@ -8,16 +8,8 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.meteostat import (
-    MeteostatSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.meteostat.meteostat import (
+from products.warehouse_sources.sources.meteostat._config import MeteostatSourceConfig
+from products.warehouse_sources.sources.meteostat.meteostat import (
     INVALID_LOCATIONS_ERROR,
     NO_LOCATIONS_ERROR,
     NO_STATIONS_ERROR,
@@ -30,7 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meteostat.
     start_date_error,
     validate_station,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.meteostat.settings import (
+from products.warehouse_sources.sources.meteostat.settings import (
     DAILY_ENDPOINT,
     HOURLY_ENDPOINT,
     MAX_LOCATIONS,
@@ -43,7 +35,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meteostat.
     POINT_NORMALS_ENDPOINT,
     STATIONS_ENDPOINT,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.meteostat.source import MeteostatSource
+from products.warehouse_sources.sources.meteostat.source import MeteostatSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver(

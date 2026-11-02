@@ -1,20 +1,11 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.twilio import (
-    TwilioAuthMethodConfig,
-    TwilioSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.twilio.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.twilio.source import TwilioSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.twilio.twilio import (
-    TWILIO_MAIN_KEY_REQUIRED_REASON,
-)
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, always, scripted_network
+from products.warehouse_sources.sources.twilio._config import TwilioAuthMethodConfig, TwilioSourceConfig
+from products.warehouse_sources.sources.twilio.settings import ENDPOINTS
+from products.warehouse_sources.sources.twilio.source import TwilioSource
+from products.warehouse_sources.sources.twilio.twilio import TWILIO_MAIN_KEY_REQUIRED_REASON
 
 ACCOUNT_SID = "AC00000000000000000000000000000000"
 
@@ -61,9 +52,7 @@ class TestTwilioSource:
         assert is_valid is False
         assert error is not None
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.twilio.source.validate_twilio_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.twilio.source.validate_twilio_credentials")
     def test_validate_credentials_delegates(self, mock_validate):
         mock_validate.return_value = (True, None)
         is_valid, error = self.source.validate_credentials(self.config, self.team_id, schema_name="messages")
@@ -103,7 +92,7 @@ class TestTwilioSource:
         assert result == dict.fromkeys(ENDPOINTS)
         assert network.requests_log == []
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.twilio.source.twilio_source")
+    @mock.patch("products.warehouse_sources.sources.twilio.source.twilio_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_twilio_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "messages"
@@ -127,7 +116,7 @@ class TestTwilioSource:
         assert kwargs["db_incremental_field_last_value"] == "2026-03-04"
         assert kwargs["incremental_field"] == "date_sent"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.twilio.source.twilio_source")
+    @mock.patch("products.warehouse_sources.sources.twilio.source.twilio_source")
     def test_source_for_pipeline_omits_last_value_on_full_refresh(self, mock_twilio_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "addresses"

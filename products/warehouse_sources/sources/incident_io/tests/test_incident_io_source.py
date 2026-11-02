@@ -1,19 +1,12 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.incidentio import (
-    IncidentIoSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.incident_io.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.incident_io.source import IncidentIoSource
+from products.warehouse_sources.sources.incident_io._config import IncidentIoSourceConfig
+from products.warehouse_sources.sources.incident_io.settings import ENDPOINTS
+from products.warehouse_sources.sources.incident_io.source import IncidentIoSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
-INCIDENT_IO_SOURCE_FN_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.incident_io.source.incident_io_source"
-)
+INCIDENT_IO_SOURCE_FN_PATCH = "products.warehouse_sources.sources.incident_io.source.incident_io_source"
 
 
 class TestIncidentIoSource:

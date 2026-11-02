@@ -5,9 +5,7 @@ proxy's database schema. Keyed by the endpoint names in `settings.py`, which mat
 `ExternalDataSchema.name` of a synced table. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "spend_logs": {

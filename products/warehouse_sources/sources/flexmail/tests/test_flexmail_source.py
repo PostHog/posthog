@@ -1,9 +1,7 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.flexmail.source import FlexmailSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.flexmail import (
-    FlexmailSourceConfig,
-)
+from products.warehouse_sources.sources.flexmail._config import FlexmailSourceConfig
+from products.warehouse_sources.sources.flexmail.source import FlexmailSource
 
 
 class TestFlexmailSource:
@@ -12,7 +10,7 @@ class TestFlexmailSource:
         self.team_id = 123
         self.config = FlexmailSourceConfig(account_id="12345", personal_access_token="flexmail-token")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.flexmail.source.validate_credentials")
+    @mock.patch("products.warehouse_sources.sources.flexmail.source.validate_credentials")
     def test_validate_credentials_delegates_with_credentials(self, mock_validate: mock.MagicMock) -> None:
         # The status-to-message mapping lives in flexmail.validate_credentials; here we only assert
         # the source probes with the configured credentials and returns the delegate's verdict.
@@ -21,7 +19,7 @@ class TestFlexmailSource:
         mock_validate.assert_called_once_with("12345", "flexmail-token")
         assert result == (False, "Invalid Flexmail account ID or personal access token")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.flexmail.source.flexmail_source")
+    @mock.patch("products.warehouse_sources.sources.flexmail.source.flexmail_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "contacts"

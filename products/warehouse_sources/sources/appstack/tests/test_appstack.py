@@ -6,23 +6,16 @@ import pytest
 from parameterized import parameterized
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.appstack.appstack import (
+from products.warehouse_sources.sources.appstack._config import AppstackSourceConfig
+from products.warehouse_sources.sources.appstack.appstack import (
     AppstackResumeConfig,
     _export_window_start,
     _to_unix_seconds,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.appstack.settings import PAGE_SIZE
-from products.warehouse_sources.backend.temporal.data_imports.sources.appstack.source import AppstackSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appstack import (
-    AppstackSourceConfig,
-)
+from products.warehouse_sources.sources.appstack.settings import PAGE_SIZE
+from products.warehouse_sources.sources.appstack.source import AppstackSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 class TestToUnixSeconds:

@@ -8,7 +8,8 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.appsignal.appsignal import (
+from products.warehouse_sources.sources.appsignal._config import AppsignalSourceConfig
+from products.warehouse_sources.sources.appsignal.appsignal import (
     AGGREGATE_BUCKET_SECONDS,
     AppsignalResumeConfig,
     AppsignalRetryableError,
@@ -18,12 +19,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appsignal.
     _to_iso,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.appsignal.settings import (
-    APPSIGNAL_ENDPOINTS,
-    ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.appsignal.source import AppsignalSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.appsignal.settings import APPSIGNAL_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.sources.appsignal.source import AppsignalSource
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
@@ -31,11 +29,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appsignal import (
-    AppsignalSourceConfig,
-)
 
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.appsignal.appsignal"
+MODULE = "products.warehouse_sources.sources.appsignal.appsignal"
 _LOG_SOURCES = {"data": {"app": {"logs": {"sources": [{"id": "src-1"}]}}}}
 
 

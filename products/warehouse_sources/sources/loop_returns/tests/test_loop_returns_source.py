@@ -1,15 +1,8 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.loopreturns import (
-    LoopReturnsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.loop_returns.source import LoopReturnsSource
+from products.warehouse_sources.sources.loop_returns._config import LoopReturnsSourceConfig
+from products.warehouse_sources.sources.loop_returns.source import LoopReturnsSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 class TestLoopReturnsSource:

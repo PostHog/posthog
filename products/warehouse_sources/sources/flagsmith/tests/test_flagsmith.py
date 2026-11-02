@@ -4,13 +4,8 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.flagsmith import (
+from products.warehouse_sources.sources.flagsmith._config import FlagsmithSourceConfig
+from products.warehouse_sources.sources.flagsmith.flagsmith import (
     DEFAULT_BASE_URL,
     FlagsmithResponseTimeoutError,
     FlagsmithResponseTooLargeError,
@@ -19,21 +14,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.
     normalize_base_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.settings import (
-    ENDPOINTS,
-    FLAGSMITH_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.source import FlagsmithSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.flagsmith import (
-    FlagsmithSourceConfig,
+from products.warehouse_sources.sources.flagsmith.settings import ENDPOINTS, FLAGSMITH_ENDPOINTS
+from products.warehouse_sources.sources.flagsmith.source import FlagsmithSource
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
 )
 
 API_BASE = f"{DEFAULT_BASE_URL}/api/v1"
-BUDGET_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.flagsmith.MAX_PAGES_PER_SYNC"
-PARENTS_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.flagsmith.MAX_FANOUT_PARENTS"
-KEY_LENGTH_PATH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.flagsmith.MAX_FANOUT_KEY_LENGTH"
-)
+BUDGET_PATH = "products.warehouse_sources.sources.flagsmith.flagsmith.MAX_PAGES_PER_SYNC"
+PARENTS_PATH = "products.warehouse_sources.sources.flagsmith.flagsmith.MAX_FANOUT_PARENTS"
+KEY_LENGTH_PATH = "products.warehouse_sources.sources.flagsmith.flagsmith.MAX_FANOUT_KEY_LENGTH"
 
 
 def _driver() -> SourceDriver:

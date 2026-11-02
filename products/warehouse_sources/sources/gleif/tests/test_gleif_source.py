@@ -1,5 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gleif import GleifSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.gleif.source import GleifSource
+from products.warehouse_sources.sources.gleif._config import GleifSourceConfig
+from products.warehouse_sources.sources.gleif.source import GleifSource
 
 
 class TestGleifSource:

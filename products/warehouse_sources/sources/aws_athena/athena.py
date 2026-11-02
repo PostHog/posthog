@@ -29,12 +29,8 @@ from tenacity import (
     wait_exponential_jitter,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
-    BinaryColumnReporter,
-    restrict_schema_to_columns,
-    table_from_iterator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_athena.settings import (
+from products.warehouse_sources.sources.aws_athena._config import AwsAthenaSourceConfig
+from products.warehouse_sources.sources.aws_athena.settings import (
     ATHENA_SERVICE,
     DATA_CATALOG,
     DEFAULT_WORKGROUP,
@@ -46,38 +42,31 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_athena
     RESULTS_PAGE_SIZE,
     AwsService,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import NO_RETRY
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
-    interruptible_wait,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.primary_keys import resolve_merge_keys
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import reach_safe_point
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
+from products.warehouse_sources.sources.sdk import (
+    NO_RETRY,
     AnsiIdentifierQuoter,
     Column,
-    Table,
-    resolve_table_projection,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
-    SQLSourceImplementation,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.incremental import (
     IncrementalFieldFilter,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.location import resolve_source_location
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.query_builder import (
     ParamStyle,
     SafeSQL,
     SelectQueryBuilder,
+    SourceInputs,
+    SourceResponse,
+    SQLSourceImplementation,
+    Table,
+    interruptible_wait,
+    make_tracked_session,
+    reach_safe_point,
+    resolve_merge_keys,
+    resolve_source_location,
+    resolve_table_projection,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsathena import (
-    AwsAthenaSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.trino.trino import (
+from products.warehouse_sources.sources.sdk.internals import (
+    BinaryColumnReporter,
     filter_trino_incremental_fields,
     incremental_value_for_trino_column,
+    restrict_schema_to_columns,
+    table_from_iterator,
     trino_type_to_arrow,
 )
 

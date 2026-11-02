@@ -1,8 +1,8 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.n8n import N8nSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.n8n.source import N8nSource
+from products.warehouse_sources.sources.n8n._config import N8nSourceConfig
+from products.warehouse_sources.sources.n8n.source import N8nSource
+from products.warehouse_sources.sources.sdk.testing import SourceDriver
 
 
 class TestN8nSource:
@@ -19,7 +19,7 @@ class TestN8nSource:
         # get_schemas is a static endpoint catalog, so the public docs can render tables.
         assert self.source.lists_tables_without_credentials is True
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.n8n.source.validate_n8n_credentials")
+    @mock.patch("products.warehouse_sources.sources.n8n.source.validate_n8n_credentials")
     @mock.patch.object(N8nSource, "is_database_host_valid")
     def test_validate_credentials_happy_path(self, mock_host_valid, mock_validate):
         mock_host_valid.return_value = (True, None)
@@ -49,7 +49,7 @@ class TestN8nSource:
         assert is_valid is False
         assert error_message == "Invalid n8n instance URL"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.n8n.source.validate_n8n_credentials")
+    @mock.patch("products.warehouse_sources.sources.n8n.source.validate_n8n_credentials")
     @mock.patch.object(N8nSource, "is_database_host_valid")
     def test_validate_credentials_bad_key(self, mock_host_valid, mock_validate):
         mock_host_valid.return_value = (True, None)
@@ -60,7 +60,7 @@ class TestN8nSource:
         assert is_valid is False
         assert "Invalid n8n credentials" in (error_message or "")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.n8n.source.n8n_source")
+    @mock.patch("products.warehouse_sources.sources.n8n.source.n8n_source")
     @mock.patch.object(N8nSource, "is_database_host_valid")
     def test_source_for_pipeline_plumbs_arguments(self, mock_host_valid, mock_n8n_source):
         mock_host_valid.return_value = (True, None)

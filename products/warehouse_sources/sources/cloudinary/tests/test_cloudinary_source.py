@@ -1,11 +1,6 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.cloudinary.source import CloudinarySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cloudinary import (
-    CloudinarySourceConfig,
-)
+from products.warehouse_sources.sources.cloudinary._config import CloudinarySourceConfig
+from products.warehouse_sources.sources.cloudinary.source import CloudinarySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 def _config() -> CloudinarySourceConfig:

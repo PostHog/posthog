@@ -7,15 +7,8 @@ import time_machine
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lemlist import (
-    LemlistSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.lemlist.lemlist import (
+from products.warehouse_sources.sources.lemlist._config import LemlistSourceConfig
+from products.warehouse_sources.sources.lemlist.lemlist import (
     LEMLIST_API_VERSION_V1,
     LEMLIST_API_VERSION_V2,
     PAGE_SIZE,
@@ -24,7 +17,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lemlist.le
     _format_incremental_value,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.lemlist.source import LemlistSource
+from products.warehouse_sources.sources.lemlist.source import LemlistSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver() -> SourceDriver:

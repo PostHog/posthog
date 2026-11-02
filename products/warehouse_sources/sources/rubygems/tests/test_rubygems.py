@@ -7,16 +7,8 @@ from unittest import mock
 import requests
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rubygems import (
-    RubygemsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.rubygems.rubygems import (
+from products.warehouse_sources.sources.rubygems._config import RubygemsSourceConfig
+from products.warehouse_sources.sources.rubygems.rubygems import (
     MAX_GEMS,
     RUBYGEMS_BASE_URL,
     RubyGemsRetryableError,
@@ -25,9 +17,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.rubygems.r
     rubygems_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.rubygems.source import RubygemsSource
+from products.warehouse_sources.sources.rubygems.source import RubygemsSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.rubygems.rubygems"
+MODULE = "products.warehouse_sources.sources.rubygems.rubygems"
 
 
 def _response(status: int = 200, body: Optional[Any] = None) -> mock.MagicMock:

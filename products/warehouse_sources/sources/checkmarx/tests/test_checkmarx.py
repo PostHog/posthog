@@ -7,7 +7,8 @@ from unittest.mock import MagicMock
 
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.checkmarx import (
+from products.warehouse_sources.sources.checkmarx._config import CheckmarxSourceConfig
+from products.warehouse_sources.sources.checkmarx.checkmarx import (
     AUTH_ERROR_PREFIX,
     CheckmarxAuth,
     CheckmarxAuthError,
@@ -18,19 +19,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.
     get_region_hosts,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.settings import (
-    CHECKMARX_ENDPOINTS,
-    ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.source import CheckmarxSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.checkmarx.settings import CHECKMARX_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.sources.checkmarx.source import CheckmarxSource
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.checkmarx import (
-    CheckmarxSourceConfig,
 )
 
 TOKEN_PAYLOAD = {"access_token": "jwt-token", "expires_in": 1800}

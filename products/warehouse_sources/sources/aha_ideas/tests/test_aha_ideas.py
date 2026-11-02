@@ -5,26 +5,17 @@ import pytest
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aha_ideas.aha_ideas import (
+from products.warehouse_sources.sources.aha_ideas._config import AhaIdeasSourceConfig
+from products.warehouse_sources.sources.aha_ideas.aha_ideas import (
     AhaIdeasResumeConfig,
     _build_initial_params,
     _format_updated_since,
     normalize_subdomain,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aha_ideas.settings import (
-    AHA_IDEAS_ENDPOINTS,
-    PER_PAGE,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.aha_ideas.source import AhaIdeasSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ahaideas import (
-    AhaIdeasSourceConfig,
-)
+from products.warehouse_sources.sources.aha_ideas.settings import AHA_IDEAS_ENDPOINTS, PER_PAGE
+from products.warehouse_sources.sources.aha_ideas.source import AhaIdeasSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver() -> SourceDriver:

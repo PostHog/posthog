@@ -8,17 +8,9 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jenkins import (
-    JenkinsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.jenkins import jenkins
-from products.warehouse_sources.backend.temporal.data_imports.sources.jenkins.jenkins import (
+from products.warehouse_sources.sources.jenkins import jenkins
+from products.warehouse_sources.sources.jenkins._config import JenkinsSourceConfig
+from products.warehouse_sources.sources.jenkins.jenkins import (
     JenkinsResumeConfig,
     _discover_jobs,
     _is_job_container,
@@ -28,7 +20,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.jenkins.je
     normalize_base_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.jenkins.source import JenkinsSource
+from products.warehouse_sources.sources.jenkins.source import JenkinsSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _resp(payload: Any) -> MagicMock:

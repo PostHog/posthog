@@ -6,18 +6,11 @@ import time_machine
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mono import MonoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.mono.mono import (
-    MonoResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.mono.source import MonoSource
+from products.warehouse_sources.sources.mono._config import MonoSourceConfig
+from products.warehouse_sources.sources.mono.mono import MonoResumeConfig, validate_credentials
+from products.warehouse_sources.sources.mono.source import MonoSource
+from products.warehouse_sources.sources.sdk import UnknownResourceError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 CONFIG = MonoSourceConfig(api_key="test_sk_fake_mono_key", start_date="2020-01-01")
 

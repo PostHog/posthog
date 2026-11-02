@@ -2,21 +2,16 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sequenzy import (
-    SequenzySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.sequenzy.sequenzy import (
-    SequenzyResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.sequenzy.source import SequenzySource
+from products.warehouse_sources.sources.sequenzy._config import SequenzySourceConfig
+from products.warehouse_sources.sources.sequenzy.sequenzy import SequenzyResumeConfig, validate_credentials
+from products.warehouse_sources.sources.sequenzy.source import SequenzySource
 
 
 def _make_http_response(body: dict[str, Any], status_code: int = 200) -> ScriptedResponse:

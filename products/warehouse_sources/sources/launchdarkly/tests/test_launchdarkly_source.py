@@ -1,14 +1,8 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.launchdarkly import (
-    LaunchDarklySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.launchdarkly.source import LaunchDarklySource
+from products.warehouse_sources.sources.launchdarkly._config import LaunchDarklySourceConfig
+from products.warehouse_sources.sources.launchdarkly.source import LaunchDarklySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, always, scripted_network
 
 
 class TestLaunchDarklySource:

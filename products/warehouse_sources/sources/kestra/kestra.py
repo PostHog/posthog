@@ -8,31 +8,8 @@ from urllib.parse import urlsplit
 from requests import Request, Response
 from requests.exceptions import HTTPError
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-    rest_api_resources,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import create_auth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    BasePaginator,
-    PageNumberPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-    ClientConfig,
-    Endpoint,
-    EndpointResource,
-    ResponseAction,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kestra import KestraSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.kestra.settings import (
+from products.warehouse_sources.sources.kestra._config import KestraSourceConfig
+from products.warehouse_sources.sources.kestra.settings import (
     AUTH_ERROR,
     ENDPOINTS,
     FANOUT_PARENTS,
@@ -41,6 +18,25 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kestra.set
     PAGE_SIZE,
     PERMISSION_ERROR,
     PRIMARY_KEYS,
+)
+from products.warehouse_sources.sources.sdk import (
+    BasePaginator,
+    ClientConfig,
+    Endpoint,
+    EndpointResource,
+    PageNumberPaginator,
+    ResponseAction,
+    RESTAPIConfig,
+    RESTClient,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceInputs,
+    SourceResponse,
+    create_auth,
+    frozen,
+    rest_api_resource,
+    rest_api_resources,
+    schema_for_resource,
 )
 
 INVALID_PAGE = "Kestra returned an invalid page. Expected results and a total count."
@@ -118,7 +114,7 @@ class KestraLogPaginator(BasePaginator):
 
 
 def client_config(config: KestraSourceConfig, team_id: int) -> ClientConfig:
-    from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (  # noqa: PLC0415 -- avoids loading Django models during config discovery
+    from products.warehouse_sources.sources.sdk import (  # noqa: PLC0415 -- avoids loading Django models during config discovery
         ValidateDatabaseHostMixin,
     )
 

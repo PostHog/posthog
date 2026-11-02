@@ -10,15 +10,8 @@ from cryptography.hazmat.primitives.asymmetric import ec, ed25519, padding, rsa
 from cryptography.hazmat.primitives.asymmetric.types import PrivateKeyTypes
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kalshi import KalshiSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.kalshi.kalshi import (
+from products.warehouse_sources.sources.kalshi._config import KalshiSourceConfig
+from products.warehouse_sources.sources.kalshi.kalshi import (
     INVALID_PRIVATE_KEY_MESSAGE,
     KalshiCredentialsError,
     KalshiResumeConfig,
@@ -29,11 +22,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kalshi.kal
     _to_epoch_seconds,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.kalshi.settings import (
-    KALSHI_ENDPOINTS,
-    WEATHER_INDEX_CITIES,
+from products.warehouse_sources.sources.kalshi.settings import KALSHI_ENDPOINTS, WEATHER_INDEX_CITIES
+from products.warehouse_sources.sources.kalshi.source import KalshiSource
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.kalshi.source import KalshiSource
 
 
 def _pem(key: PrivateKeyTypes) -> str:

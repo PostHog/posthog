@@ -1,13 +1,8 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.healthchecks import (
-    HealthchecksSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.healthchecks.source import HealthchecksSource
+from products.warehouse_sources.sources.healthchecks._config import HealthchecksSourceConfig
+from products.warehouse_sources.sources.healthchecks.source import HealthchecksSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 class TestHealthchecksSource:
@@ -42,7 +37,7 @@ class TestHealthchecksSource:
         assert is_valid is False
         assert error_message == "Invalid Healthchecks base URL"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.healthchecks.source.is_cloud")
+    @mock.patch("products.warehouse_sources.sources.healthchecks.source.is_cloud")
     @mock.patch.object(HealthchecksSource, "is_database_host_valid")
     def test_validate_credentials_rejects_http_on_cloud(self, mock_host_valid, mock_is_cloud):
         # On Cloud the required API key would travel in cleartext to a customer-supplied http:// host.
@@ -55,10 +50,8 @@ class TestHealthchecksSource:
         assert is_valid is False
         assert error_message == "Healthchecks base URL must use https"
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.healthchecks.source.validate_healthchecks_credentials"
-    )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.healthchecks.source.is_cloud")
+    @mock.patch("products.warehouse_sources.sources.healthchecks.source.validate_healthchecks_credentials")
+    @mock.patch("products.warehouse_sources.sources.healthchecks.source.is_cloud")
     @mock.patch.object(HealthchecksSource, "is_database_host_valid")
     def test_validate_credentials_allows_http_when_self_hosted(self, mock_host_valid, mock_is_cloud, mock_validate):
         # Self-hosted deployments may reach their instance over http on their own network.
@@ -72,9 +65,7 @@ class TestHealthchecksSource:
         assert is_valid is True
         assert error_message is None
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.healthchecks.source.healthchecks_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.healthchecks.source.healthchecks_source")
     @mock.patch.object(HealthchecksSource, "is_database_host_valid")
     def test_source_for_pipeline_plumbs_arguments(self, mock_host_valid, mock_healthchecks_source):
         mock_host_valid.return_value = (True, None)

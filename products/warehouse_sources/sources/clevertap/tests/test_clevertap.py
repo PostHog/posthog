@@ -3,19 +3,11 @@ from typing import Any
 import pytest
 import time_machine
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.clevertap.clevertap import ClevertapResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.clevertap.settings import (
-    CURSOR_ERROR,
-    EXPORT_ERROR,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.clevertap.source import ClevertapSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clevertap import (
-    ClevertapSourceConfig,
-)
+from products.warehouse_sources.sources.clevertap._config import ClevertapSourceConfig
+from products.warehouse_sources.sources.clevertap.clevertap import ClevertapResumeConfig
+from products.warehouse_sources.sources.clevertap.settings import CURSOR_ERROR, EXPORT_ERROR
+from products.warehouse_sources.sources.clevertap.source import ClevertapSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 def driver() -> SourceDriver:

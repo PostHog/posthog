@@ -1,8 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, incremental_field
 
 # How a collection endpoint pages:
 # - "offset": Mailchimp's standard `count`/`offset` pagination, looped until `total_items`.

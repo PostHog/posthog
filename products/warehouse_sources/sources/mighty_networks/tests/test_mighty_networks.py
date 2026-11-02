@@ -2,23 +2,21 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.mighty_networks._config import MightyNetworksSourceConfig
+from products.warehouse_sources.sources.mighty_networks.mighty_networks import (
+    MightyNetworksResumeConfig,
+    check_endpoint_access,
+    validate_credentials,
+)
+from products.warehouse_sources.sources.mighty_networks.settings import PER_PAGE
+from products.warehouse_sources.sources.mighty_networks.source import MightyNetworksSource
+from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
     route,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mightynetworks import (
-    MightyNetworksSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.mighty_networks.mighty_networks import (
-    MightyNetworksResumeConfig,
-    check_endpoint_access,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.mighty_networks.settings import PER_PAGE
-from products.warehouse_sources.backend.temporal.data_imports.sources.mighty_networks.source import MightyNetworksSource
 
 
 def _driver() -> SourceDriver:

@@ -2,10 +2,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tremendous import (
-    TremendousSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.tremendous.source import TremendousSource
+from products.warehouse_sources.sources.tremendous._config import TremendousSourceConfig
+from products.warehouse_sources.sources.tremendous.source import TremendousSource
 
 
 class TestTremendousSource:
@@ -30,9 +28,7 @@ class TestTremendousSource:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.tremendous.source.validate_tremendous_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.tremendous.source.validate_tremendous_credentials")
     def test_validate_credentials_delegates_with_key_and_environment(self, mock_validate: mock.MagicMock) -> None:
         # The status-to-message mapping lives in tremendous.validate_credentials; here we only assert
         # the source probes with the configured key and environment and returns the verdict unchanged.
@@ -41,7 +37,7 @@ class TestTremendousSource:
         mock_validate.assert_called_once_with("tremendous-key", "sandbox")
         assert result == (False, "Invalid Tremendous API key")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.tremendous.source.tremendous_source")
+    @mock.patch("products.warehouse_sources.sources.tremendous.source.tremendous_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "orders"
@@ -60,7 +56,7 @@ class TestTremendousSource:
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.tremendous.source.tremendous_source")
+    @mock.patch("products.warehouse_sources.sources.tremendous.source.tremendous_source")
     def test_source_for_pipeline_drops_watermark_on_full_refresh(self, mock_source: mock.MagicMock) -> None:
         # A stale watermark left on the schema must not leak into a full-refresh run and window the sync.
         inputs = mock.MagicMock()

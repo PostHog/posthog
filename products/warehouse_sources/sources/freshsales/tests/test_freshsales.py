@@ -4,22 +4,20 @@ import pytest
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.freshsales.freshsales import (
+from products.warehouse_sources.sources.freshsales._config import FreshsalesSourceConfig
+from products.warehouse_sources.sources.freshsales.freshsales import (
     DEFAULT_PAGE_SIZE,
     FreshsalesResumeConfig,
     _normalize_alias,
     check_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.freshsales.source import FreshsalesSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.freshsales import (
-    FreshsalesSourceConfig,
+from products.warehouse_sources.sources.freshsales.source import FreshsalesSource
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
 )
 
 

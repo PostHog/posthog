@@ -6,21 +6,16 @@ from pytest import MonkeyPatch
 from parameterized import parameterized
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openaq import OpenAQSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.openaq import openaq
-from products.warehouse_sources.backend.temporal.data_imports.sources.openaq.openaq import (
+from products.warehouse_sources.sources.openaq import openaq
+from products.warehouse_sources.sources.openaq._config import OpenAQSourceConfig
+from products.warehouse_sources.sources.openaq.openaq import (
     OpenAQResumeConfig,
     _flatten_measurement,
     _format_time_value,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.openaq.source import OpenAQSource
+from products.warehouse_sources.sources.openaq.source import OpenAQSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

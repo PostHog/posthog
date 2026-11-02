@@ -6,18 +6,16 @@ from unittest.mock import patch
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
     route,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.unstructured import (
-    UnstructuredSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.unstructured.source import UnstructuredSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.unstructured.unstructured import (
+from products.warehouse_sources.sources.unstructured._config import UnstructuredSourceConfig
+from products.warehouse_sources.sources.unstructured.source import UnstructuredSource
+from products.warehouse_sources.sources.unstructured.unstructured import (
     DEFAULT_BASE_URL,
     FAILED_FILES_PAGE_SIZE,
     NOTIFICATIONS_PAGE_SIZE,

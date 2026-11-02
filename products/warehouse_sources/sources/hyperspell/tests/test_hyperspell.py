@@ -2,21 +2,11 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hyperspell import (
-    HyperspellSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.hyperspell import hyperspell
-from products.warehouse_sources.backend.temporal.data_imports.sources.hyperspell.hyperspell import (
-    HyperspellResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.hyperspell.source import HyperspellSource
+from products.warehouse_sources.sources.hyperspell import hyperspell
+from products.warehouse_sources.sources.hyperspell._config import HyperspellSourceConfig
+from products.warehouse_sources.sources.hyperspell.hyperspell import HyperspellResumeConfig, validate_credentials
+from products.warehouse_sources.sources.hyperspell.source import HyperspellSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver(user_ids: str | None = None) -> SourceDriver:

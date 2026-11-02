@@ -5,22 +5,18 @@ from unittest.mock import patch
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.unleash import (
-    UnleashSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.unleash import unleash
-from products.warehouse_sources.backend.temporal.data_imports.sources.unleash.source import UnleashSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.unleash.unleash import (
+from products.warehouse_sources.sources.unleash import unleash
+from products.warehouse_sources.sources.unleash._config import UnleashSourceConfig
+from products.warehouse_sources.sources.unleash.source import UnleashSource
+from products.warehouse_sources.sources.unleash.unleash import (
     PAGE_SIZE,
     UnleashHostNotAllowedError,
     UnleashResumeConfig,

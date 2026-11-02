@@ -3,16 +3,10 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.serpstat import (
-    SerpstatSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.serpstat.serpstat import SerpstatResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.serpstat.settings import (
+from products.warehouse_sources.sources.sdk.testing import RecordedRequest, ScriptedResponse, SourceDriver
+from products.warehouse_sources.sources.serpstat._config import SerpstatSourceConfig
+from products.warehouse_sources.sources.serpstat.serpstat import SerpstatResumeConfig
+from products.warehouse_sources.sources.serpstat.settings import (
     AUTH_ERROR,
     DOMAIN_ERROR,
     MAX_PAGES,
@@ -20,7 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.serpstat.s
     QUOTA_ERROR,
     REQUEST_ERROR,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.serpstat.source import SerpstatSource
+from products.warehouse_sources.sources.serpstat.source import SerpstatSource
 
 CONFIG = SerpstatSourceConfig(
     api_key="example-token+/", project_id="123", project_region_id="456", domain="example.com"

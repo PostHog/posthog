@@ -1,9 +1,7 @@
 from dataclasses import field
 from typing import Any, Literal
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField
+from products.warehouse_sources.sources.sdk import IncrementalField, frozen
 
 ANALYTICS_BASE_URL = "https://api-admin.adapty.io"
 SERVER_BASE_URL = "https://api.adapty.io"

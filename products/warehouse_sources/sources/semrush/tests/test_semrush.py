@@ -7,11 +7,8 @@ from unittest.mock import patch
 
 from requests import RequestException, Response, Session
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.semrush.semrush import (
-    semrush_source,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.semrush.settings import (
+from products.warehouse_sources.sources.semrush.semrush import semrush_source, validate_credentials
+from products.warehouse_sources.sources.semrush.settings import (
     ACCESS_ERROR,
     AUTH_ERROR,
     PROJECT_ERROR,
@@ -20,7 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.semrush.se
     REQUEST_ERROR,
     UNAVAILABLE_ERROR,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.semrush.source import SemrushSource
+from products.warehouse_sources.sources.semrush.source import SemrushSource
 
 
 def response(body: object, status: int = 200) -> Response:

@@ -2,26 +2,16 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.judgemereviews import (
-    JudgeMeReviewsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.judgeme_reviews.judgeme_reviews import (
+from products.warehouse_sources.sources.judgeme_reviews._config import JudgeMeReviewsSourceConfig
+from products.warehouse_sources.sources.judgeme_reviews.judgeme_reviews import (
     PAGE_SIZE,
     JudgeMeReviewsResumeConfig,
     _normalize_shop_domain,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.judgeme_reviews.settings import (
-    ENDPOINTS,
-    JUDGEME_REVIEWS_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.judgeme_reviews.source import JudgeMeReviewsSource
+from products.warehouse_sources.sources.judgeme_reviews.settings import ENDPOINTS, JUDGEME_REVIEWS_ENDPOINTS
+from products.warehouse_sources.sources.judgeme_reviews.source import JudgeMeReviewsSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

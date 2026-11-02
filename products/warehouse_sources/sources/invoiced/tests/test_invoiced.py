@@ -6,16 +6,8 @@ import pytest
 from parameterized import parameterized
 from requests.exceptions import ConnectionError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.invoiced import (
-    InvoicedSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.invoiced.invoiced import (
+from products.warehouse_sources.sources.invoiced._config import InvoicedSourceConfig
+from products.warehouse_sources.sources.invoiced.invoiced import (
     INVOICED_BASE_URL,
     PAGE_SIZE,
     InvoicedResumeConfig,
@@ -24,7 +16,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.invoiced.i
     _validate_pagination_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.invoiced.source import InvoicedSource
+from products.warehouse_sources.sources.invoiced.source import InvoicedSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 class TestToUnixTimestamp:

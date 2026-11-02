@@ -6,25 +6,26 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from posthog.dataclasses import frozen
-from posthog.security.url_validation import is_url_allowed
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.pganalyze.queries import (
+from products.warehouse_sources.sources.pganalyze.queries import (
     ISSUE_DATABASE_IDS_QUERY,
     ISSUES_QUERY,
     QUERY_STATS_QUERY,
     SERVERS_QUERY,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.pganalyze.settings import (
+from products.warehouse_sources.sources.pganalyze.settings import (
     PGANALYZE_API_URL,
     PGANALYZE_ENDPOINTS,
     PGANALYZE_MAX_RETRY_ATTEMPTS,
     PGANALYZE_REQUEST_TIMEOUT_SECONDS,
     QUERY_STATS_MAX_CATCHUP_DAYS,
     QUERY_STATS_SETTLE_HOURS,
+)
+from products.warehouse_sources.sources.sdk import (
+    SourceResponse,
+    frozen,
+    is_url_allowed,
+    make_tracked_session,
+    parse_datetime_value,
 )
 
 

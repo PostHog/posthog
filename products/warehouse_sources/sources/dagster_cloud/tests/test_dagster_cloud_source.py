@@ -2,9 +2,9 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.dagster_cloud.source import DagsterCloudSource
+from products.warehouse_sources.sources.dagster_cloud.source import DagsterCloudSource
 
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.dagster_cloud.source"
+MODULE = "products.warehouse_sources.sources.dagster_cloud.source"
 
 
 class TestDagsterCloudSourceConfig:

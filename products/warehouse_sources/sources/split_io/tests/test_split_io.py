@@ -4,7 +4,7 @@ import pytest
 
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     Script,
     ScriptedResponse,
@@ -12,15 +12,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.splitio import (
-    SplitIoSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.split_io.settings import (
-    ENDPOINTS,
-    SPLIT_IO_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.split_io.source import SplitIoSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.split_io.split_io import (
+from products.warehouse_sources.sources.split_io._config import SplitIoSourceConfig
+from products.warehouse_sources.sources.split_io.settings import ENDPOINTS, SPLIT_IO_ENDPOINTS
+from products.warehouse_sources.sources.split_io.source import SplitIoSource
+from products.warehouse_sources.sources.split_io.split_io import (
     BASE_URL,
     PAGE_SIZE,
     SplitIoResumeConfig,

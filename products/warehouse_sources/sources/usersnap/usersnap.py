@@ -10,17 +10,13 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
     make_tracked_session,
     retry_with_deadline,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.settings import (
-    PAGE_SIZE,
-    USERSNAP_BASE_URL,
-    USERSNAP_ENDPOINTS,
-)
+from products.warehouse_sources.sources.usersnap.settings import PAGE_SIZE, USERSNAP_BASE_URL, USERSNAP_ENDPOINTS
 
 REQUEST_TIMEOUT_SECONDS = 60
 MAX_RETRIES = 5

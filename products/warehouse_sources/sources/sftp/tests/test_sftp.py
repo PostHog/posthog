@@ -13,13 +13,9 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from paramiko.file import BufferedFile
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.file_parsing import (
-    DELIMITER_ERROR,
-    FILE_MODIFIED_AT_COLUMN,
-    FILE_PATH_COLUMN,
-    FileFormatError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.sftp.sftp import (
+from products.warehouse_sources.sources.sdk import DELIMITER_ERROR, FILE_MODIFIED_AT_COLUMN, FILE_PATH_COLUMN
+from products.warehouse_sources.sources.sdk.testing import FileFormatError
+from products.warehouse_sources.sources.sftp.sftp import (
     AUTH_FAILED_ERROR,
     CONNECTION_FAILED_ERROR,
     DIRECTORY_ERROR,
@@ -426,9 +422,7 @@ class TestLoadPrivateKey:
 
 @contextmanager
 def _patched_connection(client: FakeClient) -> Iterator[FakeClient]:
-    with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.sftp.sftp.sftp_connection"
-    ) as connection:
+    with patch("products.warehouse_sources.sources.sftp.sftp.sftp_connection") as connection:
         connection.return_value.__enter__.return_value = client
         yield client
 
@@ -517,9 +511,7 @@ class TestValidateCredentials:
             )
 
     def test_rejects_an_invalid_pattern_before_connecting(self) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.sftp.sftp.sftp_connection"
-        ) as connection:
+        with patch("products.warehouse_sources.sources.sftp.sftp.sftp_connection") as connection:
             with pytest.raises(SFTPCredentialsError, match=PATTERN_ERROR):
                 validate_credentials(
                     host="h", port=22, user="u", auth=SFTPAuth(password="p"), path="/data", file_pattern="(["
@@ -528,9 +520,7 @@ class TestValidateCredentials:
         connection.assert_not_called()
 
     def test_rejects_an_invalid_delimiter_before_connecting(self) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.sftp.sftp.sftp_connection"
-        ) as connection:
+        with patch("products.warehouse_sources.sources.sftp.sftp.sftp_connection") as connection:
             with pytest.raises(SFTPCredentialsError, match=DELIMITER_ERROR):
                 validate_credentials(
                     host="h", port=22, user="u", auth=SFTPAuth(password="p"), path="/data", delimiter="||"

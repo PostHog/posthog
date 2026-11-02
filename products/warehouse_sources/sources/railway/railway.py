@@ -7,15 +7,7 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
-    make_tracked_session,
-    retry_with_deadline,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.railway.settings import (
+from products.warehouse_sources.sources.railway.settings import (
     CREATED_AT,
     METRICS_INITIAL_LOOKBACK_DAYS,
     METRICS_MEASUREMENTS,
@@ -29,6 +21,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.railway.se
     USAGE_PAGE_SIZE,
     VALIDATION_QUERY,
     RailwayEndpointConfig,
+)
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    retry_with_deadline,
 )
 
 REQUEST_TIMEOUT_SECONDS = 60

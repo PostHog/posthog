@@ -5,7 +5,7 @@ import pytest
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
     Script,
@@ -13,20 +13,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     SourceDriver,
     always,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.smaily import SmailySourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.smaily.settings import (
+from products.warehouse_sources.sources.smaily._config import SmailySourceConfig
+from products.warehouse_sources.sources.smaily.settings import (
     CAMPAIGN_STATISTICS,
     ENDPOINTS,
     SEGMENT_SUBSCRIBERS,
     SMAILY_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.smaily.smaily import (
+from products.warehouse_sources.sources.smaily.smaily import (
     SmailyResumeConfig,
     SmailyRetryableError,
     normalize_subdomain,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.smaily.source import SmailySource
+from products.warehouse_sources.sources.smaily.source import SmailySource
 
 BASE_PATH = "/api"
 

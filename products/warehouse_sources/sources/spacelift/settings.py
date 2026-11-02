@@ -1,11 +1,12 @@
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
+from products.warehouse_sources.sources.sdk import (
+    IncrementalField,
+    IncrementalFieldType,
     PartitionFormat,
     PartitionMode,
     SortMode,
 )
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 SPACELIFT_HOST_TEMPLATE = "https://{account_name}.app.spacelift.io/graphql"
 SPACELIFT_PAGE_SIZE = 100

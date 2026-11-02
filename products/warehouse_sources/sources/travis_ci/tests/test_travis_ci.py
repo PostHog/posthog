@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
     ScriptedResponse,
@@ -15,12 +15,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     UnexpectedRequest,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.travisci import (
-    TravisCISourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.travis_ci import travis_ci
-from products.warehouse_sources.backend.temporal.data_imports.sources.travis_ci.source import TravisCISource
-from products.warehouse_sources.backend.temporal.data_imports.sources.travis_ci.travis_ci import (
+from products.warehouse_sources.sources.travis_ci import travis_ci
+from products.warehouse_sources.sources.travis_ci._config import TravisCISourceConfig
+from products.warehouse_sources.sources.travis_ci.source import TravisCISource
+from products.warehouse_sources.sources.travis_ci.travis_ci import (
     TRAVIS_CI_BASE_URL,
     TravisCIResumeConfig,
     _resolve_page_url,

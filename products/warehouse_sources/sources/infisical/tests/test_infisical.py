@@ -10,18 +10,9 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    FakeNetwork,
-    Script,
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.infisical import (
-    InfisicalSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.infisical import infisical as infisical_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.infisical.infisical import (
+from products.warehouse_sources.sources.infisical import infisical as infisical_module
+from products.warehouse_sources.sources.infisical._config import InfisicalSourceConfig
+from products.warehouse_sources.sources.infisical.infisical import (
     INVALID_CREDENTIALS_ERROR,
     InfisicalAuthError,
     InfisicalFanOutBudgetExceededError,
@@ -37,8 +28,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.infisical.
     normalize_base_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.infisical.settings import INFISICAL_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.infisical.source import InfisicalSource
+from products.warehouse_sources.sources.infisical.settings import INFISICAL_ENDPOINTS
+from products.warehouse_sources.sources.infisical.source import InfisicalSource
+from products.warehouse_sources.sources.sdk.testing import (
+    FakeNetwork,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 
 LOGIN_JSON = {"accessToken": "tok", "expiresIn": 3600, "accessTokenMaxTTL": 7200, "tokenType": "Bearer"}
 

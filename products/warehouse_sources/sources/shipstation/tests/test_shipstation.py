@@ -2,20 +2,14 @@ from datetime import UTC, date, datetime
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shipstation import (
-    ShipStationSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.shipstation.settings import (
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
+from products.warehouse_sources.sources.shipstation._config import ShipStationSourceConfig
+from products.warehouse_sources.sources.shipstation.settings import (
     SHIPSTATION_ENDPOINTS,
     SHIPSTATION_V1,
     SHIPSTATION_V2,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.shipstation.shipstation import (
+from products.warehouse_sources.sources.shipstation.shipstation import (
     PAGE_SIZE,
     SHIPSTATION_DIALECTS,
     ShipStationResumeConfig,
@@ -23,7 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shipstatio
     _format_date_filter,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.shipstation.source import ShipStationSource
+from products.warehouse_sources.sources.shipstation.source import ShipStationSource
 
 V2_DIALECT = SHIPSTATION_DIALECTS[SHIPSTATION_V2]
 

@@ -4,22 +4,18 @@ from typing import Any, Optional
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.motion._config import MotionSourceConfig
+from products.warehouse_sources.sources.motion.motion import MotionResumeConfig, motion_source, validate_credentials
+from products.warehouse_sources.sources.motion.source import MotionSource
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.motion import MotionSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.motion.motion import (
-    MotionResumeConfig,
-    motion_source,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.motion.source import MotionSource
 
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.motion.motion"
+_MODULE = "products.warehouse_sources.sources.motion.motion"
 
 
 def _manager(resume_state: MotionResumeConfig | None = None) -> mock.MagicMock:

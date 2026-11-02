@@ -6,7 +6,7 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.wix.wix import (
+from products.warehouse_sources.sources.wix.wix import (
     WixResumeConfig,
     _to_wix_datetime,
     check_endpoint_permissions,
@@ -14,7 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.wix.wix im
     validate_credentials,
 )
 
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.wix.wix"
+_MODULE = "products.warehouse_sources.sources.wix.wix"
 
 
 def _manager(resume_state: WixResumeConfig | None = None) -> mock.MagicMock:

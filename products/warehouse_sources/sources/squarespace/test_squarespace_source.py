@@ -1,10 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.squarespace import (
-    SquarespaceSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.squarespace.source import (
+from products.warehouse_sources.sources.squarespace._config import SquarespaceSourceConfig
+from products.warehouse_sources.sources.squarespace.source import (
     SQUARESPACE_API_VERSION_V1,
     SQUARESPACE_API_VERSION_V2,
     SquarespaceSource,
@@ -33,9 +31,7 @@ class TestSquarespaceSource:
             ((False, True), "orders", False, True),  # 403 for a specific schema -> rejected
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.squarespace.source.validate_squarespace_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.squarespace.source.validate_squarespace_credentials")
     def test_validate_credentials(
         self,
         mock_validate: mock.MagicMock,

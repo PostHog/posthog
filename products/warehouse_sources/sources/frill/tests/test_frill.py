@@ -5,12 +5,8 @@ from unittest.mock import MagicMock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.frill.frill import (
+from products.warehouse_sources.sources.frill._config import FrillSourceConfig
+from products.warehouse_sources.sources.frill.frill import (
     FRILL_BASE_URL,
     PAGE_SIZE,
     FrillResumeConfig,
@@ -19,9 +15,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.frill.fril
     _next_cursor,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.frill.settings import ENDPOINTS, FRILL_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.frill.source import FrillSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.frill import FrillSourceConfig
+from products.warehouse_sources.sources.frill.settings import ENDPOINTS, FRILL_ENDPOINTS
+from products.warehouse_sources.sources.frill.source import FrillSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _resp(body: Any, status: int = 200) -> Any:

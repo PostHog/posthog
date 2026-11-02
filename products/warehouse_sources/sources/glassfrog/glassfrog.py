@@ -3,17 +3,15 @@ from typing import Any, Optional
 import requests
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from products.warehouse_sources.sources.glassfrog.settings import GLASSFROG_ENDPOINTS
+from products.warehouse_sources.sources.sdk import (
     PageNumberPaginator,
+    RESTAPIConfig,
+    SourceResponse,
+    make_tracked_session,
+    rest_api_resource,
+    validate_via_probe,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.glassfrog.settings import GLASSFROG_ENDPOINTS
 
 GLASSFROG_BASE_URL = "https://api.glassfrog.com/api/v3"
 # Documented `per_page` maximum; the API default is 30.

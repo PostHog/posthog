@@ -1,9 +1,7 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.recruitee import (
-    RecruiteeSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.recruitee.source import RecruiteeSource
+from products.warehouse_sources.sources.recruitee._config import RecruiteeSourceConfig
+from products.warehouse_sources.sources.recruitee.source import RecruiteeSource
 
 
 class TestRecruiteeSource:
@@ -17,7 +15,7 @@ class TestRecruiteeSource:
         # must re-require the token.
         assert self.source.connection_host_fields == ["company_id"]
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.recruitee.source.recruitee_source")
+    @mock.patch("products.warehouse_sources.sources.recruitee.source.recruitee_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "candidates"

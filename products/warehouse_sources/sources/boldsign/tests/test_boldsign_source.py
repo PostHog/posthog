@@ -1,7 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.boldsign.source import BoldSignSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.boldsign import (
-    BoldSignSourceConfig,
-)
+from products.warehouse_sources.sources.boldsign._config import BoldSignSourceConfig
+from products.warehouse_sources.sources.boldsign.source import BoldSignSource
 
 
 class TestBoldSignSource:

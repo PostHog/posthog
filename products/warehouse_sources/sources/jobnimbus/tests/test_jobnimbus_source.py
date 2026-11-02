@@ -2,10 +2,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jobnimbus import (
-    JobNimbusSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.jobnimbus.source import JobNimbusSource
+from products.warehouse_sources.sources.jobnimbus._config import JobNimbusSourceConfig
+from products.warehouse_sources.sources.jobnimbus.source import JobNimbusSource
 
 
 class TestJobNimbusSource:
@@ -21,9 +19,7 @@ class TestJobNimbusSource:
             (False, "Could not validate JobNimbus API key"),
         ]
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.jobnimbus.source._validate_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.jobnimbus.source._validate_credentials")
     def test_validate_credentials_delegates(
         self,
         expected_valid: bool,
@@ -38,7 +34,7 @@ class TestJobNimbusSource:
         assert returned == expected_message
         mock_validate.assert_called_once_with("jn-key")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.jobnimbus.source.jobnimbus_source")
+    @mock.patch("products.warehouse_sources.sources.jobnimbus.source.jobnimbus_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "contacts"

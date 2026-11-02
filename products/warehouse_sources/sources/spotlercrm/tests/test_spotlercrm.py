@@ -3,18 +3,16 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.spotlercrm import (
-    SpotlerCRMSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.spotlercrm.source import SpotlerCRMSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.spotlercrm.spotlercrm import (
+from products.warehouse_sources.sources.spotlercrm._config import SpotlerCRMSourceConfig
+from products.warehouse_sources.sources.spotlercrm.source import SpotlerCRMSource
+from products.warehouse_sources.sources.spotlercrm.spotlercrm import (
     SpotlerCRMPaginator,
     SpotlerCRMResumeConfig,
     get_endpoint_permissions,

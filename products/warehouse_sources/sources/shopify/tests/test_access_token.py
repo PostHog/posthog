@@ -5,12 +5,8 @@ from unittest import mock
 
 from requests.exceptions import ChunkedEncodingError, SSLError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify import (
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, always, scripted_network
+from products.warehouse_sources.sources.shopify.shopify import (
     SHOPIFY_ACCESS_TOKEN_APP_NOT_INSTALLED_ERROR,
     SHOPIFY_ACCESS_TOKEN_AUTH_ERROR,
     SHOPIFY_ACCESS_TOKEN_INVALID_CLIENT_ERROR,
@@ -23,7 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.sh
     _get_shopify_access_token,
     _resolve_access_token,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.source import ShopifySource
+from products.warehouse_sources.sources.shopify.source import ShopifySource
 
 TOKEN_OK = ScriptedResponse(json={"access_token": "tok"})
 # A chunked body with an invalid chunk length fails the read as a connection dropped mid-response.
@@ -207,16 +203,14 @@ def test_payment_required_is_non_retryable(error_message):
 def test_resolve_access_token_uses_a_supplied_token_without_calling_shopify():
     # A supplied Admin API token belongs to one store, so it works where the client_credentials
     # grant cannot. Minting anyway would send the token endpoint credentials it does not have.
-    with mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify._get_shopify_access_token"
-    ) as mint:
+    with mock.patch("products.warehouse_sources.sources.shopify.shopify._get_shopify_access_token") as mint:
         assert _resolve_access_token("store", None, None, "shpat_supplied") == "shpat_supplied"
     mint.assert_not_called()
 
 
 def test_resolve_access_token_mints_when_only_client_credentials_are_set():
     with mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify._get_shopify_access_token",
+        "products.warehouse_sources.sources.shopify.shopify._get_shopify_access_token",
         return_value="minted",
     ) as mint:
         assert _resolve_access_token("store", "client-id", "client-secret", None) == "minted"
@@ -238,9 +232,7 @@ def test_resolve_access_token_mints_when_only_client_credentials_are_set():
     ],
 )
 def test_resolve_access_token_rejects_unusable_credentials(client_id, client_secret, access_token, expected_message):
-    with mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify._get_shopify_access_token"
-    ) as mint:
+    with mock.patch("products.warehouse_sources.sources.shopify.shopify._get_shopify_access_token") as mint:
         with pytest.raises(Exception) as exc_info:
             _resolve_access_token("store", client_id, client_secret, access_token)
 

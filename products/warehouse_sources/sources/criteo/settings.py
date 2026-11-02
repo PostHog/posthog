@@ -1,17 +1,15 @@
 from dataclasses import field
 from typing import Literal
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+from products.warehouse_sources.sources.sdk import (
     DependentEndpointConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
+    IncrementalField,
+    IncrementalFieldType,
     PartitionFormat,
     PartitionMode,
+    frozen,
+    incremental_field,
 )
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 BASE_URL = "https://api.criteo.com"
 TOKEN_URL = f"{BASE_URL}/oauth2/token"

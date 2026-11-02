@@ -5,24 +5,17 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.salesloft import (
-    SalesLoftSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.salesloft.salesloft import (
+from products.warehouse_sources.sources.salesloft._config import SalesLoftSourceConfig
+from products.warehouse_sources.sources.salesloft.salesloft import (
     SALESLOFT_BASE_URL,
     SalesloftResumeConfig,
     _build_params,
     _format_datetime,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.salesloft.settings import SALESLOFT_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.salesloft.source import SalesLoftSource
+from products.warehouse_sources.sources.salesloft.settings import SALESLOFT_ENDPOINTS
+from products.warehouse_sources.sources.salesloft.source import SalesLoftSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _response(items: list[dict[str, Any]] | None, next_page: int | None, status: int = 200) -> ScriptedResponse:

@@ -3,22 +3,16 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.buildkite import (
+from products.warehouse_sources.sources.buildkite._config import BuildkiteSourceConfig
+from products.warehouse_sources.sources.buildkite.buildkite import (
     BuildkiteResumeConfig,
     _build_initial_params,
     _format_incremental_value,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.settings import BUILDKITE_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.source import BuildkiteSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.buildkite import (
-    BuildkiteSourceConfig,
-)
+from products.warehouse_sources.sources.buildkite.settings import BUILDKITE_ENDPOINTS
+from products.warehouse_sources.sources.buildkite.source import BuildkiteSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 ORG_URL = "https://api.buildkite.com/v2/organizations/my-org"
 

@@ -1,14 +1,9 @@
 import pytest
 
-from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, ReleaseStatus
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kickscale import (
-    KickscaleSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.kickscale.settings import (
-    ENDPOINTS,
-    INCREMENTAL_LOOKBACK_SECONDS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.kickscale.source import KickscaleSource
+from products.warehouse_sources.sources.kickscale._config import KickscaleSourceConfig
+from products.warehouse_sources.sources.kickscale.settings import ENDPOINTS, INCREMENTAL_LOOKBACK_SECONDS
+from products.warehouse_sources.sources.kickscale.source import KickscaleSource
+from products.warehouse_sources.sources.sdk import DataWarehouseSourceCategory, ReleaseStatus
 
 
 class TestKickscaleSource:

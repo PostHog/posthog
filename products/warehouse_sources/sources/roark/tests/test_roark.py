@@ -3,21 +3,12 @@ from typing import Any
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.roark import RoarkSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.roark.roark import (
-    RoarkResumeConfig,
-    _explode_transcript,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.roark.settings import ENDPOINTS, ROARK_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.roark.source import RoarkSource
+from products.warehouse_sources.sources.roark._config import RoarkSourceConfig
+from products.warehouse_sources.sources.roark.roark import RoarkResumeConfig, _explode_transcript
+from products.warehouse_sources.sources.roark.settings import ENDPOINTS, ROARK_ENDPOINTS
+from products.warehouse_sources.sources.roark.source import RoarkSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always
 
 
 def _driver(api_key: str = "key") -> SourceDriver:

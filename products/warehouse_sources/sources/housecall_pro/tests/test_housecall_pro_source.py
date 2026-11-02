@@ -1,10 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.housecallpro import (
-    HousecallProSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.housecall_pro.source import HousecallProSource
+from products.warehouse_sources.sources.housecall_pro._config import HousecallProSourceConfig
+from products.warehouse_sources.sources.housecall_pro.source import HousecallProSource
 
 
 class TestHousecallProSource:
@@ -20,9 +18,7 @@ class TestHousecallProSource:
             (False, False, "Invalid Housecall Pro API key"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.housecall_pro.source.validate_housecall_pro_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.housecall_pro.source.validate_housecall_pro_credentials")
     def test_validate_credentials(
         self,
         mock_validate: mock.MagicMock,

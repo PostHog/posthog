@@ -10,20 +10,8 @@ from unittest import mock
 import requests
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    RecordedRequest,
-    Script,
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.instagram import (
-    InstagramSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.instagram.instagram import (
+from products.warehouse_sources.sources.instagram._config import InstagramSourceConfig
+from products.warehouse_sources.sources.instagram.instagram import (
     _ACCOUNT_ID_NOT_NUMERIC_ERROR,
     AUTH_ERROR_PREFIX,
     MAX_REQUESTS_PER_SYNC,
@@ -46,7 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.instagram.
     list_professional_accounts,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.instagram.settings import (
+from products.warehouse_sources.sources.instagram.settings import (
     ACCOUNT_INSIGHT_TIME_SERIES_METRICS,
     ACCOUNT_INSIGHT_TOTAL_VALUE_METRICS,
     ACCOUNT_INSIGHTS_WINDOW_DAYS,
@@ -55,9 +43,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.instagram.
     MEDIA_INSIGHT_METRICS,
     MEDIA_PAGE_SAFE_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.instagram.source import InstagramSource
+from products.warehouse_sources.sources.instagram.source import InstagramSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager
+from products.warehouse_sources.sources.sdk.testing import (
+    DriveResult,
+    RecordedRequest,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.instagram.instagram"
+MODULE = "products.warehouse_sources.sources.instagram.instagram"
 LOGGER = structlog.get_logger("instagram-tests")
 ACCOUNT_ID = "17841400000000000"
 

@@ -3,12 +3,10 @@ from unittest import mock
 
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.coveralls.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.coveralls.source import CoverallsSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coveralls import (
-    CoverallsSourceConfig,
-)
+from products.warehouse_sources.sources.coveralls._config import CoverallsSourceConfig
+from products.warehouse_sources.sources.coveralls.settings import ENDPOINTS
+from products.warehouse_sources.sources.coveralls.source import CoverallsSource
+from products.warehouse_sources.sources.sdk import SourceInputs
 
 
 def _make_inputs(
@@ -59,7 +57,7 @@ class TestCoverallsSource:
         assert permissions["builds"] is None
         assert permissions["repositories"] == expected_reason
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.coveralls.source.coveralls_source")
+    @mock.patch("products.warehouse_sources.sources.coveralls.source.coveralls_source")
     def test_source_for_pipeline_passes_watermark_only_when_incremental(self, mock_coveralls_source):
         # A stale watermark left on the schema must not leak into a full-refresh run.
         inputs = _make_inputs(should_use_incremental_field=False, db_incremental_field_last_value="2021-04-16")

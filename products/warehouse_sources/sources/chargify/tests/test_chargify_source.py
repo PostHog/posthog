@@ -1,14 +1,9 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.chargify.source import ChargifySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.chargify import (
-    ChargifySourceConfig,
-)
+from products.warehouse_sources.sources.chargify._config import ChargifySourceConfig
+from products.warehouse_sources.sources.chargify.source import ChargifySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 class TestChargifySource:
@@ -35,9 +30,7 @@ class TestChargifySource:
             ("bad/slash", True, False, "Chargify site subdomain is invalid"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.chargify.source.validate_chargify_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.chargify.source.validate_chargify_credentials")
     def test_validate_credentials(
         self,
         mock_validate: mock.MagicMock,

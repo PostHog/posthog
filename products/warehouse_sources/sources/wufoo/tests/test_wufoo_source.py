@@ -1,8 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.wufoo import WufooSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.wufoo.source import WufooSource
+from products.warehouse_sources.sources.wufoo._config import WufooSourceConfig
+from products.warehouse_sources.sources.wufoo.source import WufooSource
 
 
 class TestWufooSource:
@@ -19,9 +19,7 @@ class TestWufooSource:
         "status, expected_valid",
         [(None, False)],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.wufoo.source.validate_wufoo_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.wufoo.source.validate_wufoo_credentials")
     def test_validate_credentials(
         self, mock_validate: mock.MagicMock, status: int | None, expected_valid: bool
     ) -> None:
@@ -35,9 +33,7 @@ class TestWufooSource:
 
     def test_validate_credentials_rejects_bad_subdomain_without_probing(self) -> None:
         bad_config = WufooSourceConfig(subdomain="not a domain!", api_key="wufoo-key")
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.wufoo.source.validate_wufoo_credentials"
-        ) as mock_validate:
+        with mock.patch("products.warehouse_sources.sources.wufoo.source.validate_wufoo_credentials") as mock_validate:
             is_valid, message = self.source.validate_credentials(bad_config, self.team_id)
         assert is_valid is False
         assert message == "Wufoo subdomain is invalid"

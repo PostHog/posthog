@@ -6,27 +6,18 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.prefectcloud import (
-    PrefectCloudSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.prefect_cloud import prefect_cloud
-from products.warehouse_sources.backend.temporal.data_imports.sources.prefect_cloud.prefect_cloud import (
+from products.warehouse_sources.sources.prefect_cloud import prefect_cloud
+from products.warehouse_sources.sources.prefect_cloud._config import PrefectCloudSourceConfig
+from products.warehouse_sources.sources.prefect_cloud.prefect_cloud import (
     PrefectCloudResumeConfig,
     _build_json_body,
     _format_after,
     normalize_uuid,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.prefect_cloud.settings import (
-    PAGE_LIMIT,
-    PREFECT_CLOUD_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.prefect_cloud.source import PrefectCloudSource
+from products.warehouse_sources.sources.prefect_cloud.settings import PAGE_LIMIT, PREFECT_CLOUD_ENDPOINTS
+from products.warehouse_sources.sources.prefect_cloud.source import PrefectCloudSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 _ACCOUNT_ID = "11111111-2222-3333-4444-555555555555"
 _WORKSPACE_ID = "66666666-7777-8888-9999-aaaaaaaaaaaa"

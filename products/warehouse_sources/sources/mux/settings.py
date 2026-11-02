@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any, Literal, Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
 # First-sync window for the incremental video-views endpoint. Raw per-view rows have much tighter
 # retention than aggregates and the list endpoint isn't a bulk export, so we start modest; subsequent

@@ -10,12 +10,9 @@ from unittest.mock import patch
 from requests import Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.trustradius.source import TrustradiusSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.trustradius.trustradius import (
-    trustradius_source,
-    validate_credentials,
-)
+from products.warehouse_sources.sources.sdk import UnknownResourceError
+from products.warehouse_sources.sources.trustradius.source import TrustradiusSource
+from products.warehouse_sources.sources.trustradius.trustradius import trustradius_source, validate_credentials
 
 
 def response(body: object, status: int = 200) -> Response:

@@ -5,16 +5,9 @@ from parameterized import parameterized
 from requests import RequestException, Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ukcompanieshouse import (
-    UkCompaniesHouseSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.uk_companies_house.settings import (
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.uk_companies_house._config import UkCompaniesHouseSourceConfig
+from products.warehouse_sources.sources.uk_companies_house.settings import (
     CHARGES,
     COMPANIES,
     FILING_HISTORY,
@@ -24,10 +17,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.uk_compani
     PSC_STATEMENTS,
     UK_ESTABLISHMENTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.uk_companies_house.source import (
-    UkCompaniesHouseSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.uk_companies_house.uk_companies_house import (
+from products.warehouse_sources.sources.uk_companies_house.source import UkCompaniesHouseSource
+from products.warehouse_sources.sources.uk_companies_house.uk_companies_house import (
     CompaniesHouseOffsetPaginator,
     UkCompaniesHouseResumeConfig,
     invalid_company_numbers,

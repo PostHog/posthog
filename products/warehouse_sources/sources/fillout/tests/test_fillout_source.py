@@ -2,10 +2,8 @@ from typing import Any, cast
 
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.fillout.source import FilloutSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fillout import (
-    FilloutSourceConfig,
-)
+from products.warehouse_sources.sources.fillout._config import FilloutSourceConfig
+from products.warehouse_sources.sources.fillout.source import FilloutSource
 
 
 class TestFilloutSource:
@@ -20,9 +18,7 @@ class TestFilloutSource:
         assert is_valid is False
         assert message is not None and "API base URL must be one of" in message
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.fillout.source.validate_fillout_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.fillout.source.validate_fillout_credentials")
     def test_validate_credentials_plumbs_arguments(self, mock_validate: mock.MagicMock) -> None:
         mock_validate.return_value = (True, None)
         result = self.source.validate_credentials(self.config, self.team_id, schema_name="submissions")

@@ -1,6 +1,4 @@
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField
+from products.warehouse_sources.sources.sdk import IncrementalField, frozen
 
 BASE_URL = "https://statsigapi.net"
 API_VERSION = "20240601"

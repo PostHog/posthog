@@ -7,21 +7,7 @@ from typing import Any, Optional
 
 from dateutil import parser as dateutil_parser
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import HttpBasicAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import (
-    create_response_hooks,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponseCursorPaginator,
-    OffsetPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.plivo.settings import (
+from products.warehouse_sources.sources.plivo.settings import (
     MAX_QUERY_RANGE_DAYS,
     MULTI_PARTY_CALL_PARTICIPANTS,
     MULTI_PARTY_CALLS,
@@ -35,6 +21,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.plivo.sett
     USAGE_PAGE_SIZE,
     USAGE_SUMMARY,
     PlivoEndpointConfig,
+)
+from products.warehouse_sources.sources.sdk import (
+    HttpBasicAuth,
+    JSONResponseCursorPaginator,
+    OffsetPaginator,
+    RESTClient,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceResponse,
+    create_response_hooks,
+    make_tracked_session,
+    validate_via_probe,
 )
 
 

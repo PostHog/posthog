@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 from requests import Response
 from requests.auth import HTTPBasicAuth
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.medusa.medusa import (
+from products.warehouse_sources.sources.medusa.medusa import (
     MedusaPaginator,
     MedusaResumeConfig,
     _read_capped,
@@ -17,13 +17,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.medusa.med
     normalize_base_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.medusa.settings import (
-    MAX_ROWS_PER_SYNC,
-    MEDUSA_ENDPOINTS,
-    PAGE_SIZE,
-)
+from products.warehouse_sources.sources.medusa.settings import MAX_ROWS_PER_SYNC, MEDUSA_ENDPOINTS, PAGE_SIZE
 
-MEDUSA_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.medusa.medusa"
+MEDUSA_MODULE = "products.warehouse_sources.sources.medusa.medusa"
 
 BASE_URL = "https://store.example.com"
 

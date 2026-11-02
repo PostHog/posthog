@@ -6,24 +6,24 @@ from unittest.mock import MagicMock, patch
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.gridly._config import GridlySourceConfig
+from products.warehouse_sources.sources.gridly.gridly import (
+    MAX_RETRY_ATTEMPTS,
+    GridlyResumeConfig,
+    GridlyRetryableError,
+    validate_credentials,
+)
+from products.warehouse_sources.sources.gridly.settings import ENDPOINTS, GRIDLY_ENDPOINTS
+from products.warehouse_sources.sources.gridly.source import GridlySource
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gridly import GridlySourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.gridly.gridly import (
-    MAX_RETRY_ATTEMPTS,
-    GridlyResumeConfig,
-    GridlyRetryableError,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.gridly.settings import ENDPOINTS, GRIDLY_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.gridly.source import GridlySource
 
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.gridly.gridly"
+_MODULE = "products.warehouse_sources.sources.gridly.gridly"
 
 
 def _driver() -> SourceDriver:

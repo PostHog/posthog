@@ -4,13 +4,9 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.okendo import OkendoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.okendo.source import OkendoSource
+from products.warehouse_sources.sources.okendo._config import OkendoSourceConfig
+from products.warehouse_sources.sources.okendo.source import OkendoSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, always, scripted_network
 
 
 class TestOkendoSource:
@@ -69,7 +65,7 @@ class TestOkendoSource:
         expected_auth = "Basic " + b64encode(b"user-1:key-1").decode()
         assert all(request.headers["authorization"] == expected_auth for request in network.requests_log)
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.okendo.source.okendo_source")
+    @mock.patch("products.warehouse_sources.sources.okendo.source.okendo_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_okendo_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "reviews"

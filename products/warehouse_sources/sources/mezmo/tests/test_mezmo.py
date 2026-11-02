@@ -4,15 +4,15 @@ import pytest
 
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.mezmo._config import MezmoSourceConfig
+from products.warehouse_sources.sources.mezmo.mezmo import MezmoResumeConfig
+from products.warehouse_sources.sources.mezmo.source import MezmoSource
+from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
+    error_message_matches,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mezmo import MezmoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.mezmo.mezmo import MezmoResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.mezmo.source import MezmoSource
 
 
 def driver() -> SourceDriver:

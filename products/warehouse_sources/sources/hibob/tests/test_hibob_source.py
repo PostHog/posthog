@@ -1,7 +1,7 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hibob import HiBobSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.hibob.source import HiBobSource
+from products.warehouse_sources.sources.hibob._config import HiBobSourceConfig
+from products.warehouse_sources.sources.hibob.source import HiBobSource
 
 
 class TestHiBobSource:

@@ -2,25 +2,11 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.descope.descope import (
-    DescopeResumeConfig,
-    _audit_body,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.descope.settings import (
-    ENDPOINTS,
-    PARTITION_KEYS,
-    PRIMARY_KEYS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.descope.source import DescopeSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.descope import (
-    DescopeSourceConfig,
-)
+from products.warehouse_sources.sources.descope._config import DescopeSourceConfig
+from products.warehouse_sources.sources.descope.descope import DescopeResumeConfig, _audit_body, validate_credentials
+from products.warehouse_sources.sources.descope.settings import ENDPOINTS, PARTITION_KEYS, PRIMARY_KEYS
+from products.warehouse_sources.sources.descope.source import DescopeSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver() -> SourceDriver:

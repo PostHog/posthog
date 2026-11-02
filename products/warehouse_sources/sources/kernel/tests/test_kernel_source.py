@@ -1,11 +1,11 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kernel import KernelSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.kernel.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.kernel.source import KernelSource
+from products.warehouse_sources.sources.kernel._config import KernelSourceConfig
+from products.warehouse_sources.sources.kernel.settings import ENDPOINTS
+from products.warehouse_sources.sources.kernel.source import KernelSource
 
-_SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.kernel.source"
+_SOURCE_MODULE = "products.warehouse_sources.sources.kernel.source"
 
 
 class TestKernelSource:

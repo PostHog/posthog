@@ -1,13 +1,8 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.onepagecrm import (
-    OnepagecrmSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.onepagecrm.source import OnepagecrmSource
+from products.warehouse_sources.sources.onepagecrm._config import OnepagecrmSourceConfig
+from products.warehouse_sources.sources.onepagecrm.source import OnepagecrmSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 class TestOnepagecrmSource:
@@ -16,7 +11,7 @@ class TestOnepagecrmSource:
         self.team_id = 123
         self.config = OnepagecrmSourceConfig(user_id="uid-1", api_key="key-1")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.onepagecrm.source.onepagecrm_source")
+    @mock.patch("products.warehouse_sources.sources.onepagecrm.source.onepagecrm_source")
     def test_source_for_pipeline_plumbs_incremental_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "contacts"

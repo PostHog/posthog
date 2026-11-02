@@ -7,14 +7,14 @@ from unittest.mock import patch
 
 from requests import PreparedRequest, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.neo4j import Neo4jSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.neo4j.neo4j import (
+from products.warehouse_sources.sources.neo4j._config import Neo4jSourceConfig
+from products.warehouse_sources.sources.neo4j.neo4j import (
     Neo4jClient,
     Neo4jQueryError,
     neo4j_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.neo4j.source import Neo4jSource
+from products.warehouse_sources.sources.neo4j.source import Neo4jSource
 
 
 @pytest.fixture
@@ -72,7 +72,7 @@ def test_full_refresh_pagination_and_rows(config: Neo4jSourceConfig, transport: 
     ]
     for offset in range(0, count + 1, 2):
         replies.append((202, {"data": {"fields": fields, "values": values[offset : offset + 2]}}))
-    with patch("products.warehouse_sources.backend.temporal.data_imports.sources.neo4j.neo4j.PAGE_SIZE", 2):
+    with patch("products.warehouse_sources.sources.neo4j.neo4j.PAGE_SIZE", 2):
         result = neo4j_source(config, 1, f"{prefix}_Order")
         pages = cast(Iterable[list[dict[str, Any]]], result.items())
         rows = [row for page in pages for row in page]
@@ -149,8 +149,8 @@ def test_row_cap_does_not_silently_truncate(config: Neo4jSourceConfig, transport
         )
     )
     with (
-        patch("products.warehouse_sources.backend.temporal.data_imports.sources.neo4j.neo4j.PAGE_SIZE", 2),
-        patch("products.warehouse_sources.backend.temporal.data_imports.sources.neo4j.neo4j.MAX_ROWS_PER_SYNC", 2),
+        patch("products.warehouse_sources.sources.neo4j.neo4j.PAGE_SIZE", 2),
+        patch("products.warehouse_sources.sources.neo4j.neo4j.MAX_ROWS_PER_SYNC", 2),
     ):
         iterator = Neo4jClient(config, 1).rows("node_Person")
         assert len(next(iterator)) == 2

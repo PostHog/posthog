@@ -1,16 +1,10 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.attio.attio import (
-    AttioResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.attio.settings import ATTIO_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.attio.source import AttioSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.attio import AttioSourceConfig
+from products.warehouse_sources.sources.attio._config import AttioSourceConfig
+from products.warehouse_sources.sources.attio.attio import AttioResumeConfig, validate_credentials
+from products.warehouse_sources.sources.attio.settings import ATTIO_ENDPOINTS
+from products.warehouse_sources.sources.attio.source import AttioSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 class TestValidateCredentials:

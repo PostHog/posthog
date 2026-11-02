@@ -6,7 +6,8 @@ from unittest.mock import Mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.cloudsmith.cloudsmith import (
+from products.warehouse_sources.sources.cloudsmith._config import CloudsmithSourceConfig
+from products.warehouse_sources.sources.cloudsmith.cloudsmith import (
     INVALID_WORKSPACE_ERROR,
     CloudsmithPaginator,
     CloudsmithResumeConfig,
@@ -15,17 +16,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cloudsmith
     get_resource,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.cloudsmith.settings import CLOUDSMITH_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.cloudsmith.source import CloudsmithSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cloudsmith import (
-    CloudsmithSourceConfig,
-)
+from products.warehouse_sources.sources.cloudsmith.settings import CLOUDSMITH_ENDPOINTS
+from products.warehouse_sources.sources.cloudsmith.source import CloudsmithSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _response(page_total: str | None) -> Mock:

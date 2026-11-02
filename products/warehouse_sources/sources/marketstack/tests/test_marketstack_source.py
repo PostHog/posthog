@@ -2,18 +2,13 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.marketstack import (
-    MarketstackSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.marketstack.marketstack import (
+from products.warehouse_sources.sources.marketstack._config import MarketstackSourceConfig
+from products.warehouse_sources.sources.marketstack.marketstack import (
     MARKETSTACK_API_VERSION_V1,
     MARKETSTACK_API_VERSION_V2,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.marketstack.source import MarketstackSource
+from products.warehouse_sources.sources.marketstack.source import MarketstackSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 def _make_config(access_key: str = "key", symbols: str | None = "AAPL") -> MarketstackSourceConfig:
@@ -47,7 +42,7 @@ class TestMarketstackSource:
         self, _name: str, probe_result: bool, expected_ok: bool, expected_message: str | None
     ) -> None:
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.marketstack.source.validate_marketstack_credentials",
+            "products.warehouse_sources.sources.marketstack.source.validate_marketstack_credentials",
             return_value=probe_result,
         ) as probe:
             ok, message = MarketstackSource().validate_credentials(_make_config(), team_id=1)

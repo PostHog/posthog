@@ -11,8 +11,9 @@ import requests
 import structlog
 from botocore.loaders import Loader
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cloudtrail import aws_cloudtrail as transport
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cloudtrail.aws_cloudtrail import (
+from products.warehouse_sources.sources.aws_cloudtrail import aws_cloudtrail as transport
+from products.warehouse_sources.sources.aws_cloudtrail._config import AwsCloudTrailSourceConfig
+from products.warehouse_sources.sources.aws_cloudtrail.aws_cloudtrail import (
     AwsCloudTrailClient,
     AwsCloudTrailError,
     AwsCloudTrailResumeConfig,
@@ -21,20 +22,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cloudt
     get_rows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cloudtrail.settings import (
-    AWS_CLOUDTRAIL_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cloudtrail.source import AwsCloudTrailSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.aws_cloudtrail.settings import AWS_CLOUDTRAIL_ENDPOINTS
+from products.warehouse_sources.sources.aws_cloudtrail.source import AwsCloudTrailSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceInputs
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awscloudtrail import (
-    AwsCloudTrailSourceConfig,
 )
 
 NOW = dt.datetime(2026, 10, 1, tzinfo=dt.UTC)

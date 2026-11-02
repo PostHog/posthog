@@ -2,8 +2,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.drata.source import DrataSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.drata import DrataSourceConfig
+from products.warehouse_sources.sources.drata._config import DrataSourceConfig
+from products.warehouse_sources.sources.drata.source import DrataSource
 
 
 class TestDrataSource:
@@ -21,7 +21,7 @@ class TestDrataSource:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.drata.source.drata_source")
+    @mock.patch("products.warehouse_sources.sources.drata.source.drata_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "events"
@@ -41,7 +41,7 @@ class TestDrataSource:
         assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"
         assert kwargs["incremental_field"] == "createdAt"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.drata.source.drata_source")
+    @mock.patch("products.warehouse_sources.sources.drata.source.drata_source")
     def test_source_for_pipeline_drops_incremental_value_when_disabled(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "events"

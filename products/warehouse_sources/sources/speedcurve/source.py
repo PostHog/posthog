@@ -1,40 +1,36 @@
 from typing import cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.speedcurve import (
-    SpeedcurveSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.speedcurve.settings import (
+from products.warehouse_sources.sources.speedcurve._config import SpeedcurveSourceConfig
+from products.warehouse_sources.sources.speedcurve.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     INCREMENTAL_LOOKBACK_SECONDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.speedcurve.speedcurve import (
+from products.warehouse_sources.sources.speedcurve.speedcurve import (
     AUTH_ERROR,
     PERMISSION_ERROR,
     SpeedcurveResumeConfig,
     speedcurve_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -79,9 +75,7 @@ class SpeedcurveSource(ResumableSource[SpeedcurveSourceConfig, SpeedcurveResumeC
         return {"401 Client Error": AUTH_ERROR, "403 Client Error": PERMISSION_ERROR}
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.speedcurve.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.speedcurve.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

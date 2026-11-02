@@ -1,35 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema_enums import ProductKey
-
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-    SourceFieldSelectConfig,
-    SourceFieldSelectConfigOption,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
-    FieldType,
-    ResumableSource,
-    VersionDeprecation,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.datadog import (
+from products.warehouse_sources.sources.datadog._config import DatadogSourceConfig
+from products.warehouse_sources.sources.datadog.datadog import (
     DatadogResumeConfig,
     datadog_source,
     validate_credentials as validate_datadog_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.settings import (
+from products.warehouse_sources.sources.datadog.settings import (
     DATADOG_API_VERSION_V1,
     DATADOG_DEFAULT_VERSION,
     DATADOG_ENDPOINTS,
@@ -38,10 +15,27 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.se
     INCREMENTAL_FIELDS,
     LIMITED_RETENTION_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.datadog import (
-    DatadogSourceConfig,
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ProductKey,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    VersionDeprecation,
+    detect,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -558,9 +552,7 @@ Error tracking issues, error spans, error logs, and monitor alerts are off by de
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.datadog.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

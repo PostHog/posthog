@@ -5,21 +5,14 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lambdalabs import (
-    LambdaLabsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.lambda_labs.lambda_labs import (
+from products.warehouse_sources.sources.lambda_labs._config import LambdaLabsSourceConfig
+from products.warehouse_sources.sources.lambda_labs.lambda_labs import (
     LambdaLabsResumeConfig,
     _format_iso8601,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.lambda_labs.source import LambdaLabsSource
+from products.warehouse_sources.sources.lambda_labs.source import LambdaLabsSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

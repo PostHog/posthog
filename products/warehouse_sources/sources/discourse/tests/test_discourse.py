@@ -7,18 +7,9 @@ from unittest.mock import patch
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    Script,
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.discourse import discourse
-from products.warehouse_sources.backend.temporal.data_imports.sources.discourse.discourse import (
+from products.warehouse_sources.sources.discourse import discourse
+from products.warehouse_sources.sources.discourse._config import DiscourseSourceConfig
+from products.warehouse_sources.sources.discourse.discourse import (
     POSTS_PAGE_SIZE,
     DiscourseHostNotAllowedError,
     DiscoursePostsPaginator,
@@ -28,10 +19,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.discourse.
     normalize_base_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.discourse.settings import USER_ACTIONS_PAGE_SIZE
-from products.warehouse_sources.backend.temporal.data_imports.sources.discourse.source import DiscourseSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.discourse import (
-    DiscourseSourceConfig,
+from products.warehouse_sources.sources.discourse.settings import USER_ACTIONS_PAGE_SIZE
+from products.warehouse_sources.sources.discourse.source import DiscourseSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import (
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
 )
 
 BASE_URL = "https://forum.example.com"

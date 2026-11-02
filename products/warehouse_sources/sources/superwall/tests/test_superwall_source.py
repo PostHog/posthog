@@ -2,14 +2,9 @@ import pytest
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.superwall import (
-    SuperwallSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.superwall.source import SuperwallSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
+from products.warehouse_sources.sources.superwall._config import SuperwallSourceConfig
+from products.warehouse_sources.sources.superwall.source import SuperwallSource
 
 
 @pytest.mark.parametrize(

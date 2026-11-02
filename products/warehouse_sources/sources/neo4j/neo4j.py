@@ -5,19 +5,15 @@ from urllib.parse import quote, urlsplit
 
 from requests.auth import HTTPBasicAuth
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
-    DEFAULT_RETRY,
-    make_tracked_session,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.neo4j import Neo4jSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.neo4j.settings import (
+from products.warehouse_sources.sources.neo4j._config import Neo4jSourceConfig
+from products.warehouse_sources.sources.neo4j.settings import (
     API_VERSION,
     MAX_ROWS_PER_SYNC,
     NON_RETRYABLE_ERRORS,
     PAGE_SIZE,
     REQUEST_TIMEOUT,
 )
+from products.warehouse_sources.sources.sdk import DEFAULT_RETRY, SourceResponse, make_tracked_session
 
 
 class Neo4jQueryError(Exception):
@@ -30,7 +26,7 @@ class Neo4jClient:
         self.team_id = team_id
 
     def query(self, statement: str, parameters: dict[str, int | str] | None = None) -> list[dict[str, Any]]:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+        from products.warehouse_sources.sources.sdk import (
             ValidateDatabaseHostMixin,  # noqa: PLC0415 - Keep Django models off the config import path.
         )
 

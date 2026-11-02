@@ -1,13 +1,8 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.coolify.source import CoolifySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coolify import (
-    CoolifySourceConfig,
-)
+from products.warehouse_sources.sources.coolify._config import CoolifySourceConfig
+from products.warehouse_sources.sources.coolify.source import CoolifySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 def _config() -> CoolifySourceConfig:

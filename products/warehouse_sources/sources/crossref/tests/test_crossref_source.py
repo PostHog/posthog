@@ -3,14 +3,9 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.crossref.source import CrossrefSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.crossref import (
-    CrossrefSourceConfig,
-)
+from products.warehouse_sources.sources.crossref._config import CrossrefSourceConfig
+from products.warehouse_sources.sources.crossref.source import CrossrefSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 class TestCrossrefSource:
@@ -27,9 +22,7 @@ class TestCrossrefSource:
             ("unscoped", None, None, None, False),
         ]
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.crossref.source.validate_crossref_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.crossref.source.validate_crossref_credentials")
     def test_validate_credentials_works_requires_scope(
         self, _name, member_id, funder_id, issn, expected_valid, mock_validate
     ):
@@ -43,9 +36,7 @@ class TestCrossrefSource:
             assert "member ID, funder ID, or journal ISSN" in (message or "")
 
     @pytest.mark.parametrize("schema_name", [None, "Members", "Funders", "Types", "Licenses", "Journals"])
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.crossref.source.validate_crossref_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.crossref.source.validate_crossref_credentials")
     def test_validate_credentials_unscoped_endpoints_ignore_scope(self, mock_validate, schema_name):
         mock_validate.return_value = True
 
@@ -54,9 +45,7 @@ class TestCrossrefSource:
         assert is_valid is True
         assert message is None
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.crossref.source.validate_crossref_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.crossref.source.validate_crossref_credentials")
     def test_validate_credentials_unreachable_api(self, mock_validate):
         mock_validate.return_value = False
 
@@ -65,7 +54,7 @@ class TestCrossrefSource:
         assert is_valid is False
         assert message == "Couldn't reach the Crossref API. Please try again."
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.crossref.source.crossref_source")
+    @mock.patch("products.warehouse_sources.sources.crossref.source.crossref_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_crossref_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "Works"

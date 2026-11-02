@@ -4,7 +4,8 @@ from unittest.mock import Mock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.cast_ai.cast_ai import (
+from products.warehouse_sources.sources.cast_ai._config import CastAiSourceConfig
+from products.warehouse_sources.sources.cast_ai.cast_ai import (
     CastAiResumeConfig,
     _client_config,
     _format_time_value,
@@ -13,19 +14,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cast_ai.ca
     get_resource,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.cast_ai.settings import (
+from products.warehouse_sources.sources.cast_ai.settings import (
     COST_REPORT_STEP_SECONDS,
     WORKLOAD_PRIMARY_KEY,
     WORKLOAD_REPORT_STEP_SECONDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.cast_ai.source import CastAiSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.castai import CastAiSourceConfig
+from products.warehouse_sources.sources.cast_ai.source import CastAiSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _make_manager(resume_state: CastAiResumeConfig | None = None) -> Mock:
@@ -100,7 +95,7 @@ class TestCastAiValidateCredentials:
 
 
 class TestCastAiSourceTopLevel:
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cast_ai.cast_ai.rest_api_resource")
+    @patch("products.warehouse_sources.sources.cast_ai.cast_ai.rest_api_resource")
     def test_saves_checkpoints_after_batches(self, mock_rest_api_resource) -> None:
         mock_rest_api_resource.return_value = Mock()
         manager = _make_manager()
@@ -267,7 +262,7 @@ class TestCastAiFanoutWiring:
             ("non_incremental", False, datetime(2026, 3, 1, tzinfo=UTC)),
         ]
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cast_ai.cast_ai.build_dependent_resource")
+    @patch("products.warehouse_sources.sources.cast_ai.cast_ai.build_dependent_resource")
     def test_passes_watermark(
         self, _name, should_use_incremental_field, last_value, mock_build_dependent_resource
     ) -> None:

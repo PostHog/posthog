@@ -1,13 +1,8 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.folk.source import FolkSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.folk import FolkSourceConfig
+from products.warehouse_sources.sources.folk._config import FolkSourceConfig
+from products.warehouse_sources.sources.folk.source import FolkSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 class TestFolkValidateCredentials:

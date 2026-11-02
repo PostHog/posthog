@@ -13,25 +13,24 @@ from botocore.loaders import Loader
 from botocore.model import ServiceModel
 from botocore.serialize import create_serializer
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_macie.settings import (
+from products.warehouse_sources.sources.aws_macie.settings import (
     BUCKET_PAGE_SIZE,
     ERROR_MESSAGES,
     MACIE_API_VERSION,
     MACIE_ENDPOINTS,
     USAGE_TIME_RANGE,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import probe_status_message
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.sources.sdk import (
+    BoundedRetry,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    probe_status_message,
+)
 
 if TYPE_CHECKING:
-    from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-    from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsmacie import (
-        AwsMacieSourceConfig,
-    )
+    from products.warehouse_sources.sources.aws_macie._config import AwsMacieSourceConfig
+    from products.warehouse_sources.sources.sdk import ResumableSourceManager
 
 
 @frozen

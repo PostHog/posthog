@@ -2,18 +2,10 @@ from typing import Any, cast
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.strato import StratoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.strato.source import StratoSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.strato.strato import (
-    get_resource,
-    validate_credentials,
-)
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.strato._config import StratoSourceConfig
+from products.warehouse_sources.sources.strato.source import StratoSource
+from products.warehouse_sources.sources.strato.strato import get_resource, validate_credentials
 
 
 def _driver(api_token: str = "token") -> SourceDriver:

@@ -1,31 +1,26 @@
 from typing import cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.testdino import (
-    TestDinoSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.testdino.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.testdino.settings import (
+from products.warehouse_sources.sources.testdino._config import TestDinoSourceConfig
+from products.warehouse_sources.sources.testdino.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.testdino.settings import (
     API_VERSION,
     CASE_LIMIT_ERROR,
     ENDPOINTS,
@@ -33,12 +28,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.testdino.s
     INVALID_PROJECT,
     INVALID_TOKEN,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.testdino.testdino import (
+from products.warehouse_sources.sources.testdino.testdino import (
     TestDinoResumeConfig,
     testdino_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register

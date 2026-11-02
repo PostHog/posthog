@@ -1,14 +1,9 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.bloomerang.bloomerang import BASE_URL
-from products.warehouse_sources.backend.temporal.data_imports.sources.bloomerang.source import BloomerangSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bloomerang import (
-    BloomerangSourceConfig,
-)
+from products.warehouse_sources.sources.bloomerang._config import BloomerangSourceConfig
+from products.warehouse_sources.sources.bloomerang.bloomerang import BASE_URL
+from products.warehouse_sources.sources.bloomerang.source import BloomerangSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 _INCREMENTAL_ENDPOINTS = {"Constituents"}
 _FULL_REFRESH_ENDPOINTS = {"Transactions", "Interactions", "Appeals", "Campaigns", "Funds"}

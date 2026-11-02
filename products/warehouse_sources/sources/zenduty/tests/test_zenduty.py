@@ -6,16 +6,10 @@ from unittest.mock import MagicMock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zenduty import (
-    ZendutySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.zenduty.source import ZendutySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.zenduty.zenduty import (
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
+from products.warehouse_sources.sources.zenduty._config import ZendutySourceConfig
+from products.warehouse_sources.sources.zenduty.source import ZendutySource
+from products.warehouse_sources.sources.zenduty.zenduty import (
     ZendutyResumeConfig,
     ZendutyRetryableError,
     _extract_items_and_next,

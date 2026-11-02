@@ -5,16 +5,11 @@ import pytest
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    RecordedRequest,
-    RunStopped,
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.crisp import crisp as crisp_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.crisp.crisp import CrispResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.crisp.source import CrispSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.crisp import CrispSourceConfig
+from products.warehouse_sources.sources.crisp import crisp as crisp_module
+from products.warehouse_sources.sources.crisp._config import CrispSourceConfig
+from products.warehouse_sources.sources.crisp.crisp import CrispResumeConfig
+from products.warehouse_sources.sources.crisp.source import CrispSource
+from products.warehouse_sources.sources.sdk.testing import RecordedRequest, RunStopped, ScriptedResponse, SourceDriver
 
 
 def page(rows: list[dict[str, Any]]) -> ScriptedResponse:

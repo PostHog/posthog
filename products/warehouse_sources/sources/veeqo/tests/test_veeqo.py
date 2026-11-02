@@ -5,7 +5,7 @@ from typing import Any
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     Script,
     ScriptedResponse,
@@ -13,10 +13,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     route,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.veeqo import VeeqoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.veeqo.settings import VEEQO_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.veeqo.source import VeeqoSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.veeqo.veeqo import (
+from products.warehouse_sources.sources.veeqo._config import VeeqoSourceConfig
+from products.warehouse_sources.sources.veeqo.settings import VEEQO_ENDPOINTS
+from products.warehouse_sources.sources.veeqo.source import VeeqoSource
+from products.warehouse_sources.sources.veeqo.veeqo import (
     VeeqoPaginator,
     VeeqoResumeConfig,
     _build_initial_params,

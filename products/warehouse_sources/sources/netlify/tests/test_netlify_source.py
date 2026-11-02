@@ -1,7 +1,7 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.netlify import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.netlify.source import NetlifySource
+from products.warehouse_sources.sources.netlify import source as source_module
+from products.warehouse_sources.sources.netlify.source import NetlifySource
 
 
 class TestNetlifyValidateCredentials:

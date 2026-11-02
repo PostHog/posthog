@@ -7,8 +7,8 @@ from unittest.mock import MagicMock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.nuget import nuget
-from products.warehouse_sources.backend.temporal.data_imports.sources.nuget.nuget import (
+from products.warehouse_sources.sources.nuget import nuget
+from products.warehouse_sources.sources.nuget.nuget import (
     MAX_PACKAGES,
     MAX_VALIDATED_PACKAGES,
     NugetPackageNotFoundError,

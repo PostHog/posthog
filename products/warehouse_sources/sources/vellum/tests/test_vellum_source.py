@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.vellum.source import VellumSource
+from products.warehouse_sources.sources.vellum.source import VellumSource
 
 
 class TestVellumValidateCredentials:
@@ -17,7 +17,7 @@ class TestVellumValidateCredentials:
         source = VellumSource()
         config = MagicMock(api_key="test-key")
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.vellum.source.check_credentials",
+            "products.warehouse_sources.sources.vellum.source.check_credentials",
             return_value=probe_result,
         ):
             ok, msg = source.validate_credentials(config, team_id=1)

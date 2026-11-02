@@ -2,8 +2,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.harvey import HarveySourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.harvey.source import HarveySource
+from products.warehouse_sources.sources.harvey._config import HarveySourceConfig
+from products.warehouse_sources.sources.harvey.source import HarveySource
 
 
 class TestHarveySource:
@@ -47,9 +47,7 @@ class TestHarveySource:
         else:
             assert [f["field"] for f in schema.incremental_fields] == [incremental_field]
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.harvey.source.validate_harvey_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.harvey.source.validate_harvey_credentials")
     def test_validate_credentials_failure(self, mock_validate: mock.MagicMock) -> None:
         mock_validate.return_value = False
 
@@ -64,10 +62,8 @@ class TestHarveySource:
             ("no_access", "Your API token does not have permission for this endpoint.", False),
         ]
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.harvey.source.check_endpoint_access")
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.harvey.source.validate_harvey_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.harvey.source.check_endpoint_access")
+    @mock.patch("products.warehouse_sources.sources.harvey.source.validate_harvey_credentials")
     def test_validate_credentials_with_schema_name_checks_endpoint_access(
         self,
         _name: str,
@@ -85,7 +81,7 @@ class TestHarveySource:
         assert error_message == access_reason
         mock_access.assert_called_once_with("test-token", "us", "audit_logs")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.harvey.source.check_endpoint_access")
+    @mock.patch("products.warehouse_sources.sources.harvey.source.check_endpoint_access")
     def test_get_endpoint_permissions(self, mock_access: mock.MagicMock) -> None:
         mock_access.side_effect = lambda api_key, region, endpoint: (
             "missing permission" if endpoint == "vault_projects" else None

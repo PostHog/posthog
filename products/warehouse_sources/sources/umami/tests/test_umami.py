@@ -2,15 +2,11 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    route,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.umami import UmamiSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.umami.settings import DAY_MS
-from products.warehouse_sources.backend.temporal.data_imports.sources.umami.source import UmamiSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.umami.umami import UmamiResumeState
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, route
+from products.warehouse_sources.sources.umami._config import UmamiSourceConfig
+from products.warehouse_sources.sources.umami.settings import DAY_MS
+from products.warehouse_sources.sources.umami.source import UmamiSource
+from products.warehouse_sources.sources.umami.umami import UmamiResumeState
 
 START = 1704067200000
 

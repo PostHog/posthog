@@ -1,17 +1,17 @@
 from pathlib import Path
 from typing import ClassVar
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
+    SourceRegistry,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source import MongoDBSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.sources.sdk.internals import MongoDBSource
 
 # DocumentDB certificates chain to Amazon's own CAs, which certifi does not ship. Refresh from
 # https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem when AWS adds a CA.

@@ -6,29 +6,27 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.helpscout._config import HelpScoutSourceConfig
+from products.warehouse_sources.sources.helpscout.helpscout import (
+    HelpScoutResumeConfig,
+    _client_config,
+    validate_credentials,
+)
+from products.warehouse_sources.sources.helpscout.settings import (
+    ENDPOINTS,
+    HELP_SCOUT_API_BASE,
+    HELP_SCOUT_API_BASE_V3,
+    HELP_SCOUT_ENDPOINTS,
+)
+from products.warehouse_sources.sources.helpscout.source import HelpScoutSource
+from products.warehouse_sources.sources.sdk import BearerTokenAuth
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     Script,
     ScriptedResponse,
     SourceDriver,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.helpscout import (
-    HelpScoutSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.helpscout.helpscout import (
-    HelpScoutResumeConfig,
-    _client_config,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.helpscout.settings import (
-    ENDPOINTS,
-    HELP_SCOUT_API_BASE,
-    HELP_SCOUT_API_BASE_V3,
-    HELP_SCOUT_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.helpscout.source import HelpScoutSource
 
 
 def _page(embedded_key: str, items: list[dict[str, Any]], next_url: str | None = None) -> ScriptedResponse:

@@ -7,16 +7,9 @@ from unittest.mock import MagicMock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    RecordedRequest,
-    Script,
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub import dockerhub
-from products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.dockerhub import (
+from products.warehouse_sources.sources.dockerhub import dockerhub
+from products.warehouse_sources.sources.dockerhub._config import DockerhubSourceConfig
+from products.warehouse_sources.sources.dockerhub.dockerhub import (
     DOCKERHUB_BASE_URL,
     PAGE_SIZE,
     DockerhubAuthExpiredError,
@@ -33,14 +26,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.
     get_rows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.settings import (
-    DOCKERHUB_ENDPOINTS,
-    ENDPOINTS,
-    ORG_SCOPED_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.source import DockerhubSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dockerhub import (
-    DockerhubSourceConfig,
+from products.warehouse_sources.sources.dockerhub.settings import DOCKERHUB_ENDPOINTS, ENDPOINTS, ORG_SCOPED_ENDPOINTS
+from products.warehouse_sources.sources.dockerhub.source import DockerhubSource
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
 )
 
 # Call the undecorated functions so the tenacity retry/backoff wrappers don't slow failure-path tests.

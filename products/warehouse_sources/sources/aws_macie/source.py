@@ -1,22 +1,13 @@
 from typing import cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_macie.aws_macie import (
+from products.warehouse_sources.sources.aws_macie._config import AwsMacieSourceConfig
+from products.warehouse_sources.sources.aws_macie.aws_macie import (
     AwsMacieResumeConfig,
     aws_macie_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_macie.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_macie.settings import (
+from products.warehouse_sources.sources.aws_macie.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.aws_macie.settings import (
     API_DOCS_URL,
     ENDPOINT_DESCRIPTIONS,
     ENDPOINTS,
@@ -24,21 +15,24 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_macie.
     INCREMENTAL_FIELDS,
     MACIE_API_VERSION,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+from products.warehouse_sources.sources.sdk import (
     CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsmacie import (
-    AwsMacieSourceConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register

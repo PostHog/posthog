@@ -1,9 +1,7 @@
 from datetime import date, datetime
 from typing import Any, Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.asaas.settings import (
+from products.warehouse_sources.sources.asaas.settings import (
     ENDPOINT_PARAMS,
     ENDPOINT_PATHS,
     FANOUT_PARENT_ID_COLUMNS,
@@ -12,23 +10,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.asaas.sett
     INCREMENTAL_FIELDS,
     TABLE_NAMES,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from products.warehouse_sources.sources.sdk import (
+    ClientConfig,
+    EndpointResource,
+    OffsetPaginator,
     RESTAPIConfig,
+    ResumableSourceManager,
+    frozen,
+    make_tracked_session,
+    rename_parent_fields,
     rest_api_resource,
     rest_api_resources,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    rename_parent_fields,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    OffsetPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-    ClientConfig,
-    EndpointResource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 SANDBOX_BASE_URL = "https://api-sandbox.asaas.com"
 PRODUCTION_BASE_URL = "https://api.asaas.com"

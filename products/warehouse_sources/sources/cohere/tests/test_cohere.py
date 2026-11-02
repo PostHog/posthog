@@ -2,19 +2,11 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.cohere import validate_credentials
-from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.settings import (
-    COHERE_ENDPOINTS,
-    RETIRED_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.source import CohereSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cohere import CohereSourceConfig
+from products.warehouse_sources.sources.cohere._config import CohereSourceConfig
+from products.warehouse_sources.sources.cohere.cohere import validate_credentials
+from products.warehouse_sources.sources.cohere.settings import COHERE_ENDPOINTS, RETIRED_ENDPOINTS
+from products.warehouse_sources.sources.cohere.source import CohereSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

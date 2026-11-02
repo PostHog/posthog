@@ -1,16 +1,7 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-    SourceFieldSelectConfig,
-    SourceFieldSelectConfigOption,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.coingecko import (
+from products.warehouse_sources.sources.coingecko._config import CoinGeckoSourceConfig
+from products.warehouse_sources.sources.coingecko.coingecko import (
     NO_COINS_ERROR,
     PLAN_DEMO,
     PLAN_PRO,
@@ -20,7 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.
     start_date_error,
     validate_credentials as validate_coingecko_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.settings import (
+from products.warehouse_sources.sources.coingecko.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     MAX_COINS,
@@ -29,21 +20,26 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.
     PRO_ONLY_ENDPOINTS,
     SHOULD_SYNC_DEFAULT,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+from products.warehouse_sources.sources.sdk import (
     CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coingecko import (
-    CoinGeckoSourceConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -126,9 +122,7 @@ The global market cap chart and NFT market tables need a Pro key on the Analyst 
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.coingecko.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

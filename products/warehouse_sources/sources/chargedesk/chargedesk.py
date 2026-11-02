@@ -8,26 +8,19 @@ from requests import Request, Response
 from requests.auth import HTTPBasicAuth
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.chargedesk.settings import (
-    CHARGEDESK_ENDPOINTS,
-    ChargedeskEndpointConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    build_dependent_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+from products.warehouse_sources.sources.chargedesk.settings import CHARGEDESK_ENDPOINTS, ChargedeskEndpointConfig
+from products.warehouse_sources.sources.sdk import (
+    BasePaginator,
     ClientConfig,
     IncrementalConfig,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    build_dependent_resource,
+    make_tracked_session,
+    rest_api_resource,
+    validate_via_probe,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 CHARGEDESK_BASE_URL = "https://api.chargedesk.com/v1"
 # A stalled read would hold the import worker for the whole activity, and the fan-out over charges

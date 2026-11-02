@@ -5,38 +5,28 @@ from urllib.parse import quote
 
 from requests import Request, Response
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-    rest_api_resources,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    build_dependent_resource,
-    rename_parent_fields,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from products.warehouse_sources.sources.crisp._config import CrispSourceConfig
+from products.warehouse_sources.sources.crisp.settings import CONVERSATION_PARAMS, ENDPOINTS, CrispEndpoint
+from products.warehouse_sources.sources.sdk import (
     BasePaginator,
-    PageNumberPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
     Endpoint,
     EndpointResource,
+    PageNumberPaginator,
+    Resource,
     ResponseAction,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceInputs,
+    SourceResponse,
+    build_dependent_resource,
+    frozen,
+    rename_parent_fields,
+    rest_api_resource,
+    rest_api_resources,
+    schema_for_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.crisp.settings import (
-    CONVERSATION_PARAMS,
-    ENDPOINTS,
-    CrispEndpoint,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.crisp import CrispSourceConfig
 
 # A window that one list page holds cannot lose a conversation to a page shift during the run.
 WINDOW_PAGE_SIZE = int(CONVERSATION_PARAMS["per_page"])

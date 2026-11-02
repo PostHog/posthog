@@ -1,7 +1,7 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.omni import OmniSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.omni.source import OmniSource
+from products.warehouse_sources.sources.omni._config import OmniSourceConfig
+from products.warehouse_sources.sources.omni.source import OmniSource
 
 
 class TestOmniSource:
@@ -10,9 +10,7 @@ class TestOmniSource:
         self.team_id = 123
         self.config = OmniSourceConfig(host="https://acme.omniapp.co", api_key="omni-key")
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.omni.source.get_omni_endpoint_permissions"
-    )
+    @mock.patch("products.warehouse_sources.sources.omni.source.get_omni_endpoint_permissions")
     def test_get_endpoint_permissions_delegates(self, mock_get_permissions):
         mock_get_permissions.return_value = {"Users": "some reason", "Documents": None}
 

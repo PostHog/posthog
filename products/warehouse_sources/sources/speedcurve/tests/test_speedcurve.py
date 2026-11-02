@@ -9,19 +9,11 @@ from unittest.mock import patch
 import responses
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.speedcurve import (
-    SpeedcurveSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.speedcurve.source import SpeedcurveSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.speedcurve.speedcurve import (
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import DriveResult, ScriptedResponse, SourceDriver
+from products.warehouse_sources.sources.speedcurve._config import SpeedcurveSourceConfig
+from products.warehouse_sources.sources.speedcurve.source import SpeedcurveSource
+from products.warehouse_sources.sources.speedcurve.speedcurve import (
     AUTH_ERROR,
     PERMISSION_ERROR,
     SpeedcurveResumeConfig,
@@ -34,9 +26,7 @@ BASE_URL = "https://api.speedcurve.com/v1/"
 
 @pytest.fixture(autouse=True)
 def fixed_clock() -> Iterator[None]:
-    with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.speedcurve.speedcurve.datetime"
-    ) as clock:
+    with patch("products.warehouse_sources.sources.speedcurve.speedcurve.datetime") as clock:
         clock.now.return_value = NOW
         yield
 

@@ -5,9 +5,8 @@ from urllib.parse import quote
 
 from requests import PreparedRequest
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.channel_io.settings import (
+from products.warehouse_sources.sources.channel_io._config import ChannelIOSourceConfig
+from products.warehouse_sources.sources.channel_io.settings import (
     CHANNEL_IO_BASE_URL,
     ENDPOINTS,
     MAX_FILTER_RANGE,
@@ -15,27 +14,22 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.channel_io
     USER_CHAT_STATES,
     ChannelIOEndpoint,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import AuthConfigBase
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import (
-    create_response_hooks,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from products.warehouse_sources.sources.sdk import (
+    AuthConfigBase,
+    ClientConfig,
     JSONResponseCursorPaginator,
+    RESTAPIConfig,
+    RESTClient,
+    ResumableSourceManager,
     SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.channelio import (
-    ChannelIOSourceConfig,
+    SourceInputs,
+    SourceResponse,
+    create_response_hooks,
+    frozen,
+    make_tracked_session,
+    parse_datetime_value,
+    rest_api_resource,
+    schema_for_resource,
 )
 
 Rows = list[dict[str, Any]]

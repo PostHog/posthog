@@ -5,7 +5,7 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
     ScriptedResponse,
@@ -14,14 +14,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     route,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zuora import ZuoraSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.zuora.settings import (
-    ENDPOINTS,
-    ZUORA_COMMERCE_ENDPOINTS,
-    ZUORA_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.zuora.source import ZuoraSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.zuora.zuora import (
+from products.warehouse_sources.sources.zuora._config import ZuoraSourceConfig
+from products.warehouse_sources.sources.zuora.settings import ENDPOINTS, ZUORA_COMMERCE_ENDPOINTS, ZUORA_ENDPOINTS
+from products.warehouse_sources.sources.zuora.source import ZuoraSource
+from products.warehouse_sources.sources.zuora.zuora import (
     ZUORA_INCOMPLETE_LIST_ERROR,
     ZuoraResumeConfig,
     _base_url,

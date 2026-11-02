@@ -7,27 +7,18 @@ from unittest.mock import MagicMock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    Script,
-    ScriptedResponse,
-    SourceDriver,
-    always,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.render import RenderSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.render import render
-from products.warehouse_sources.backend.temporal.data_imports.sources.render.render import (
+from products.warehouse_sources.sources.render import render
+from products.warehouse_sources.sources.render._config import RenderSourceConfig
+from products.warehouse_sources.sources.render.render import (
     RenderResumeConfig,
     RenderRetryableError,
     _build_params,
     _format_incremental_value,
     _unwrap_item,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.render.settings import (
-    RENDER_ENDPOINTS,
-    RenderEndpointConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.render.source import RenderSource
+from products.warehouse_sources.sources.render.settings import RENDER_ENDPOINTS, RenderEndpointConfig
+from products.warehouse_sources.sources.render.source import RenderSource
+from products.warehouse_sources.sources.sdk.testing import DriveResult, Script, ScriptedResponse, SourceDriver, always
 
 
 def _driver(owner_id: str | None = "tea-123") -> SourceDriver:

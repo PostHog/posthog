@@ -5,16 +5,11 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.blogger import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.blogger.source import BloggerSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.blogger import (
-    BloggerSourceConfig,
-)
+from products.warehouse_sources.sources.blogger import source as source_module
+from products.warehouse_sources.sources.blogger._config import BloggerSourceConfig
+from products.warehouse_sources.sources.blogger.source import BloggerSource
+from products.warehouse_sources.sources.sdk import SourceInputs
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 def _make_inputs(**overrides: Any) -> SourceInputs:

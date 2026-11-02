@@ -2,8 +2,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tempo import TempoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.tempo.source import TempoSource
+from products.warehouse_sources.sources.tempo._config import TempoSourceConfig
+from products.warehouse_sources.sources.tempo.source import TempoSource
 
 
 class TestTempoSource:
@@ -13,7 +13,7 @@ class TestTempoSource:
         self.config = TempoSourceConfig(api_token="tempo-token")
 
     @parameterized.expand([("at_create", None), ("for_schema", "worklogs")])
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.tempo.source.validate_credentials")
+    @mock.patch("products.warehouse_sources.sources.tempo.source.validate_credentials")
     def test_validate_credentials_delegates_with_token_and_schema(
         self, _name: str, schema_name: str | None, mock_validate: mock.MagicMock
     ) -> None:
@@ -38,7 +38,7 @@ class TestTempoSource:
             ("server_error", 500, None),
         ]
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.tempo.source.check_access")
+    @mock.patch("products.warehouse_sources.sources.tempo.source.check_access")
     def test_get_endpoint_permissions(
         self, _name: str, status: int, expected_reason: str | None, mock_check: mock.MagicMock
     ) -> None:
@@ -47,14 +47,12 @@ class TestTempoSource:
         assert permissions == {"teams": expected_reason}
 
     def test_get_endpoint_permissions_unknown_endpoint_is_not_probed(self) -> None:
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.tempo.source.check_access"
-        ) as mock_check:
+        with mock.patch("products.warehouse_sources.sources.tempo.source.check_access") as mock_check:
             permissions = self.source.get_endpoint_permissions(self.config, self.team_id, ["nope"])
         assert permissions == {"nope": None}
         mock_check.assert_not_called()
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.tempo.source.tempo_source")
+    @mock.patch("products.warehouse_sources.sources.tempo.source.tempo_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "worklogs"

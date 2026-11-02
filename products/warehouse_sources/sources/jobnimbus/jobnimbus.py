@@ -2,19 +2,17 @@ import dataclasses
 from collections.abc import Iterable, Iterator
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from products.warehouse_sources.sources.jobnimbus.settings import JOBNIMBUS_ENDPOINTS
+from products.warehouse_sources.sources.sdk import (
     OffsetPaginator,
+    Resource,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    make_tracked_session,
+    rest_api_resource,
+    validate_via_probe,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.jobnimbus.settings import JOBNIMBUS_ENDPOINTS
 
 JOBNIMBUS_BASE_URL = "https://app.jobnimbus.com/api1"
 # The Elasticsearch-backed list endpoints accept a `size` of up to 100; the largest page minimises

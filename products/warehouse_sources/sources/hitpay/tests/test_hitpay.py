@@ -3,28 +3,18 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hitpay import HitpaySourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.hitpay.hitpay import (
+from products.warehouse_sources.sources.hitpay._config import HitpaySourceConfig
+from products.warehouse_sources.sources.hitpay.hitpay import (
     HitpayResumeConfig,
     _format_date_filter,
     _paginator_for,
     base_url_for_environment,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.hitpay.settings import (
-    HITPAY_ENDPOINTS,
-    RECURRING_BILLING_STATUSES,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.hitpay.source import HitpaySource
+from products.warehouse_sources.sources.hitpay.settings import HITPAY_ENDPOINTS, RECURRING_BILLING_STATUSES
+from products.warehouse_sources.sources.hitpay.source import HitpaySource
+from products.warehouse_sources.sources.sdk import SinglePagePaginator
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 class TestBaseUrlForEnvironment:

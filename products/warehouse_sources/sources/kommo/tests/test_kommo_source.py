@@ -1,19 +1,12 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kommo import KommoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.kommo.settings import (
-    ENDPOINT_CONFIG,
-    INCREMENTAL_FIELDS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.kommo.source import KommoSource
+from products.warehouse_sources.sources.kommo._config import KommoSourceConfig
+from products.warehouse_sources.sources.kommo.settings import ENDPOINT_CONFIG, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.kommo.source import KommoSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.kommo.source"
+_MODULE = "products.warehouse_sources.sources.kommo.source"
 
 
 class TestKommoSource:

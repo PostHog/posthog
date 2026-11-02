@@ -3,21 +3,14 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.opnpayments import (
-    OpnPaymentsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.opn_payments.opn_payments import (
+from products.warehouse_sources.sources.opn_payments._config import OpnPaymentsSourceConfig
+from products.warehouse_sources.sources.opn_payments.opn_payments import (
     OpnPaymentsResumeConfig,
     _to_iso8601,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.opn_payments.source import OpnPaymentsSource
+from products.warehouse_sources.sources.opn_payments.source import OpnPaymentsSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _envelope(data: list[dict[str, Any]], offset: int, total: int, limit: int = 100) -> dict[str, Any]:

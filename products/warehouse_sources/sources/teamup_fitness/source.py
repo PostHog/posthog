@@ -2,42 +2,32 @@ from typing import cast
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.teamupfitness import (
-    TeamupFitnessSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.teamup_fitness.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.teamup_fitness.settings import (
-    ENDPOINTS,
-    NON_RETRYABLE_ERRORS,
-    PROVIDER_ERROR,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.teamup_fitness.teamup_fitness import (
+from products.warehouse_sources.sources.teamup_fitness._config import TeamupFitnessSourceConfig
+from products.warehouse_sources.sources.teamup_fitness.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.teamup_fitness.settings import ENDPOINTS, NON_RETRYABLE_ERRORS, PROVIDER_ERROR
+from products.warehouse_sources.sources.teamup_fitness.teamup_fitness import (
     TeamupFitnessResumeConfig,
     teamup_fitness_source,
     validate_credentials as validate_teamup_credentials,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register

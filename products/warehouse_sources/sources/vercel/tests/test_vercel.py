@@ -9,7 +9,7 @@ import requests
 from parameterized import parameterized
 from tenacity import wait_none
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     Script,
     ScriptedResponse,
@@ -17,11 +17,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vercel import VercelSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.vercel import vercel
-from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.settings import VERCEL_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.source import VercelSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.vercel import (
+from products.warehouse_sources.sources.vercel import vercel
+from products.warehouse_sources.sources.vercel._config import VercelSourceConfig
+from products.warehouse_sources.sources.vercel.settings import VERCEL_ENDPOINTS
+from products.warehouse_sources.sources.vercel.source import VercelSource
+from products.warehouse_sources.sources.vercel.vercel import (
     PAGE_SIZE,
     VercelResumeConfig,
     _billing_window_start,

@@ -1,9 +1,6 @@
 from datetime import timedelta
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.types import IncrementalField
+from products.warehouse_sources.sources.sdk import IncrementalField, frozen, incremental_field
 
 WAF_API_VERSION = "2019-07-29"
 TARGET_PREFIX = "AWSWAF_20190729"

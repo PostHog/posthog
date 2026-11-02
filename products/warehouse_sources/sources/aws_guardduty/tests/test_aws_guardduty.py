@@ -6,7 +6,8 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_guardduty.aws_guardduty import (
+from products.warehouse_sources.sources.aws_guardduty._config import AwsGuarddutySourceConfig
+from products.warehouse_sources.sources.aws_guardduty.aws_guardduty import (
     AwsGuarddutyClient,
     AwsGuarddutyError,
     AwsGuarddutyResumeConfig,
@@ -15,17 +16,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_guardd
     validate_credentials,
     watermark_milliseconds,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_guardduty.source import AwsGuarddutySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.aws_guardduty.source import AwsGuarddutySource
+from products.warehouse_sources.sources.sdk import UnknownResourceError
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsguardduty import (
-    AwsGuarddutySourceConfig,
 )
 
 VERSION = "2017-11-28"

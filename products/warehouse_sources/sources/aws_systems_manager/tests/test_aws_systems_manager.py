@@ -9,10 +9,9 @@ from unittest.mock import MagicMock, patch
 import requests
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_systems_manager import (
-    aws_systems_manager as transport,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_systems_manager.aws_systems_manager import (
+from products.warehouse_sources.sources.aws_systems_manager import aws_systems_manager as transport
+from products.warehouse_sources.sources.aws_systems_manager._config import AwsSystemsManagerSourceConfig
+from products.warehouse_sources.sources.aws_systems_manager.aws_systems_manager import (
     SystemsManagerClient,
     SystemsManagerError,
     SystemsManagerResumeConfig,
@@ -21,21 +20,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_system
     error_for_response,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_systems_manager.settings import API_VERSION
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_systems_manager.source import (
-    AwsSystemsManagerSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awssystemsmanager import (
-    AwsSystemsManagerSourceConfig,
-)
+from products.warehouse_sources.sources.aws_systems_manager.settings import API_VERSION
+from products.warehouse_sources.sources.aws_systems_manager.source import AwsSystemsManagerSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceInputs, SourceResponse
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def response(body: object, status: int = 200, headers: dict[str, str] | None = None) -> requests.Response:

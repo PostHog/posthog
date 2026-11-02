@@ -1,8 +1,8 @@
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.xmatters.source import XmattersSource
+from products.warehouse_sources.sources.xmatters.source import XmattersSource
 
-XMATTERS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.xmatters"
+XMATTERS_MODULE = "products.warehouse_sources.sources.xmatters"
 
 
 class TestXmattersSource:

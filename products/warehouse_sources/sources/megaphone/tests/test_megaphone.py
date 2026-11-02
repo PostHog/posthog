@@ -3,18 +3,16 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.megaphone._config import MegaphoneSourceConfig
+from products.warehouse_sources.sources.megaphone.megaphone import MegaphoneResumeConfig
+from products.warehouse_sources.sources.megaphone.source import MegaphoneSource
+from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
     route,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.megaphone import (
-    MegaphoneSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.megaphone.megaphone import MegaphoneResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.megaphone.source import MegaphoneSource
 
 API_TOKEN = "test-megaphone-token"
 ORG_ID = "3ea516ea-a2d1-11e6-8e62-83147939747c"

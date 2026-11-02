@@ -1,27 +1,7 @@
 from typing import Any, Optional, cast
 
-from posthog.schema_enums import ProductKey
-
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.langsmith import (
-    LangSmithSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.langsmith import (
+from products.warehouse_sources.sources.langsmith._config import LangSmithSourceConfig
+from products.warehouse_sources.sources.langsmith.langsmith import (
     DEFAULT_BASE_URL,
     PAGINATION_TOO_LARGE_ERROR,
     REPEATED_CURSOR_ERROR,
@@ -33,13 +13,30 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.
     normalize_base_url,
     validate_credentials as validate_langsmith_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.settings import (
+from products.warehouse_sources.sources.langsmith.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     LANGSMITH_ENDPOINTS,
     RUNS_SELECT_FIELDS,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ProductKey,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    detect,
+)
 
 
 @SourceRegistry.register
@@ -126,9 +123,7 @@ Leave the **Host** field blank for the US cloud (`api.smith.langchain.com`). Set
         return ["host"]
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.langsmith.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

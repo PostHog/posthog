@@ -1,10 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-)
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField, IncrementalFieldType
 
 BASE_URL = "https://api.trustpilot.com/v1"
 TOKEN_URL = "https://api.trustpilot.com/v1/oauth/oauth-business-users-for-applications/accesstoken"

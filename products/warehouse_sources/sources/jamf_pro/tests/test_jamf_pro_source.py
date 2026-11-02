@@ -1,10 +1,7 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jamfpro import (
-    JamfProAuthMethodConfig,
-    JamfProSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.jamf_pro.source import JamfProSource
+from products.warehouse_sources.sources.jamf_pro._config import JamfProAuthMethodConfig, JamfProSourceConfig
+from products.warehouse_sources.sources.jamf_pro.source import JamfProSource
 
 
 class TestJamfProSource:
@@ -23,7 +20,7 @@ class TestJamfProSource:
         # and exfiltrate the preserved credentials.
         assert self.source.connection_host_fields == ["instance_url"]
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.jamf_pro.source.jamf_pro_source")
+    @mock.patch("products.warehouse_sources.sources.jamf_pro.source.jamf_pro_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_jamf_pro_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "computers"
@@ -43,7 +40,7 @@ class TestJamfProSource:
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2024-01-01T00:00:00.000Z"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.jamf_pro.source.jamf_pro_source")
+    @mock.patch("products.warehouse_sources.sources.jamf_pro.source.jamf_pro_source")
     def test_source_for_pipeline_omits_last_value_when_not_incremental(self, mock_jamf_pro_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "buildings"

@@ -2,36 +2,31 @@ from typing import cast
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.telli import TelliSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.telli.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.telli.telli import (
+from products.warehouse_sources.sources.telli._config import TelliSourceConfig
+from products.warehouse_sources.sources.telli.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.telli.telli import (
     TelliResumeConfig,
     telli_source,
     validate_credentials as validate_telli_credentials,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 AUTH_ERRORS = {
     401: "Your telli API key is invalid or expired. Create a new key in Settings > Developer and reconnect.",
@@ -58,9 +53,7 @@ class TelliSource(ResumableSource[TelliSourceConfig, TelliResumeConfig]):
         return {f"{status} Client Error": message for status, message in AUTH_ERRORS.items()}
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.telli.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.telli.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

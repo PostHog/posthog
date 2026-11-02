@@ -5,12 +5,8 @@ from unittest.mock import MagicMock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.dataforseo import (
+from products.warehouse_sources.sources.dataforseo._config import DataForSEOSourceConfig
+from products.warehouse_sources.sources.dataforseo.dataforseo import (
     DATAFORSEO_BASE_URL,
     MAX_PAGES_PER_TARGET,
     PAGE_SIZE,
@@ -21,15 +17,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo
     _request_task,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.settings import (
-    DATAFORSEO_ENDPOINTS,
-    ENDPOINTS,
-    KEYWORD_SCOPES,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.source import DataForSEOSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dataforseo import (
-    DataForSEOSourceConfig,
-)
+from products.warehouse_sources.sources.dataforseo.settings import DATAFORSEO_ENDPOINTS, ENDPOINTS, KEYWORD_SCOPES
+from products.warehouse_sources.sources.dataforseo.source import DataForSEOSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 TARGETED_ENDPOINTS = [name for name, config in DATAFORSEO_ENDPOINTS.items() if config.scope == "target"]
 UNTARGETED_ENDPOINTS = [name for name, config in DATAFORSEO_ENDPOINTS.items() if config.scope != "target"]

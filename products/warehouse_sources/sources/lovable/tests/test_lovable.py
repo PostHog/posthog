@@ -3,16 +3,8 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lovable import (
-    LovableSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.lovable.lovable import (
+from products.warehouse_sources.sources.lovable._config import LovableSourceConfig
+from products.warehouse_sources.sources.lovable.lovable import (
     LovableResumeConfig,
     _ParentRef,
     analytics_window,
@@ -20,7 +12,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lovable.lo
     resume_position,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.lovable.source import LovableSource
+from products.warehouse_sources.sources.lovable.source import LovableSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _page(rows: list[dict[str, Any]], next_cursor: str | None = None) -> ScriptedResponse:

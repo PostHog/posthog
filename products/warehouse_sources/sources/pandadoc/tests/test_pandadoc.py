@@ -2,24 +2,17 @@ from datetime import UTC, date, datetime
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pandadoc import (
-    PandaDocSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.pandadoc.pandadoc import (
+from products.warehouse_sources.sources.pandadoc._config import PandaDocSourceConfig
+from products.warehouse_sources.sources.pandadoc.pandadoc import (
     PAGE_SIZE,
     PandaDocResumeConfig,
     _build_query_params,
     _format_date_filter,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.pandadoc.settings import PANDADOC_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.pandadoc.source import PandaDocSource
+from products.warehouse_sources.sources.pandadoc.settings import PANDADOC_ENDPOINTS
+from products.warehouse_sources.sources.pandadoc.source import PandaDocSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, route, scripted_network
 
 
 class TestFormatDateFilter:

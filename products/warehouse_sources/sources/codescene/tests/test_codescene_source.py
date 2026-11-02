@@ -1,7 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.codescene.source import CodesceneSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.codescene import (
-    CodesceneSourceConfig,
-)
+from products.warehouse_sources.sources.codescene._config import CodesceneSourceConfig
+from products.warehouse_sources.sources.codescene.source import CodesceneSource
 
 
 class TestCodesceneSource:

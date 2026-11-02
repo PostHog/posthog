@@ -3,25 +3,16 @@ from typing import Any, cast
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.courier._config import CourierSourceConfig
+from products.warehouse_sources.sources.courier.courier import CourierResumeConfig, get_resource, validate_credentials
+from products.warehouse_sources.sources.courier.settings import ENDPOINTS_CONFIG, FANOUT_ENDPOINT_CONFIGS
+from products.warehouse_sources.sources.courier.source import CourierSource
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.courier.courier import (
-    CourierResumeConfig,
-    get_resource,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.courier.settings import (
-    ENDPOINTS_CONFIG,
-    FANOUT_ENDPOINT_CONFIGS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.courier.source import CourierSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.courier import (
-    CourierSourceConfig,
 )
 
 

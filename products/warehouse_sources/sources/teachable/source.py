@@ -1,40 +1,36 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.teachable import (
-    TeachableSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.teachable.settings import (
+from products.warehouse_sources.sources.teachable._config import TeachableSourceConfig
+from products.warehouse_sources.sources.teachable.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     TEACHABLE_API_VERSION_V1,
     TEACHABLE_API_VERSION_V2,
     TRANSACTIONS_INCREMENTAL_LOOKBACK_SECONDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.teachable.teachable import (
+from products.warehouse_sources.sources.teachable.teachable import (
     TeachableResumeConfig,
     teachable_source,
     validate_credentials as validate_teachable_credentials,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -59,9 +55,7 @@ class TeachableSource(ResumableSource[TeachableSourceConfig, TeachableResumeConf
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.teachable.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.teachable.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

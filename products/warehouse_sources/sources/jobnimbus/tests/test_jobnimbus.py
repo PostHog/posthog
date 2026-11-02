@@ -3,22 +3,15 @@ from typing import Any
 from parameterized import parameterized
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jobnimbus import (
-    JobNimbusSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.jobnimbus.jobnimbus import (
+from products.warehouse_sources.sources.jobnimbus._config import JobNimbusSourceConfig
+from products.warehouse_sources.sources.jobnimbus.jobnimbus import (
     PAGE_SIZE,
     JobNimbusResumeConfig,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.jobnimbus.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.jobnimbus.source import JobNimbusSource
+from products.warehouse_sources.sources.jobnimbus.settings import ENDPOINTS
+from products.warehouse_sources.sources.jobnimbus.source import JobNimbusSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

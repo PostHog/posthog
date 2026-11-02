@@ -7,24 +7,20 @@ import time_machine
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.prompting_company._config import PromptingCompanySourceConfig
+from products.warehouse_sources.sources.prompting_company.prompting_company import (
+    PromptingCompanyResumeConfig,
+    prompting_company_source,
+    validate_credentials,
+)
+from products.warehouse_sources.sources.prompting_company.source import PromptingCompanySource
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
     source_inputs,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.promptingcompany import (
-    PromptingCompanySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.prompting_company.prompting_company import (
-    PromptingCompanyResumeConfig,
-    prompting_company_source,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.prompting_company.source import (
-    PromptingCompanySource,
 )
 
 

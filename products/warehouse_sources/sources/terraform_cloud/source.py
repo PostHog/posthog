@@ -1,35 +1,30 @@
 import re
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.terraformcloud import (
-    TerraformCloudSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.terraform_cloud.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.terraform_cloud.terraform_cloud import (
+from products.warehouse_sources.sources.terraform_cloud._config import TerraformCloudSourceConfig
+from products.warehouse_sources.sources.terraform_cloud.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.terraform_cloud.terraform_cloud import (
     TerraformCloudResumeConfig,
     terraform_cloud_source,
     validate_credentials as validate_terraform_cloud_credentials,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # HCP Terraform organization names: letters, digits, hyphens, underscores.
 _ORGANIZATION_NAME_REGEX = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9-_]*$")
@@ -88,7 +83,7 @@ Only the SaaS API at `app.terraform.io` is supported; self-hosted Terraform Ente
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.terraform_cloud.canonical_descriptions import (  # noqa: PLC0415 — lazy import of sibling metadata, per the source architecture contract
+        from products.warehouse_sources.sources.terraform_cloud.canonical_descriptions import (  # noqa: PLC0415 — lazy import of sibling metadata, per the source architecture contract
             CANONICAL_DESCRIPTIONS,
         )
 

@@ -5,30 +5,18 @@ import time_machine
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.my_hours._config import MyHoursSourceConfig
+from products.warehouse_sources.sources.my_hours.my_hours import MY_HOURS_BASE_URL, MyHoursApiKeyAuth, check_access
+from products.warehouse_sources.sources.my_hours.settings import ENDPOINTS, MY_HOURS_ENDPOINTS, TEAMS_UNAVAILABLE_ERROR
+from products.warehouse_sources.sources.my_hours.source import MyHoursSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.myhours import (
-    MyHoursSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.my_hours.my_hours import (
-    MY_HOURS_BASE_URL,
-    MyHoursApiKeyAuth,
-    check_access,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.my_hours.settings import (
-    ENDPOINTS,
-    MY_HOURS_ENDPOINTS,
-    TEAMS_UNAVAILABLE_ERROR,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.my_hours.source import MyHoursSource
 
 
 def _driver() -> SourceDriver:

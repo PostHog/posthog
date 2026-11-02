@@ -1,28 +1,25 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sendgrid import (
-    SendGridSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.sendgrid import (
+from products.warehouse_sources.sources.sendgrid._config import SendGridSourceConfig
+from products.warehouse_sources.sources.sendgrid.sendgrid import (
     SendGridResumeConfig,
     get_endpoint_permissions as get_sendgrid_endpoint_permissions,
     get_endpoint_status_code,
@@ -30,13 +27,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.s
     permission_error_for,
     sendgrid_source,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.settings import (
+from products.warehouse_sources.sources.sendgrid.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     SENDGRID_ENDPOINTS,
     SHOULD_SYNC_DEFAULT,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -91,9 +87,7 @@ class SendGridSource(ResumableSource[SendGridSourceConfig, SendGridResumeConfig]
         return ExternalDataSourceType.SENDGRID
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.sendgrid.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

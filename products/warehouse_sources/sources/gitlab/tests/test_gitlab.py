@@ -4,16 +4,9 @@ from typing import Any, Optional
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gitlab import GitLabSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.gitlab import gitlab as gitlab_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.gitlab.gitlab import (
+from products.warehouse_sources.sources.gitlab import gitlab as gitlab_module
+from products.warehouse_sources.sources.gitlab._config import GitLabSourceConfig
+from products.warehouse_sources.sources.gitlab.gitlab import (
     HOST_NOT_ALLOWED_ERROR,
     GitLabResumeConfig,
     _build_initial_params,
@@ -25,8 +18,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gitlab.git
     normalize_host,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.gitlab.settings import GITLAB_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.gitlab.source import GitLabSource
+from products.warehouse_sources.sources.gitlab.settings import GITLAB_ENDPOINTS
+from products.warehouse_sources.sources.gitlab.source import GitLabSource
+from products.warehouse_sources.sources.sdk.testing import (
+    DriveResult,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 
 
 def _driver(host: str = "https://gitlab.com") -> SourceDriver:
@@ -555,17 +555,14 @@ class TestRetryAfter:
         ],
     )
     def test_parse_retry_after(self, header, expected):
-        from products.warehouse_sources.backend.temporal.data_imports.sources.gitlab.gitlab import _parse_retry_after
+        from products.warehouse_sources.sources.gitlab.gitlab import _parse_retry_after
 
         response = mock.MagicMock()
         response.headers = header
         assert _parse_retry_after(response) == expected
 
     def test_retry_wait_prefers_retry_after(self):
-        from products.warehouse_sources.backend.temporal.data_imports.sources.gitlab.gitlab import (
-            GitLabRetryableError,
-            _retry_wait,
-        )
+        from products.warehouse_sources.sources.gitlab.gitlab import GitLabRetryableError, _retry_wait
 
         state = mock.MagicMock()
         state.outcome.exception.return_value = GitLabRetryableError("rate limited", retry_after=7.0)

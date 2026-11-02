@@ -6,21 +6,16 @@ from urllib.parse import parse_qs
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.workday import (
-    WorkdaySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.workday.settings import (
-    WORKDAY_ENDPOINTS,
-    build_endpoint_path,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.workday.source import WorkdaySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.workday.workday import (
+from products.warehouse_sources.sources.workday._config import WorkdaySourceConfig
+from products.warehouse_sources.sources.workday.settings import WORKDAY_ENDPOINTS, build_endpoint_path
+from products.warehouse_sources.sources.workday.source import WorkdaySource
+from products.warehouse_sources.sources.workday.workday import (
     HOST_NOT_ALLOWED_ERROR,
     TOKEN_ERROR,
     WorkdayAuthError,
@@ -30,7 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.workday.wo
     validate_credentials,
 )
 
-WORKDAY_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.workday.workday"
+WORKDAY_MODULE = "products.warehouse_sources.sources.workday.workday"
 
 HOSTNAME = "wd2-impl-services1.workday.com"
 TENANT = "acme_pt1"

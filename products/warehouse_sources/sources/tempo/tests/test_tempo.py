@@ -6,20 +6,18 @@ import pytest
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tempo import TempoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.tempo.settings import ENDPOINTS, TEMPO_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.tempo.source import TempoSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.tempo.tempo import (
+from products.warehouse_sources.sources.tempo._config import TempoSourceConfig
+from products.warehouse_sources.sources.tempo.settings import ENDPOINTS, TEMPO_ENDPOINTS
+from products.warehouse_sources.sources.tempo.source import TempoSource
+from products.warehouse_sources.sources.tempo.tempo import (
     PAGE_SIZE,
     TEMPO_BASE_URL,
     TempoResumeConfig,

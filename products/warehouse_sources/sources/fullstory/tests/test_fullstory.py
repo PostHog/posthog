@@ -6,21 +6,19 @@ from typing import Any
 import pytest
 import time_machine
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.fullstory._config import FullStorySourceConfig
+from products.warehouse_sources.sources.fullstory.fullstory import (
+    FullStoryExportFailedError,
+    FullStoryResumeConfig,
+    validate_credentials,
+)
+from products.warehouse_sources.sources.fullstory.source import FullStorySource
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     Script,
     ScriptedResponse,
     SourceDriver,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.fullstory.fullstory import (
-    FullStoryExportFailedError,
-    FullStoryResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.fullstory.source import FullStorySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fullstory import (
-    FullStorySourceConfig,
 )
 
 

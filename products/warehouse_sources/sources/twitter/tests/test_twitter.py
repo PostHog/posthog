@@ -4,8 +4,8 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk import UnknownResourceError
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
     ScriptedResponse,
@@ -14,12 +14,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.twitter import (
-    TwitterSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.twitter.settings import TWITTER_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.twitter.source import TwitterSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.twitter.twitter import (
+from products.warehouse_sources.sources.twitter._config import TwitterSourceConfig
+from products.warehouse_sources.sources.twitter.settings import TWITTER_ENDPOINTS
+from products.warehouse_sources.sources.twitter.source import TwitterSource
+from products.warehouse_sources.sources.twitter.twitter import (
     TwitterResumeConfig,
     TwitterUserNotFoundError,
     endpoint_permissions,

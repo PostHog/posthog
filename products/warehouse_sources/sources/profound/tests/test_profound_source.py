@@ -2,17 +2,11 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    route,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.profound import (
-    ProfoundSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.profound.source import ProfoundSource
+from products.warehouse_sources.sources.profound._config import ProfoundSourceConfig
+from products.warehouse_sources.sources.profound.source import ProfoundSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, route
 
-SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.profound.source"
+SOURCE_MODULE = "products.warehouse_sources.sources.profound.source"
 
 
 class _Config:

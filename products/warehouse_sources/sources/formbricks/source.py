@@ -1,22 +1,7 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.formbricks.formbricks import (
+from products.warehouse_sources.sources.formbricks._config import FormbricksSourceConfig
+from products.warehouse_sources.sources.formbricks.formbricks import (
     FORMBRICKS_DEFAULT_VERSION,
     FORMBRICKS_SUPPORTED_VERSIONS,
     HOST_NOT_ALLOWED_ERROR,
@@ -27,15 +12,24 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.formbricks
     formbricks_source,
     validate_credentials as validate_formbricks_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.formbricks.settings import (
-    ENDPOINTS,
-    FORMBRICKS_ENDPOINTS,
-    INCREMENTAL_FIELDS,
+from products.warehouse_sources.sources.formbricks.settings import ENDPOINTS, FORMBRICKS_ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.formbricks import (
-    FormbricksSourceConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -103,8 +97,8 @@ For self-hosted Formbricks, set your instance URL (for example `https://formbric
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.formbricks.canonical_descriptions import (  # noqa: PLC0415
-            CANONICAL_DESCRIPTIONS,
+        from products.warehouse_sources.sources.formbricks.canonical_descriptions import (
+            CANONICAL_DESCRIPTIONS,  # noqa: PLC0415
         )
 
         return CANONICAL_DESCRIPTIONS

@@ -6,21 +6,11 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kongkonnect import (
-    KongKonnectSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.kong_konnect import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.kong_konnect.kong_konnect import (
-    DEFAULT_INITIAL_LOOKBACK_DAYS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.kong_konnect.source import (
-    KongKonnectSource,
-    _coerce_lookback_days,
-)
+from products.warehouse_sources.sources.kong_konnect import source as source_module
+from products.warehouse_sources.sources.kong_konnect._config import KongKonnectSourceConfig
+from products.warehouse_sources.sources.kong_konnect.kong_konnect import DEFAULT_INITIAL_LOOKBACK_DAYS
+from products.warehouse_sources.sources.kong_konnect.source import KongKonnectSource, _coerce_lookback_days
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 def _config(**overrides: Any) -> KongKonnectSourceConfig:

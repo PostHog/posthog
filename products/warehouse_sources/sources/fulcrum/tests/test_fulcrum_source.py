@@ -3,11 +3,9 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.fulcrum import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.fulcrum.source import FulcrumSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fulcrum import (
-    FulcrumSourceConfig,
-)
+from products.warehouse_sources.sources.fulcrum import source as source_module
+from products.warehouse_sources.sources.fulcrum._config import FulcrumSourceConfig
+from products.warehouse_sources.sources.fulcrum.source import FulcrumSource
 
 
 class TestFulcrumSourceClass:

@@ -7,31 +7,29 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.appfollow import appfollow
-from products.warehouse_sources.backend.temporal.data_imports.sources.appfollow.appfollow import (
+from products.warehouse_sources.sources.appfollow import appfollow
+from products.warehouse_sources.sources.appfollow._config import AppfollowSourceConfig
+from products.warehouse_sources.sources.appfollow.appfollow import (
     APPFOLLOW_BASE_URL,
     AppfollowResumeConfig,
     _extract_rows,
     _to_date_str,
     _to_datetime_str,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.appfollow.settings import (
+from products.warehouse_sources.sources.appfollow.settings import (
     APPFOLLOW_ENDPOINTS,
     APPFOLLOW_V2,
     APPFOLLOW_V3,
     DEFAULT_START_DATE,
     endpoints_for_version,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.appfollow.source import AppfollowSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.appfollow.source import AppfollowSource
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
     Script,
     ScriptedResponse,
     SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appfollow import (
-    AppfollowSourceConfig,
 )
 
 

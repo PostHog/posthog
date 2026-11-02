@@ -7,25 +7,21 @@ import time_machine
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_px.gainsight_px import (
+from products.warehouse_sources.sources.gainsight_px._config import GainsightPxSourceConfig
+from products.warehouse_sources.sources.gainsight_px.gainsight_px import (
     GainsightPxResumeConfig,
     _base_url,
     _to_epoch_millis,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_px.settings import (
-    GAINSIGHT_PX_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_px.source import GainsightPxSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gainsightpx import (
-    GainsightPxSourceConfig,
+from products.warehouse_sources.sources.gainsight_px.settings import GAINSIGHT_PX_ENDPOINTS
+from products.warehouse_sources.sources.gainsight_px.source import GainsightPxSource
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
 )
 
 

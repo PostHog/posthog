@@ -1,45 +1,38 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
-    FieldType,
-    ResumableSource,
-    VersionDeprecation,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
-    SourceSchema,
-    build_endpoint_schemas,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lovable import (
-    LovableSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.lovable.lovable import (
+from products.warehouse_sources.sources.lovable._config import LovableSourceConfig
+from products.warehouse_sources.sources.lovable.lovable import (
     LovableResumeConfig,
     check_endpoint_permissions,
     lovable_source,
     validate_credentials as validate_lovable_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.lovable.settings import (
+from products.warehouse_sources.sources.lovable.settings import (
     INCREMENTAL_FIELDS,
     LOVABLE_API_VERSION_2026_09_11,
     LOVABLE_API_VERSION_V1,
     MERGE_ONLY_ENDPOINTS,
     version_config,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    VersionDeprecation,
+    build_endpoint_schemas,
+    detect,
+)
 
 
 @SourceRegistry.register
@@ -68,9 +61,7 @@ class LovableSource(ResumableSource[LovableSourceConfig, LovableResumeConfig]):
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.lovable.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.lovable.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

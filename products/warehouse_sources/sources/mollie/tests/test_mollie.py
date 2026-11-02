@@ -4,17 +4,10 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mollie import MollieSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.mollie.mollie import (
-    MollieResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.mollie.source import MollieSource
+from products.warehouse_sources.sources.mollie._config import MollieSourceConfig
+from products.warehouse_sources.sources.mollie.mollie import MollieResumeConfig, validate_credentials
+from products.warehouse_sources.sources.mollie.source import MollieSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver() -> SourceDriver:

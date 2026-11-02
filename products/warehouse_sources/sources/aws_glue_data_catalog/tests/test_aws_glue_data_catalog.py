@@ -8,25 +8,12 @@ from unittest.mock import Mock, patch
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_glue_data_catalog import (
-    aws_glue_data_catalog as glue,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_glue_data_catalog.settings import (
-    GLUE_API_VERSION,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_glue_data_catalog.source import (
-    AwsGlueDataCatalogSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsgluedatacatalog import (
-    AwsGlueDataCatalogSourceConfig,
-)
+from products.warehouse_sources.sources.aws_glue_data_catalog import aws_glue_data_catalog as glue
+from products.warehouse_sources.sources.aws_glue_data_catalog._config import AwsGlueDataCatalogSourceConfig
+from products.warehouse_sources.sources.aws_glue_data_catalog.settings import GLUE_API_VERSION
+from products.warehouse_sources.sources.aws_glue_data_catalog.source import AwsGlueDataCatalogSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def config(region: str = "eu-west-1", token: str | None = None) -> AwsGlueDataCatalogSourceConfig:

@@ -1,9 +1,7 @@
-from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, ReleaseStatus
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tinyemail import (
-    TinyemailSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.tinyemail.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.tinyemail.source import TinyemailSource
+from products.warehouse_sources.sources.sdk import DataWarehouseSourceCategory, ReleaseStatus
+from products.warehouse_sources.sources.tinyemail._config import TinyemailSourceConfig
+from products.warehouse_sources.sources.tinyemail.settings import ENDPOINTS
+from products.warehouse_sources.sources.tinyemail.source import TinyemailSource
 
 
 class TestTinyemailSource:

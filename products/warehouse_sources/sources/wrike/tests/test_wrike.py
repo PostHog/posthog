@@ -1,14 +1,9 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.wrike import WrikeSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.wrike.source import WrikeSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.wrike.wrike import (
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.wrike._config import WrikeSourceConfig
+from products.warehouse_sources.sources.wrike.source import WrikeSource
+from products.warehouse_sources.sources.wrike.wrike import (
     WrikeResumeConfig,
     _build_url,
     is_host_valid,

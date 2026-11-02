@@ -3,22 +3,15 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.chargify.chargify import (
+from products.warehouse_sources.sources.chargify._config import ChargifySourceConfig
+from products.warehouse_sources.sources.chargify.chargify import (
     ChargifyPaginator,
     ChargifyResumeConfig,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.chargify.settings import CHARGIFY_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.chargify.source import ChargifySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.chargify import (
-    ChargifySourceConfig,
-)
+from products.warehouse_sources.sources.chargify.settings import CHARGIFY_ENDPOINTS
+from products.warehouse_sources.sources.chargify.source import ChargifySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 class TestChargifyPaginator:

@@ -1,14 +1,8 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_cs.source import GainsightCsSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gainsightcs import (
-    GainsightCsSourceConfig,
-)
+from products.warehouse_sources.sources.gainsight_cs._config import GainsightCsSourceConfig
+from products.warehouse_sources.sources.gainsight_cs.source import GainsightCsSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _config(custom_objects: str | None = None) -> GainsightCsSourceConfig:

@@ -4,22 +4,14 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.servicem8 import (
-    Servicem8SourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.servicem8.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.servicem8.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.servicem8.source import Servicem8Source
+from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceInputs
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
+from products.warehouse_sources.sources.servicem8._config import Servicem8SourceConfig
+from products.warehouse_sources.sources.servicem8.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.servicem8.settings import ENDPOINTS
+from products.warehouse_sources.sources.servicem8.source import Servicem8Source
 
-SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.servicem8.source"
+SOURCE_MODULE = "products.warehouse_sources.sources.servicem8.source"
 
 
 def _make_inputs(**overrides: Any) -> SourceInputs:

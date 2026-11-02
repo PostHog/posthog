@@ -6,7 +6,8 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.bill_com.bill_com import (
+from products.warehouse_sources.sources.bill_com._config import BillComSourceConfig
+from products.warehouse_sources.sources.bill_com.bill_com import (
     PAGE_SIZE,
     BillComAuthError,
     BillComClient,
@@ -18,15 +19,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bill_com.b
     format_incremental_value,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.bill_com.source import BillComSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.billcom import (
-    BillComSourceConfig,
-)
+from products.warehouse_sources.sources.bill_com.source import BillComSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver() -> SourceDriver:

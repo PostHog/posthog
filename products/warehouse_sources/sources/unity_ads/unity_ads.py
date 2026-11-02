@@ -6,20 +6,17 @@ from requests import ReadTimeout
 from requests.auth import HTTPBasicAuth
 from urllib3.util.retry import Retry
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import HttpBasicAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+from products.warehouse_sources.sources.sdk import (
+    HttpBasicAuth,
     RESTClient,
     RESTClientRetryableError,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.unity_ads.settings import (
+from products.warehouse_sources.sources.unity_ads.settings import (
     HISTORY_DAYS,
     METRICS,
     UNITY_ADS_ENDPOINTS,

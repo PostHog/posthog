@@ -5,20 +5,14 @@ from unittest.mock import MagicMock
 
 from requests import Request
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.servicem8 import (
-    Servicem8SourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.servicem8.servicem8 import (
+from products.warehouse_sources.sources.sdk.testing import DriveResult, ScriptedResponse, SourceDriver
+from products.warehouse_sources.sources.servicem8._config import Servicem8SourceConfig
+from products.warehouse_sources.sources.servicem8.servicem8 import (
     ServiceM8Paginator,
     ServiceM8ResumeConfig,
     _format_filter_datetime,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.servicem8.source import Servicem8Source
+from products.warehouse_sources.sources.servicem8.source import Servicem8Source
 
 
 class TestFormatFilterDatetime:

@@ -1,8 +1,6 @@
 from typing import Literal
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField
+from products.warehouse_sources.sources.sdk import IncrementalField, frozen
 
 FetchMethod = Literal["get", "post"]
 
@@ -34,7 +32,7 @@ class BigeyeEndpointConfig:
 
 # Bigeye's v1 API has no documented "updated since" filter on any list endpoint (see
 # INCREMENTAL_FIELDS below), so every table here is full refresh. The `.../fetch` endpoints are
-# still resumable via their `pageCursor`, which matters for large workspaces (many sources/tables/
+# still resumable via their `pageCursor`, which matters for large workspaces (many products/warehouse_sources/sources/tables/
 # issues) surviving a heartbeat timeout mid-sync.
 BIGEYE_ENDPOINTS: dict[str, BigeyeEndpointConfig] = {
     "Workspaces": BigeyeEndpointConfig(

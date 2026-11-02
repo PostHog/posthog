@@ -4,7 +4,21 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.plausible import plausible as plausible_module
+from products.warehouse_sources.sources.plausible._config import PlausibleSourceConfig
+from products.warehouse_sources.sources.plausible.plausible import (
+    PlausibleResumeConfig,
+    normalize_host,
+    validate_credentials,
+)
+from products.warehouse_sources.sources.plausible.settings import (
+    PLAUSIBLE_ENDPOINTS,
+    REPORT_LOOKBACK_DAYS,
+    SESSION_SCOPED_DIMENSIONS,
+    PlausibleEndpointConfig,
+)
+from products.warehouse_sources.sources.plausible.source import PlausibleSource
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     Script,
     ScriptedResponse,
@@ -12,22 +26,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.plausible import (
-    PlausibleSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.plausible import plausible as plausible_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.plausible import (
-    PlausibleResumeConfig,
-    normalize_host,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.settings import (
-    PLAUSIBLE_ENDPOINTS,
-    REPORT_LOOKBACK_DAYS,
-    SESSION_SCOPED_DIMENSIONS,
-    PlausibleEndpointConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.source import PlausibleSource
 
 
 def _result(dimensions: list[Any], metrics: list[Any]) -> dict[str, Any]:

@@ -1,4 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.polar.constants import (
+from products.warehouse_sources.sources.polar.constants import (
     BENEFIT_RESOURCE_NAME,
     CHECKOUT_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,

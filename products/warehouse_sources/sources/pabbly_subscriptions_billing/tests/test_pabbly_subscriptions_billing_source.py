@@ -1,18 +1,11 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pabblysubscriptionsbilling import (
+from products.warehouse_sources.sources.pabbly_subscriptions_billing._config import (
     PabblySubscriptionsBillingSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.pabbly_subscriptions_billing.settings import (
-    ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.pabbly_subscriptions_billing.source import (
-    PabblySubscriptionsBillingSource,
-)
+from products.warehouse_sources.sources.pabbly_subscriptions_billing.settings import ENDPOINTS
+from products.warehouse_sources.sources.pabbly_subscriptions_billing.source import PabblySubscriptionsBillingSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 class TestPabblySubscriptionsBillingSource:
@@ -48,9 +41,7 @@ class TestPabblySubscriptionsBillingSource:
         assert network.requests_log[0].path == "/api/v1/customers"
         assert network.requests_log[0].headers["authorization"] == "Basic cGFiYmx5LWtleTpwYWJibHktc2VjcmV0"
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.pabbly_subscriptions_billing.source.pabbly_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.pabbly_subscriptions_billing.source.pabbly_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "transactions"

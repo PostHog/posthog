@@ -4,22 +4,17 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     Script,
     ScriptedResponse,
     SourceDriver,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.usersnap import (
-    UsersnapSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.settings import (
-    ENDPOINTS,
-    USERSNAP_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.source import UsersnapSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.usersnap import (
+from products.warehouse_sources.sources.usersnap._config import UsersnapSourceConfig
+from products.warehouse_sources.sources.usersnap.settings import ENDPOINTS, USERSNAP_ENDPOINTS
+from products.warehouse_sources.sources.usersnap.source import UsersnapSource
+from products.warehouse_sources.sources.usersnap.usersnap import (
     UsersnapResumeConfig,
     _format_datetime,
     validate_credentials,

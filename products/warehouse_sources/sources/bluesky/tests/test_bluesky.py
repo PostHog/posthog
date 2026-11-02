@@ -3,20 +3,15 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.bluesky.bluesky import (
-    BlueskyResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.bluesky.source import PRIMARY_KEYS, BlueskySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.bluesky._config import BlueskySourceConfig
+from products.warehouse_sources.sources.bluesky.bluesky import BlueskyResumeConfig, validate_credentials
+from products.warehouse_sources.sources.bluesky.source import PRIMARY_KEYS, BlueskySource
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bluesky import (
-    BlueskySourceConfig,
 )
 
 

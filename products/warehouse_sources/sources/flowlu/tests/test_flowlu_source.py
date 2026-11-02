@@ -2,9 +2,9 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.flowlu import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.flowlu.source import FlowluSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.flowlu import FlowluSourceConfig
+from products.warehouse_sources.sources.flowlu import source as source_module
+from products.warehouse_sources.sources.flowlu._config import FlowluSourceConfig
+from products.warehouse_sources.sources.flowlu.source import FlowluSource
 
 
 class TestFlowluSource:
@@ -51,7 +51,7 @@ class TestFlowluSource:
         assert result == underlying
         mock_validate.assert_called_once_with("fl-key", "acme")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.flowlu.source.flowlu_source")
+    @mock.patch("products.warehouse_sources.sources.flowlu.source.flowlu_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "tasks"

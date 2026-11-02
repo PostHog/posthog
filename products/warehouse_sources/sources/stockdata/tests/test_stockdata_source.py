@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.stockdata.source import StockDataSource
+from products.warehouse_sources.sources.stockdata.source import StockDataSource
 
 
 def _make_config(api_token: str = "token", symbols: str | None = "AAPL") -> Any:
@@ -34,9 +34,7 @@ class TestStockDataSource:
         inputs.should_use_incremental_field = False
         inputs.db_incremental_field_last_value = "should-be-ignored"
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.stockdata.source.stockdata_source"
-        ) as mocked:
+        with patch("products.warehouse_sources.sources.stockdata.source.stockdata_source") as mocked:
             StockDataSource().source_for_pipeline(_make_config(), MagicMock(), inputs)
         # A full-refresh run must never forward a stale watermark to the transport.
         assert mocked.call_args.kwargs["db_incremental_field_last_value"] is None

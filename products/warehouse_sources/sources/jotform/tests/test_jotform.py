@@ -6,10 +6,16 @@ from unittest import mock
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
+from products.warehouse_sources.sources.jotform._config import JotformSourceConfig
+from products.warehouse_sources.sources.jotform.jotform import (
+    JotformResumeConfig,
+    _format_filter_value,
+    validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.jotform.settings import ENDPOINTS, JOTFORM_ENDPOINTS
+from products.warehouse_sources.sources.jotform.source import JotformSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import (
     Script,
     ScriptedResponse,
     SourceDriver,
@@ -17,19 +23,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     route,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jotform import (
-    JotformSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.jotform.jotform import (
-    JotformResumeConfig,
-    _format_filter_value,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.jotform.settings import (
-    ENDPOINTS,
-    JOTFORM_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.jotform.source import JotformSource
 
 US_BASE = "https://api.jotform.com"
 

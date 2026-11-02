@@ -4,15 +4,9 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.similarweb import (
-    SimilarwebSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.similarweb.settings import (
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always
+from products.warehouse_sources.sources.similarweb._config import SimilarwebSourceConfig
+from products.warehouse_sources.sources.similarweb.settings import (
     API_VERSION_LEGACY,
     API_VERSION_V5,
     ENDPOINTS,
@@ -21,9 +15,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.similarweb
     V5_ENGAGEMENT_PATH,
     VISITS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.similarweb.source import SimilarwebSource
+from products.warehouse_sources.sources.similarweb.source import SimilarwebSource
 
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.similarweb.source"
+MODULE = "products.warehouse_sources.sources.similarweb.source"
 
 
 class TestSimilarwebSource:

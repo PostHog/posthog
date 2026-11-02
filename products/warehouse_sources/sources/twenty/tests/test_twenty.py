@@ -4,7 +4,7 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     Script,
     ScriptedResponse,
@@ -12,10 +12,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.twenty import TwentySourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.twenty import twenty as twenty_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.twenty.source import TwentySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.twenty.twenty import (
+from products.warehouse_sources.sources.twenty import twenty as twenty_module
+from products.warehouse_sources.sources.twenty._config import TwentySourceConfig
+from products.warehouse_sources.sources.twenty.source import TwentySource
+from products.warehouse_sources.sources.twenty.twenty import (
     TwentyHostNotAllowedError,
     TwentyResumeConfig,
     _format_filter_value,

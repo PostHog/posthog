@@ -3,9 +3,7 @@ import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gcpcloudbilling import (
-    GcpCloudBillingKeyFileConfig,
-)
+from products.warehouse_sources.sources.gcp_cloud_billing._config import GcpCloudBillingKeyFileConfig
 
 
 @pytest.fixture(scope="session")

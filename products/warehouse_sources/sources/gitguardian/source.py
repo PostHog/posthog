@@ -1,27 +1,8 @@
 from typing import Optional, cast
 from urllib.parse import urlsplit
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gitguardian import (
-    GitguardianSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.gitguardian.gitguardian import (
+from products.warehouse_sources.sources.gitguardian._config import GitguardianSourceConfig
+from products.warehouse_sources.sources.gitguardian.gitguardian import (
     GitGuardianResumeConfig,
     check_endpoint_access,
     gitguardian_source,
@@ -29,12 +10,25 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gitguardia
     validate_base_url,
     validate_credentials as validate_gitguardian_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.gitguardian.settings import (
-    ENDPOINTS,
-    GITGUARDIAN_ENDPOINTS,
-    INCREMENTAL_FIELDS,
+from products.warehouse_sources.sources.gitguardian.settings import ENDPOINTS, GITGUARDIAN_ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    _is_host_safe,
+    detect,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -93,9 +87,7 @@ Workspaces on the EU instance should set the API URL to `https://api.eu1.gitguar
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.gitguardian.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.gitguardian.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

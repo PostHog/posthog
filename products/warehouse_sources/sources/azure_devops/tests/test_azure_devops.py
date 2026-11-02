@@ -6,7 +6,8 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops import (
+from products.warehouse_sources.sources.azure_devops._config import AzureDevOpsSourceConfig
+from products.warehouse_sources.sources.azure_devops.azure_devops import (
     _INVALID_ORGANIZATION_MESSAGE,
     _INVALID_PAT_MESSAGE,
     _ORGANIZATION_NOT_FOUND_MESSAGE,
@@ -23,19 +24,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devo
     validate_credentials,
     wire_api_version,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.settings import (
-    AZURE_DEVOPS_RELEASE_BASE_URL,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.source import AzureDevOpsSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.azuredevops import (
-    AzureDevOpsSourceConfig,
-)
+from products.warehouse_sources.sources.azure_devops.settings import AZURE_DEVOPS_RELEASE_BASE_URL
+from products.warehouse_sources.sources.azure_devops.source import AzureDevOpsSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

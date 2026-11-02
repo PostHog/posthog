@@ -1,37 +1,35 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jfrogartifactory import (
-    JfrogArtifactorySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.jfrog_artifactory.jfrog_artifactory import (
+from products.warehouse_sources.sources.jfrog_artifactory._config import JfrogArtifactorySourceConfig
+from products.warehouse_sources.sources.jfrog_artifactory.jfrog_artifactory import (
     JfrogArtifactoryResumeConfig,
     hostname_of,
     jfrog_artifactory_source,
     probe_endpoint,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.jfrog_artifactory.settings import (
+from products.warehouse_sources.sources.jfrog_artifactory.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     JFROG_ARTIFACTORY_ENDPOINTS,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    ValidateDatabaseHostMixin,
+    detect,
+)
 
 # Endpoints JFrog restricts to admin users (or access tokens scoped to the relevant domain).
 _ADMIN_ENDPOINTS = {"builds", "build_artifacts", "build_dependencies", "build_promotions", "storage_summary"}
@@ -115,9 +113,7 @@ The `artifacts`, `artifact_statistics`, and `repositories` tables work with any 
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.jfrog_artifactory.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.jfrog_artifactory.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

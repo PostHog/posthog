@@ -4,16 +4,14 @@ from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import cast
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sanity import SanitySourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.sanity.settings import (
-    PAGE_SIZE,
-    SanityEndpoint,
-    document_endpoint,
+from products.warehouse_sources.sources.sanity._config import SanitySourceConfig
+from products.warehouse_sources.sources.sanity.settings import PAGE_SIZE, SanityEndpoint, document_endpoint
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceInputs,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
 )
 
 

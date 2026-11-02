@@ -8,24 +8,22 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aviator import aviator
-from products.warehouse_sources.backend.temporal.data_imports.sources.aviator.aviator import (
+from products.warehouse_sources.sources.aviator import aviator
+from products.warehouse_sources.sources.aviator._config import AviatorSourceConfig
+from products.warehouse_sources.sources.aviator.aviator import (
     AviatorResumeConfig,
     _analytics_window,
     _flatten_analytics,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aviator.settings import AVIATOR_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.aviator.source import AviatorSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.aviator.settings import AVIATOR_ENDPOINTS
+from products.warehouse_sources.sources.aviator.source import AviatorSource
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.aviator import (
-    AviatorSourceConfig,
 )
 
 

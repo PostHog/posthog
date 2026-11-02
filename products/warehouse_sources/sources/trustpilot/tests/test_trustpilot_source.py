@@ -1,9 +1,7 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.trustpilot import (
-    TrustPilotSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.trustpilot.source import TrustPilotSource
+from products.warehouse_sources.sources.trustpilot._config import TrustPilotSourceConfig
+from products.warehouse_sources.sources.trustpilot.source import TrustPilotSource
 
 
 class TestTrustPilotSource:

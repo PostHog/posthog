@@ -11,7 +11,16 @@ import time_machine
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.naver_ads import naver_ads as naver_ads_module
+from products.warehouse_sources.sources.naver_ads._config import NaverAdsSourceConfig
+from products.warehouse_sources.sources.naver_ads.naver_ads import (
+    NaverAdsResumeConfig,
+    stats_window,
+    validate_credentials,
+)
+from products.warehouse_sources.sources.naver_ads.settings import ENDPOINTS
+from products.warehouse_sources.sources.naver_ads.source import NaverAdsSource
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
@@ -19,17 +28,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     scripted_network,
     source_inputs,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.naverads import (
-    NaverAdsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.naver_ads import naver_ads as naver_ads_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.naver_ads.naver_ads import (
-    NaverAdsResumeConfig,
-    stats_window,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.naver_ads.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.naver_ads.source import NaverAdsSource
 
 CONFIG = NaverAdsSourceConfig(api_key="example-license", secret_key="example-secret", customer_id=" 1234567 ")
 # 12:00 KST on 2026-10-15.

@@ -2,27 +2,14 @@ from typing import cast
 
 from requests import HTTPError
 
-from posthog.schema_enums import ProductKey
-
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-    SourceFieldSelectConfig,
-    SourceFieldSelectConfigOption,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.clevertap.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.clevertap.clevertap import (
+from products.warehouse_sources.sources.clevertap._config import ClevertapSourceConfig
+from products.warehouse_sources.sources.clevertap.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.clevertap.clevertap import (
     ClevertapResumeConfig,
     clevertap_source,
     probe_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.clevertap.settings import (
+from products.warehouse_sources.sources.clevertap.settings import (
     AUTH_ERROR,
     CURSOR_ERROR,
     ENDPOINTS,
@@ -30,21 +17,27 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clevertap.
     INCREMENTAL_FIELDS,
     PERMISSION_ERROR,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+from products.warehouse_sources.sources.sdk import (
     CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ProductKey,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clevertap import (
-    ClevertapSourceConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register

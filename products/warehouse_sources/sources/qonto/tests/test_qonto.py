@@ -8,24 +8,12 @@ from unittest.mock import patch
 
 from requests import HTTPError, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    Script,
-    ScriptedResponse,
-    SourceDriver,
-    always,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.qonto import QontoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.qonto.qonto import validate_credentials
-from products.warehouse_sources.backend.temporal.data_imports.sources.qonto.settings import (
-    AUTH_ERROR,
-    ENDPOINTS,
-    PERMISSION_ERROR,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.qonto.source import QontoSource
+from products.warehouse_sources.sources.qonto._config import QontoSourceConfig
+from products.warehouse_sources.sources.qonto.qonto import validate_credentials
+from products.warehouse_sources.sources.qonto.settings import AUTH_ERROR, ENDPOINTS, PERMISSION_ERROR
+from products.warehouse_sources.sources.qonto.source import QontoSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import DriveResult, Script, ScriptedResponse, SourceDriver, always
 
 CONFIG = QontoSourceConfig(login="example-company", secret_key="fake-secret")
 

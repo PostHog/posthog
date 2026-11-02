@@ -4,21 +4,14 @@ from typing import Any
 import pytest
 import time_machine
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.iterable import (
-    IterableSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.iterable.iterable import (
+from products.warehouse_sources.sources.iterable._config import IterableSourceConfig
+from products.warehouse_sources.sources.iterable.iterable import (
     IterableResumeConfig,
     _parse_iterable_datetime,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.iterable.source import IterableSource
+from products.warehouse_sources.sources.iterable.source import IterableSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

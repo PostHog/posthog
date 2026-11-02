@@ -1,12 +1,9 @@
 import pytest
 from unittest.mock import patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.usbea import UsBeaSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.us_bea.settings import (
-    CUSTOM_QUERY_ENDPOINT,
-    ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.us_bea.source import UsBeaSource
+from products.warehouse_sources.sources.us_bea._config import UsBeaSourceConfig
+from products.warehouse_sources.sources.us_bea.settings import CUSTOM_QUERY_ENDPOINT, ENDPOINTS
+from products.warehouse_sources.sources.us_bea.source import UsBeaSource
 
 
 def _config(**overrides) -> UsBeaSourceConfig:
@@ -55,7 +52,7 @@ class TestUsBeaSource:
 
     def test_validate_credentials_delegates_to_transport(self):
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.us_bea.source.validate_us_bea_credentials",
+            "products.warehouse_sources.sources.us_bea.source.validate_us_bea_credentials",
             return_value=(True, None),
         ) as mock_validate:
             valid, error = self.source.validate_credentials(_config(), team_id=1)
@@ -71,9 +68,7 @@ class TestUsBeaSource:
         assert response.primary_keys == list(ENDPOINTS[endpoint_name].primary_keys)
 
     def test_source_for_pipeline_custom_query_plumbing(self):
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.us_bea.source.us_bea_source"
-        ) as mock_source:
+        with patch("products.warehouse_sources.sources.us_bea.source.us_bea_source") as mock_source:
             self.source.source_for_pipeline(_custom_config(), _FakeInputs(CUSTOM_QUERY_ENDPOINT))  # type: ignore[arg-type]
 
         kwargs = mock_source.call_args.kwargs

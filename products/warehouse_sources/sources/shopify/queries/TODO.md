@@ -2,7 +2,7 @@
 
 ## Overview
 
-Create paginated GraphQL query files for all Shopify resources following the pattern established in `products/warehouse_sources/backend/temporal/data_imports/sources/shopify/graphql/abandoned_checkouts.py`.
+Create paginated GraphQL query files for all Shopify resources following the pattern established in `products/warehouse_sources/sources/shopify/graphql/abandoned_checkouts.py`.
 
 ## Pattern to Follow
 
@@ -10,7 +10,7 @@ Each query should:
 
 - Use the pagination structure: `query Paginated{Resource}($n: Int!, $cursor: String)`
 - Include `nodes` with resource fields and `pageInfo` with `hasNextPage` and `endCursor`
-- Reuse existing fragments from `products/warehouse_sources/backend/temporal/data_imports/sources/shopify/graphql/fragments.py`:
+- Reuse existing fragments from `products/warehouse_sources/sources/shopify/graphql/fragments.py`:
   - `KV_FRAGMENT` - for key/value pairs
   - `MAILING_ADDRESS_FRAGMENT` - for address objects
   - `MONEY_V2_FRAGMENT` - for money objects
@@ -43,7 +43,7 @@ Each query should:
 
 ## Implementation Guidelines
 
-1. Create each file in `products/warehouse_sources/backend/temporal/data_imports/sources/shopify/graphql/`
+1. Create each file in `products/warehouse_sources/sources/shopify/graphql/`
 2. File naming: `{resource_name_snake_case}.py` (e.g., `balance_transactions.py`)
 3. Verify the exact GraphQL query name and fields in the Shopify documentation before implementing
 4. Consider nested pagination limits (e.g., the 250 limit for line items in abandoned checkouts)

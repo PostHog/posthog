@@ -7,7 +7,8 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.alpha_vantage.alpha_vantage import (
+from products.warehouse_sources.sources.alpha_vantage._config import AlphaVantageSourceConfig
+from products.warehouse_sources.sources.alpha_vantage.alpha_vantage import (
     CSV_CHUNK_SIZE,
     EARNINGS_CALENDAR_HORIZON,
     LISTING_STATES,
@@ -37,21 +38,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.alpha_vant
     validate_credentials,
     validate_symbols,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.alpha_vantage.settings import (
-    ALPHA_VANTAGE_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.alpha_vantage.source import AlphaVantageSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.alphavantage import (
-    AlphaVantageSourceConfig,
-)
+from products.warehouse_sources.sources.alpha_vantage.settings import ALPHA_VANTAGE_ENDPOINTS
+from products.warehouse_sources.sources.alpha_vantage.source import AlphaVantageSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.alpha_vantage.alpha_vantage"
+MODULE = "products.warehouse_sources.sources.alpha_vantage.alpha_vantage"
 
 
 def _driver(symbols: str = "IBM", api_key: str = "KEY") -> SourceDriver:

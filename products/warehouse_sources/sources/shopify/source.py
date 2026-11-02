@@ -2,43 +2,39 @@ import functools
 from datetime import date
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSchema,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    RowFilterColumn,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
-)
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.temporal.data_imports.schema_flags import is_schema_flag_enabled
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
-    FieldType,
-    ResumableSource,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
     VersionDeprecation,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import RowFilterColumn
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shopify import (
-    ShopifySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.constants import (
+from products.warehouse_sources.sources.sdk.internals import is_schema_flag_enabled
+from products.warehouse_sources.sources.shopify._config import ShopifySourceConfig
+from products.warehouse_sources.sources.shopify.constants import (
     CREATED_AT,
     SHOPIFY_API_VERSION_2025_10,
     SHOPIFY_API_VERSION_2026_07,
     SHOPIFY_GRAPHQL_OBJECTS,
     resolve_schema_name,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.settings import ENDPOINT_CONFIGS
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify import (
+from products.warehouse_sources.sources.shopify.settings import ENDPOINT_CONFIGS
+from products.warehouse_sources.sources.shopify.shopify import (
     CREATED_AT_FILTER_OPERATORS,
     SHOPIFY_ACCESS_TOKEN_APP_NOT_INSTALLED_ERROR,
     SHOPIFY_ACCESS_TOKEN_AUTH_ERROR,
@@ -62,7 +58,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.sh
     shopify_source,
     validate_credentials as validate_shopify_credentials,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 WAREHOUSE_SHOPIFY_PARALLEL_READ_FLAG = "warehouse-shopify-parallel-read"
 
@@ -212,9 +207,7 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
         return ExternalDataSourceType.SHOPIFY
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.shopify.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

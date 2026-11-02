@@ -15,14 +15,7 @@ from modal.exception import AuthError, NotFoundError, PermissionDeniedError, Res
 from modal.types import BillingReportItem
 from modal_proto import api_pb2
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
-    interruptible_wait,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.modal.settings import (
+from products.warehouse_sources.sources.modal.settings import (
     APP_DEPLOYMENTS,
     APPS,
     BILLING_REPORT_PARTITION_KEY,
@@ -33,13 +26,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.modal.sett
     SANDBOXES,
     WORKSPACE_MEMBERS,
 )
+from products.warehouse_sources.sources.sdk import SourceResponse, frozen, interruptible_wait, schema_for_resource
 
 if TYPE_CHECKING:
-    from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-    from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-    from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.modal import (
-        ModalSourceConfig,
-    )
+    from products.warehouse_sources.sources.modal._config import ModalSourceConfig
+    from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceInputs
 
 
 AUTH_ERROR = "Modal authentication failed. Check your token ID and token secret."

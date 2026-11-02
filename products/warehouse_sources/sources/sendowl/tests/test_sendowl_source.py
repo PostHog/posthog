@@ -1,9 +1,7 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sendowl import (
-    SendowlSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.sendowl.source import SendowlSource
+from products.warehouse_sources.sources.sendowl._config import SendowlSourceConfig
+from products.warehouse_sources.sources.sendowl.source import SendowlSource
 
 
 class TestSendowlSource:
@@ -12,7 +10,7 @@ class TestSendowlSource:
         self.team_id = 123
         self.config = SendowlSourceConfig(api_key="sendowl-key", api_secret="sendowl-secret")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.sendowl.source.sendowl_source")
+    @mock.patch("products.warehouse_sources.sources.sendowl.source.sendowl_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_sendowl_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "products"

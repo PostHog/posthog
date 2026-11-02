@@ -6,10 +6,10 @@ from unittest import mock
 
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_ses import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_ses.source import AwsSesSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsses import AwsSesSourceConfig
+from products.warehouse_sources.sources.aws_ses import source as source_module
+from products.warehouse_sources.sources.aws_ses._config import AwsSesSourceConfig
+from products.warehouse_sources.sources.aws_ses.source import AwsSesSource
+from products.warehouse_sources.sources.sdk import SourceInputs
 
 
 def make_inputs(

@@ -7,8 +7,9 @@ from unittest.mock import MagicMock, Mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket import bitbucket
-from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.bitbucket import (
+from products.warehouse_sources.sources.bitbucket import bitbucket
+from products.warehouse_sources.sources.bitbucket._config import BitbucketAuthMethodConfig, BitbucketSourceConfig
+from products.warehouse_sources.sources.bitbucket.bitbucket import (
     BitbucketAuth,
     BitbucketResumeConfig,
     _build_initial_params,
@@ -17,18 +18,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.
     _parent_precedes_bookmark,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.settings import BITBUCKET_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.source import BitbucketSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.bitbucket.settings import BITBUCKET_ENDPOINTS
+from products.warehouse_sources.sources.bitbucket.source import BitbucketSource
+from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
+    error_message_matches,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bitbucket import (
-    BitbucketAuthMethodConfig,
-    BitbucketSourceConfig,
 )
 
 CUTOFF = datetime(2024, 6, 1, tzinfo=UTC)

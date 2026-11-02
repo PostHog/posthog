@@ -4,11 +4,9 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.veracode import (
-    VeracodeSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.veracode.source import VeracodeSource
+from products.warehouse_sources.sources.sdk import SourceInputs
+from products.warehouse_sources.sources.veracode._config import VeracodeSourceConfig
+from products.warehouse_sources.sources.veracode.source import VeracodeSource
 
 
 def _config() -> VeracodeSourceConfig:
@@ -46,7 +44,7 @@ class TestValidateCredentials:
         self, _name: str, probe_result: tuple[bool, Optional[int]], schema_name: Optional[str], expected_ok: bool
     ) -> None:
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.veracode.source.validate_veracode_credentials",
+            "products.warehouse_sources.sources.veracode.source.validate_veracode_credentials",
             return_value=probe_result,
         ):
             ok, error = VeracodeSource().validate_credentials(_config(), team_id=1, schema_name=schema_name)

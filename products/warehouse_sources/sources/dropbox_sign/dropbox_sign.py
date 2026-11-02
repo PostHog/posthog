@@ -7,16 +7,14 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+from products.warehouse_sources.sources.dropbox_sign.settings import DROPBOX_SIGN_ENDPOINTS
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
     make_tracked_session,
     retry_with_deadline,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.dropbox_sign.settings import (
-    DROPBOX_SIGN_ENDPOINTS,
-)
+from products.warehouse_sources.sources.sdk.internals import Batcher
 
 DROPBOX_SIGN_BASE_URL = "https://api.hellosign.com/v3"
 # The API caps page_size at 100 (default 20); always request the max to minimize round-trips.

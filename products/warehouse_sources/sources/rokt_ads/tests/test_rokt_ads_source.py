@@ -5,24 +5,19 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.rokt_ads.rokt_ads import (
+from products.warehouse_sources.sources.rokt_ads.rokt_ads import (
     DateWindow,
     ReportCapabilities,
     RoktAdsError,
     RoktAdsResumeConfig,
     build_report_body,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.rokt_ads.settings import (
-    CAMPAIGN_METRICS,
-    ENDPOINTS,
-    PRIMARY_KEYS,
-    SCHEMA_NAMES,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.rokt_ads.source import RoktAdsSource
+from products.warehouse_sources.sources.rokt_ads.settings import CAMPAIGN_METRICS, ENDPOINTS, PRIMARY_KEYS, SCHEMA_NAMES
+from products.warehouse_sources.sources.rokt_ads.source import RoktAdsSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager
+from products.warehouse_sources.sources.sdk.testing import error_message_matches
 
-SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.rokt_ads.source"
+SOURCE_MODULE = "products.warehouse_sources.sources.rokt_ads.source"
 
 ALL_DIMENSIONS = {dimension for endpoint in ENDPOINTS.values() for dimension in endpoint["dimensions"]}
 ALL_METRICS = set(CAMPAIGN_METRICS)

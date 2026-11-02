@@ -7,7 +7,7 @@ import pytest
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     ScriptedResponse,
     SourceDriver,
@@ -15,9 +15,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     route,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zero import ZeroSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.zero.source import ZeroSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.zero.zero import (
+from products.warehouse_sources.sources.zero._config import ZeroSourceConfig
+from products.warehouse_sources.sources.zero.source import ZeroSource
+from products.warehouse_sources.sources.zero.zero import (
     ZeroResumeConfig,
     _build_where,
     _format_zero_datetime,

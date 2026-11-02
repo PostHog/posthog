@@ -3,18 +3,11 @@ from typing import Any, cast
 import pytest
 import time_machine
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.resend import (
-    ResendAuthMethodConfig,
-    ResendSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.resend.resend import ResendResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.resend.settings import ENDPOINTS, RESEND_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.resend.source import ResendSource
+from products.warehouse_sources.sources.resend._config import ResendAuthMethodConfig, ResendSourceConfig
+from products.warehouse_sources.sources.resend.resend import ResendResumeConfig
+from products.warehouse_sources.sources.resend.settings import ENDPOINTS, RESEND_ENDPOINTS
+from products.warehouse_sources.sources.resend.source import ResendSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always
 
 
 def _driver() -> SourceDriver:

@@ -9,15 +9,7 @@ from unittest.mock import MagicMock, Mock, patch
 import requests
 from parameterized import parameterized
 
-from posthog.temporal.common.shutdown import WorkerShuttingDownError
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.metronome import (
+from products.warehouse_sources.sources.metronome.metronome import (
     EPOCH_RFC_3339,
     MetronomeCursorPaginator,
     MetronomeResumeConfig,
@@ -31,16 +23,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.
     metronome_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.settings import (
+from products.warehouse_sources.sources.metronome.settings import (
     INVOICE_BREAKDOWNS_LOOKBACK_SECONDS,
     METRONOME_ENDPOINTS,
     USAGE_DAILY_LOOKBACK_SECONDS,
     USAGE_HOURLY_LOOKBACK_SECONDS,
     usage_history_window,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.source import MetronomeSource
+from products.warehouse_sources.sources.metronome.source import MetronomeSource
+from products.warehouse_sources.sources.sdk import WorkerShuttingDownError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
-TRANSPORT = "products.warehouse_sources.backend.temporal.data_imports.sources.metronome.metronome"
+TRANSPORT = "products.warehouse_sources.sources.metronome.metronome"
 
 # The instant every resolved window in these tests is measured against.
 NOW = datetime(2026, 9, 3, 12, 34, 56, tzinfo=UTC)

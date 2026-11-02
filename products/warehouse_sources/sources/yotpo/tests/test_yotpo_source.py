@@ -4,13 +4,9 @@ import pytest
 
 from requests import ConnectionError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.yotpo import YotpoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.yotpo.source import YotpoSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, always, scripted_network
+from products.warehouse_sources.sources.yotpo._config import YotpoSourceConfig
+from products.warehouse_sources.sources.yotpo.source import YotpoSource
 
 
 @pytest.mark.parametrize(

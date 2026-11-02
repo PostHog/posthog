@@ -4,31 +4,8 @@ from typing import Any, cast
 
 from requests import Request, Response
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    RESTClient,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import OAuth2Auth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    build_dependent_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    OffsetPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-    ClientConfig,
-    Endpoint,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.criteo.settings import (
+from products.warehouse_sources.sources.criteo._config import CriteoSourceConfig
+from products.warehouse_sources.sources.criteo.settings import (
     BASE_URL,
     ENDPOINTS,
     REPORT_DIMENSIONS,
@@ -36,7 +13,24 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.criteo.set
     REPORT_ROW_LIMIT,
     TOKEN_URL,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.criteo import CriteoSourceConfig
+from products.warehouse_sources.sources.sdk import (
+    ClientConfig,
+    Endpoint,
+    OAuth2Auth,
+    OffsetPaginator,
+    Resource,
+    RESTAPIConfig,
+    RESTClient,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceInputs,
+    SourceResponse,
+    build_dependent_resource,
+    frozen,
+    make_tracked_session,
+    parse_datetime_value,
+    rest_api_resource,
+)
 
 
 @frozen

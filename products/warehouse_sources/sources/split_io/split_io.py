@@ -7,16 +7,13 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
     make_tracked_session,
     retry_with_deadline,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.split_io.settings import (
-    SPLIT_IO_ENDPOINTS,
-    SplitIoEndpointConfig,
-)
+from products.warehouse_sources.sources.split_io.settings import SPLIT_IO_ENDPOINTS, SplitIoEndpointConfig
 
 API_HOST = "https://api.split.io"
 BASE_URL = f"{API_HOST}/internal/api/v2"

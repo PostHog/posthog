@@ -3,23 +3,11 @@ from urllib.parse import parse_qs
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.coupa.coupa import (
-    CoupaResumeConfig,
-    normalize_host,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.coupa.settings import (
-    COUPA_ENDPOINTS,
-    ENDPOINTS,
-    PAGE_SIZE,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.coupa.source import CoupaSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coupa import CoupaSourceConfig
+from products.warehouse_sources.sources.coupa._config import CoupaSourceConfig
+from products.warehouse_sources.sources.coupa.coupa import CoupaResumeConfig, normalize_host, validate_credentials
+from products.warehouse_sources.sources.coupa.settings import COUPA_ENDPOINTS, ENDPOINTS, PAGE_SIZE
+from products.warehouse_sources.sources.coupa.source import CoupaSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver() -> SourceDriver:

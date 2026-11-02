@@ -2,19 +2,16 @@ from typing import Any
 
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.hex import hex as hex_module
+from products.warehouse_sources.sources.hex._config import HexSourceConfig
+from products.warehouse_sources.sources.hex.hex import HexResumeConfig, validate_credentials
+from products.warehouse_sources.sources.hex.source import HexSource
+from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
+    error_message_matches,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hex import HexSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.hex import hex as hex_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.hex.hex import (
-    HexResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.hex.source import HexSource
 
 
 def _driver(workspace_url: str | None = None) -> SourceDriver:

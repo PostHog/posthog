@@ -2,9 +2,7 @@ from typing import Any
 
 from requests.exceptions import HTTPError
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.catchpoint.settings import (
+from products.warehouse_sources.sources.catchpoint.settings import (
     API_ROOT,
     AUTH_ERROR,
     ENDPOINTS,
@@ -12,13 +10,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.catchpoint
     PAGE_SIZE,
     PERMISSION_ERROR,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from products.warehouse_sources.sources.sdk import (
+    ClientConfig,
     RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
     rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 
 @frozen

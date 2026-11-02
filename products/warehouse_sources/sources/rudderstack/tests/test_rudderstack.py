@@ -2,19 +2,13 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rudderstack import (
-    RudderStackSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.rudderstack.rudderstack import (
+from products.warehouse_sources.sources.rudderstack._config import RudderStackSourceConfig
+from products.warehouse_sources.sources.rudderstack.rudderstack import (
     RudderStackCatalogLimitError,
     RudderStackResumeConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.rudderstack.source import RudderStackSource
+from products.warehouse_sources.sources.rudderstack.source import RudderStackSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, error_message_matches
 
 
 @pytest.fixture

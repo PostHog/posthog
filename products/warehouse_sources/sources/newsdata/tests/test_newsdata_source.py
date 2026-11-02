@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.newsdata.source import NewsDataSource
+from products.warehouse_sources.sources.newsdata.source import NewsDataSource
 
 
 def _source_inputs(**overrides: Any) -> MagicMock:
@@ -37,9 +37,7 @@ class TestSourceForPipeline:
     def test_watermark_dropped_on_full_refresh(self) -> None:
         # On a full-refresh run the stored watermark must not leak into the query, or an unwanted
         # from_date filter would silently truncate the pull.
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.newsdata.source.newsdata_source"
-        ) as mock_source:
+        with patch("products.warehouse_sources.sources.newsdata.source.newsdata_source") as mock_source:
             NewsDataSource().source_for_pipeline(
                 config=MagicMock(api_key="pub_test"),
                 resumable_source_manager=MagicMock(),

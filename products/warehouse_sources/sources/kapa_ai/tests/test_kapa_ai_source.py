@@ -2,13 +2,9 @@ import pytest
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kapaai import KapaAISourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.kapa_ai.source import KapaAISource
+from products.warehouse_sources.sources.kapa_ai._config import KapaAISourceConfig
+from products.warehouse_sources.sources.kapa_ai.source import KapaAISource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, error_message_matches
 
 
 def driver() -> SourceDriver:

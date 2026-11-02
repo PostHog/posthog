@@ -4,26 +4,24 @@ from urllib.parse import parse_qs
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.personio._config import PersonioSourceConfig
+from products.warehouse_sources.sources.personio.personio import (
+    PersonioResumeConfig,
+    _format_updated_at,
+    validate_credentials,
+)
+from products.warehouse_sources.sources.personio.settings import (
+    COMPENSATIONS_LOOKBACK_MONTHS,
+    ENDPOINTS,
+    PERSONIO_ENDPOINTS,
+)
+from products.warehouse_sources.sources.personio.source import PersonioSource
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.personio import (
-    PersonioSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.personio.personio import (
-    PersonioResumeConfig,
-    _format_updated_at,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.personio.settings import (
-    COMPENSATIONS_LOOKBACK_MONTHS,
-    ENDPOINTS,
-    PERSONIO_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.personio.source import PersonioSource
 
 
 def _page(items: list[dict[str, Any]], next_url: str | None = None) -> ScriptedResponse:

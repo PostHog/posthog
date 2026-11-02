@@ -1,9 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-)
+from products.warehouse_sources.sources.sdk import DependentEndpointConfig
 
 # The list endpoints accept pageSize 1..100; 100 minimises round trips.
 PAGE_SIZE = 100

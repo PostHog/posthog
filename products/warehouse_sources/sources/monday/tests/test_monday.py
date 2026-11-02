@@ -4,14 +4,8 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.monday import MondaySourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.monday.monday import (
+from products.warehouse_sources.sources.monday._config import MondaySourceConfig
+from products.warehouse_sources.sources.monday.monday import (
     ACTIVITY_LOGS_PAGE_SIZE,
     ITEMS_PAGE_SIZE,
     MONDAY_VERSION_2026_07,
@@ -23,8 +17,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.monday.mon
     get_rows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.monday.source import MondaySource
-from products.warehouse_sources.backend.types import IncrementalFieldType
+from products.warehouse_sources.sources.monday.source import MondaySource
+from products.warehouse_sources.sources.sdk import IncrementalFieldType
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 API_VERSION = MONDAY_VERSION_2026_07
 

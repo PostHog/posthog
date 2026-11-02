@@ -1,15 +1,9 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.braze.settings import (
-    BRAZE_DATA_SERIES_ENDPOINTS,
-    DATA_SERIES_LOOKBACK_SECONDS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.braze.source import BrazeSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.braze import BrazeSourceConfig
+from products.warehouse_sources.sources.braze._config import BrazeSourceConfig
+from products.warehouse_sources.sources.braze.settings import BRAZE_DATA_SERIES_ENDPOINTS, DATA_SERIES_LOOKBACK_SECONDS
+from products.warehouse_sources.sources.braze.source import BrazeSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 BASE_URL = "https://rest.iad-01.braze.com"
 

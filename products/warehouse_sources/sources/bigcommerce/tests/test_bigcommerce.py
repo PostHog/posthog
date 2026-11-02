@@ -5,7 +5,8 @@ import pytest
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.bigcommerce.bigcommerce import (
+from products.warehouse_sources.sources.bigcommerce._config import BigCommerceSourceConfig
+from products.warehouse_sources.sources.bigcommerce.bigcommerce import (
     PAGE_SIZE,
     BigCommerceResumeConfig,
     _to_v2_timestamp,
@@ -13,20 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigcommerc
     get_resource,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.bigcommerce.source import BigCommerceSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    PageNumberPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bigcommerce import (
-    BigCommerceSourceConfig,
-)
+from products.warehouse_sources.sources.bigcommerce.source import BigCommerceSource
+from products.warehouse_sources.sources.sdk import Endpoint, PageNumberPaginator
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 class TestGetResource:

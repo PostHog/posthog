@@ -1,13 +1,8 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.testrail import (
-    TestrailSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.testrail.settings import (
-    ENDPOINTS,
-    TESTRAIL_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.testrail.source import TestrailSource
+from products.warehouse_sources.sources.testrail._config import TestrailSourceConfig
+from products.warehouse_sources.sources.testrail.settings import ENDPOINTS, TESTRAIL_ENDPOINTS
+from products.warehouse_sources.sources.testrail.source import TestrailSource
 
 
 class TestTestrailSource:
@@ -21,7 +16,7 @@ class TestTestrailSource:
         # retarget the subdomain and exfiltrate the preserved key.
         assert self.source.connection_host_fields == ["subdomain"]
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.testrail.source.testrail_source")
+    @mock.patch("products.warehouse_sources.sources.testrail.source.testrail_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "cases"
@@ -40,7 +35,7 @@ class TestTestrailSource:
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == 1700000000
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.testrail.source.testrail_source")
+    @mock.patch("products.warehouse_sources.sources.testrail.source.testrail_source")
     def test_source_for_pipeline_drops_cursor_on_full_refresh(self, mock_source: mock.MagicMock) -> None:
         # A stale watermark left on the schema must not leak into a full-refresh sync.
         inputs = mock.MagicMock()

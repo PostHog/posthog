@@ -1,13 +1,11 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.secureframe import (
-    SecureframeSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.secureframe.source import SecureframeSource
+from products.warehouse_sources.sources.sdk import SourceFieldInputConfig, SourceFieldInputConfigType
+from products.warehouse_sources.sources.secureframe._config import SecureframeSourceConfig
+from products.warehouse_sources.sources.secureframe.source import SecureframeSource
 
-MOCK_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.secureframe.source"
+MOCK_MODULE = "products.warehouse_sources.sources.secureframe.source"
 
 
 class TestSecureframeSource:

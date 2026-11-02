@@ -1,41 +1,36 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.resend._config import ResendSourceConfig
+from products.warehouse_sources.sources.resend.oauth import ResendIntegrationAuth, resolve_resend_oauth_token
+from products.warehouse_sources.sources.resend.resend import (
+    ResendResumeConfig,
+    resend_source,
+    validate_credentials as validate_resend_credentials,
+)
+from products.warehouse_sources.sources.resend.settings import ENDPOINTS
+from products.warehouse_sources.sources.sdk import (
+    AuthConfigBase,
+    BearerTokenAuth,
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    OAuthMixin,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldOauthConfig,
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import OAuthMixin
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
-    AuthConfigBase,
-    BearerTokenAuth,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.resend import ResendSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.resend.oauth import (
-    ResendIntegrationAuth,
-    resolve_resend_oauth_token,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.resend.resend import (
-    ResendResumeConfig,
-    resend_source,
-    validate_credentials as validate_resend_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.resend.settings import ENDPOINTS
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -143,9 +138,7 @@ Either way, the connection needs **full access** so the following resources can 
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.resend.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.resend.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

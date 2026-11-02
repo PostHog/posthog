@@ -1,8 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.adroll.source import AdRollSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.adroll import AdRollSourceConfig
+from products.warehouse_sources.sources.adroll._config import AdRollSourceConfig
+from products.warehouse_sources.sources.adroll.source import AdRollSource
 
 
 class TestAdRollSource:
@@ -18,9 +18,7 @@ class TestAdRollSource:
             (False, False, "Invalid AdRoll credentials"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.adroll.source.validate_adroll_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.adroll.source.validate_adroll_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
         mock_validate.return_value = mock_return
 

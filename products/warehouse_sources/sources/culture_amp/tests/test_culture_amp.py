@@ -5,25 +5,20 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.culture_amp._config import CultureAmpSourceConfig
+from products.warehouse_sources.sources.culture_amp.culture_amp import (
+    CultureAmpResumeConfig,
+    _format_timestamp,
+    validate_credentials,
+)
+from products.warehouse_sources.sources.culture_amp.settings import CULTURE_AMP_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.sources.culture_amp.source import CultureAmpSource
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     route,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.culture_amp.culture_amp import (
-    CultureAmpResumeConfig,
-    _format_timestamp,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.culture_amp.settings import (
-    CULTURE_AMP_ENDPOINTS,
-    ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.culture_amp.source import CultureAmpSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cultureamp import (
-    CultureAmpSourceConfig,
 )
 
 DEMOGRAPHICS_PATH = "employees/{employee_id}/demographics"

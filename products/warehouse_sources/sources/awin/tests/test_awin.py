@@ -7,7 +7,8 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.awin.awin import (
+from products.warehouse_sources.sources.awin._config import AwinSourceConfig
+from products.warehouse_sources.sources.awin.awin import (
     AwinFanoutTarget,
     AwinResumeConfig,
     _build_window_params,
@@ -17,16 +18,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.awin.awin 
     _windows_for_account,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.awin.settings import AWIN_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.awin.source import AwinSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.awin.settings import AWIN_ENDPOINTS
+from products.warehouse_sources.sources.awin.source import AwinSource
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awin import AwinSourceConfig
 
 
 def _counts(values: list[str]) -> dict[str, int]:

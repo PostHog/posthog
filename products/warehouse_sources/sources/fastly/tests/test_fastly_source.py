@@ -1,8 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.fastly.source import FastlySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fastly import FastlySourceConfig
+from products.warehouse_sources.sources.fastly._config import FastlySourceConfig
+from products.warehouse_sources.sources.fastly.source import FastlySource
 
 
 class TestFastlySource:
@@ -22,9 +22,7 @@ class TestFastlySource:
             (False, False, "Invalid Fastly API token"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.fastly.source.validate_fastly_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.fastly.source.validate_fastly_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
         mock_validate.return_value = mock_return
 

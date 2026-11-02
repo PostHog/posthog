@@ -1,9 +1,7 @@
 from dataclasses import field
 from typing import Literal, Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 # UptimeRobot v2 caps `limit` at 50 on every paginated list endpoint.
 PAGE_LIMIT = 50

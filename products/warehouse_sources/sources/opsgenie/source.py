@@ -1,36 +1,31 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.opsgenie._config import OpsgenieSourceConfig
+from products.warehouse_sources.sources.opsgenie.opsgenie import (
+    OpsgenieResumeConfig,
+    opsgenie_source,
+    validate_credentials as validate_opsgenie_credentials,
+)
+from products.warehouse_sources.sources.opsgenie.settings import ENDPOINTS, OPSGENIE_ENDPOINTS
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.opsgenie import (
-    OpsgenieSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.opsgenie.opsgenie import (
-    OpsgenieResumeConfig,
-    opsgenie_source,
-    validate_credentials as validate_opsgenie_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.opsgenie.settings import (
-    ENDPOINTS,
-    OPSGENIE_ENDPOINTS,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -90,9 +85,7 @@ Note that Atlassian has announced Opsgenie's end of support: its APIs are schedu
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.opsgenie.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.opsgenie.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

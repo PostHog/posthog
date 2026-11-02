@@ -4,13 +4,8 @@ from typing import Any
 from parameterized import parameterized
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.fireworks_ai.fireworks_ai import (
+from products.warehouse_sources.sources.fireworks_ai._config import FireworksAISourceConfig
+from products.warehouse_sources.sources.fireworks_ai.fireworks_ai import (
     FIREWORKS_AI_BASE_URL,
     FireworksAIResumeConfig,
     UsageWindow,
@@ -20,15 +15,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fireworks_
     get_status_code,
     normalize_account_id,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.fireworks_ai.settings import (
-    ACCOUNT_USAGE,
-    FIREWORKS_AI_ENDPOINTS,
-    PAGE_SIZE,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.fireworks_ai.source import FireworksAISource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fireworksai import (
-    FireworksAISourceConfig,
-)
+from products.warehouse_sources.sources.fireworks_ai.settings import ACCOUNT_USAGE, FIREWORKS_AI_ENDPOINTS, PAGE_SIZE
+from products.warehouse_sources.sources.fireworks_ai.source import FireworksAISource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

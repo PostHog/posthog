@@ -4,15 +4,10 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gitguardian import (
-    GitguardianSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.gitguardian import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.gitguardian.source import GitguardianSource
+from products.warehouse_sources.sources.gitguardian import source as source_module
+from products.warehouse_sources.sources.gitguardian._config import GitguardianSourceConfig
+from products.warehouse_sources.sources.gitguardian.source import GitguardianSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 class TestGitguardianSourceConfig:

@@ -7,8 +7,9 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.argocd import argocd as argocd_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.argocd.argocd import (
+from products.warehouse_sources.sources.argocd import argocd as argocd_module
+from products.warehouse_sources.sources.argocd._config import ArgocdSourceConfig
+from products.warehouse_sources.sources.argocd.argocd import (
     HOST_NOT_ALLOWED_ERROR,
     HTTPS_REQUIRED_ERROR,
     ArgocdHostNotAllowedError,
@@ -29,14 +30,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.argocd.arg
     normalize_host,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.argocd.settings import ARGOCD_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.argocd.source import ArgocdSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.argocd import ArgocdSourceConfig
+from products.warehouse_sources.sources.argocd.settings import ARGOCD_ENDPOINTS
+from products.warehouse_sources.sources.argocd.source import ArgocdSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 APPLICATION = {
     "metadata": {

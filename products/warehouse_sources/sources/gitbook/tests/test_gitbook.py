@@ -4,27 +4,22 @@ from typing import Any, Optional
 from parameterized import parameterized
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.gitbook._config import GitBookSourceConfig
+from products.warehouse_sources.sources.gitbook.gitbook import (
+    GITBOOK_BASE_URL,
+    PAGE_SIZE,
+    GitBookResumeConfig,
+    validate_credentials,
+)
+from products.warehouse_sources.sources.gitbook.settings import ENDPOINTS, GITBOOK_ENDPOINTS
+from products.warehouse_sources.sources.gitbook.source import GitBookSource
+from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
     route,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gitbook import (
-    GitBookSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.gitbook.gitbook import (
-    GITBOOK_BASE_URL,
-    PAGE_SIZE,
-    GitBookResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.gitbook.settings import (
-    ENDPOINTS,
-    GITBOOK_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.gitbook.source import GitBookSource
 
 
 def _driver() -> SourceDriver:

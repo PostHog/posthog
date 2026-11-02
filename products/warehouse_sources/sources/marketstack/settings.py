@@ -1,7 +1,7 @@
 import dataclasses
 from typing import Literal
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
 # The time-series feeds carry a per-row `date`. Marketstack windows them server-side with the
 # `date_from` / `date_to` query params, so those endpoints sync incrementally on `date`. EOD and

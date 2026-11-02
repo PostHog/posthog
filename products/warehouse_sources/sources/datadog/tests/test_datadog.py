@@ -8,14 +8,8 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.datadog import (
+from products.warehouse_sources.sources.datadog._config import DatadogSourceConfig
+from products.warehouse_sources.sources.datadog.datadog import (
     DEFAULT_SITE,
     DatadogFanOutLimitError,
     DatadogResumeConfig,
@@ -29,10 +23,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.da
     base_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.settings import DATADOG_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.source import DatadogSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.datadog import (
-    DatadogSourceConfig,
+from products.warehouse_sources.sources.datadog.settings import DATADOG_ENDPOINTS
+from products.warehouse_sources.sources.datadog.source import DatadogSource
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
 )
 
 

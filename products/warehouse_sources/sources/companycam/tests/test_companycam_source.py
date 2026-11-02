@@ -1,10 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.companycam.source import CompanycamSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.companycam import (
-    CompanycamSourceConfig,
-)
+from products.warehouse_sources.sources.companycam._config import CompanycamSourceConfig
+from products.warehouse_sources.sources.companycam.source import CompanycamSource
 
 _INCREMENTAL_ENDPOINTS = {"Projects", "Photos", "Videos"}
 _FULL_REFRESH_ENDPOINTS = {"Users", "Tags", "Groups", "Checklists", "ChecklistTemplates"}
@@ -23,9 +21,7 @@ class TestCompanycamSource:
             (False, False, "Invalid credentials"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.companycam.source.validate_companycam_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.companycam.source.validate_companycam_credentials")
     def test_validate_credentials(
         self, mock_validate: mock.MagicMock, mock_return: bool, expected_valid: bool, expected_message: str | None
     ) -> None:
@@ -37,7 +33,7 @@ class TestCompanycamSource:
         assert error_message == expected_message
         mock_validate.assert_called_once_with("test-key", "v2")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.companycam.source.companycam_source")
+    @mock.patch("products.warehouse_sources.sources.companycam.source.companycam_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_companycam_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "Projects"
@@ -56,7 +52,7 @@ class TestCompanycamSource:
         assert kwargs["db_incremental_field_last_value"] == 1700000000
         assert kwargs["api_version"] == "v2"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.companycam.source.companycam_source")
+    @mock.patch("products.warehouse_sources.sources.companycam.source.companycam_source")
     def test_source_for_pipeline_omits_cursor_when_not_incremental(
         self, mock_companycam_source: mock.MagicMock
     ) -> None:

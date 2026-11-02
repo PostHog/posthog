@@ -1,44 +1,38 @@
 from datetime import timedelta
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    NOT_DETECTABLE,
+    OAUTH2_PERMANENT_ERROR_MARKER,
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
-    OAUTH2_PERMANENT_ERROR_MARKER,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.trafficstars import (
-    TrafficStarsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.trafficstars.settings import (
+from products.warehouse_sources.sources.trafficstars._config import TrafficStarsSourceConfig
+from products.warehouse_sources.sources.trafficstars.settings import (
     ENDPOINTS,
     HISTORY_DAYS,
     INCREMENTAL_FIELDS,
     LOOKBACK,
     MERGE_ONLY,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.trafficstars.trafficstars import (
+from products.warehouse_sources.sources.trafficstars.trafficstars import (
     TrafficStarsResumeConfig,
     trafficstars_source,
     validate_credentials as validate_trafficstars_credentials,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -81,9 +75,7 @@ class TrafficStarsSource(ResumableSource[TrafficStarsSourceConfig, TrafficStarsR
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.trafficstars.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.trafficstars.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

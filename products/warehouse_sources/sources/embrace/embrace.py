@@ -7,14 +7,7 @@ from typing import TYPE_CHECKING, TypedDict
 
 from requests.exceptions import HTTPError
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.embrace.settings import (
+from products.warehouse_sources.sources.embrace.settings import (
     AUTH_ERRORS,
     ENDPOINTS,
     MAX_SYNC_SECONDS,
@@ -23,12 +16,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.embrace.se
     STEP_SECONDS,
     WINDOW_SECONDS,
 )
+from products.warehouse_sources.sources.sdk import RESTAPIConfig, SourceResponse, frozen, rest_api_resource
 
 if TYPE_CHECKING:
-    from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-    from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.embrace import (
-        EmbraceSourceConfig,
-    )
+    from products.warehouse_sources.sources.embrace._config import EmbraceSourceConfig
+    from products.warehouse_sources.sources.sdk import ResumableSourceManager
 
 
 @frozen

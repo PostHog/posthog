@@ -4,17 +4,8 @@ from typing import Any, Optional
 import pytest
 from unittest.mock import patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.razorpay import (
-    RazorpaySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.razorpay.razorpay import (
+from products.warehouse_sources.sources.razorpay._config import RazorpaySourceConfig
+from products.warehouse_sources.sources.razorpay.razorpay import (
     INCREMENTAL_LOOKBACK_SECONDS,
     MIN_FROM_TIMESTAMP,
     MISSING_ACCOUNT_NUMBER_ERROR,
@@ -24,8 +15,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.razorpay.r
     build_from_param,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.razorpay.settings import PAGE_SIZE
-from products.warehouse_sources.backend.temporal.data_imports.sources.razorpay.source import RazorpaySource
+from products.warehouse_sources.sources.razorpay.settings import PAGE_SIZE
+from products.warehouse_sources.sources.razorpay.source import RazorpaySource
+from products.warehouse_sources.sources.sdk.testing import (
+    DriveResult,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 
 
 def _collection_response(items: list[dict[str, Any]], status_code: int = 200) -> ScriptedResponse:
@@ -56,7 +54,7 @@ def _recon_items(count: int) -> list[dict[str, Any]]:
 
 def _current_month(year: int, month: int) -> Any:
     return patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.razorpay.razorpay._current_recon_month",
+        "products.warehouse_sources.sources.razorpay.razorpay._current_recon_month",
         return_value=ReconMonth(year=year, month=month),
     )
 

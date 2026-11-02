@@ -3,38 +3,25 @@ from typing import Any
 from requests.exceptions import HTTPError, RequestException
 from urllib3.util.retry import Retry
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from products.warehouse_sources.sources.sdk import (
+    BearerTokenAuth,
+    ClientConfig,
+    Endpoint,
     RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    build_dependent_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClient,
     RESTClientNonRetryableError,
     RESTClientRetryableError,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceInputs,
+    SourceResponse,
+    build_dependent_resource,
+    frozen,
+    make_tracked_session,
+    rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-    ClientConfig,
-    Endpoint,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.smartlook import (
-    SmartlookSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.smartlook.settings import (
-    ENDPOINTS,
-    SmartlookEndpoint,
-)
+from products.warehouse_sources.sources.smartlook._config import SmartlookSourceConfig
+from products.warehouse_sources.sources.smartlook.settings import ENDPOINTS, SmartlookEndpoint
 
 REGION_URLS = {"eu": "https://api.eu.smartlook.cloud", "us": "https://api.us.smartlook.cloud"}
 

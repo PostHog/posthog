@@ -4,7 +4,8 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.braintree import (
+from products.warehouse_sources.sources.braintree._config import BraintreeSourceConfig
+from products.warehouse_sources.sources.braintree.braintree import (
     BRAINTREE_VERSION_2019_01_01,
     BRAINTREE_VERSION_2026_07_14,
     BRAINTREE_VERSION_2026_08_04,
@@ -19,19 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.
     _normalize_node,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.settings import (
-    BRAINTREE_ENDPOINTS,
-    ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.source import BraintreeSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.braintree import (
-    BraintreeSourceConfig,
-)
+from products.warehouse_sources.sources.braintree.settings import BRAINTREE_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.sources.braintree.source import BraintreeSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 _VERSION = BRAINTREE_VERSION_2026_07_14
 

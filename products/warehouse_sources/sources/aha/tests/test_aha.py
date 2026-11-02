@@ -5,7 +5,8 @@ import pytest
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aha.aha import (
+from products.warehouse_sources.sources.aha._config import AhaSourceConfig
+from products.warehouse_sources.sources.aha.aha import (
     AhaResumeConfig,
     _build_initial_params,
     _format_updated_since,
@@ -13,14 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aha.aha im
     normalize_subdomain,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aha.settings import AHA_ENDPOINTS, PER_PAGE
-from products.warehouse_sources.backend.temporal.data_imports.sources.aha.source import AhaSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.aha import AhaSourceConfig
+from products.warehouse_sources.sources.aha.settings import AHA_ENDPOINTS, PER_PAGE
+from products.warehouse_sources.sources.aha.source import AhaSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 class TestNormalizeSubdomain:

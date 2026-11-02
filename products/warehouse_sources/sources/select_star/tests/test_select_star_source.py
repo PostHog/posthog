@@ -1,5 +1,5 @@
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus
-from products.warehouse_sources.backend.temporal.data_imports.sources.select_star.source import SelectStarSource
+from products.warehouse_sources.sources.sdk import ReleaseStatus
+from products.warehouse_sources.sources.select_star.source import SelectStarSource
 
 
 class TestSelectStarSource:

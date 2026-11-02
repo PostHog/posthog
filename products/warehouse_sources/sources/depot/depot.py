@@ -7,22 +7,21 @@ from typing import Any
 from requests import Response, Session
 from structlog.types import FilteringBoundLogger
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
-    DEFAULT_RETRY,
-    make_tracked_session,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.depot.settings import (
+from products.warehouse_sources.sources.depot.settings import (
     ARTIFACTS,
     FAILURE_DIAGNOSES,
     JOB_ATTEMPTS,
     JOB_METRICS,
     PRIMARY_KEYS,
     RUN_CREATED_AT,
+)
+from products.warehouse_sources.sources.sdk import (
+    DEFAULT_RETRY,
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    parse_datetime_value,
 )
 
 JSONObject = dict[str, Any]

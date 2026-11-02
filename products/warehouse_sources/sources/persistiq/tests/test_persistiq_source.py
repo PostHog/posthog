@@ -2,12 +2,10 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.persistiq import (
-    PersistIqSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.persistiq import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.persistiq.source import PersistIqSource
+from products.warehouse_sources.sources.persistiq import source as source_module
+from products.warehouse_sources.sources.persistiq._config import PersistIqSourceConfig
+from products.warehouse_sources.sources.persistiq.source import PersistIqSource
+from products.warehouse_sources.sources.sdk import ReleaseStatus, SourceFieldInputConfig
 
 
 class TestPersistIqSource:
@@ -47,7 +45,7 @@ class TestPersistIqSource:
         assert result == underlying
         mock_validate.assert_called_once_with("pq-key")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.persistiq.source.persistiq_source")
+    @mock.patch("products.warehouse_sources.sources.persistiq.source.persistiq_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "leads"

@@ -6,18 +6,11 @@ from unittest.mock import MagicMock
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.close import search as close_search
-from products.warehouse_sources.backend.temporal.data_imports.sources.close.search import (
-    CloseCursorExpiredError,
-    CloseSearchError,
-    iter_search_rows,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.close.source import CloseSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.close import CloseSourceConfig
+from products.warehouse_sources.sources.close import search as close_search
+from products.warehouse_sources.sources.close._config import CloseSourceConfig
+from products.warehouse_sources.sources.close.search import CloseCursorExpiredError, CloseSearchError, iter_search_rows
+from products.warehouse_sources.sources.close.source import CloseSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 BASE_URL = "https://api.close.com/api/v1"
 

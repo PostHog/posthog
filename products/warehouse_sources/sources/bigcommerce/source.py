@@ -1,41 +1,37 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.bigcommerce.bigcommerce import (
+from products.warehouse_sources.sources.bigcommerce._config import BigCommerceSourceConfig
+from products.warehouse_sources.sources.bigcommerce.bigcommerce import (
     BigCommerceResumeConfig,
     bigcommerce_source,
     order_fan_out_source,
     validate_credentials as validate_bigcommerce_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.bigcommerce.settings import (
+from products.warehouse_sources.sources.bigcommerce.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     ORDER_FAN_OUT_ENDPOINTS,
     PARTITION_FIELDS,
     PRIMARY_KEYS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+from products.warehouse_sources.sources.sdk import (
     CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bigcommerce import (
-    BigCommerceSourceConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -72,7 +68,7 @@ class BigCommerceSource(ResumableSource[BigCommerceSourceConfig, BigCommerceResu
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.bigcommerce.canonical_descriptions import (  # noqa: PLC0415 -- lazy import keeps this out of the hot registration path
+        from products.warehouse_sources.sources.bigcommerce.canonical_descriptions import (  # noqa: PLC0415 -- lazy import keeps this out of the hot registration path
             CANONICAL_DESCRIPTIONS,
         )
 

@@ -1,14 +1,10 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hoorayhr import (
-    HoorayHRSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.hoorayhr.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.hoorayhr.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.hoorayhr.source import HoorayHRSource
+from products.warehouse_sources.sources.hoorayhr._config import HoorayHRSourceConfig
+from products.warehouse_sources.sources.hoorayhr.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.hoorayhr.settings import ENDPOINTS
+from products.warehouse_sources.sources.hoorayhr.source import HoorayHRSource
 
 
 class TestHoorayHRSource:
@@ -28,9 +24,7 @@ class TestHoorayHRSource:
             (False, False, "HoorayHR rejected the credentials. Check the API key is correct and hasn't been revoked."),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.hoorayhr.source.validate_hoorayhr_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.hoorayhr.source.validate_hoorayhr_credentials")
     def test_validate_credentials(
         self,
         mock_validate: mock.MagicMock,

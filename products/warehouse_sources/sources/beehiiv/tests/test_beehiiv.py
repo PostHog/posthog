@@ -2,22 +2,11 @@ from typing import Any, cast
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.beehiiv.beehiiv import (
-    BeehiivResumeConfig,
-    get_resource,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.beehiiv.settings import ENDPOINTS, MAX_PAGE
-from products.warehouse_sources.backend.temporal.data_imports.sources.beehiiv.source import BeehiivSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.beehiiv import (
-    BeehiivSourceConfig,
-)
+from products.warehouse_sources.sources.beehiiv._config import BeehiivSourceConfig
+from products.warehouse_sources.sources.beehiiv.beehiiv import BeehiivResumeConfig, get_resource, validate_credentials
+from products.warehouse_sources.sources.beehiiv.settings import ENDPOINTS, MAX_PAGE
+from products.warehouse_sources.sources.beehiiv.source import BeehiivSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 CURSOR_ENDPOINTS = [name for name, config in ENDPOINTS.items() if config.pagination == "cursor"]
 PAGE_ENDPOINTS = [name for name, config in ENDPOINTS.items() if config.pagination == "page"]

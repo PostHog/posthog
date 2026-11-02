@@ -7,7 +7,8 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.applovin.applovin import (
+from products.warehouse_sources.sources.applovin._config import AppLovinSourceConfig
+from products.warehouse_sources.sources.applovin.applovin import (
     AUTH_ERROR_PREFIX,
     BAD_REQUEST_ERROR_PREFIX,
     MANAGEMENT_AUTH_ERROR_PREFIX,
@@ -19,7 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.applovin.a
     _to_date,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.applovin.settings import (
+from products.warehouse_sources.sources.applovin.settings import (
     APPLOVIN_ENDPOINTS,
     MANAGEMENT_PAGE_SIZE,
     MAX_REQUEST_WINDOW_DAYS,
@@ -28,16 +29,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.applovin.s
     REPORT_PAGE_SIZE,
     REPORT_WINDOW_DAYS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.applovin.source import AppLovinSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.applovin.source import AppLovinSource
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.applovin import (
-    AppLovinSourceConfig,
 )
 
 

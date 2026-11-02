@@ -1,28 +1,26 @@
 from typing import Optional, cast
 
-from posthog.schema_enums import ProductKey
-
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ProductKey,
     ReleaseStatus,
+    SimpleSource,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.typeform import (
-    TypeformSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.typeform.settings import (
+from products.warehouse_sources.sources.typeform._config import TypeformSourceConfig
+from products.warehouse_sources.sources.typeform.settings import (
     ALLOWED_TYPEFORM_API_BASE_URLS,
     DEFAULT_TYPEFORM_API_BASE_URL,
     ENDPOINTS,
@@ -30,11 +28,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.typeform.s
     RESPONSE_TYPE_ALL,
     RESPONSE_TYPE_COMPLETED_ONLY,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.typeform.typeform import (
+from products.warehouse_sources.sources.typeform.typeform import (
     typeform_source,
     validate_credentials as validate_typeform_credentials,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -136,9 +133,7 @@ You can generate a personal access token in your [Typeform account settings](htt
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.typeform.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.typeform.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

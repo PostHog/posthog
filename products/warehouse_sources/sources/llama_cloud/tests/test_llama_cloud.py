@@ -7,16 +7,8 @@ from unittest.mock import MagicMock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.llamacloud import (
-    LlamaCloudSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.llama_cloud.llama_cloud import (
+from products.warehouse_sources.sources.llama_cloud._config import LlamaCloudSourceConfig
+from products.warehouse_sources.sources.llama_cloud.llama_cloud import (
     LlamaCloudResumeConfig,
     LlamaCloudRetryableError,
     _fetch_page,
@@ -25,7 +17,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.llama_clou
     get_base_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.llama_cloud.source import LlamaCloudSource
+from products.warehouse_sources.sources.llama_cloud.source import LlamaCloudSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 # tenacity exposes the undecorated function via `__wrapped__`, so status classification can be
 # tested without sitting through the retry backoff.

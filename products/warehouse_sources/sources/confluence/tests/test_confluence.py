@@ -5,26 +5,21 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.confluence.confluence import (
+from products.warehouse_sources.sources.confluence._config import ConfluenceSourceConfig
+from products.warehouse_sources.sources.confluence.confluence import (
     ConfluenceLinkPaginator,
     ConfluenceResumeConfig,
     is_valid_subdomain,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.confluence.settings import (
-    CONFLUENCE_ENDPOINTS,
-    ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.confluence.source import ConfluenceSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.confluence import (
-    ConfluenceSourceConfig,
+from products.warehouse_sources.sources.confluence.settings import CONFLUENCE_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.sources.confluence.source import ConfluenceSource
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
 )
 
 

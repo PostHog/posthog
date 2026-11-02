@@ -1,7 +1,7 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hex import HexSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.hex.source import HexSource
+from products.warehouse_sources.sources.hex._config import HexSourceConfig
+from products.warehouse_sources.sources.hex.source import HexSource
 
 
 class TestHexSource:
@@ -15,7 +15,7 @@ class TestHexSource:
         # editor could point the stored token at a host they control.
         assert self.source.connection_host_fields == ["workspace_url"]
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.hex.source.hex_source")
+    @mock.patch("products.warehouse_sources.sources.hex.source.hex_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_hex_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "projects"

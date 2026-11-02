@@ -1,12 +1,12 @@
 from dataclasses import field, replace
 from typing import Any
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+from products.warehouse_sources.sources.sdk import (
     DependentEndpointConfig,
+    IncrementalField,
+    IncrementalFieldType,
+    frozen,
 )
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 DEFAULT_BASE_URL = "https://api.plane.so"
 API_PATH = "/api/v2"

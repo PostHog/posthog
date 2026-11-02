@@ -1,40 +1,36 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
-    SourceSchema,
-    build_endpoint_schemas,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.powerbiadmin import (
-    PowerBiAdminSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.power_bi_admin.power_bi_admin import (
+from products.warehouse_sources.sources.power_bi_admin._config import PowerBiAdminSourceConfig
+from products.warehouse_sources.sources.power_bi_admin.power_bi_admin import (
     ADMIN_API_DENIED_ERROR,
     PowerBiAdminResumeConfig,
     power_bi_admin_source,
     validate_credentials as validate_power_bi_admin_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.power_bi_admin.settings import (
+from products.warehouse_sources.sources.power_bi_admin.settings import (
     ACTIVITY_EVENTS_RETENTION_DAYS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     POWER_BI_ADMIN_ENDPOINTS,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    build_endpoint_schemas,
+    detect,
+)
 
 
 @SourceRegistry.register
@@ -71,9 +67,7 @@ class PowerBiAdminSource(ResumableSource[PowerBiAdminSourceConfig, PowerBiAdminR
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.power_bi_admin.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.power_bi_admin.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

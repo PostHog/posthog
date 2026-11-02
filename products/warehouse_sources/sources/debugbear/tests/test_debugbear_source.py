@@ -1,9 +1,7 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.debugbear.source import DebugbearSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.debugbear import (
-    DebugbearSourceConfig,
-)
+from products.warehouse_sources.sources.debugbear._config import DebugbearSourceConfig
+from products.warehouse_sources.sources.debugbear.source import DebugbearSource
 
 
 class TestDebugbearSource:

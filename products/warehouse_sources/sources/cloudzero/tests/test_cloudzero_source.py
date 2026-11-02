@@ -4,22 +4,12 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.cloudzero import KEY_REJECTED_MESSAGE
-from products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.source import (
-    CloudzeroSource,
-    _parse_group_by,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cloudzero import (
-    CloudzeroSourceConfig,
-)
+from products.warehouse_sources.sources.cloudzero._config import CloudzeroSourceConfig
+from products.warehouse_sources.sources.cloudzero.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.cloudzero.cloudzero import KEY_REJECTED_MESSAGE
+from products.warehouse_sources.sources.cloudzero.settings import ENDPOINTS
+from products.warehouse_sources.sources.cloudzero.source import CloudzeroSource, _parse_group_by
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 def _config(
@@ -63,7 +53,7 @@ class TestValidateCredentials:
     )
     def test_plumbs_transport_result(self, _name: str, transport_result: tuple[bool, str | None]) -> None:
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.source.validate_cloudzero_credentials",
+            "products.warehouse_sources.sources.cloudzero.source.validate_cloudzero_credentials",
             return_value=transport_result,
         ) as mocked:
             assert CloudzeroSource().validate_credentials(_config(), team_id=1) == transport_result
@@ -90,9 +80,7 @@ class TestResumableWiring:
         manager = MagicMock()
         config = _config(group_by="service, account")
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.source.cloudzero_source"
-        ) as mocked:
+        with patch("products.warehouse_sources.sources.cloudzero.source.cloudzero_source") as mocked:
             mocked.return_value.name = "Costs"
             mocked.return_value.column_hints = None
             response = CloudzeroSource().source_for_pipeline(config, manager, inputs)

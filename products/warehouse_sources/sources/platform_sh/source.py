@@ -2,39 +2,33 @@ from typing import Optional, cast
 
 import structlog
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-    SourceFieldSelectConfig,
-    SourceFieldSelectConfigOption,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.platformsh import (
-    PlatformShSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.platform_sh.platform_sh import (
+from products.warehouse_sources.sources.platform_sh._config import PlatformShSourceConfig
+from products.warehouse_sources.sources.platform_sh.platform_sh import (
     AUTH_FAILED_MESSAGE,
     PlatformShResumeConfig,
     platform_sh_source,
     validate_credentials as validate_platform_sh_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.platform_sh.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-    PLATFORM_SH_ENDPOINTS,
+from products.warehouse_sources.sources.platform_sh.settings import ENDPOINTS, INCREMENTAL_FIELDS, PLATFORM_SH_ENDPOINTS
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    detect,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
 
@@ -111,7 +105,7 @@ Create an API token in the Console under **My profile > API tokens** ([Platform.
         return ["platform"]
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.platform_sh.canonical_descriptions import (  # noqa: PLC0415 — lazy sibling import, matching every other source
+        from products.warehouse_sources.sources.platform_sh.canonical_descriptions import (  # noqa: PLC0415 — lazy sibling import, matching every other source
             CANONICAL_DESCRIPTIONS,
         )
 

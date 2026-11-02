@@ -1,8 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.torii import ToriiSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.torii.source import ToriiSource
+from products.warehouse_sources.sources.torii._config import ToriiSourceConfig
+from products.warehouse_sources.sources.torii.source import ToriiSource
 
 
 class TestToriiSource:
@@ -18,9 +18,7 @@ class TestToriiSource:
             (False, False, "Invalid credentials"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.torii.source.validate_torii_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.torii.source.validate_torii_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
         mock_validate.return_value = mock_return
 
@@ -36,8 +34,6 @@ class TestToriiSource:
         inputs.api_version = "1.1"
         manager = mock.MagicMock()
 
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.torii.source.torii_source"
-        ) as mock_torii_source:
+        with mock.patch("products.warehouse_sources.sources.torii.source.torii_source") as mock_torii_source:
             self.source.source_for_pipeline(self.config, manager, inputs)
             assert mock_torii_source.call_args.kwargs["api_version"] == "1.1"

@@ -2,11 +2,7 @@ import dataclasses
 from dataclasses import dataclass, field
 from typing import Literal
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-)
-from products.warehouse_sources.backend.types import IncrementalField
+from products.warehouse_sources.sources.sdk import UNVERSIONED_API_VERSION, DependentEndpointConfig, IncrementalField
 
 CENSUS_API_V1 = UNVERSIONED_API_VERSION
 CENSUS_API_V2 = "v2"
@@ -31,7 +27,7 @@ class CensusEndpointConfig:
     primary_key: str | list[str] = "id"
     fanout: DependentEndpointConfig | None = None
     # Response fields dropped from every row before it is yielded. Census `connection_details`
-    # on sources/destinations carries warehouse account identifiers (account, user, warehouse
+    # on products/warehouse_sources/sources/destinations carries warehouse account identifiers (account, user, warehouse
     # name) that shouldn't be copied into a table any project member can query.
     strip_fields: tuple[str, ...] = ()
     # Set when an otherwise-valid token can be refused for this endpoint. `get_endpoint_permissions`

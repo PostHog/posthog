@@ -1,14 +1,9 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.reverb import ReverbSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.reverb.reverb import ReverbResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.reverb.source import ReverbSource
+from products.warehouse_sources.sources.reverb._config import ReverbSourceConfig
+from products.warehouse_sources.sources.reverb.reverb import ReverbResumeConfig
+from products.warehouse_sources.sources.reverb.source import ReverbSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 _INCREMENTAL_ENDPOINTS = {"Orders", "Payouts"}
 _FULL_REFRESH_ENDPOINTS = {"Listings"}

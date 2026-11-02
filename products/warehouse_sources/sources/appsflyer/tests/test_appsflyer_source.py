@@ -3,14 +3,9 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.appsflyer import (
-    AppsFlyerCredentialsError,
-    AppsFlyerRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.source import AppsFlyerSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appsflyer import (
-    AppsFlyerSourceConfig,
-)
+from products.warehouse_sources.sources.appsflyer._config import AppsFlyerSourceConfig
+from products.warehouse_sources.sources.appsflyer.appsflyer import AppsFlyerCredentialsError, AppsFlyerRetryableError
+from products.warehouse_sources.sources.appsflyer.source import AppsFlyerSource
 
 
 class TestAppsFlyerSource:
@@ -23,9 +18,7 @@ class TestAppsFlyerSource:
         # Changing app_id retargets the stored token, so editing it must require re-entering secrets.
         assert self.source.connection_host_fields == ["app_id"]
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.source.validate_appsflyer_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.appsflyer.source.validate_appsflyer_credentials")
     def test_validate_credentials_succeeds(self, mock_validate):
         is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
@@ -37,9 +30,7 @@ class TestAppsFlyerSource:
         "raised",
         [AppsFlyerRetryableError("status=429"), requests.ReadTimeout()],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.source.validate_appsflyer_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.appsflyer.source.validate_appsflyer_credentials")
     def test_validate_credentials_reports_transient_failures_distinctly(self, mock_validate, raised):
         mock_validate.side_effect = raised
 
@@ -49,9 +40,7 @@ class TestAppsFlyerSource:
         assert error_message is not None
         assert "temporary" in error_message
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.source.validate_appsflyer_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.appsflyer.source.validate_appsflyer_credentials")
     def test_validate_credentials_surfaces_specific_rejection_message(self, mock_validate):
         # A rejected token/app id raises AppsFlyerCredentialsError; its message reaches the user
         # verbatim instead of the conflated "Invalid AppsFlyer API token or app id".

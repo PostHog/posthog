@@ -1,7 +1,7 @@
 import datetime
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
 # Month-scoped endpoints take a required `date=YYYYMM` and return one pay period per request, so a
 # first sync walks back this far and later full refreshes keep the same start.

@@ -5,24 +5,18 @@ from unittest import TestCase
 from parameterized import parameterized
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientNonRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk import RESTClientNonRetryableError
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     Script,
     ScriptedResponse,
     SourceDriver,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.testdino import (
-    TestDinoSourceConfig as SourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.testdino.settings import API_BASE_URL
-from products.warehouse_sources.backend.temporal.data_imports.sources.testdino.source import TestDinoSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.testdino.testdino import (
-    TestDinoResumeConfig as ResumeConfig,
-)
+from products.warehouse_sources.sources.testdino._config import TestDinoSourceConfig as SourceConfig
+from products.warehouse_sources.sources.testdino.settings import API_BASE_URL
+from products.warehouse_sources.sources.testdino.source import TestDinoSource
+from products.warehouse_sources.sources.testdino.testdino import TestDinoResumeConfig as ResumeConfig
 
 
 def response(body: dict[str, Any], status: int = 200, headers: dict[str, str] | None = None) -> ScriptedResponse:

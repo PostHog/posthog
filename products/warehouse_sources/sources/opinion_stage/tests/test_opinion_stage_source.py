@@ -1,15 +1,9 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.opinionstage import (
-    OpinionStageSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.opinion_stage.source import OpinionStageSource
+from products.warehouse_sources.sources.opinion_stage._config import OpinionStageSourceConfig
+from products.warehouse_sources.sources.opinion_stage.source import OpinionStageSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, always, scripted_network
 
 
 class TestOpinionStageSource:
@@ -44,9 +38,7 @@ class TestOpinionStageSource:
         assert network.requests_log
         assert all(request.path == "/api/v2/items" for request in network.requests_log)
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.opinion_stage.source.opinion_stage_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.opinion_stage.source.opinion_stage_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "items"

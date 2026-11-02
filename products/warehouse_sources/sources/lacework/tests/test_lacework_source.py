@@ -1,15 +1,10 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lacework import (
-    LaceworkSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.lacework.settings import (
-    ENDPOINTS,
-    LACEWORK_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.lacework.source import LaceworkSource
+from products.warehouse_sources.sources.lacework._config import LaceworkSourceConfig
+from products.warehouse_sources.sources.lacework.settings import ENDPOINTS, LACEWORK_ENDPOINTS
+from products.warehouse_sources.sources.lacework.source import LaceworkSource
 
-_SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.lacework.source"
+_SOURCE_MODULE = "products.warehouse_sources.sources.lacework.source"
 
 
 class TestLaceworkSource:

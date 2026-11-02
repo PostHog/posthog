@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 
 # Descriptions sourced from the OnceHub Booking Calendars and Booking Pages API docs (https://developers.oncehub.com).
 # Partial coverage is fine — uncovered columns fall back to LLM enrichment.

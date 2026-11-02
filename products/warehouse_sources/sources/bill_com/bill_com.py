@@ -7,14 +7,12 @@ from urllib.parse import urljoin, urlparse
 import requests
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.bill_com.settings import (
+from products.warehouse_sources.sources.bill_com.settings import (
     BILL_COM_ENDPOINTS,
     CREATED_TIME_FIELD,
     UPDATED_TIME_FIELD,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceResponse, make_tracked_session
 
 # BILL runs the sandbox on a separate host, and a developer key is issued per environment.
 BILL_COM_HOSTS = {

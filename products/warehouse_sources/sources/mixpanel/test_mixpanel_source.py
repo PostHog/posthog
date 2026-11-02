@@ -6,18 +6,13 @@ from unittest.mock import MagicMock, patch
 import structlog
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Transient_Error_Messages
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mixpanel import (
-    MixpanelSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.mixpanel import EXPORT_TRUNCATED_ERROR
-from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.source import MixpanelSource
+from products.warehouse_sources.sources.mixpanel import source as source_module
+from products.warehouse_sources.sources.mixpanel._config import MixpanelSourceConfig
+from products.warehouse_sources.sources.mixpanel.mixpanel import EXPORT_TRUNCATED_ERROR
+from products.warehouse_sources.sources.mixpanel.source import MixpanelSource
+from products.warehouse_sources.sources.sdk import SourceInputs
+from products.warehouse_sources.sources.sdk.internals import Transient_Error_Messages
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 LOGGER = structlog.get_logger()
 

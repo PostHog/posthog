@@ -1,6 +1,6 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.crisp import CrispSourceConfig
+from products.warehouse_sources.sources.crisp._config import CrispSourceConfig
 
 
 @pytest.fixture

@@ -4,34 +4,27 @@ from typing import Any, Optional, cast
 from requests import Request, Response
 from requests.exceptions import RequestException
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
+from products.warehouse_sources.sources.demodesk.settings import (
+    DEMODESK_ENDPOINTS,
+    DemodeskApiVersion,
+    DemodeskEndpointConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    build_dependent_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    BasePaginator,
-    JSONResponseCursorPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+from products.warehouse_sources.sources.sdk import (
     ApiKeyAuthConfig,
+    BasePaginator,
     BearerTokenAuthConfig,
     ClientConfig,
     Endpoint,
     EndpointResource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.demodesk.settings import (
-    DEMODESK_ENDPOINTS,
-    DemodeskApiVersion,
-    DemodeskEndpointConfig,
+    JSONResponseCursorPaginator,
+    Resource,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    build_dependent_resource,
+    frozen,
+    make_tracked_session,
+    rest_api_resource,
 )
 
 BASE_URL = "https://demodesk.com/api"

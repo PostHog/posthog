@@ -1,9 +1,7 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.llamacloud import (
-    LlamaCloudSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.llama_cloud.source import LlamaCloudSource
+from products.warehouse_sources.sources.llama_cloud._config import LlamaCloudSourceConfig
+from products.warehouse_sources.sources.llama_cloud.source import LlamaCloudSource
 
 
 class TestLlamaCloudSource:

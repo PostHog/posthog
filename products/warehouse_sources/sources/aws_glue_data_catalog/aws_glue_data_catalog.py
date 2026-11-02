@@ -12,9 +12,7 @@ from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_glue_data_catalog.settings import (
+from products.warehouse_sources.sources.aws_glue_data_catalog.settings import (
     BODY_RETRY_CODES,
     COLUMN_STATISTICS_BATCH_SIZE,
     CONTENT_TYPE,
@@ -26,15 +24,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_glue_d
     TARGET_PREFIXES,
     GlueEndpoint,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.sources.sdk import BoundedRetry, SourceResponse, frozen, make_tracked_session
 
 if TYPE_CHECKING:
-    from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-    from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsgluedatacatalog import (
-        AwsGlueDataCatalogSourceConfig,
-    )
+    from products.warehouse_sources.sources.aws_glue_data_catalog._config import AwsGlueDataCatalogSourceConfig
+    from products.warehouse_sources.sources.sdk import ResumableSourceManager
 
 
 TRANSPORT_RETRY = BoundedRetry(

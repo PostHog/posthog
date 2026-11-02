@@ -1,7 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.uk_companies_house.settings import (
+from products.warehouse_sources.sources.sdk import CanonicalDescriptions
+from products.warehouse_sources.sources.uk_companies_house.settings import (
     CHARGES,
     COMPANIES,
     EXEMPTIONS,

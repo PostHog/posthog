@@ -3,19 +3,11 @@ from unittest import mock
 
 from requests import ConnectionError
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
-from products.warehouse_sources.backend.temporal.data_imports.sources.back_market.back_market import (
-    BackMarketResumeConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.back_market.source import BackMarketSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.backmarket import (
-    BackMarketSourceConfig,
-)
+from products.warehouse_sources.sources.back_market._config import BackMarketSourceConfig
+from products.warehouse_sources.sources.back_market.back_market import BackMarketResumeConfig
+from products.warehouse_sources.sources.back_market.source import BackMarketSource
+from products.warehouse_sources.sources.sdk import SourceFieldInputConfig, SourceFieldInputConfigType
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, always, scripted_network
 
 
 class TestBackMarketSource:
@@ -57,9 +49,7 @@ class TestBackMarketSource:
         manager = self.source.get_resumable_source_manager(inputs)
         assert manager._data_class is BackMarketResumeConfig
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.back_market.source.back_market_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.back_market.source.back_market_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_back_market_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "orders"
@@ -78,9 +68,7 @@ class TestBackMarketSource:
         assert kwargs["incremental_field"] == "date_modification"
         assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.back_market.source.back_market_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.back_market.source.back_market_source")
     def test_source_for_pipeline_omits_cursor_when_not_incremental(self, mock_back_market_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "listings"

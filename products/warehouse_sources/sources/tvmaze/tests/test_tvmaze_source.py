@@ -1,10 +1,8 @@
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tvmaze import TVMazeSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.tvmaze.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.tvmaze.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.tvmaze.source import TVMazeSource
+from products.warehouse_sources.sources.sdk import ReleaseStatus
+from products.warehouse_sources.sources.tvmaze._config import TVMazeSourceConfig
+from products.warehouse_sources.sources.tvmaze.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.tvmaze.settings import ENDPOINTS
+from products.warehouse_sources.sources.tvmaze.source import TVMazeSource
 
 
 class TestTVMazeSource:

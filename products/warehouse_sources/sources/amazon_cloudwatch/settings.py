@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Literal
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
 # All three APIs are regional. The service name doubles as the SigV4 signing name and the endpoint
 # prefix (`logs.<region>.amazonaws.com`, `monitoring.<region>.amazonaws.com`, `sts.<region>...`).

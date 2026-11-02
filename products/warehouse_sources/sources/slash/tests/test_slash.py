@@ -5,7 +5,7 @@ import pytest
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     Script,
     ScriptedResponse,
@@ -13,12 +13,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.slash import SlashSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.slash.slash import (
-    SlashResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.slash.source import SlashSource
+from products.warehouse_sources.sources.slash._config import SlashSourceConfig
+from products.warehouse_sources.sources.slash.slash import SlashResumeConfig, validate_credentials
+from products.warehouse_sources.sources.slash.source import SlashSource
 
 
 def _run(endpoint: str, script: Script, legal_entity_id: str | None = None, **inputs: Any) -> DriveResult:

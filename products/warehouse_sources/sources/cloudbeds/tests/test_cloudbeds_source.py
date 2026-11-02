@@ -2,10 +2,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.cloudbeds.source import CloudbedsSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cloudbeds import (
-    CloudbedsSourceConfig,
-)
+from products.warehouse_sources.sources.cloudbeds._config import CloudbedsSourceConfig
+from products.warehouse_sources.sources.cloudbeds.source import CloudbedsSource
 
 
 class TestCloudbedsSource:
@@ -24,9 +22,7 @@ class TestCloudbedsSource:
         # re-require the key - otherwise a group-level credential could be pointed at another property.
         assert self.source.connection_host_fields == ["property_id"]
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.cloudbeds.source.validate_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.cloudbeds.source.validate_credentials")
     def test_validate_credentials_delegates_with_api_key_property_and_version(
         self, mock_validate: mock.MagicMock
     ) -> None:
@@ -40,9 +36,7 @@ class TestCloudbedsSource:
 
     @parameterized.expand([("pinned_legacy", "v1.2", "v1.2"), ("unpinned_uses_default", None, "v1.3")])
     def test_source_for_pipeline_plumbs_arguments(self, _name: str, pin: str | None, expected_version: str) -> None:
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.cloudbeds.source.cloudbeds_source"
-        ) as mock_source:
+        with mock.patch("products.warehouse_sources.sources.cloudbeds.source.cloudbeds_source") as mock_source:
             inputs = mock.MagicMock()
             inputs.schema_name = "reservations"
             inputs.api_version = pin

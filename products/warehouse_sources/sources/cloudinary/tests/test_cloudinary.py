@@ -4,21 +4,19 @@ from typing import Any
 import pytest
 import time_machine
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.cloudinary.cloudinary import (
+from products.warehouse_sources.sources.cloudinary._config import CloudinarySourceConfig
+from products.warehouse_sources.sources.cloudinary.cloudinary import (
     CloudinaryResumeConfig,
     usage_start_date,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.cloudinary.source import CloudinarySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.cloudinary.source import CloudinarySource
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cloudinary import (
-    CloudinarySourceConfig,
 )
 
 

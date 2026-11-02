@@ -2,11 +2,9 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.huggingface import (
-    HuggingFaceSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.hugging_face import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.hugging_face.source import HuggingFaceSource
+from products.warehouse_sources.sources.hugging_face import source as source_module
+from products.warehouse_sources.sources.hugging_face._config import HuggingFaceSourceConfig
+from products.warehouse_sources.sources.hugging_face.source import HuggingFaceSource
 
 
 def _config() -> HuggingFaceSourceConfig:

@@ -1,40 +1,32 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
-    SourceSchema,
-    build_endpoint_schemas,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pagerduty import (
-    PagerDutySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.pagerduty.pagerduty import (
+from products.warehouse_sources.sources.pagerduty._config import PagerDutySourceConfig
+from products.warehouse_sources.sources.pagerduty.pagerduty import (
     ANALYTICS_PERSONAL_KEY_ERROR,
     ANALYTICS_READ_ONLY_KEY_ERROR,
     PagerDutyResumeConfig,
     pagerduty_source,
     validate_credentials as validate_pagerduty_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.pagerduty.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-    PAGERDUTY_ENDPOINTS,
+from products.warehouse_sources.sources.pagerduty.settings import ENDPOINTS, INCREMENTAL_FIELDS, PAGERDUTY_ENDPOINTS
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -84,9 +76,7 @@ You can create an account-level API key in your PagerDuty account under **Integr
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.pagerduty.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.pagerduty.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

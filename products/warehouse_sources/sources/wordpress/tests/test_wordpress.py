@@ -7,22 +7,13 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientNonRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.wordpress import (
-    WordpressSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress import wordpress as wordpress_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress.settings import WORDPRESS_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress.source import WordpressSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress.wordpress import (
+from products.warehouse_sources.sources.sdk import RESTClientNonRetryableError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.wordpress import wordpress as wordpress_module
+from products.warehouse_sources.sources.wordpress._config import WordpressSourceConfig
+from products.warehouse_sources.sources.wordpress.settings import WORDPRESS_ENDPOINTS
+from products.warehouse_sources.sources.wordpress.source import WordpressSource
+from products.warehouse_sources.sources.wordpress.wordpress import (
     HOST_NOT_ALLOWED_ERROR,
     HTTP_NOT_ALLOWED_ERROR,
     WordpressHostNotAllowedError,
@@ -414,19 +405,14 @@ class TestRetryAfter:
         ],
     )
     def test_parse_retry_after(self, header, expected):
-        from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress.wordpress import (
-            _parse_retry_after,
-        )
+        from products.warehouse_sources.sources.wordpress.wordpress import _parse_retry_after
 
         response = mock.MagicMock()
         response.headers = header
         assert _parse_retry_after(response) == expected
 
     def test_retry_wait_prefers_retry_after(self):
-        from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress.wordpress import (
-            WordpressRetryableError,
-            _retry_wait,
-        )
+        from products.warehouse_sources.sources.wordpress.wordpress import WordpressRetryableError, _retry_wait
 
         state = mock.MagicMock()
         state.outcome.exception.return_value = WordpressRetryableError("rate limited", retry_after=7.0)

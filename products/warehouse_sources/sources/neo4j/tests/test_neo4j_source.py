@@ -6,8 +6,8 @@ from unittest.mock import patch
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.neo4j import Neo4jSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.neo4j.source import Neo4jSource
+from products.warehouse_sources.sources.neo4j._config import Neo4jSourceConfig
+from products.warehouse_sources.sources.neo4j.source import Neo4jSource
 
 
 @pytest.mark.parametrize("names", [None, [], ["node_Person"], ["rel_KNOWS"], ["missing"]])

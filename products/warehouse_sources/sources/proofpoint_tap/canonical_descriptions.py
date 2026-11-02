@@ -1,7 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.proofpoint_tap.settings import API_DOCS_URL
+from products.warehouse_sources.sources.proofpoint_tap.settings import API_DOCS_URL
+from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 
 DOCS_ROOT = "https://help.proofpoint.com/Threat_Insight_Dashboard/API_Documentation"
 

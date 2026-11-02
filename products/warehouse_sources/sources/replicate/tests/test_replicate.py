@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.replicate import replicate
-from products.warehouse_sources.backend.temporal.data_imports.sources.replicate.replicate import (
+from products.warehouse_sources.sources.replicate import replicate
+from products.warehouse_sources.sources.replicate.replicate import (
     ReplicateResumeConfig,
     _build_initial_url,
     _extract_items,
@@ -19,7 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.replicate.
     get_rows,
     replicate_source,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.replicate.settings import REPLICATE_ENDPOINTS
+from products.warehouse_sources.sources.replicate.settings import REPLICATE_ENDPOINTS
 
 
 class _FakeResumableManager:

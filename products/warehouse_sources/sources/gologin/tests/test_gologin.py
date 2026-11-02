@@ -5,20 +5,11 @@ import time_machine
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gologin import (
-    GoLoginSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.gologin.gologin import (
-    GoLoginResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.gologin.settings import REQUEST_TIMEOUT
-from products.warehouse_sources.backend.temporal.data_imports.sources.gologin.source import GoLoginSource
+from products.warehouse_sources.sources.gologin._config import GoLoginSourceConfig
+from products.warehouse_sources.sources.gologin.gologin import GoLoginResumeConfig, validate_credentials
+from products.warehouse_sources.sources.gologin.settings import REQUEST_TIMEOUT
+from products.warehouse_sources.sources.gologin.source import GoLoginSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 class TestGoLoginTransport:

@@ -4,25 +4,18 @@ from typing import Any, Optional
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.opsgenie import (
-    OpsgenieSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.opsgenie.opsgenie import (
+from products.warehouse_sources.sources.opsgenie._config import OpsgenieSourceConfig
+from products.warehouse_sources.sources.opsgenie.opsgenie import (
     PAGE_SIZE,
     OpsgenieResumeConfig,
     _to_epoch_ms,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.opsgenie.settings import OPSGENIE_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.opsgenie.source import OpsgenieSource
+from products.warehouse_sources.sources.opsgenie.settings import OPSGENIE_ENDPOINTS
+from products.warehouse_sources.sources.opsgenie.source import OpsgenieSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
-OPSGENIE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.opsgenie.opsgenie"
+OPSGENIE_MODULE = "products.warehouse_sources.sources.opsgenie.opsgenie"
 
 
 def _driver() -> SourceDriver:

@@ -7,13 +7,8 @@ from unittest import mock
 import requests
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.crates_io.crates_io import (
+from products.warehouse_sources.sources.crates_io._config import CratesIOSourceConfig
+from products.warehouse_sources.sources.crates_io.crates_io import (
     CRATES_IO_BASE_URL,
     EXTRA_DOWNLOADS_VERSION_ID,
     MAX_CRATES,
@@ -25,12 +20,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.crates_io.
     parse_crates,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.crates_io.source import CratesIOSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cratesio import (
-    CratesIOSourceConfig,
-)
+from products.warehouse_sources.sources.crates_io.source import CratesIOSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.crates_io.crates_io"
+MODULE = "products.warehouse_sources.sources.crates_io.crates_io"
 
 
 @pytest.fixture(autouse=True)

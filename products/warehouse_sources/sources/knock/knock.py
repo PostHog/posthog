@@ -4,32 +4,26 @@ from datetime import datetime
 from typing import Any, Optional, cast
 from urllib.parse import quote, unquote
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    build_dependent_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponseCursorPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-    ClientConfig,
-    Endpoint,
-    EndpointResource,
-    IncrementalConfig,
-    PaginatorConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.knock.settings import (
+from products.warehouse_sources.sources.knock.settings import (
     ENDPOINTS_CONFIG,
     KNOCK_BASE_URL,
     KNOCK_PAGE_SIZE,
     KnockEndpointConfig,
+)
+from products.warehouse_sources.sources.sdk import (
+    ClientConfig,
+    Endpoint,
+    EndpointResource,
+    IncrementalConfig,
+    JSONResponseCursorPaginator,
+    PaginatorConfig,
+    Resource,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    build_dependent_resource,
+    make_tracked_session,
+    rest_api_resource,
 )
 
 DEFAULT_INCREMENTAL_START = "1970-01-01T00:00:00Z"

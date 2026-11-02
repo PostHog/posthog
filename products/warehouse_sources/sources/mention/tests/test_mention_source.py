@@ -1,9 +1,7 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mention import (
-    MentionSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.mention.source import MentionSource
+from products.warehouse_sources.sources.mention._config import MentionSourceConfig
+from products.warehouse_sources.sources.mention.source import MentionSource
 
 
 class TestMentionSource:
@@ -17,7 +15,7 @@ class TestMentionSource:
         assert self.source.supported_versions == ("1.19", "1.21")
         assert self.source.default_version == "1.21"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mention.source.validate_credentials")
+    @mock.patch("products.warehouse_sources.sources.mention.source.validate_credentials")
     def test_validate_credentials_delegates_to_shared_helper(self, mock_validate: mock.MagicMock) -> None:
         # The source method forwards the account access token to the shared validator and returns its result verbatim.
         mock_validate.return_value = (False, "Invalid Mention access token")
@@ -25,7 +23,7 @@ class TestMentionSource:
         assert result == (False, "Invalid Mention access token")
         mock_validate.assert_called_once_with("tok", api_version="1.21")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mention.source.mention_source")
+    @mock.patch("products.warehouse_sources.sources.mention.source.mention_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "mentions"

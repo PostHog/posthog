@@ -1,15 +1,8 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.bluetally.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.bluetally.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.bluetally.source import BluetallySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bluetally import (
-    BluetallySourceConfig,
-)
+from products.warehouse_sources.sources.bluetally._config import BluetallySourceConfig
+from products.warehouse_sources.sources.bluetally.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.bluetally.settings import ENDPOINTS
+from products.warehouse_sources.sources.bluetally.source import BluetallySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 def _config(api_key: str = "key", tenant_id: str | None = None) -> BluetallySourceConfig:

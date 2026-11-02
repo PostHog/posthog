@@ -4,28 +4,16 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientNonRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.freshchat.freshchat import (
+from products.warehouse_sources.sources.freshchat._config import FreshchatSourceConfig
+from products.warehouse_sources.sources.freshchat.freshchat import (
     FreshchatHostNotAllowedError,
     FreshchatResumeConfig,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.freshchat.settings import (
-    PER_PAGE,
-    USERS_CREATED_FROM,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.freshchat.source import FreshchatSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.freshchat import (
-    FreshchatSourceConfig,
-)
+from products.warehouse_sources.sources.freshchat.settings import PER_PAGE, USERS_CREATED_FROM
+from products.warehouse_sources.sources.freshchat.source import FreshchatSource
+from products.warehouse_sources.sources.sdk import RESTClientNonRetryableError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, route, scripted_network
 
 BASE_HOST = "acme.freshchat.com"
 

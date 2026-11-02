@@ -1,22 +1,10 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ukcompanieshouse import (
-    UkCompaniesHouseSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.uk_companies_house.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.uk_companies_house.settings import (
-    COMPANIES,
-    ENDPOINT_SPECS,
-    ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.uk_companies_house.source import (
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
+from products.warehouse_sources.sources.uk_companies_house._config import UkCompaniesHouseSourceConfig
+from products.warehouse_sources.sources.uk_companies_house.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.uk_companies_house.settings import COMPANIES, ENDPOINT_SPECS, ENDPOINTS
+from products.warehouse_sources.sources.uk_companies_house.source import (
     NO_COMPANY_NUMBERS_ERROR,
     UkCompaniesHouseSource,
 )

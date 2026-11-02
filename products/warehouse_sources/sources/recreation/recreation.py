@@ -2,23 +2,7 @@ from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    BasePaginator,
-    OffsetPaginator,
-    PageNumberPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.recreation.settings import (
+from products.warehouse_sources.sources.recreation.settings import (
     PAGE_LIMIT,
     RECREATION_ENDPOINTS,
     RESERVATIONS_ENDPOINT,
@@ -26,6 +10,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.recreation
     RESERVATIONS_LOOKBACK_DAYS,
     RIDB_BASE_URL,
     NestedRowsConfig,
+)
+from products.warehouse_sources.sources.sdk import (
+    BasePaginator,
+    EndpointResource,
+    OffsetPaginator,
+    PageNumberPaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    parse_datetime_value,
+    rest_api_resource,
 )
 
 VALIDATION_TIMEOUT_SECONDS = 10

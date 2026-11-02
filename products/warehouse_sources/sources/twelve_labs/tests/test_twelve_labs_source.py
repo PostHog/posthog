@@ -3,12 +3,10 @@ from unittest.mock import patch
 import structlog
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.twelvelabs import (
-    TwelveLabsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.twelve_labs import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.twelve_labs.source import TwelveLabsSource
+from products.warehouse_sources.sources.sdk import SourceInputs
+from products.warehouse_sources.sources.twelve_labs import source as source_module
+from products.warehouse_sources.sources.twelve_labs._config import TwelveLabsSourceConfig
+from products.warehouse_sources.sources.twelve_labs.source import TwelveLabsSource
 
 
 def _inputs(schema_name: str, last_value: object = None, should_use_incremental: bool = False) -> SourceInputs:

@@ -12,8 +12,7 @@ import jwt
 import requests
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.firebase import (
+from products.warehouse_sources.sources.firebase.firebase import (
     AccessTokenProvider,
     FirebaseAuthError,
     FirebaseConfigError,
@@ -42,7 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.f
     validate_credentials,
     validate_realtime_database_url,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.settings import (
+from products.warehouse_sources.sources.firebase.settings import (
     AUTH_TENANT_USERS_TABLE,
     AUTH_USERS_TABLE,
     FIRESTORE_CREATE_TIME_COLUMN,
@@ -58,8 +57,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.s
     REALTIME_DATABASE_VALUE_COLUMN,
     RESPONSE_TOO_LARGE_ERROR,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.source import FirebaseSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.tests.conftest import (
+from products.warehouse_sources.sources.firebase.source import FirebaseSource
+from products.warehouse_sources.sources.firebase.tests.conftest import (
     PUBLIC_KEY_PEM,
     TOKEN_PAYLOAD,
     FakeResponse,
@@ -67,9 +66,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.t
     FakeSession,
     credentials,
 )
-from products.warehouse_sources.backend.types import IncrementalFieldType
+from products.warehouse_sources.sources.sdk import IncrementalFieldType
+from products.warehouse_sources.sources.sdk.testing import error_message_matches
 
-_FIREBASE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.firebase.firebase"
+_FIREBASE_MODULE = "products.warehouse_sources.sources.firebase.firebase"
 _SESSION_FACTORY = f"{_FIREBASE_MODULE}.make_tracked_session"
 
 # Stand-ins for the shipped byte caps, small enough that a test can overflow one cheaply.

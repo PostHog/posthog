@@ -1,10 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hellobaton import (
-    HellobatonSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.hellobaton.source import HellobatonSource
+from products.warehouse_sources.sources.hellobaton._config import HellobatonSourceConfig
+from products.warehouse_sources.sources.hellobaton.source import HellobatonSource
 
 
 class TestHellobatonSource:
@@ -26,9 +24,7 @@ class TestHellobatonSource:
             ((False, None), False, "Could not connect to Baton with the provided company instance and API key"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.hellobaton.source.validate_hellobaton_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.hellobaton.source.validate_hellobaton_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
         mock_validate.return_value = mock_return
 
@@ -38,9 +34,7 @@ class TestHellobatonSource:
         assert error_message == expected_message
         mock_validate.assert_called_once_with("acme", "key")
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.hellobaton.source.validate_hellobaton_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.hellobaton.source.validate_hellobaton_credentials")
     def test_validate_credentials_surfaces_bad_company(self, mock_validate):
         mock_validate.side_effect = ValueError("Invalid Baton company: 'a/b'.")
 

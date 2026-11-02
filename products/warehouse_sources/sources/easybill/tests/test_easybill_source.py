@@ -5,12 +5,10 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.easybill import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.easybill.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.easybill.source import EasybillSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.easybill import (
-    EasybillSourceConfig,
-)
+from products.warehouse_sources.sources.easybill import source as source_module
+from products.warehouse_sources.sources.easybill._config import EasybillSourceConfig
+from products.warehouse_sources.sources.easybill.settings import ENDPOINTS
+from products.warehouse_sources.sources.easybill.source import EasybillSource
 
 
 class TestEasybillSourceClass:

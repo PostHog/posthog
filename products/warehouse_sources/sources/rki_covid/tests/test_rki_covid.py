@@ -3,7 +3,11 @@ from typing import Any
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.rki_covid._config import RKICovidSourceConfig
+from products.warehouse_sources.sources.rki_covid.rki_covid import RKICovidAPIError, build_url, validate_connection
+from products.warehouse_sources.sources.rki_covid.settings import RKI_COVID_ENDPOINTS
+from products.warehouse_sources.sources.rki_covid.source import RKICovidSource
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     Script,
     ScriptedResponse,
@@ -11,16 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rkicovid import (
-    RKICovidSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.rki_covid.rki_covid import (
-    RKICovidAPIError,
-    build_url,
-    validate_connection,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.rki_covid.settings import RKI_COVID_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.rki_covid.source import RKICovidSource
 
 
 def _ok(body: Any = None, status: int = 200) -> ScriptedResponse:

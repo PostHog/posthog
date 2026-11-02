@@ -3,14 +3,11 @@ from typing import Literal
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shutterstock import (
+from products.warehouse_sources.sources.shutterstock._config import (
     ShutterstockAuthMethodConfig,
     ShutterstockSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.shutterstock.source import (
-    ShutterstockSource,
-    _auth_from_config,
-)
+from products.warehouse_sources.sources.shutterstock.source import ShutterstockSource, _auth_from_config
 
 
 def _basic_config(**auth_overrides: str) -> ShutterstockSourceConfig:
@@ -54,9 +51,7 @@ class TestShutterstockSource:
             (False, False, "Invalid Shutterstock credentials"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.shutterstock.source.validate_shutterstock_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.shutterstock.source.validate_shutterstock_credentials")
     def test_validate_credentials(
         self,
         mock_validate: mock.MagicMock,
@@ -71,9 +66,7 @@ class TestShutterstockSource:
         assert is_valid is expected_valid
         assert error_message == expected_message
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.shutterstock.source.check_endpoint_access"
-    )
+    @mock.patch("products.warehouse_sources.sources.shutterstock.source.check_endpoint_access")
     def test_validate_credentials_with_schema_name_reports_scope_reason(self, mock_check: mock.MagicMock) -> None:
         mock_check.return_value = "needs licenses.view"
 
@@ -84,9 +77,7 @@ class TestShutterstockSource:
         assert is_valid is False
         assert error_message == "needs licenses.view"
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.shutterstock.source.check_endpoint_access"
-    )
+    @mock.patch("products.warehouse_sources.sources.shutterstock.source.check_endpoint_access")
     def test_get_endpoint_permissions_probes_known_endpoints_only(self, mock_check: mock.MagicMock) -> None:
         mock_check.side_effect = lambda auth, endpoint: "blocked" if endpoint == "subscriptions" else None
 
@@ -96,9 +87,7 @@ class TestShutterstockSource:
 
         assert permissions == {"subscriptions": "blocked", "image_categories": None, "not_an_endpoint": None}
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.shutterstock.source.shutterstock_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.shutterstock.source.shutterstock_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_shutterstock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "image_licenses"
@@ -118,9 +107,7 @@ class TestShutterstockSource:
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == 1700000000
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.shutterstock.source.shutterstock_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.shutterstock.source.shutterstock_source")
     def test_source_for_pipeline_omits_last_value_on_full_refresh(
         self, mock_shutterstock_source: mock.MagicMock
     ) -> None:

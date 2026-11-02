@@ -1,21 +1,14 @@
 import graphql
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shopify import (
-    ShopifyAuthMethodConfig,
-    ShopifySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.queries.orders import (
+from products.warehouse_sources.sources.sdk.testing import RecordedRequest, ScriptedResponse, SourceDriver
+from products.warehouse_sources.sources.shopify._config import ShopifyAuthMethodConfig, ShopifySourceConfig
+from products.warehouse_sources.sources.shopify.queries.orders import (
     ORDERS_PROTECTED_FIELDS,
     ORDERS_QUERY,
     build_orders_query,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.source import ShopifySource
+from products.warehouse_sources.sources.shopify.source import ShopifySource
 
 _ALL_SCOPES = {scope for scopes in ORDERS_PROTECTED_FIELDS.values() for scope in scopes}
 

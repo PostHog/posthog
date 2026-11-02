@@ -14,7 +14,8 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.app_store_connect import (
+from products.warehouse_sources.sources.app_store_connect._config import AppStoreConnectSourceConfig
+from products.warehouse_sources.sources.app_store_connect.app_store_connect import (
     _ANALYTICS_SNAPSHOT_DECISION_NAMESPACE,
     APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR,
     APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR,
@@ -45,26 +46,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_
     get_rows,
     parse_app_ids,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.settings import (
+from products.warehouse_sources.sources.app_store_connect.settings import (
     APP_STORE_CONNECT_ENDPOINTS,
     ENDPOINTS,
     SALES_REPORT_LOOKBACK_DAYS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.source import (
-    AppStoreConnectSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appstoreconnect import (
-    AppStoreConnectSourceConfig,
-)
+from products.warehouse_sources.sources.app_store_connect.source import AppStoreConnectSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.app_store_connect"
+MODULE = "products.warehouse_sources.sources.app_store_connect.app_store_connect"
 
 
 def _make_pem() -> str:

@@ -1,4 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.chameleon.source import ChameleonSource
+from products.warehouse_sources.sources.chameleon.source import ChameleonSource
 
 
 class TestChameleonSourceConfig:

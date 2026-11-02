@@ -1,14 +1,10 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.smartlead import (
-    SmartleadSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.smartlead.source import SmartleadSource
+from products.warehouse_sources.sources.smartlead._config import SmartleadSourceConfig
+from products.warehouse_sources.sources.smartlead.source import SmartleadSource
 
-VALIDATE_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.smartlead.source.validate_smartlead_credentials"
-)
+VALIDATE_PATCH = "products.warehouse_sources.sources.smartlead.source.validate_smartlead_credentials"
 
 
 class TestSmartleadSource:

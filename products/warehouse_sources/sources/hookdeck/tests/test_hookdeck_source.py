@@ -5,22 +5,12 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hookdeck import (
-    HookdeckSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.hookdeck.settings import (
-    ENDPOINTS,
-    HOOKDECK_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.hookdeck.source import HookdeckSource
+from products.warehouse_sources.sources.hookdeck._config import HookdeckSourceConfig
+from products.warehouse_sources.sources.hookdeck.settings import ENDPOINTS, HOOKDECK_ENDPOINTS
+from products.warehouse_sources.sources.hookdeck.source import HookdeckSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
-SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.hookdeck.source"
+SOURCE_MODULE = "products.warehouse_sources.sources.hookdeck.source"
 UNREACHABLE_MESSAGE = (
     "PostHog could not reach Hookdeck to check your API key. Wait a moment and try again, or "
     "check Hookdeck's status page."

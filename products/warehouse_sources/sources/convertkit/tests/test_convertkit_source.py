@@ -1,9 +1,7 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.convertkit.source import ConvertKitSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.convertkit import (
-    ConvertKitSourceConfig,
-)
+from products.warehouse_sources.sources.convertkit._config import ConvertKitSourceConfig
+from products.warehouse_sources.sources.convertkit.source import ConvertKitSource
 
 
 class TestConvertKitSource:

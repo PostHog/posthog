@@ -9,16 +9,8 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing.fake_network import RecordedRequest
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pganalyze import (
-    PgAnalyzeSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.pganalyze.pganalyze import (
+from products.warehouse_sources.sources.pganalyze._config import PgAnalyzeSourceConfig
+from products.warehouse_sources.sources.pganalyze.pganalyze import (
     PgAnalyzeRetryableError,
     QueryStatsWindow,
     _post_graphql,
@@ -26,8 +18,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pganalyze.
     _resolve_api_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.pganalyze.settings import PGANALYZE_API_URL
-from products.warehouse_sources.backend.temporal.data_imports.sources.pganalyze.source import PgAnalyzeSource
+from products.warehouse_sources.sources.pganalyze.settings import PGANALYZE_API_URL
+from products.warehouse_sources.sources.pganalyze.source import PgAnalyzeSource
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 
 _PUBLIC_IP = {ipaddress.ip_address("93.184.216.34")}
 
@@ -109,9 +107,7 @@ class TestPostGraphql:
 
 class TestValidateCredentials:
     def test_returns_true_on_valid_credentials(self):
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.pganalyze.pganalyze.make_tracked_session"
-        ) as mock_sess:
+        with mock.patch("products.warehouse_sources.sources.pganalyze.pganalyze.make_tracked_session") as mock_sess:
             sess = mock.MagicMock()
             sess.post.return_value = _mock_response(json_data={"data": {"getServers": []}})
             mock_sess.return_value = sess

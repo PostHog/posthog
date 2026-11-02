@@ -6,19 +6,11 @@ import pytest
 import time_machine
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tailscale import (
-    TailscaleAuthMethodConfig,
-    TailscaleSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.tailscale.settings import TAILSCALE_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.tailscale.source import TailscaleSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.tailscale.tailscale import (
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.tailscale._config import TailscaleAuthMethodConfig, TailscaleSourceConfig
+from products.warehouse_sources.sources.tailscale.settings import TAILSCALE_ENDPOINTS
+from products.warehouse_sources.sources.tailscale.source import TailscaleSource
+from products.warehouse_sources.sources.tailscale.tailscale import (
     TailscaleAuth,
     TailscaleAuthError,
     TailscaleResumeConfig,

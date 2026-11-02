@@ -2,9 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 from requests import PreparedRequest
 
-from posthog.integrations import IntegrationManager
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import AuthConfigBase
+from products.warehouse_sources.sources.sdk import AuthConfigBase, IntegrationManager
 
 # Resend access tokens live ~15m. Re-mint through the DB a few minutes before that so a token never
 # expires mid-request; the DB refresh only actually spends the refresh token once it's past its own

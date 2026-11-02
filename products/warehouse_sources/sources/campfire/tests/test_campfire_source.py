@@ -4,16 +4,12 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.campfire import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.campfire.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.campfire.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.campfire.source import CampfireSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.campfire import (
-    CampfireSourceConfig,
-)
+from products.warehouse_sources.sources.campfire import source as source_module
+from products.warehouse_sources.sources.campfire._config import CampfireSourceConfig
+from products.warehouse_sources.sources.campfire.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.campfire.settings import ENDPOINTS
+from products.warehouse_sources.sources.campfire.source import CampfireSource
+from products.warehouse_sources.sources.sdk import SourceInputs
 
 
 def _source_inputs(

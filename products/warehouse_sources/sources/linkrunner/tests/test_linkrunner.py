@@ -7,18 +7,9 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.linkrunner import (
-    LinkrunnerSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.linkrunner import linkrunner
-from products.warehouse_sources.backend.temporal.data_imports.sources.linkrunner.linkrunner import (
+from products.warehouse_sources.sources.linkrunner import linkrunner
+from products.warehouse_sources.sources.linkrunner._config import LinkrunnerSourceConfig
+from products.warehouse_sources.sources.linkrunner.linkrunner import (
     LinkrunnerRateLimitError,
     LinkrunnerResumeConfig,
     LinkrunnerRetryableError,
@@ -27,7 +18,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.linkrunner
     _parse_retry_after,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.linkrunner.source import LinkrunnerSource
+from products.warehouse_sources.sources.linkrunner.source import LinkrunnerSource
+from products.warehouse_sources.sources.sdk.testing import (
+    DriveResult,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 
 
 class TestFormatTimestamp:

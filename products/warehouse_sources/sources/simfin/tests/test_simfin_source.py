@@ -5,9 +5,9 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.simfin.source import SimFinSource
+from products.warehouse_sources.sources.simfin.source import SimFinSource
 
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.simfin.source"
+MODULE = "products.warehouse_sources.sources.simfin.source"
 
 
 def _make_config(api_key: str = "key", tickers: str = "AAPL, MSFT") -> Any:

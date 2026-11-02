@@ -1,7 +1,7 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_config.aws_config import AwsConfigError
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_config.source import AwsConfigSource
+from products.warehouse_sources.sources.aws_config.aws_config import AwsConfigError
+from products.warehouse_sources.sources.aws_config.source import AwsConfigSource
 
 
 @pytest.mark.parametrize(

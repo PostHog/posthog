@@ -7,21 +7,14 @@ from unittest import mock
 from parameterized import parameterized
 from requests import HTTPError, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.membrain import (
-    MembrainSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.membrain.membrain import (
+from products.warehouse_sources.sources.membrain._config import MembrainSourceConfig
+from products.warehouse_sources.sources.membrain.membrain import (
     MembrainPaginator,
     MembrainResumeConfig,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.membrain.source import MembrainSource
+from products.warehouse_sources.sources.membrain.source import MembrainSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.types import IncrementalField
+from products.warehouse_sources.sources.sdk import IncrementalField
 
 FLUTTERWAVE_API_V3 = "v3"
 FLUTTERWAVE_API_V4 = "v4"

@@ -5,18 +5,11 @@ from typing import Any
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.squarespace import (
-    SquarespaceSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.squarespace.settings import SQUARESPACE_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.squarespace.source import SquarespaceSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.squarespace.squarespace import (
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.squarespace._config import SquarespaceSourceConfig
+from products.warehouse_sources.sources.squarespace.settings import SQUARESPACE_ENDPOINTS
+from products.warehouse_sources.sources.squarespace.source import SquarespaceSource
+from products.warehouse_sources.sources.squarespace.squarespace import (
     MAX_CURSOR_RESTARTS,
     SQUARESPACE_BASE_URL,
     SquarespaceInvalidCursorError,

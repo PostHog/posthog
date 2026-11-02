@@ -6,38 +6,25 @@ from urllib.parse import quote, urlsplit
 
 from requests import PreparedRequest, Response
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
-    interruptible_wait,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
+from products.warehouse_sources.sources.sdk import (
     APIKeyAuth,
     BearerTokenAuth,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    PageNumberPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
     Endpoint,
+    PageNumberPaginator,
+    Resource,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceInputs,
+    SourceResponse,
+    frozen,
+    interruptible_wait,
+    make_tracked_session,
+    parse_datetime_value,
+    rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.umami import UmamiSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.umami.settings import (
-    DAY_MS,
-    DEFAULT_BASE_URL,
-    ENDPOINTS,
-    PAGE_SIZE,
-)
+from products.warehouse_sources.sources.umami._config import UmamiSourceConfig
+from products.warehouse_sources.sources.umami.settings import DAY_MS, DEFAULT_BASE_URL, ENDPOINTS, PAGE_SIZE
 
 REQUEST_TIMEOUT = (10, 30)
 # A server-supplied date range outside this span is implausible. Rejecting it bounds the number of event windows.

@@ -2,23 +2,16 @@ from typing import Any, Optional
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.grafanairm import (
-    GrafanaIRMSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.grafana_irm.grafana_irm import (
+from products.warehouse_sources.sources.grafana_irm._config import GrafanaIRMSourceConfig
+from products.warehouse_sources.sources.grafana_irm.grafana_irm import (
     GrafanaIRMConfigError,
     GrafanaIRMResumeConfig,
     normalize_oncall_api_url,
     normalize_stack_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.grafana_irm.source import GrafanaIRMSource
+from products.warehouse_sources.sources.grafana_irm.source import GrafanaIRMSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 TOKEN = "glsa_test_token"
 STACK_URL = "https://acme.grafana.net"

@@ -9,15 +9,8 @@ from parameterized import parameterized
 from requests import Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.leadfeeder import (
-    LeadfeederSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder.leadfeeder import (
+from products.warehouse_sources.sources.leadfeeder._config import LeadfeederSourceConfig
+from products.warehouse_sources.sources.leadfeeder.leadfeeder import (
     LEADFEEDER_BASE_URL,
     LeadfeederResumeConfig,
     _flatten_item,
@@ -26,11 +19,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder
     _to_date_str,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder.settings import (
-    LEADFEEDER_API_2026_08_07,
-    LEADFEEDER_API_LEGACY,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder.source import LeadfeederSource
+from products.warehouse_sources.sources.leadfeeder.settings import LEADFEEDER_API_2026_08_07, LEADFEEDER_API_LEGACY
+from products.warehouse_sources.sources.leadfeeder.source import LeadfeederSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _item(id_: str, type_: str, **attributes: Any) -> dict[str, Any]:

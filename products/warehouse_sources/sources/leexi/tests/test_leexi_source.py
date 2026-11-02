@@ -1,14 +1,9 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    RecordedRequest,
-    ScriptedResponse,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.leexi import LeexiSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.leexi.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.leexi.source import LeexiSource
+from products.warehouse_sources.sources.leexi._config import LeexiSourceConfig
+from products.warehouse_sources.sources.leexi.settings import ENDPOINTS
+from products.warehouse_sources.sources.leexi.source import LeexiSource
+from products.warehouse_sources.sources.sdk.testing import RecordedRequest, ScriptedResponse, always, scripted_network
 
 
 class TestLeexiSource:

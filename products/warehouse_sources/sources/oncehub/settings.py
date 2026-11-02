@@ -1,9 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-)
+from products.warehouse_sources.sources.sdk import DependentEndpointConfig
 
 # List endpoints accept a `limit` of 1-100 (default 10); the largest page minimises round trips
 # against OnceHub's tight 5 requests/second account rate limit.

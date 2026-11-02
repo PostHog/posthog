@@ -9,13 +9,13 @@ import requests
 from dateutil import parser as date_parser
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+from products.warehouse_sources.sources.sdk import (
     DEFAULT_RETRY,
+    ResumableSourceManager,
+    SourceResponse,
     make_tracked_session,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.transistor.settings import (
+from products.warehouse_sources.sources.transistor.settings import (
     ANALYTICS_MAX_BACKFILL_DAYS,
     ANALYTICS_WINDOW_DAYS,
     MAX_SHOWS,

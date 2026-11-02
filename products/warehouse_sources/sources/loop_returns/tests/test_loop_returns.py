@@ -7,17 +7,8 @@ import pytest
 from requests import Request, Response
 from requests.exceptions import ConnectionError as RequestsConnectionError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.loopreturns import (
-    LoopReturnsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.loop_returns.loop_returns import (
+from products.warehouse_sources.sources.loop_returns._config import LoopReturnsSourceConfig
+from products.warehouse_sources.sources.loop_returns.loop_returns import (
     LoopReturnsPaginator,
     LoopReturnsResumeConfig,
     endpoint_permissions,
@@ -25,11 +16,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.loop_retur
     resolve_window_start,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.loop_returns.settings import (
-    LOOP_RETURNS_ENDPOINTS,
-    RETURN_STATES,
+from products.warehouse_sources.sources.loop_returns.settings import LOOP_RETURNS_ENDPOINTS, RETURN_STATES
+from products.warehouse_sources.sources.loop_returns.source import LoopReturnsSource
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.loop_returns.source import LoopReturnsSource
 
 WINDOW_START = datetime(2024, 1, 1, tzinfo=UTC)
 API_KEY = "loop_test_key"

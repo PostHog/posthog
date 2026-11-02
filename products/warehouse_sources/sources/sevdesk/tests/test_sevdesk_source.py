@@ -6,11 +6,9 @@ from unittest.mock import MagicMock
 from requests import Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sevdesk import (
-    SevdeskSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.sevdesk.settings import REQUEST_TIMEOUT_SECONDS
-from products.warehouse_sources.backend.temporal.data_imports.sources.sevdesk.source import SevdeskSource
+from products.warehouse_sources.sources.sevdesk._config import SevdeskSourceConfig
+from products.warehouse_sources.sources.sevdesk.settings import REQUEST_TIMEOUT_SECONDS
+from products.warehouse_sources.sources.sevdesk.source import SevdeskSource
 
 
 @pytest.mark.parametrize("token", ["", "0" * 31, "0" * 33, "g" * 32, "0" * 31 + "\n", "é" * 32])

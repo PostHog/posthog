@@ -5,28 +5,17 @@ import pytest
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.cdc_open_data.cdc_open_data import (
+from products.warehouse_sources.sources.cdc_open_data._config import CdcOpenDataSourceConfig
+from products.warehouse_sources.sources.cdc_open_data.cdc_open_data import (
     CdcOpenDataResumeConfig,
     _auth_config,
     _format_where_value,
     _probe_url,
     validate_cdc_open_data_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.cdc_open_data.settings import (
-    PAGE_SIZE,
-    SODA2_API_VERSION,
-    SODA3_API_VERSION,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.cdc_open_data.source import CdcOpenDataSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cdcopendata import (
-    CdcOpenDataSourceConfig,
-)
+from products.warehouse_sources.sources.cdc_open_data.settings import PAGE_SIZE, SODA2_API_VERSION, SODA3_API_VERSION
+from products.warehouse_sources.sources.cdc_open_data.source import CdcOpenDataSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 class TestFormatWhereValue:

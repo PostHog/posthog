@@ -1,39 +1,31 @@
 from datetime import date
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
-    FieldType,
-    ResumableSource,
-    VersionDeprecation,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hookdeck import (
-    HookdeckSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.hookdeck.hookdeck import (
+from products.warehouse_sources.sources.hookdeck._config import HookdeckSourceConfig
+from products.warehouse_sources.sources.hookdeck.hookdeck import (
     HookdeckResumeConfig,
     hookdeck_source,
     validate_credentials as validate_hookdeck_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.hookdeck.settings import (
-    ENDPOINTS,
-    HOOKDECK_ENDPOINTS,
+from products.warehouse_sources.sources.hookdeck.settings import ENDPOINTS, HOOKDECK_ENDPOINTS
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    VersionDeprecation,
+    detect,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -91,9 +83,7 @@ API keys are scoped to a single Hookdeck project, so connect one PostHog source 
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.hookdeck.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.hookdeck.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

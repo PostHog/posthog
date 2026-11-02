@@ -1,8 +1,6 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.jumpcloud.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.jumpcloud.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.jumpcloud.source import JumpcloudSource
+from products.warehouse_sources.sources.jumpcloud.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.jumpcloud.settings import ENDPOINTS
+from products.warehouse_sources.sources.jumpcloud.source import JumpcloudSource
 
 
 class TestSourceConfig:

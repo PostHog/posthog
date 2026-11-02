@@ -8,7 +8,7 @@ from unittest import mock
 from parameterized import parameterized
 from requests import Request
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
     ScriptedResponse,
@@ -17,10 +17,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     route,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zendesksunshine import (
-    ZendeskSunshineSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sunshine.settings import (
+from products.warehouse_sources.sources.zendesk_sunshine._config import ZendeskSunshineSourceConfig
+from products.warehouse_sources.sources.zendesk_sunshine.settings import (
     DEFAULT_QUERY_WINDOW_START,
     ZENDESK_SUNSHINE_ENDPOINTS,
     ZENDESK_SUNSHINE_V1,
@@ -28,10 +26,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_su
     ZENDESK_SUNSHINE_V2_ENDPOINTS,
     endpoints_for_version,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sunshine.source import (
-    ZendeskSunshineSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sunshine.zendesk_sunshine import (
+from products.warehouse_sources.sources.zendesk_sunshine.source import ZendeskSunshineSource
+from products.warehouse_sources.sources.zendesk_sunshine.zendesk_sunshine import (
     SunshineLinksPaginator,
     SunshineObjectQueryPaginator,
     ZendeskSunshineResumeConfig,

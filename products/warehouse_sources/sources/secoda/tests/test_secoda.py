@@ -2,20 +2,11 @@ from typing import Any, Optional
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.secoda import SecodaSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.secoda.secoda import (
-    SECODA_BASE_URL,
-    SecodaResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.secoda.settings import ENDPOINTS, SECODA_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.secoda.source import SecodaSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.secoda._config import SecodaSourceConfig
+from products.warehouse_sources.sources.secoda.secoda import SECODA_BASE_URL, SecodaResumeConfig, validate_credentials
+from products.warehouse_sources.sources.secoda.settings import ENDPOINTS, SECODA_ENDPOINTS
+from products.warehouse_sources.sources.secoda.source import SecodaSource
 
 TABLES_URL = f"{SECODA_BASE_URL}/api/v1/table/tables"
 

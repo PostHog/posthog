@@ -2,15 +2,9 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.justsift import (
-    JustSiftSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.justsift.source import JustSiftSource
+from products.warehouse_sources.sources.justsift._config import JustSiftSourceConfig
+from products.warehouse_sources.sources.justsift.source import JustSiftSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, always, scripted_network
 
 
 class TestJustSiftSource:
@@ -42,7 +36,7 @@ class TestJustSiftSource:
         assert returned == expected_message
         assert {request.path for request in network.requests_log} == {"/v1/search/people"}
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.justsift.source.justsift_source")
+    @mock.patch("products.warehouse_sources.sources.justsift.source.justsift_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_justsift_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "people"

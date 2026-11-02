@@ -1,6 +1,6 @@
 from typing import Any
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
     Script,
@@ -9,15 +9,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.smartlead import (
-    SmartleadSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.smartlead.settings import PAGE_SIZE
-from products.warehouse_sources.backend.temporal.data_imports.sources.smartlead.smartlead import (
-    SmartleadResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.smartlead.source import SmartleadSource
+from products.warehouse_sources.sources.smartlead._config import SmartleadSourceConfig
+from products.warehouse_sources.sources.smartlead.settings import PAGE_SIZE
+from products.warehouse_sources.sources.smartlead.smartlead import SmartleadResumeConfig, validate_credentials
+from products.warehouse_sources.sources.smartlead.source import SmartleadSource
 
 
 def _run(endpoint: str, script: Script, **inputs: Any) -> DriveResult:

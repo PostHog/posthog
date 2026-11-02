@@ -6,22 +6,17 @@ import time_machine
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.clockify.clockify import (
+from products.warehouse_sources.sources.clockify._config import ClockifySourceConfig
+from products.warehouse_sources.sources.clockify.clockify import (
     ClockifyResumeConfig,
     _chained_resource,
     _clamp_future_value_to_now,
     _flatten_approval_request,
     _format_datetime_z,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.clockify.settings import CLOCKIFY_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.clockify.source import ClockifySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clockify import (
-    ClockifySourceConfig,
-)
+from products.warehouse_sources.sources.clockify.settings import CLOCKIFY_ENDPOINTS
+from products.warehouse_sources.sources.clockify.source import ClockifySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 def _driver() -> SourceDriver:

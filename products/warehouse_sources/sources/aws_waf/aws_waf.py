@@ -13,9 +13,8 @@ from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt
 from urllib3.exceptions import InvalidHeader
 from urllib3.util.retry import Retry
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_waf.settings import (
+from products.warehouse_sources.sources.aws_waf._config import AwsWafSourceConfig
+from products.warehouse_sources.sources.aws_waf.settings import (
     ACCESS_DENIED_CODES,
     AWS_WAF_ENDPOINTS,
     CLOUDWATCH_SERVICE,
@@ -40,17 +39,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_waf.se
     WEB_ACL_RESOURCES,
     AwsService,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+from products.warehouse_sources.sources.sdk import (
+    SourceResponse,
+    frozen,
     make_tracked_session,
+    parse_datetime_value,
+    probe_status_message,
     retry_with_deadline,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import probe_status_message
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awswaf import AwsWafSourceConfig
 
 if TYPE_CHECKING:
-    from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+    from products.warehouse_sources.sources.sdk import ResumableSourceManager
 
 
 @frozen

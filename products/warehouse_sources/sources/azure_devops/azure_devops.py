@@ -9,19 +9,15 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.settings import (
-    AZURE_DEVOPS_BASE_URL,
-    AZURE_DEVOPS_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+from products.warehouse_sources.sources.azure_devops.settings import AZURE_DEVOPS_BASE_URL, AZURE_DEVOPS_ENDPOINTS
+from products.warehouse_sources.sources.sdk import (
+    UNVERSIONED_API_VERSION,
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
     make_tracked_session,
     retry_with_deadline,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 # Source version labels. The legacy label predates versioning and keeps sending
 # api-version 7.1 so existing syncs are unchanged; 7.2 is the current GA stable API.

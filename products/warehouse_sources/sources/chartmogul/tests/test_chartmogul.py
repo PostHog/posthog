@@ -4,25 +4,15 @@ from typing import Any
 import pytest
 import time_machine
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.chartmogul.chartmogul import (
+from products.warehouse_sources.sources.chartmogul._config import ChartMogulSourceConfig
+from products.warehouse_sources.sources.chartmogul.chartmogul import (
     ChartMogulResumeConfig,
     _format_start_date,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.chartmogul.settings import (
-    CHARTMOGUL_ENDPOINTS,
-    METRICS_START_DATE,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.chartmogul.source import ChartMogulSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.chartmogul import (
-    ChartMogulSourceConfig,
-)
+from products.warehouse_sources.sources.chartmogul.settings import CHARTMOGUL_ENDPOINTS, METRICS_START_DATE
+from products.warehouse_sources.sources.chartmogul.source import ChartMogulSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

@@ -3,22 +3,17 @@ from typing import Any, cast
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.knock import KnockSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.knock.knock import (
+from products.warehouse_sources.sources.knock._config import KnockSourceConfig
+from products.warehouse_sources.sources.knock.knock import (
     NO_AUDIENCE_KEYS_ERROR,
     NO_OBJECT_COLLECTIONS_ERROR,
     KnockResumeConfig,
     get_resource,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.knock.settings import ENDPOINTS_CONFIG
-from products.warehouse_sources.backend.temporal.data_imports.sources.knock.source import KnockSource
+from products.warehouse_sources.sources.knock.settings import ENDPOINTS_CONFIG
+from products.warehouse_sources.sources.knock.source import KnockSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _page(endpoint: str, rows: list[dict[str, Any]], after: str | None) -> ScriptedResponse:

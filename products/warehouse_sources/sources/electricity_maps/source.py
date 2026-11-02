@@ -1,25 +1,7 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
-    SourceSchema,
-    build_endpoint_schemas,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.electricity_maps.electricity_maps import (
+from products.warehouse_sources.sources.electricity_maps._config import ElectricityMapsSourceConfig
+from products.warehouse_sources.sources.electricity_maps.electricity_maps import (
     ElectricityMapsResumeConfig,
     electricity_maps_source,
     invalid_zones,
@@ -27,16 +9,30 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.electricit
     parse_zones,
     validate_credentials as validate_electricity_maps_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.electricity_maps.settings import (
+from products.warehouse_sources.sources.electricity_maps.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     LOCATIONAL_MARGINAL_PRICE_DAY_AHEAD,
     NODE_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.electricitymaps import (
-    ElectricityMapsSourceConfig,
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -61,9 +57,7 @@ class ElectricityMapsSource(ResumableSource[ElectricityMapsSourceConfig, Electri
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.electricity_maps.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.electricity_maps.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

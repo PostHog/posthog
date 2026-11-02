@@ -4,24 +4,15 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.env0.env0 import (
+from products.warehouse_sources.sources.env0._config import Env0SourceConfig
+from products.warehouse_sources.sources.env0.env0 import (
     Env0ResumeConfig,
     _build_date_window_params,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.env0.settings import (
-    ENDPOINTS,
-    ENV0_ENDPOINTS,
-    Env0EndpointConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.env0.source import Env0Source
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.env0 import Env0SourceConfig
+from products.warehouse_sources.sources.env0.settings import ENDPOINTS, ENV0_ENDPOINTS, Env0EndpointConfig
+from products.warehouse_sources.sources.env0.source import Env0Source
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

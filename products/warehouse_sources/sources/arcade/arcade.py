@@ -4,9 +4,8 @@ from typing import Any, cast
 
 from requests import Session
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.arcade.settings import (
+from products.warehouse_sources.sources.arcade._config import ArcadeSourceConfig
+from products.warehouse_sources.sources.arcade.settings import (
     AUTH_ERROR,
     BASE_URL,
     ENDPOINTS,
@@ -16,20 +15,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.arcade.set
     PLAN_ERROR,
     PROVISIONING_ERROR,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+from products.warehouse_sources.sources.sdk import (
     Endpoint,
     EndpointResource,
     PaginatorConfig,
     ResponseAction,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.arcade import ArcadeSourceConfig
 
 ERROR_MESSAGES = (AUTH_ERROR, PLAN_ERROR, PROVISIONING_ERROR, INSIGHTS_ERROR, PERMISSION_ERROR)
 RESPONSE_ACTIONS: list[ResponseAction] = [

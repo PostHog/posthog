@@ -3,21 +3,21 @@ from dataclasses import dataclass
 from functools import partial
 from typing import Any
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.schematic.settings import (
+from products.warehouse_sources.sources.schematic.settings import (
     PAGE_SIZE,
     SCHEMATIC_BASE_URL,
     SCHEMATIC_ENDPOINTS,
     SchematicEndpointConfig,
+)
+from products.warehouse_sources.sources.sdk import (
+    ClientConfig,
+    Resource,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    make_tracked_session,
+    rest_api_resource,
+    validate_via_probe,
 )
 
 API_KEY_HEADER = "X-Schematic-Api-Key"

@@ -1,14 +1,8 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.appfigures.source import AppfiguresSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appfigures import (
-    AppfiguresSourceConfig,
-)
+from products.warehouse_sources.sources.appfigures._config import AppfiguresSourceConfig
+from products.warehouse_sources.sources.appfigures.source import AppfiguresSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, always, scripted_network
 
 
 class TestAppfiguresSource:

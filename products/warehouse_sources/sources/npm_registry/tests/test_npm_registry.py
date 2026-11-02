@@ -4,16 +4,8 @@ import pytest
 import time_machine
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.npmregistry import (
-    NpmRegistrySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.npm_registry.npm_registry import (
+from products.warehouse_sources.sources.npm_registry._config import NpmRegistrySourceConfig
+from products.warehouse_sources.sources.npm_registry.npm_registry import (
     NpmRegistryResumeConfig,
     _fetch_json,
     _first_license,
@@ -21,10 +13,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.npm_regist
     parse_packages,
     validate_packages,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.npm_registry.settings import MAX_PACKAGES
-from products.warehouse_sources.backend.temporal.data_imports.sources.npm_registry.source import NpmRegistrySource
+from products.warehouse_sources.sources.npm_registry.settings import MAX_PACKAGES
+from products.warehouse_sources.sources.npm_registry.source import NpmRegistrySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.npm_registry.npm_registry"
+_MODULE = "products.warehouse_sources.sources.npm_registry.npm_registry"
 
 
 def _driver(package_names: str = "react") -> SourceDriver:

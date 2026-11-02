@@ -1,14 +1,10 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stytch import StytchSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.stytch.source import StytchSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.stytch.stytch import StytchAPIError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, error_message_matches
+from products.warehouse_sources.sources.stytch._config import StytchSourceConfig
+from products.warehouse_sources.sources.stytch.source import StytchSource
+from products.warehouse_sources.sources.stytch.stytch import StytchAPIError
 
 
 class TestStytchSource:
@@ -54,9 +50,7 @@ class TestStytchSource:
             (False, False, "Invalid Stytch project ID or secret"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.stytch.source.validate_stytch_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.stytch.source.validate_stytch_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
         mock_validate.return_value = mock_return
 
@@ -66,7 +60,7 @@ class TestStytchSource:
         assert error_message == expected_message
         mock_validate.assert_called_once_with(self.config.project_id, self.config.secret)
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.stytch.source.check_endpoint_access")
+    @mock.patch("products.warehouse_sources.sources.stytch.source.check_endpoint_access")
     def test_endpoint_permissions_probe_each_surface_once(self, mock_check):
         # A consumer (B2C) project: the B2B surface denies, the consumer surface is fine.
         mock_check.side_effect = lambda project_id, secret, path: (

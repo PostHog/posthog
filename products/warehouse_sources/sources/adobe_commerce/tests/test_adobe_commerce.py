@@ -12,8 +12,8 @@ from unittest.mock import MagicMock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_commerce import adobe_commerce
-from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_commerce.adobe_commerce import (
+from products.warehouse_sources.sources.adobe_commerce import adobe_commerce
+from products.warehouse_sources.sources.adobe_commerce.adobe_commerce import (
     HOST_NOT_ALLOWED_ERROR,
     MAX_RESPONSE_BYTES,
     SERVER_ERROR,
@@ -38,12 +38,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_comm
     normalize_store_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_commerce.settings import (
+from products.warehouse_sources.sources.adobe_commerce.settings import (
     ADOBE_COMMERCE_ENDPOINTS,
     ENDPOINTS,
     VALIDATION_PROBE_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.sources.sdk import ResumableSourceManager
 
 TOKEN_CREDENTIALS = AdobeCommerceCredentials(method="access_token", access_token="tok-123")
 ADMIN_CREDENTIALS = AdobeCommerceCredentials(method="admin", username="admin", password="hunter2")

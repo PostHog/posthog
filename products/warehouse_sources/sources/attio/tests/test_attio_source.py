@@ -2,7 +2,7 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.attio.source import AttioSource
+from products.warehouse_sources.sources.attio.source import AttioSource
 
 
 class TestAttioSource:

@@ -4,17 +4,10 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_sagemaker.aws_sagemaker import (
-    error_for_response,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_sagemaker.source import AwsSagemakerSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awssagemaker import (
-    AwsSagemakerSourceConfig,
-)
+from products.warehouse_sources.sources.aws_sagemaker._config import AwsSagemakerSourceConfig
+from products.warehouse_sources.sources.aws_sagemaker.aws_sagemaker import error_for_response
+from products.warehouse_sources.sources.aws_sagemaker.source import AwsSagemakerSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 @pytest.mark.parametrize(

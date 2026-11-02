@@ -1,15 +1,10 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.langsmith import (
-    LangSmithSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.langsmith import RETRYABLE_API_ERROR
-from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.source import LangSmithSource
+from products.warehouse_sources.sources.langsmith._config import LangSmithSourceConfig
+from products.warehouse_sources.sources.langsmith.langsmith import RETRYABLE_API_ERROR
+from products.warehouse_sources.sources.langsmith.source import LangSmithSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 class TestLangSmithSource:
@@ -26,7 +21,7 @@ class TestLangSmithSource:
         config = LangSmithSourceConfig(api_key="key", host="")
 
         with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.source.validate_langsmith_credentials",
+            "products.warehouse_sources.sources.langsmith.source.validate_langsmith_credentials",
             return_value=(True, None),
         ) as validate:
             result = self.source.validate_credentials(config, self.team_id)
@@ -51,9 +46,7 @@ class TestLangSmithSource:
         inputs.enabled_columns = ["id", "start_time"]
         config = LangSmithSourceConfig(api_key="key", host=host)
 
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.source.langsmith_source"
-        ) as langsmith_source:
+        with mock.patch("products.warehouse_sources.sources.langsmith.source.langsmith_source") as langsmith_source:
             self.source.source_for_pipeline(config, mock.MagicMock(), inputs)
 
         _, kwargs = langsmith_source.call_args

@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
     Script,
@@ -17,12 +17,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.squadcast import (
-    SquadcastSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.squadcast.settings import SQUADCAST_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.squadcast.source import SquadcastSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.squadcast.squadcast import (
+from products.warehouse_sources.sources.squadcast._config import SquadcastSourceConfig
+from products.warehouse_sources.sources.squadcast.settings import SQUADCAST_ENDPOINTS
+from products.warehouse_sources.sources.squadcast.source import SquadcastSource
+from products.warehouse_sources.sources.squadcast.squadcast import (
     FULL_REFRESH_START,
     PAGE_SIZE,
     SquadcastAuthError,

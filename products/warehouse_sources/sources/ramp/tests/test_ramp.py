@@ -5,15 +5,8 @@ from urllib.parse import parse_qs
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    ScriptedResponse,
-    SourceDriver,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ramp import RampSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.ramp.ramp import (
+from products.warehouse_sources.sources.ramp._config import RampSourceConfig
+from products.warehouse_sources.sources.ramp.ramp import (
     PAGE_SIZE,
     RampResumeConfig,
     _base_url,
@@ -21,8 +14,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ramp.ramp 
     check_endpoint_access,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.ramp.settings import TOKEN_SCOPES
-from products.warehouse_sources.backend.temporal.data_imports.sources.ramp.source import RampSource
+from products.warehouse_sources.sources.ramp.settings import TOKEN_SCOPES
+from products.warehouse_sources.sources.ramp.source import RampSource
+from products.warehouse_sources.sources.sdk.testing import (
+    DriveResult,
+    ScriptedResponse,
+    SourceDriver,
+    route,
+    scripted_network,
+)
 
 TOKEN_URL = "https://api.ramp.com/developer/v1/token"
 

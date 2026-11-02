@@ -5,28 +5,16 @@ from urllib.parse import parse_qs, urlparse
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.simplesat import (
-    SimplesatSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.simplesat.settings import (
-    ENDPOINTS,
-    SIMPLESAT_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.simplesat.simplesat import (
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.simplesat._config import SimplesatSourceConfig
+from products.warehouse_sources.sources.simplesat.settings import ENDPOINTS, SIMPLESAT_ENDPOINTS
+from products.warehouse_sources.sources.simplesat.simplesat import (
     SIMPLESAT_BASE_URL,
     SimplesatResumeConfig,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.simplesat.source import SimplesatSource
+from products.warehouse_sources.sources.simplesat.source import SimplesatSource
 
 
 def _response(

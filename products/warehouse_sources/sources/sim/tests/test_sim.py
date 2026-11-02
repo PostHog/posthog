@@ -10,11 +10,10 @@ import orjson
 from requests.exceptions import HTTPError
 from requests_mock import Mocker
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sim import SimSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.sim.sim import (
+from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceInputs
+from products.warehouse_sources.sources.sdk.testing import error_message_matches
+from products.warehouse_sources.sources.sim._config import SimSourceConfig
+from products.warehouse_sources.sources.sim.sim import (
     AUTH_ERROR,
     PERMISSION_ERROR,
     USAGE_PERMISSION_ERROR,
@@ -24,7 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sim.sim im
     sim_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.sim.source import SimSource
+from products.warehouse_sources.sources.sim.source import SimSource
 
 
 @pytest.mark.parametrize("table,key", [("logs", "runId"), ("workflows", "id")])

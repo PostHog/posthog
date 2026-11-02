@@ -5,12 +5,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.lightdash import lightdash as lightdash_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.lightdash.lightdash import (
+from products.warehouse_sources.sources.lightdash import lightdash as lightdash_module
+from products.warehouse_sources.sources.lightdash.lightdash import (
     HOST_NOT_ALLOWED_ERROR,
     LightdashHostNotAllowedError,
     get_resource,
@@ -18,7 +14,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lightdash.
     normalize_host,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.lightdash.settings import LIGHTDASH_ENDPOINTS
+from products.warehouse_sources.sources.lightdash.settings import LIGHTDASH_ENDPOINTS
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 class _FakeDltResource:
@@ -118,9 +115,7 @@ class TestLightdashSourceResponse:
             ("scheduler_runs", ["runId"], "scheduledTime", None),
         ]
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.lightdash.lightdash.rest_api_resource"
-    )
+    @mock.patch("products.warehouse_sources.sources.lightdash.lightdash.rest_api_resource")
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
     )

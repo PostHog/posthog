@@ -9,9 +9,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from requests import HTTPError, PreparedRequest, Response, Session
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.cisco_meraki.settings import (
+from products.warehouse_sources.sources.cisco_meraki.settings import (
     AUTH_ERROR,
     CLIENT_USAGE_BATCH_SIZE,
     CLIENT_USAGE_MIN_TIMESPAN_SECONDS,
@@ -28,31 +26,26 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cisco_mera
     UPLINK_USAGE_MIN_TIMESPAN_SECONDS,
     MerakiEndpoint,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_adapter
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    build_dependent_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from products.warehouse_sources.sources.sdk import (
+    APIKeyAuth,
+    ClientConfig,
     HeaderLinkPaginator,
+    Resource,
+    RESTAPIConfig,
+    RESTClient,
     SinglePagePaginator,
+    SourceResponse,
+    build_dependent_resource,
+    frozen,
+    make_tracked_adapter,
+    parse_datetime_value,
+    rest_api_resource,
+    schema_for_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 if TYPE_CHECKING:
-    from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-    from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ciscomeraki import (
-        CiscoMerakiSourceConfig,
-    )
+    from products.warehouse_sources.sources.cisco_meraki._config import CiscoMerakiSourceConfig
+    from products.warehouse_sources.sources.sdk import ResumableSourceManager
 
 
 @frozen

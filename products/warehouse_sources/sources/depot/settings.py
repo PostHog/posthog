@@ -1,4 +1,4 @@
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
 JOB_ATTEMPTS = "job_attempts"
 JOB_METRICS = "job_metrics"

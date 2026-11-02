@@ -1,16 +1,14 @@
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from products.warehouse_sources.sources.sdk import (
+    EndpointResource,
+    JSONResponseCursorPaginator,
+    Resource,
     RESTAPIConfig,
+    make_tracked_session,
     rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponseCursorPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
-from products.warehouse_sources.backend.temporal.data_imports.sources.vultr.settings import ENDPOINTS
+from products.warehouse_sources.sources.vultr.settings import ENDPOINTS
 
 VULTR_BASE_URL = "https://api.vultr.com"
 # Vultr caps per_page at 500 (default 100). Fewer requests keeps us well under the ~30 req/s rate limit.

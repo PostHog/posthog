@@ -2,15 +2,10 @@ from typing import Literal
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.smartlook import (
-    SmartlookSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.smartlook.smartlook import SmartlookResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.smartlook.source import SmartlookSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
+from products.warehouse_sources.sources.smartlook._config import SmartlookSourceConfig
+from products.warehouse_sources.sources.smartlook.smartlook import SmartlookResumeConfig
+from products.warehouse_sources.sources.smartlook.source import SmartlookSource
 
 
 @pytest.mark.parametrize(

@@ -23,39 +23,28 @@ from databricks.sdk.core import (
 )
 from structlog.types import FilteringBoundLogger
 
-from posthog.models.integration.databricks import NOT_A_DATABRICKS_HOST_MESSAGE, is_databricks_workspace_host
-from posthog.temporal.common.errors import NonReportableError
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.deadline import (
+from products.warehouse_sources.sources.databricks._config import DatabricksSourceConfig
+from products.warehouse_sources.sources.sdk import (
+    NOT_A_DATABRICKS_HOST_MESSAGE,
+    BacktickIdentifierQuoter,
     DeadlineExceededError,
-    run_with_deadline,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     HostNotAllowedError,
-    log_connection_open,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import BacktickIdentifierQuoter
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
-    SourceMetadata,
-    SQLSourceImplementation,
-    TableStats,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.incremental import (
     IncrementalFieldFilter,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.location import (
-    normalize_namespace,
-    resolve_source_location,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.query_builder import (
+    IncrementalFieldType,
+    NonReportableError,
     ParamStyle,
     SelectQueryBuilder,
+    SourceInputs,
+    SourceMetadata,
+    SourceResponse,
+    SQLSourceImplementation,
+    TableStats,
+    is_databricks_workspace_host,
+    log_connection_open,
+    normalize_namespace,
+    resolve_source_location,
+    run_with_deadline,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.databricks import (
-    DatabricksSourceConfig,
-)
-from products.warehouse_sources.backend.types import IncrementalFieldType
 
 __all__ = [
     "DatabricksImplementation",

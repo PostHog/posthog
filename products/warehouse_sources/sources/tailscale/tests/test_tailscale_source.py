@@ -1,8 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tailscale import (
-    TailscaleAuthMethodConfig,
-    TailscaleSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.tailscale.source import TailscaleSource
+from products.warehouse_sources.sources.tailscale._config import TailscaleAuthMethodConfig, TailscaleSourceConfig
+from products.warehouse_sources.sources.tailscale.source import TailscaleSource
 
 
 class TestTailscaleSource:

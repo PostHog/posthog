@@ -1,31 +1,9 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-    SourceFieldSelectConfig,
-    SourceFieldSelectConfigOption,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
-    SourceSchema,
-    build_endpoint_schemas,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.dodopayments import dodopayments as api_client
-from products.warehouse_sources.backend.temporal.data_imports.sources.dodopayments.dodopayments import (
-    DodoPaymentsResumeConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.dodopayments.settings import (
+from products.warehouse_sources.sources.dodopayments import dodopayments as api_client
+from products.warehouse_sources.sources.dodopayments._config import DodoPaymentsSourceConfig
+from products.warehouse_sources.sources.dodopayments.dodopayments import DodoPaymentsResumeConfig
+from products.warehouse_sources.sources.dodopayments.settings import (
     DEFAULT_MODE,
     DODOPAYMENTS_ENDPOINTS,
     ENDPOINTS,
@@ -33,10 +11,26 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dodopaymen
     MODE_HOSTS,
     RESTATED_LOOKBACK_SECONDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dodopayments import (
-    DodoPaymentsSourceConfig,
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 DODOPAYMENTS_API_KEYS_URL = "https://app.dodopayments.com/developer/api-keys"
 
@@ -83,7 +77,7 @@ class DodoPaymentsSource(ResumableSource[DodoPaymentsSourceConfig, DodoPaymentsR
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.dodopayments.canonical_descriptions import (  # noqa: PLC0415 — lazy import of sibling metadata, per the source architecture contract
+        from products.warehouse_sources.sources.dodopayments.canonical_descriptions import (  # noqa: PLC0415 — lazy import of sibling metadata, per the source architecture contract
             CANONICAL_DESCRIPTIONS,
         )
 

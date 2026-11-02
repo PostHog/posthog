@@ -1,25 +1,18 @@
 from typing import Any
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from products.warehouse_sources.sources.sdk import (
+    APIKeyAuth,
     JSONResponsePaginator,
+    RESTAPIConfig,
+    RESTClient,
+    ResumableSourceManager,
     SinglePagePaginator,
+    SourceResponse,
+    frozen,
+    rest_api_resource,
+    schema_for_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.statsig.settings import (
-    BASE_URL,
-    ENDPOINTS,
-    PAGE_SIZE,
-)
+from products.warehouse_sources.sources.statsig.settings import BASE_URL, ENDPOINTS, PAGE_SIZE
 
 
 @frozen

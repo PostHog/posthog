@@ -4,25 +4,22 @@ from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponseCursorPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.fireworks_ai.settings import (
+from products.warehouse_sources.sources.fireworks_ai.settings import (
     ACCOUNT_USAGE,
     FIREWORKS_AI_ENDPOINTS,
     PAGE_SIZE,
     USAGE_BACKFILL_DAYS,
     USAGE_MAX_WINDOW_DAYS,
     FireworksAIEndpointConfig,
+)
+from products.warehouse_sources.sources.sdk import (
+    JSONResponseCursorPaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    rest_api_resource,
 )
 
 FIREWORKS_AI_BASE_URL = "https://api.fireworks.ai/v1"

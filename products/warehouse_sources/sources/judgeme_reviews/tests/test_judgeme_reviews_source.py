@@ -2,11 +2,9 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.judgemereviews import (
-    JudgeMeReviewsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.judgeme_reviews import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.judgeme_reviews.source import JudgeMeReviewsSource
+from products.warehouse_sources.sources.judgeme_reviews import source as source_module
+from products.warehouse_sources.sources.judgeme_reviews._config import JudgeMeReviewsSourceConfig
+from products.warehouse_sources.sources.judgeme_reviews.source import JudgeMeReviewsSource
 
 
 class TestJudgeMeReviewsSource:
@@ -31,9 +29,7 @@ class TestJudgeMeReviewsSource:
         assert result == underlying
         mock_validate.assert_called_once_with("jm-token", "example.myshopify.com")
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.judgeme_reviews.source.judgeme_reviews_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.judgeme_reviews.source.judgeme_reviews_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "reviews"

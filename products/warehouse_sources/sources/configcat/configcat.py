@@ -6,18 +6,13 @@ from urllib.parse import urlencode
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from products.warehouse_sources.sources.configcat.settings import CONFIGCAT_ENDPOINTS, ConfigCatEndpointConfig
+from products.warehouse_sources.sources.sdk import (
     RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.configcat.settings import (
-    CONFIGCAT_ENDPOINTS,
-    ConfigCatEndpointConfig,
+    SourceResponse,
+    make_tracked_session,
+    rest_api_resource,
 )
 
 CONFIGCAT_BASE_URL = "https://api.configcat.com"

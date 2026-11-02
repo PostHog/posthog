@@ -8,16 +8,16 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
-    make_tracked_session,
-    retry_with_deadline,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.openrouter.settings import (
+from products.warehouse_sources.sources.openrouter.settings import (
     ACTIVITY_RETENTION_DAYS,
     OPENROUTER_ENDPOINTS,
     OpenRouterEndpointConfig,
+)
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
+    make_tracked_session,
+    retry_with_deadline,
 )
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"

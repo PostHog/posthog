@@ -7,15 +7,8 @@ from unittest import mock
 import requests
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pypi import PyPISourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.pypi.pypi import (
+from products.warehouse_sources.sources.pypi._config import PyPISourceConfig
+from products.warehouse_sources.sources.pypi.pypi import (
     MAX_PACKAGES,
     PYPI_BASE_URL,
     PyPIRetryableError,
@@ -25,9 +18,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pypi.pypi 
     parse_packages,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.pypi.source import PyPISource
+from products.warehouse_sources.sources.pypi.source import PyPISource
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
 
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.pypi.pypi"
+MODULE = "products.warehouse_sources.sources.pypi.pypi"
 
 
 def _response(status: int = 200, body: Optional[dict[str, Any]] = None) -> mock.MagicMock:

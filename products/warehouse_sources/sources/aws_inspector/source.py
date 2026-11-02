@@ -1,22 +1,13 @@
 from typing import cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_inspector.aws_inspector import (
+from products.warehouse_sources.sources.aws_inspector._config import AwsInspectorSourceConfig
+from products.warehouse_sources.sources.aws_inspector.aws_inspector import (
     AwsInspectorResumeConfig,
     aws_inspector_source,
     validate_credentials as validate_aws_inspector_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_inspector.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_inspector.settings import (
+from products.warehouse_sources.sources.aws_inspector.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.aws_inspector.settings import (
     DEFAULT_REGION,
     ENDPOINT_DESCRIPTIONS,
     ENDPOINTS,
@@ -24,21 +15,24 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_inspec
     INCREMENTAL_FIELDS,
     INSPECTOR_API_VERSION,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+from products.warehouse_sources.sources.sdk import (
     CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsinspector import (
-    AwsInspectorSourceConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register

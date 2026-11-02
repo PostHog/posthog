@@ -1,7 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.noaa_cdo.settings import API_DOCS_URL
+from products.warehouse_sources.sources.noaa_cdo.settings import API_DOCS_URL
+from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "data": {

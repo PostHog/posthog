@@ -2,33 +2,31 @@ from typing import cast
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sanity import SanitySourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.sanity.sanity import (
-    SanityClient,
-    SanityResumeConfig,
-    sanity_source,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.sanity.settings import (
+from products.warehouse_sources.sources.sanity._config import SanitySourceConfig
+from products.warehouse_sources.sources.sanity.sanity import SanityClient, SanityResumeConfig, sanity_source
+from products.warehouse_sources.sources.sanity.settings import (
     API_VERSION,
     DISCOVERY_QUERY,
     ENDPOINTS,
     document_endpoint,
     incremental_fields,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.sources.sdk import (
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    detect,
+)
 
 
 @SourceRegistry.register

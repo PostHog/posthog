@@ -2,13 +2,9 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kalshi import KalshiSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.kalshi.source import KalshiSource
+from products.warehouse_sources.sources.kalshi._config import KalshiSourceConfig
+from products.warehouse_sources.sources.kalshi.source import KalshiSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 _PEM = (
     ed25519.Ed25519PrivateKey.generate()

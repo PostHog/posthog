@@ -6,26 +6,16 @@ import time_machine
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ownerrez import (
-    OwnerrezSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.ownerrez.ownerrez import (
+from products.warehouse_sources.sources.ownerrez._config import OwnerrezSourceConfig
+from products.warehouse_sources.sources.ownerrez.ownerrez import (
     OwnerRezResumeConfig,
     _build_params,
     _format_since_utc,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.ownerrez.settings import (
-    EPOCH,
-    OWNERREZ_ENDPOINTS,
-    PAGE_LIMIT,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.ownerrez.source import OwnerrezSource
+from products.warehouse_sources.sources.ownerrez.settings import EPOCH, OWNERREZ_ENDPOINTS, PAGE_LIMIT
+from products.warehouse_sources.sources.ownerrez.source import OwnerrezSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 class TestFormatSinceUtc:

@@ -1,20 +1,13 @@
 from datetime import date
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.clockodo.clockodo import (
+from products.warehouse_sources.sources.clockodo._config import ClockodoSourceConfig
+from products.warehouse_sources.sources.clockodo.clockodo import (
     ClockodoResumeConfig,
     clockodo_source,
     validate_credentials as validate_clockodo_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.clockodo.settings import (
+from products.warehouse_sources.sources.clockodo.settings import (
     CLOCKODO_API_VERSION_V2,
     CLOCKODO_DEFAULT_API_VERSION,
     CLOCKODO_SUPPORTED_VERSIONS,
@@ -22,25 +15,25 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clockodo.s
     INCREMENTAL_FIELDS,
     endpoints_for_version,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
-    FieldType,
-    ResumableSource,
-    VersionDeprecation,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+from products.warehouse_sources.sources.sdk import (
     CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
+    VersionDeprecation,
     build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clockodo import (
-    ClockodoSourceConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -69,9 +62,7 @@ class ClockodoSource(ResumableSource[ClockodoSourceConfig, ClockodoResumeConfig]
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.clockodo.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.clockodo.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

@@ -1,13 +1,8 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.bluesky.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.bluesky.source import (
-    PARTITION_FIELDS,
-    BlueskySource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bluesky import (
-    BlueskySourceConfig,
-)
+from products.warehouse_sources.sources.bluesky._config import BlueskySourceConfig
+from products.warehouse_sources.sources.bluesky.settings import ENDPOINTS
+from products.warehouse_sources.sources.bluesky.source import PARTITION_FIELDS, BlueskySource
 
 
 class TestBlueskySource:
@@ -16,7 +11,7 @@ class TestBlueskySource:
         self.team_id = 123
         self.config = BlueskySourceConfig(actor="jay.bsky.team")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bluesky.source.bluesky_source")
+    @mock.patch("products.warehouse_sources.sources.bluesky.source.bluesky_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_bluesky_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "Posts"

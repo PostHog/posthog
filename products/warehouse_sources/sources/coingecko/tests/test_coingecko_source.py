@@ -1,17 +1,15 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.settings import (
+from products.warehouse_sources.sources.coingecko._config import CoinGeckoSourceConfig
+from products.warehouse_sources.sources.coingecko.settings import (
     ENDPOINTS,
     MAX_COINS,
     MERGE_ONLY_ENDPOINTS,
     PER_COIN_ENDPOINTS,
     PRO_ONLY_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.source import CoinGeckoSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coingecko import (
-    CoinGeckoSourceConfig,
-)
+from products.warehouse_sources.sources.coingecko.source import CoinGeckoSource
 
 
 class TestCoinGeckoSource:
@@ -45,9 +43,7 @@ class TestCoinGeckoSource:
             ),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.source.validate_coingecko_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.coingecko.source.validate_coingecko_credentials")
     def test_validate_credentials(
         self, mock_validate: mock.MagicMock, mock_return: bool, expected_valid: bool, expected_message: str | None
     ) -> None:
@@ -74,27 +70,21 @@ class TestCoinGeckoSource:
         assert error_message == "This table needs a CoinGecko Pro key on the Analyst plan or above."
 
     @pytest.mark.parametrize("schema_name", PRO_ONLY_ENDPOINTS)
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.source.validate_coingecko_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.coingecko.source.validate_coingecko_credentials")
     def test_pro_only_schema_connects_on_a_pro_key(self, mock_validate: mock.MagicMock, schema_name: str) -> None:
         mock_validate.return_value = True
         config = CoinGeckoSourceConfig(api_key="CG-test", plan="pro")
 
         assert self.source.validate_credentials(config, self.team_id, schema_name) == (True, None)
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.source.validate_coingecko_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.coingecko.source.validate_coingecko_credentials")
     def test_market_wide_schema_connects_without_coin_ids(self, mock_validate: mock.MagicMock) -> None:
         mock_validate.return_value = True
 
         assert self.source.validate_credentials(self.config, self.team_id, "coins_list") == (True, None)
 
     @pytest.mark.parametrize("start_date", ["", "   ", None])
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.source.validate_coingecko_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.coingecko.source.validate_coingecko_credentials")
     def test_blank_start_date_falls_back_to_the_default_window(
         self, mock_validate: mock.MagicMock, start_date: str | None
     ) -> None:

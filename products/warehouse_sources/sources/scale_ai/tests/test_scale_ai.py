@@ -3,25 +3,21 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    DEFAULT_RETRY_ATTEMPTS,
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.scaleai import (
-    ScaleAISourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.scale_ai.scale_ai import (
+from products.warehouse_sources.sources.scale_ai._config import ScaleAISourceConfig
+from products.warehouse_sources.sources.scale_ai.scale_ai import (
     ScaleAIResumeConfig,
     _build_params,
     _format_incremental_value,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.scale_ai.settings import SCALE_AI_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.scale_ai.source import ScaleAISource
+from products.warehouse_sources.sources.scale_ai.settings import SCALE_AI_ENDPOINTS
+from products.warehouse_sources.sources.scale_ai.source import ScaleAISource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import (
+    DEFAULT_RETRY_ATTEMPTS,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+)
 
 
 def _docs_response(

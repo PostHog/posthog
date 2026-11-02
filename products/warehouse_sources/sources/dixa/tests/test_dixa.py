@@ -4,13 +4,8 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.dixa.dixa import (
+from products.warehouse_sources.sources.dixa._config import DixaSourceConfig
+from products.warehouse_sources.sources.dixa.dixa import (
     EXPORT_EPOCH_MS,
     EXPORT_WINDOW_MS,
     DixaResumeConfig,
@@ -19,9 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dixa.dixa 
     get_rows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.dixa.settings import DIXA_ENDPOINTS, ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.dixa.source import DixaSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dixa import DixaSourceConfig
+from products.warehouse_sources.sources.dixa.settings import DIXA_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.sources.dixa.source import DixaSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:
@@ -99,9 +94,9 @@ class TestValidateCredentials:
 
 
 class TestGetRowsExport:
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.dixa.dixa.time.sleep")
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.dixa.dixa._now_ms")
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.dixa.dixa.make_tracked_session")
+    @mock.patch("products.warehouse_sources.sources.dixa.dixa.time.sleep")
+    @mock.patch("products.warehouse_sources.sources.dixa.dixa._now_ms")
+    @mock.patch("products.warehouse_sources.sources.dixa.dixa.make_tracked_session")
     def test_does_not_sleep_before_first_window(self, mock_session, mock_now, mock_sleep):
         # Two windows: no sleep before the first request, one sleep before the second.
         mock_now.return_value = EXPORT_EPOCH_MS + EXPORT_WINDOW_MS + 1000
@@ -231,7 +226,7 @@ class TestActivityLog:
 
 
 class TestFanOutOverConversations:
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.dixa.dixa._now_ms")
+    @mock.patch("products.warehouse_sources.sources.dixa.dixa._now_ms")
     def test_injects_parent_id_and_cursor_onto_child_rows(self, mock_now: mock.MagicMock) -> None:
         mock_now.return_value = EXPORT_EPOCH_MS + 1000
         result = _driver().run(
@@ -254,7 +249,7 @@ class TestFanOutOverConversations:
             "https://dev.dixa.io/v1/conversations/2/messages",
         ]
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.dixa.dixa._now_ms")
+    @mock.patch("products.warehouse_sources.sources.dixa.dixa._now_ms")
     def test_incremental_bounds_the_parent_walk_to_the_watermark(self, mock_now: mock.MagicMock) -> None:
         watermark = 1700000000000
         mock_now.return_value = watermark + 1000
@@ -270,7 +265,7 @@ class TestFanOutOverConversations:
         assert result.paths == ["/v1/conversation_export"]
         assert result.requests[0].param("updated_after") == str(watermark)
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.dixa.dixa._now_ms")
+    @mock.patch("products.warehouse_sources.sources.dixa.dixa._now_ms")
     def test_resumes_the_parent_walk_from_saved_window(self, mock_now: mock.MagicMock) -> None:
         resume_start = 1700000000000
         mock_now.return_value = resume_start + 1000
@@ -283,7 +278,7 @@ class TestFanOutOverConversations:
         assert result.raised is None
         assert result.requests[0].param("updated_after") == str(resume_start)
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.dixa.dixa._now_ms")
+    @mock.patch("products.warehouse_sources.sources.dixa.dixa._now_ms")
     def test_deleted_conversation_is_skipped_not_fatal(self, mock_now: mock.MagicMock) -> None:
         mock_now.return_value = EXPORT_EPOCH_MS + 1000
         result = _driver().run(

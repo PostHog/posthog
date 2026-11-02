@@ -1,13 +1,9 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.simplecast import (
-    SimpleCastSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.simplecast.settings import (
-    SIMPLECAST_API_VERSION_2_0,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.simplecast.source import SimpleCastSource
+from products.warehouse_sources.sources.sdk import UNVERSIONED_API_VERSION
+from products.warehouse_sources.sources.simplecast._config import SimpleCastSourceConfig
+from products.warehouse_sources.sources.simplecast.settings import SIMPLECAST_API_VERSION_2_0
+from products.warehouse_sources.sources.simplecast.source import SimpleCastSource
 
 
 class TestSimpleCastSource:
@@ -16,9 +12,7 @@ class TestSimpleCastSource:
         self.team_id = 123
         self.config = SimpleCastSourceConfig(api_key="sc-token")
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.simplecast.source._validate_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.simplecast.source._validate_credentials")
     def test_validate_credentials_delegates_to_shared_helper(self, mock_validate: mock.MagicMock) -> None:
         # The method is a thin wrapper: it must pass the token through and return the helper's result
         # unchanged. The status->message mapping itself is covered in test_simplecast.py.
@@ -33,7 +27,7 @@ class TestSimpleCastSource:
         assert self.source.supported_versions == (UNVERSIONED_API_VERSION, SIMPLECAST_API_VERSION_2_0)
         assert self.source.default_version == SIMPLECAST_API_VERSION_2_0
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.simplecast.source.simplecast_source")
+    @mock.patch("products.warehouse_sources.sources.simplecast.source.simplecast_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "podcasts"

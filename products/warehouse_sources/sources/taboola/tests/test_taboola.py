@@ -4,7 +4,7 @@ from urllib.parse import parse_qs
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
@@ -12,20 +12,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.taboola import (
-    TaboolaSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.taboola.settings import (
-    ENDPOINTS,
-    REPORT_LOOKBACK_DAYS,
-    TABOOLA_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.taboola.source import TaboolaSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.taboola.taboola import (
-    TaboolaResumeConfig,
-    _to_date,
-    validate_credentials,
-)
+from products.warehouse_sources.sources.taboola._config import TaboolaSourceConfig
+from products.warehouse_sources.sources.taboola.settings import ENDPOINTS, REPORT_LOOKBACK_DAYS, TABOOLA_ENDPOINTS
+from products.warehouse_sources.sources.taboola.source import TaboolaSource
+from products.warehouse_sources.sources.taboola.taboola import TaboolaResumeConfig, _to_date, validate_credentials
 
 _TOKEN_PATH = "/backstage/oauth/token"
 

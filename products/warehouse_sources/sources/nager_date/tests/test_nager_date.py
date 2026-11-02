@@ -7,17 +7,8 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.nagerdate import (
-    NagerDateSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.nager_date.nager_date import (
+from products.warehouse_sources.sources.nager_date._config import NagerDateSourceConfig
+from products.warehouse_sources.sources.nager_date.nager_date import (
     BACKFILL_YEARS_BACK,
     FORWARD_YEARS,
     MAX_COUNTRY_CODES,
@@ -29,15 +20,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.nager_date
     parse_country_codes,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.nager_date.settings import (
+from products.warehouse_sources.sources.nager_date.settings import (
     COUNTRIES,
     COUNTRY_INFO,
     NEXT_PUBLIC_HOLIDAYS,
     PUBLIC_HOLIDAYS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.nager_date.source import NagerDateSource
+from products.warehouse_sources.sources.nager_date.source import NagerDateSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.nager_date.nager_date"
+MODULE = "products.warehouse_sources.sources.nager_date.nager_date"
 
 
 def _response(status: int = 200, body: Optional[Any] = None) -> mock.MagicMock:

@@ -1,9 +1,9 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.wix import WixSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.wix.source import WixSource
+from products.warehouse_sources.sources.wix._config import WixSourceConfig
+from products.warehouse_sources.sources.wix.source import WixSource
 
-_SOURCE = "products.warehouse_sources.backend.temporal.data_imports.sources.wix.source"
+_SOURCE = "products.warehouse_sources.sources.wix.source"
 
 
 def _config() -> WixSourceConfig:

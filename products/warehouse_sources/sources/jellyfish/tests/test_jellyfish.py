@@ -7,8 +7,8 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.jellyfish import jellyfish
-from products.warehouse_sources.backend.temporal.data_imports.sources.jellyfish.jellyfish import (
+from products.warehouse_sources.sources.jellyfish import jellyfish
+from products.warehouse_sources.sources.jellyfish.jellyfish import (
     MAX_RETRY_AFTER_SECONDS,
     JellyfishRateLimitError,
     JellyfishResumeConfig,
@@ -21,7 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.jellyfish.
     jellyfish_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.jellyfish.settings import JELLYFISH_ENDPOINTS
+from products.warehouse_sources.sources.jellyfish.settings import JELLYFISH_ENDPOINTS
 
 
 class TestExtractRows:

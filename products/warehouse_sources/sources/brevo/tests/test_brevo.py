@@ -4,20 +4,16 @@ import pytest
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.brevo.brevo import (
+from products.warehouse_sources.sources.brevo._config import BrevoSourceConfig
+from products.warehouse_sources.sources.brevo.brevo import (
     BrevoResumeConfig,
     _build_base_params,
     _format_datetime,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.brevo.settings import BREVO_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.brevo.source import BrevoSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.brevo import BrevoSourceConfig
+from products.warehouse_sources.sources.brevo.settings import BREVO_ENDPOINTS
+from products.warehouse_sources.sources.brevo.source import BrevoSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver() -> SourceDriver:

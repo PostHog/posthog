@@ -1,10 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.paystack import (
-    PaystackSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.paystack.source import PaystackSource
+from products.warehouse_sources.sources.paystack._config import PaystackSourceConfig
+from products.warehouse_sources.sources.paystack.source import PaystackSource
 
 
 class TestPaystackSource:
@@ -20,9 +18,7 @@ class TestPaystackSource:
             (False, False, "Invalid Paystack secret API key"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.paystack.source.validate_paystack_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.paystack.source.validate_paystack_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
         mock_validate.return_value = mock_return
 
@@ -32,7 +28,7 @@ class TestPaystackSource:
         assert error_message == expected_message
         mock_validate.assert_called_once_with(self.config.secret_api_key)
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.paystack.source.paystack_source")
+    @mock.patch("products.warehouse_sources.sources.paystack.source.paystack_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_paystack_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "Transactions"

@@ -10,17 +10,15 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
     route,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.youtubeanalytics import (
-    YouTubeAnalyticsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_analytics.settings import (
+from products.warehouse_sources.sources.youtube_analytics._config import YouTubeAnalyticsSourceConfig
+from products.warehouse_sources.sources.youtube_analytics.settings import (
     AUDIENCE_RETENTION,
     CHANNEL_DAILY,
     CONCURRENT_VIEWERS,
@@ -33,10 +31,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_an
     VIDEOS,
     YOUTUBE_ANALYTICS_REPORTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_analytics.source import (
-    YouTubeAnalyticsSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_analytics.youtube_analytics import (
+from products.warehouse_sources.sources.youtube_analytics.source import YouTubeAnalyticsSource
+from products.warehouse_sources.sources.youtube_analytics.youtube_analytics import (
     YouTubeAnalyticsClient,
     YouTubeAnalyticsResumeConfig,
     channel_ids_param,
@@ -47,7 +43,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_an
     validate_credentials,
 )
 
-SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.youtube_analytics.source"
+SOURCE_MODULE = "products.warehouse_sources.sources.youtube_analytics.source"
 FROZEN_NOW = "2026-07-26"
 
 

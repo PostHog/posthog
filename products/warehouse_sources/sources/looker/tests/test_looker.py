@@ -3,15 +3,10 @@ from urllib.parse import parse_qs
 import pytest
 import time_machine
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-    route,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.looker import LookerSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.looker.looker import LookerResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.looker.source import LookerSource
+from products.warehouse_sources.sources.looker._config import LookerSourceConfig
+from products.warehouse_sources.sources.looker.looker import LookerResumeConfig
+from products.warehouse_sources.sources.looker.source import LookerSource
+from products.warehouse_sources.sources.sdk.testing import RecordedRequest, ScriptedResponse, SourceDriver, route
 
 
 def driver(instance_url: str = "https://example.looker.com:19999") -> SourceDriver:

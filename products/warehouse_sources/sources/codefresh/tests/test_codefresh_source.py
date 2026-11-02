@@ -3,10 +3,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.codefresh.source import CodefreshSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.codefresh import (
-    CodefreshSourceConfig,
-)
+from products.warehouse_sources.sources.codefresh._config import CodefreshSourceConfig
+from products.warehouse_sources.sources.codefresh.source import CodefreshSource
 
 
 class TestCodefreshSource:
@@ -24,7 +22,7 @@ class TestCodefreshSource:
         self, _name: str, inner_valid: bool, inner_error: str | None, expected_valid: bool
     ) -> None:
         with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.codefresh.source.validate_codefresh_credentials",
+            "products.warehouse_sources.sources.codefresh.source.validate_codefresh_credentials",
             return_value=(inner_valid, inner_error),
         ) as mocked:
             valid, error = self.source.validate_credentials(CodefreshSourceConfig(api_key="t"), self.team_id)

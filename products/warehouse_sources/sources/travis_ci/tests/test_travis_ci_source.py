@@ -5,10 +5,8 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.travisci import (
-    TravisCISourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.travis_ci.source import TravisCISource
+from products.warehouse_sources.sources.travis_ci._config import TravisCISourceConfig
+from products.warehouse_sources.sources.travis_ci.source import TravisCISource
 
 
 def _config() -> TravisCISourceConfig:
@@ -58,7 +56,7 @@ class TestTravisCISource:
             return MagicMock()
 
         with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.travis_ci.source.travis_ci_source",
+            "products.warehouse_sources.sources.travis_ci.source.travis_ci_source",
             side_effect=fake_source,
         ):
             self.source.source_for_pipeline(_config(), manager, inputs)
@@ -82,7 +80,7 @@ class TestTravisCISource:
             return MagicMock()
 
         with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.travis_ci.source.travis_ci_source",
+            "products.warehouse_sources.sources.travis_ci.source.travis_ci_source",
             side_effect=fake_source,
         ):
             self.source.source_for_pipeline(_config(), MagicMock(), inputs)

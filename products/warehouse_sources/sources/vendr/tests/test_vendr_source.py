@@ -2,8 +2,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vendr import VendrSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.vendr.source import VendrSource
+from products.warehouse_sources.sources.vendr._config import VendrSourceConfig
+from products.warehouse_sources.sources.vendr.source import VendrSource
 
 
 class TestVendrSource:
@@ -24,9 +24,7 @@ class TestVendrSource:
             ((False, None), False, "Invalid Vendr API key"),
         ]
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.vendr.source.validate_vendr_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.vendr.source.validate_vendr_credentials")
     def test_validate_credentials(self, mock_return, expected_valid, expected_message, mock_validate) -> None:
         mock_validate.return_value = mock_return
 

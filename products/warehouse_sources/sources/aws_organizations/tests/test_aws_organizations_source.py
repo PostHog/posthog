@@ -5,20 +5,14 @@ from unittest import mock
 
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_organizations import (
+from products.warehouse_sources.sources.aws_organizations import (
     aws_organizations as transport_module,
     source as source_module,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_organizations.settings import (
-    ORGANIZATIONS_API_VERSION,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_organizations.source import (
-    AwsOrganizationsSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsorganizations import (
-    AwsOrganizationsSourceConfig,
-)
+from products.warehouse_sources.sources.aws_organizations._config import AwsOrganizationsSourceConfig
+from products.warehouse_sources.sources.aws_organizations.settings import ORGANIZATIONS_API_VERSION
+from products.warehouse_sources.sources.aws_organizations.source import AwsOrganizationsSource
+from products.warehouse_sources.sources.sdk import SourceInputs
 
 
 def make_inputs(schema_name: str) -> SourceInputs:

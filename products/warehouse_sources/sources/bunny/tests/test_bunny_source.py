@@ -1,13 +1,9 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.bunny.source import BunnySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bunny import BunnySourceConfig
+from products.warehouse_sources.sources.bunny._config import BunnySourceConfig
+from products.warehouse_sources.sources.bunny.source import BunnySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, always, scripted_network
 
 
 class TestBunnySource:
@@ -46,7 +42,7 @@ class TestBunnySource:
         assert network.requests_log[0].headers["accesskey"] == "bunny-key"
 
     @pytest.mark.parametrize("should_use_incremental_field, expected_last_value", [(True, "2024-05-02"), (False, None)])
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bunny.source.bunny_source")
+    @mock.patch("products.warehouse_sources.sources.bunny.source.bunny_source")
     def test_source_for_pipeline_plumbs_arguments(
         self, mock_bunny_source: mock.MagicMock, should_use_incremental_field: bool, expected_last_value: str | None
     ) -> None:

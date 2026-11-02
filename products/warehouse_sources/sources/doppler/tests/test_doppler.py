@@ -7,14 +7,14 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.doppler import doppler
-from products.warehouse_sources.backend.temporal.data_imports.sources.doppler.doppler import (
+from products.warehouse_sources.sources.doppler import doppler
+from products.warehouse_sources.sources.doppler.doppler import (
     DopplerResumeConfig,
     _coerce_watermark,
     doppler_source,
     get_rows,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.doppler.settings import DEFAULT_PER_PAGE
+from products.warehouse_sources.sources.doppler.settings import DEFAULT_PER_PAGE
 
 _BASE = "https://api.doppler.com/v3"
 

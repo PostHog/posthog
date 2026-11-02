@@ -1,28 +1,7 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
-    OAUTH2_PERMANENT_ERROR_MARKER,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
-    SourceSchema,
-    build_endpoint_schemas,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.dynamics365.dynamics365 import (
+from products.warehouse_sources.sources.dynamics365._config import Dynamics365SourceConfig
+from products.warehouse_sources.sources.dynamics365.dynamics365 import (
     INVALID_ORGANIZATION_URL_ERROR,
     INVALID_TENANT_ID_ERROR,
     INVALID_WATERMARK_ERROR,
@@ -31,15 +10,30 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dynamics36
     dynamics365_source,
     probe_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.dynamics365.settings import (
+from products.warehouse_sources.sources.dynamics365.settings import (
     DYNAMICS365_API_VERSION,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dynamics365 import (
-    Dynamics365SourceConfig,
+from products.warehouse_sources.sources.sdk import (
+    OAUTH2_PERMANENT_ERROR_MARKER,
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 CREDENTIALS_REJECTED_ERROR = "Dynamics 365 rejected these credentials. Check the directory (tenant) ID, application (client) ID, and client secret, and that the secret hasn't expired."
 PERMISSION_ERROR = "Dynamics 365 accepted the credentials but denied access to the data. Check that the app registration has an application user in the environment with a security role that can read this table."
@@ -78,9 +72,7 @@ class Dynamics365Source(ResumableSource[Dynamics365SourceConfig, Dynamics365Resu
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.dynamics365.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.dynamics365.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

@@ -5,26 +5,21 @@ import pytest
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.housecall_pro._config import HousecallProSourceConfig
+from products.warehouse_sources.sources.housecall_pro.housecall_pro import (
+    HousecallProResumeConfig,
+    _format_created_at_min,
+    validate_credentials,
+)
+from products.warehouse_sources.sources.housecall_pro.settings import ENDPOINTS, HOUSECALL_PRO_ENDPOINTS
+from products.warehouse_sources.sources.housecall_pro.source import HousecallProSource
+from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
     route,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.housecallpro import (
-    HousecallProSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.housecall_pro.housecall_pro import (
-    HousecallProResumeConfig,
-    _format_created_at_min,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.housecall_pro.settings import (
-    ENDPOINTS,
-    HOUSECALL_PRO_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.housecall_pro.source import HousecallProSource
 
 
 def _driver() -> SourceDriver:

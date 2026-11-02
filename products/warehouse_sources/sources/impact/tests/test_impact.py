@@ -5,15 +5,8 @@ import time_machine
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.impact import ImpactSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.impact.impact import (
+from products.warehouse_sources.sources.impact._config import ImpactSourceConfig
+from products.warehouse_sources.sources.impact.impact import (
     ImpactResumeConfig,
     _resume_index,
     _safe_int,
@@ -21,12 +14,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.impact.imp
     _windows_for_actions,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.impact.settings import (
+from products.warehouse_sources.sources.impact.settings import (
     IMPACT_API_VERSION_14,
     IMPACT_API_VERSION_LEGACY,
     IMPACT_VERSION_HEADER,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.impact.source import ImpactSource
+from products.warehouse_sources.sources.impact.source import ImpactSource
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
 
 
 def _driver() -> SourceDriver:

@@ -7,7 +7,7 @@ import time_machine
 
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     ScriptedResponse,
     SourceDriver,
@@ -15,16 +15,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     route,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sendgrid import (
-    SendGridSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.sendgrid import (
+from products.warehouse_sources.sources.sendgrid._config import SendGridSourceConfig
+from products.warehouse_sources.sources.sendgrid.sendgrid import (
     SendGridResumeConfig,
     _to_date_string,
     _to_epoch_seconds,
     get_endpoint_permissions,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.source import SendGridSource
+from products.warehouse_sources.sources.sendgrid.source import SendGridSource
 
 
 def _response(body: Any) -> ScriptedResponse:

@@ -1,13 +1,8 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.oncehub import (
-    OncehubSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.oncehub.source import OncehubSource
+from products.warehouse_sources.sources.oncehub._config import OncehubSourceConfig
+from products.warehouse_sources.sources.oncehub.source import OncehubSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 class TestOncehubSource:
@@ -24,7 +19,7 @@ class TestOncehubSource:
         assert network.requests_log[0].headers["api-key"] == "oncehub-key"
         assert result == (False, "Invalid OnceHub API key")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.oncehub.source.oncehub_source")
+    @mock.patch("products.warehouse_sources.sources.oncehub.source.oncehub_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "bookings"

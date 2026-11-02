@@ -1,13 +1,8 @@
 from unittest.mock import MagicMock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.retently import (
-    RetentlySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.retently.source import RetentlySource
+from products.warehouse_sources.sources.retently._config import RetentlySourceConfig
+from products.warehouse_sources.sources.retently.source import RetentlySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 class TestRetentlySourceConfig:

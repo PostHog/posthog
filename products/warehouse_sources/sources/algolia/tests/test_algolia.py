@@ -6,7 +6,8 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.algolia.algolia import (
+from products.warehouse_sources.sources.algolia._config import AlgoliaSourceConfig
+from products.warehouse_sources.sources.algolia.algolia import (
     AlgoliaResumeConfig,
     InvalidApplicationIdError,
     _base_url,
@@ -15,17 +16,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.algolia.al
     _to_start_datetime,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.algolia.settings import ALGOLIA_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.algolia.source import AlgoliaSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.algolia import (
-    AlgoliaSourceConfig,
-)
+from products.warehouse_sources.sources.algolia.settings import ALGOLIA_ENDPOINTS
+from products.warehouse_sources.sources.algolia.source import AlgoliaSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver(region: Literal["us", "de"] = "us") -> SourceDriver:

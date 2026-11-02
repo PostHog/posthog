@@ -1,7 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lightdash import (
-    LightdashSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.lightdash.source import LightdashSource
+from products.warehouse_sources.sources.lightdash._config import LightdashSourceConfig
+from products.warehouse_sources.sources.lightdash.source import LightdashSource
 
 
 class TestLightdashSource:

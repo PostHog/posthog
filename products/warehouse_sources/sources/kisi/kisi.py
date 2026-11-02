@@ -5,26 +5,7 @@ from typing import Any
 
 from requests import Response
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
-    interruptible_wait,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resources,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    OffsetPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.kisi.settings import (
+from products.warehouse_sources.sources.kisi.settings import (
     BASE_URL,
     DEFAULT_PARTITION_KEYS,
     DEFAULT_PRIMARY_KEYS,
@@ -49,6 +30,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kisi.setti
     PARTITION_KEYS,
     PRIMARY_KEYS,
     UNPAGINATED_ENDPOINTS,
+)
+from products.warehouse_sources.sources.sdk import (
+    APIKeyAuth,
+    EndpointResource,
+    OffsetPaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceInputs,
+    SourceResponse,
+    frozen,
+    interruptible_wait,
+    make_tracked_session,
+    parse_datetime_value,
+    rest_api_resources,
 )
 
 HEADERS = {"Accept": "application/json", "Content-Type": "application/json"}

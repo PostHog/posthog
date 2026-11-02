@@ -2,13 +2,11 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lovable import (
-    LovableSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.lovable.lovable import LovableResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.lovable.source import LovableSource
+from products.warehouse_sources.sources.lovable._config import LovableSourceConfig
+from products.warehouse_sources.sources.lovable.lovable import LovableResumeConfig
+from products.warehouse_sources.sources.lovable.source import LovableSource
 
-SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.lovable.source"
+SOURCE_MODULE = "products.warehouse_sources.sources.lovable.source"
 
 DATED_ENDPOINTS = [
     "Workspaces",

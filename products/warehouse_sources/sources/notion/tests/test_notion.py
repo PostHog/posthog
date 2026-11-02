@@ -8,14 +8,8 @@ import requests
 from parameterized import parameterized
 from tenacity import RetryCallState
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.notion import NotionSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.notion.notion import (
+from products.warehouse_sources.sources.notion._config import NotionSourceConfig
+from products.warehouse_sources.sources.notion.notion import (
     ADMIN_TOKEN_FORBIDDEN_ERROR,
     ADMIN_TOKEN_INVALID_ERROR,
     ADMIN_TOKEN_MISSING_ERROR,
@@ -40,9 +34,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.notion.not
     check_permission_groups_access,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.notion.source import NotionSource
+from products.warehouse_sources.sources.notion.source import NotionSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.notion.notion"
+MODULE = "products.warehouse_sources.sources.notion.notion"
 
 
 def _fresh_manager() -> mock.MagicMock:

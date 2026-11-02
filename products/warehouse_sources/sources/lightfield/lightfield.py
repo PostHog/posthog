@@ -2,22 +2,7 @@ from collections.abc import Callable, Iterable, Iterator
 from typing import Any
 from urllib.parse import quote
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import (
-    create_response_hooks,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    OffsetPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.lightfield.settings import (
+from products.warehouse_sources.sources.lightfield.settings import (
     CUSTOM_OBJECTS_ENDPOINT,
     DEFINITION_ENDPOINTS,
     LIGHTFIELD_ENDPOINTS,
@@ -25,6 +10,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lightfield
     STANDARD_DEFINITION_RESOURCES,
     LightfieldDefinitionResource,
     LightfieldEndpointConfig,
+)
+from products.warehouse_sources.sources.sdk import (
+    BearerTokenAuth,
+    OffsetPaginator,
+    RESTAPIConfig,
+    RESTClient,
+    SinglePagePaginator,
+    SourceResponse,
+    create_response_hooks,
+    make_tracked_session,
+    rest_api_resource,
 )
 
 LIGHTFIELD_BASE_URL = "https://api.lightfield.app"

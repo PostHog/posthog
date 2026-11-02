@@ -1,16 +1,9 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.insightly import (
-    InsightlySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.insightly.settings import INSIGHTLY_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.insightly.source import InsightlySource
+from products.warehouse_sources.sources.insightly._config import InsightlySourceConfig
+from products.warehouse_sources.sources.insightly.settings import INSIGHTLY_ENDPOINTS
+from products.warehouse_sources.sources.insightly.source import InsightlySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 FULL_REFRESH_ENDPOINTS = {name for name, cfg in INSIGHTLY_ENDPOINTS.items() if not cfg.supports_incremental}
 

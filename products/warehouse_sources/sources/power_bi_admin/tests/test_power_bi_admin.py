@@ -10,7 +10,25 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.power_bi_admin._config import PowerBiAdminSourceConfig
+from products.warehouse_sources.sources.power_bi_admin.power_bi_admin import (
+    ADMIN_API_DENIED_ERROR,
+    PowerBiAdminClient,
+    PowerBiAdminResumeConfig,
+    _coerce_date,
+    _parse_creation_time,
+    power_bi_admin_source,
+    validate_credentials,
+)
+from products.warehouse_sources.sources.power_bi_admin.settings import (
+    ACTIVITY_EVENTS_ENDPOINT,
+    ODATA_PAGE_SIZE,
+    POWER_BI_ADMIN_ENDPOINTS,
+    REFRESHABLES_PAGE_SIZE,
+)
+from products.warehouse_sources.sources.power_bi_admin.source import PowerBiAdminSource
+from products.warehouse_sources.sources.sdk import SourceResponse
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
     ScriptedResponse,
@@ -20,26 +38,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     scripted_network,
     source_inputs,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.powerbiadmin import (
-    PowerBiAdminSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.power_bi_admin.power_bi_admin import (
-    ADMIN_API_DENIED_ERROR,
-    PowerBiAdminClient,
-    PowerBiAdminResumeConfig,
-    _coerce_date,
-    _parse_creation_time,
-    power_bi_admin_source,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.power_bi_admin.settings import (
-    ACTIVITY_EVENTS_ENDPOINT,
-    ODATA_PAGE_SIZE,
-    POWER_BI_ADMIN_ENDPOINTS,
-    REFRESHABLES_PAGE_SIZE,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.power_bi_admin.source import PowerBiAdminSource
 
 TENANT_ID = "11111111-1111-1111-1111-111111111111"
 CLIENT_ID = "22222222-2222-2222-2222-222222222222"

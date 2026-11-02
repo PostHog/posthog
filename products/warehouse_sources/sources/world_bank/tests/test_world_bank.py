@@ -3,18 +3,11 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.worldbank import (
-    WorldBankSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.source import WorldBankSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.world_bank import (
+from products.warehouse_sources.sources.sdk import RESTClient
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.world_bank._config import WorldBankSourceConfig
+from products.warehouse_sources.sources.world_bank.source import WorldBankSource
+from products.warehouse_sources.sources.world_bank.world_bank import (
     DATA_SELECTOR,
     MAX_INDICATOR_CODES,
     WorldBankPaginator,

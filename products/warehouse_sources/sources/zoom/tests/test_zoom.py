@@ -3,20 +3,17 @@ from typing import Any
 import pytest
 from unittest.mock import patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import RESTClientRetryableError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     route,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zoom import ZoomSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.zoom.source import ZoomSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.zoom.zoom import (
-    ZoomResumeConfig,
-    validate_credentials,
-)
+from products.warehouse_sources.sources.zoom._config import ZoomSourceConfig
+from products.warehouse_sources.sources.zoom.source import ZoomSource
+from products.warehouse_sources.sources.zoom.zoom import ZoomResumeConfig, validate_credentials
 
 _TOKEN = ScriptedResponse(json={"access_token": "tok", "expires_in": 3599})
 

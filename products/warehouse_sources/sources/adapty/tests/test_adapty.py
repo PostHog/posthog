@@ -3,13 +3,10 @@ from typing import Any
 import pytest
 import time_machine
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.adapty.adapty import AdaptyResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.adapty.source import AdaptySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.adapty import AdaptySourceConfig
+from products.warehouse_sources.sources.adapty._config import AdaptySourceConfig
+from products.warehouse_sources.sources.adapty.adapty import AdaptyResumeConfig
+from products.warehouse_sources.sources.adapty.source import AdaptySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 def driver() -> SourceDriver:

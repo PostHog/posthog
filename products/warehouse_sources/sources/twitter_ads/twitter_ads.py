@@ -7,14 +7,15 @@ from zoneinfo import ZoneInfo
 import requests
 from requests_oauthlib import OAuth1
 
-from posthog.dataclasses import frozen
-from posthog.integrations import IntegrationRecord
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common import credentials_service
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.twitter_ads.settings import (
+from products.warehouse_sources.sources.sdk import (
+    IntegrationRecord,
+    ResumableSourceManager,
+    SourceResponse,
+    credentials_service,
+    frozen,
+    make_tracked_session,
+)
+from products.warehouse_sources.sources.twitter_ads.settings import (
     API_VERSION,
     ENTITY_TABLES,
     MAX_STATS_BACKFILL_DAYS,

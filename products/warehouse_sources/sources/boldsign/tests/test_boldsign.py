@@ -2,23 +2,17 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.boldsign import boldsign
-from products.warehouse_sources.backend.temporal.data_imports.sources.boldsign.boldsign import (
+from products.warehouse_sources.sources.boldsign import boldsign
+from products.warehouse_sources.sources.boldsign._config import BoldSignSourceConfig
+from products.warehouse_sources.sources.boldsign.boldsign import (
     PAGE_SIZE,
     BoldSignResumeConfig,
     _base_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.boldsign.settings import BOLDSIGN_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.boldsign.source import BoldSignSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.boldsign import (
-    BoldSignSourceConfig,
-)
+from products.warehouse_sources.sources.boldsign.settings import BOLDSIGN_ENDPOINTS
+from products.warehouse_sources.sources.boldsign.source import BoldSignSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver(api_key: str = "key") -> SourceDriver:

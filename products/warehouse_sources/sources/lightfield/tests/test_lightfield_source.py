@@ -4,15 +4,9 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lightfield import (
-    LightfieldSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.lightfield.source import LightfieldSource
+from products.warehouse_sources.sources.lightfield._config import LightfieldSourceConfig
+from products.warehouse_sources.sources.lightfield.source import LightfieldSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, always, scripted_network
 
 
 class TestLightfieldSource:
@@ -112,7 +106,7 @@ class TestLightfieldSource:
             ("pin_honored_verbatim", "2027-01-01", "2027-01-01"),
         ]
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.lightfield.source.lightfield_source")
+    @mock.patch("products.warehouse_sources.sources.lightfield.source.lightfield_source")
     def test_source_for_pipeline_resolves_api_version(self, _name, pinned, expected_version, mock_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "accounts"

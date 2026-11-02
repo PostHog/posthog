@@ -2,11 +2,9 @@ from typing import Any
 
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.source import DatadogSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.datadog import (
-    DatadogSourceConfig,
-)
+from products.warehouse_sources.sources.datadog._config import DatadogSourceConfig
+from products.warehouse_sources.sources.datadog.source import DatadogSource
+from products.warehouse_sources.sources.sdk import SourceInputs
 
 
 def _make_inputs(**overrides: Any) -> SourceInputs:

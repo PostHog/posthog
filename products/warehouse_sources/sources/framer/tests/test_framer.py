@@ -12,8 +12,8 @@ import pytest
 from parameterized import parameterized
 from websockets.exceptions import ConnectionClosedError, InvalidMessage
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.framer import devalue
-from products.warehouse_sources.backend.temporal.data_imports.sources.framer.framer import (
+from products.warehouse_sources.sources.framer import devalue
+from products.warehouse_sources.sources.framer.framer import (
     COLLECTION_METHODS_BY_VERSION,
     FramerAPIError,
     FramerClient,
@@ -21,10 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.framer.fra
     parse_project_id,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.framer.settings import (
-    DEPLOYMENTS_PAGE_SIZE,
-    PRIMARY_KEYS,
-)
+from products.warehouse_sources.sources.framer.settings import DEPLOYMENTS_PAGE_SIZE, PRIMARY_KEYS
 
 PROJECT_ID = "a" * 20
 
@@ -341,7 +338,7 @@ class TestFramer:
         server = FakeFramerServer(methods={"getProjectInfo2": {"id": PROJECT_ID, "name": "Site"}})
         with pytest.MonkeyPatch.context() as patcher:
             patcher.setattr(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.framer.framer.websocket_connect",
+                "products.warehouse_sources.sources.framer.framer.websocket_connect",
                 server,
             )
             valid, error = validate_credentials(PROJECT_ID, "key", "0.1.29")
@@ -352,7 +349,7 @@ class TestFramer:
         server = FakeFramerServer(ready_message={"type": "error", "code": "UNAUTHORIZED", "message": "no access"})
         with pytest.MonkeyPatch.context() as patcher:
             patcher.setattr(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.framer.framer.websocket_connect",
+                "products.warehouse_sources.sources.framer.framer.websocket_connect",
                 server,
             )
             valid, error = validate_credentials(PROJECT_ID, "bad", "0.1.29")
@@ -370,7 +367,7 @@ class TestFramer:
         server = FakeFramerServer(ready_message={"type": "error", "code": "POOL_EXHAUSTED", "message": "busy"})
         with pytest.MonkeyPatch.context() as patcher:
             patcher.setattr(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.framer.framer.websocket_connect",
+                "products.warehouse_sources.sources.framer.framer.websocket_connect",
                 server,
             )
             valid, error = validate_credentials(PROJECT_ID, "key", "0.1.29")
@@ -388,7 +385,7 @@ class TestFramer:
         assert response.primary_keys == PRIMARY_KEYS[endpoint]
         with pytest.MonkeyPatch.context() as patcher:
             patcher.setattr(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.framer.framer.websocket_connect",
+                "products.warehouse_sources.sources.framer.framer.websocket_connect",
                 server,
             )
             batches = cast(Iterable[list[dict[str, Any]]], response.items())

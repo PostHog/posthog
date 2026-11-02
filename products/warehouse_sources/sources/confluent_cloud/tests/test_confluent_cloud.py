@@ -7,8 +7,8 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.confluent_cloud import confluent_cloud
-from products.warehouse_sources.backend.temporal.data_imports.sources.confluent_cloud.confluent_cloud import (
+from products.warehouse_sources.sources.confluent_cloud import confluent_cloud
+from products.warehouse_sources.sources.confluent_cloud.confluent_cloud import (
     ConfluentCloudResumeConfig,
     MissingResourceIdsError,
     _sync_range,

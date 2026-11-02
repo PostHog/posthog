@@ -3,7 +3,12 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.configcat import configcat
+from products.warehouse_sources.sources.configcat._config import ConfigCatSourceConfig
+from products.warehouse_sources.sources.configcat.configcat import CONFIGCAT_BASE_URL, check_access
+from products.warehouse_sources.sources.configcat.settings import CONFIGCAT_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.sources.configcat.source import ConfigCatSource
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
     ScriptedResponse,
@@ -11,19 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     UnexpectedRequest,
     always,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.configcat import configcat
-from products.warehouse_sources.backend.temporal.data_imports.sources.configcat.configcat import (
-    CONFIGCAT_BASE_URL,
-    check_access,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.configcat.settings import (
-    CONFIGCAT_ENDPOINTS,
-    ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.configcat.source import ConfigCatSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.configcat import (
-    ConfigCatSourceConfig,
 )
 
 

@@ -9,28 +9,17 @@ from unittest.mock import MagicMock, patch
 import requests
 from botocore.loaders import Loader
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_compute_optimizer import (
-    aws_compute_optimizer as transport,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_compute_optimizer.aws_compute_optimizer import (
+from products.warehouse_sources.sources.aws_compute_optimizer import aws_compute_optimizer as transport
+from products.warehouse_sources.sources.aws_compute_optimizer._config import AwsComputeOptimizerSourceConfig
+from products.warehouse_sources.sources.aws_compute_optimizer.aws_compute_optimizer import (
     AwsComputeOptimizerClient,
     AwsComputeOptimizerError,
     AwsComputeOptimizerResumeConfig,
     aws_compute_optimizer_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_compute_optimizer.source import (
-    AwsComputeOptimizerSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awscomputeoptimizer import (
-    AwsComputeOptimizerSourceConfig,
-)
+from products.warehouse_sources.sources.aws_compute_optimizer.source import AwsComputeOptimizerSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def config(region: str | None = "eu-west-1", token: str | None = None) -> AwsComputeOptimizerSourceConfig:

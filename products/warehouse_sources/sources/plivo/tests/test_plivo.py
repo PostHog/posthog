@@ -5,19 +5,11 @@ from typing import Any
 import pytest
 import time_machine
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.plivo import PlivoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.plivo.plivo import (
-    PlivoResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.plivo.settings import PAGE_SIZE
-from products.warehouse_sources.backend.temporal.data_imports.sources.plivo.source import PlivoSource
+from products.warehouse_sources.sources.plivo._config import PlivoSourceConfig
+from products.warehouse_sources.sources.plivo.plivo import PlivoResumeConfig, validate_credentials
+from products.warehouse_sources.sources.plivo.settings import PAGE_SIZE
+from products.warehouse_sources.sources.plivo.source import PlivoSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 FROZEN_NOW = "2026-07-21 12:00:00"
 MESSAGE_URL = "https://api.plivo.com/v1/Account/MA123/Message/"

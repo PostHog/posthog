@@ -1,13 +1,8 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.invoiced import (
-    InvoicedSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.invoiced.source import InvoicedSource
+from products.warehouse_sources.sources.invoiced._config import InvoicedSourceConfig
+from products.warehouse_sources.sources.invoiced.source import InvoicedSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 class TestInvoicedSource:
@@ -16,7 +11,7 @@ class TestInvoicedSource:
         self.team_id = 123
         self.config = InvoicedSourceConfig(api_key="invoiced-key")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.invoiced.source.validate_credentials")
+    @mock.patch("products.warehouse_sources.sources.invoiced.source.validate_credentials")
     def test_validate_credentials_delegates_with_api_key(self, mock_validate: mock.MagicMock) -> None:
         # The status-to-message mapping lives in invoiced.validate_credentials; here we only assert
         # the source probes with the configured key and returns the delegate's verdict unchanged.
@@ -25,7 +20,7 @@ class TestInvoicedSource:
         mock_validate.assert_called_once_with("invoiced-key")
         assert result == (False, "Invalid Invoiced API key")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.invoiced.source.invoiced_source")
+    @mock.patch("products.warehouse_sources.sources.invoiced.source.invoiced_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "invoices"

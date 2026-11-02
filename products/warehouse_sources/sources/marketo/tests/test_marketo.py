@@ -11,18 +11,8 @@ import requests
 from requests import Response
 from requests.structures import CaseInsensitiveDict
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-    source_inputs,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.marketo import (
-    MarketoSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.marketo.marketo import (
+from products.warehouse_sources.sources.marketo._config import MarketoSourceConfig
+from products.warehouse_sources.sources.marketo.marketo import (
     BULK_CHUNK_ROWS,
     MarketoAPIError,
     MarketoAuthError,
@@ -41,10 +31,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.marketo.ma
     resolve_bulk_start,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.marketo.settings import MARKETO_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.marketo.source import MarketoSource
+from products.warehouse_sources.sources.marketo.settings import MARKETO_ENDPOINTS
+from products.warehouse_sources.sources.marketo.source import MarketoSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+    source_inputs,
+)
 
-SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.marketo.marketo.make_tracked_session"
+SESSION_PATCH = "products.warehouse_sources.sources.marketo.marketo.make_tracked_session"
 
 MUNCHKIN = "123-ABC-456"
 

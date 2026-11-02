@@ -1,22 +1,7 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.dataforseo import (
+from products.warehouse_sources.sources.dataforseo._config import DataForSEOSourceConfig
+from products.warehouse_sources.sources.dataforseo.dataforseo import (
     DEFAULT_LANGUAGE_NAME,
     DEFAULT_LOCATION_NAME,
     DataForSEOResumeConfig,
@@ -25,14 +10,24 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo
     validate_keywords,
     validate_targets,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.settings import (
-    DATAFORSEO_ENDPOINTS,
-    KEYWORD_SCOPES,
+from products.warehouse_sources.sources.dataforseo.settings import DATAFORSEO_ENDPOINTS, KEYWORD_SCOPES
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dataforseo import (
-    DataForSEOSourceConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -163,9 +158,7 @@ Note: DataForSEO bills per API request, so syncing these tables consumes account
         return {"DataForSEO API error (retryable)"}
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.dataforseo.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

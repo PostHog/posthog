@@ -4,15 +4,15 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.impact import source as source_module
+from products.warehouse_sources.sources.impact._config import ImpactSourceConfig
+from products.warehouse_sources.sources.impact.source import ImpactSource
+from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
+    error_message_matches,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.impact import ImpactSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.impact import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.impact.source import ImpactSource
 
 
 def _inputs(schema_name: str = "Actions", **overrides: object) -> MagicMock:

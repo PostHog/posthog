@@ -1,6 +1,6 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.loops import LoopsSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.loops.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.loops.source import LoopsSource
+from products.warehouse_sources.sources.loops._config import LoopsSourceConfig
+from products.warehouse_sources.sources.loops.settings import ENDPOINTS
+from products.warehouse_sources.sources.loops.source import LoopsSource
 
 
 class TestLoopsSource:

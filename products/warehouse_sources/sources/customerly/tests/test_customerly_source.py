@@ -1,18 +1,10 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.customerly.settings import (
-    CUSTOMERLY_ENDPOINTS,
-    ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.customerly.source import CustomerlySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.customerly import (
-    CustomerlySourceConfig,
-)
+from products.warehouse_sources.sources.customerly._config import CustomerlySourceConfig
+from products.warehouse_sources.sources.customerly.settings import CUSTOMERLY_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.sources.customerly.source import CustomerlySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 class TestCustomerlySource:
@@ -22,9 +14,7 @@ class TestCustomerlySource:
         self.config = CustomerlySourceConfig(access_token="token")
 
     @pytest.mark.parametrize("is_valid", [True, False])
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.customerly.source.validate_customerly_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.customerly.source.validate_customerly_credentials")
     def test_validate_credentials(self, mock_validate: mock.MagicMock, is_valid: bool) -> None:
         mock_validate.return_value = is_valid
 

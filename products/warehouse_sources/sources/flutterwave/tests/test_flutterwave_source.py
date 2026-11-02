@@ -2,19 +2,10 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    route,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.flutterwave.settings import (
-    FLUTTERWAVE_API_V3,
-    FLUTTERWAVE_API_V4,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.flutterwave.source import FlutterwaveSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.flutterwave import (
-    FlutterwaveSourceConfig,
-)
+from products.warehouse_sources.sources.flutterwave._config import FlutterwaveSourceConfig
+from products.warehouse_sources.sources.flutterwave.settings import FLUTTERWAVE_API_V3, FLUTTERWAVE_API_V4
+from products.warehouse_sources.sources.flutterwave.source import FlutterwaveSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, route
 
 
 class TestGetSchemas:

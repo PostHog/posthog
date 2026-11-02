@@ -3,26 +3,24 @@ from typing import Any, Optional
 
 from requests import Request, Response, Session
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.browser_use.settings import (
+from products.warehouse_sources.sources.browser_use.settings import (
     BROWSER_USE_API_VERSION_V3,
     BrowserUseEndpointConfig,
     endpoints_for_version,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-    rest_api_resources,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+from products.warehouse_sources.sources.sdk import (
+    BasePaginator,
     ClientConfig,
     EndpointResource,
+    Resource,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    make_tracked_session,
+    rest_api_resource,
+    rest_api_resources,
+    validate_via_probe,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 BROWSER_USE_API_HOST = "https://api.browser-use.com"
 API_KEY_HEADER = "X-Browser-Use-API-Key"

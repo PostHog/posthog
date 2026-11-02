@@ -1,17 +1,15 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.perigon._config import PerigonSourceConfig
+from products.warehouse_sources.sources.perigon.settings import PERIGON_ENDPOINTS
+from products.warehouse_sources.sources.perigon.source import PerigonSource
+from products.warehouse_sources.sources.sdk.testing import (
     Script,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.perigon import (
-    PerigonSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.perigon.settings import PERIGON_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.perigon.source import PerigonSource
 
 
 class TestPerigonSource:

@@ -8,22 +8,14 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.helicone import (
-    HeliconeSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.helicone.helicone import (
+from products.warehouse_sources.sources.helicone._config import HeliconeSourceConfig
+from products.warehouse_sources.sources.helicone.helicone import (
     HeliconeResumeConfig,
     _extract_data,
     _format_timestamp,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.helicone.settings import (
+from products.warehouse_sources.sources.helicone.settings import (
     EVAL_SCORES_ENDPOINT,
     PROMPTS_ENDPOINT,
     PROPERTIES_ENDPOINT,
@@ -31,7 +23,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.helicone.s
     SESSIONS_ENDPOINT,
     USERS_ENDPOINT,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.helicone.source import HeliconeSource
+from products.warehouse_sources.sources.helicone.source import HeliconeSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:
@@ -104,9 +97,7 @@ class TestValidateCredentials:
 
 class TestRequestsRows:
     def test_full_refresh_pages_until_short_page(self) -> None:
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.helicone.helicone.REQUESTS_PAGE_SIZE", 2
-        ):
+        with mock.patch("products.warehouse_sources.sources.helicone.helicone.REQUESTS_PAGE_SIZE", 2):
             result = _driver().run(
                 REQUESTS_ENDPOINT,
                 [
@@ -163,9 +154,7 @@ class TestRequestsRows:
 class TestSessionsRows:
     @time_machine.travel("2026-06-04 12:00:00", tick=False)
     def test_sends_required_params_and_pages_until_short_page(self) -> None:
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.helicone.helicone.SESSIONS_PAGE_SIZE", 2
-        ):
+        with mock.patch("products.warehouse_sources.sources.helicone.helicone.SESSIONS_PAGE_SIZE", 2):
             result = _driver().run(
                 SESSIONS_ENDPOINT,
                 [
@@ -214,9 +203,7 @@ class TestUsersRows:
 
 class TestPromptsRows:
     def test_pages_with_page_numbers_and_handles_bare_array_response(self) -> None:
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.helicone.helicone.PROMPTS_PAGE_SIZE", 2
-        ):
+        with mock.patch("products.warehouse_sources.sources.helicone.helicone.PROMPTS_PAGE_SIZE", 2):
             result = _driver().run(
                 PROMPTS_ENDPOINT,
                 [
@@ -286,7 +273,7 @@ class TestNonRetryableErrorMessages:
     def test_401_http_error_matches_a_non_retryable_key(self) -> None:
         # `get_non_retryable_errors` matches on substrings of str(exc); this guards the keys
         # against drift from the message `requests.raise_for_status` actually produces.
-        from products.warehouse_sources.backend.temporal.data_imports.sources.helicone.source import HeliconeSource
+        from products.warehouse_sources.sources.helicone.source import HeliconeSource
 
         response = requests.Response()
         response.status_code = 401

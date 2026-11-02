@@ -2,28 +2,17 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rentcast import (
-    RentCastSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.rentcast.rentcast import (
+from products.warehouse_sources.sources.rentcast._config import RentCastSourceConfig
+from products.warehouse_sources.sources.rentcast.rentcast import (
     INVALID_ZIP_CODES_ERROR,
     MISSING_ZIP_CODES_ERROR,
     PAGE_SIZE,
     RentCastResumeConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.rentcast.settings import (
-    ENDPOINTS,
-    RENTCAST_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.rentcast.source import RentCastSource
+from products.warehouse_sources.sources.rentcast.settings import ENDPOINTS, RENTCAST_ENDPOINTS
+from products.warehouse_sources.sources.rentcast.source import RentCastSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always
 
 
 def _driver(zip_codes: str | None = "10001") -> SourceDriver:

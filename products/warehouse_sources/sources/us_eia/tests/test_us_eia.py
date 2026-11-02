@@ -5,20 +5,11 @@ import pytest
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.useia import UsEiaSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.us_eia.source import UsEiaSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.us_eia.us_eia import (
-    EiaResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.types import IncrementalFieldType
+from products.warehouse_sources.sources.sdk import IncrementalFieldType, UnknownResourceError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.us_eia._config import UsEiaSourceConfig
+from products.warehouse_sources.sources.us_eia.source import UsEiaSource
+from products.warehouse_sources.sources.us_eia.us_eia import EiaResumeConfig, validate_credentials
 
 INCREMENTAL: dict[str, Any] = {
     "incremental_field": "period",

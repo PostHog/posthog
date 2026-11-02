@@ -2,15 +2,10 @@ from typing import Any
 
 from unittest.mock import MagicMock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.clockify.settings import CLOCKIFY_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.clockify.source import ClockifySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clockify import (
-    ClockifySourceConfig,
-)
+from products.warehouse_sources.sources.clockify._config import ClockifySourceConfig
+from products.warehouse_sources.sources.clockify.settings import CLOCKIFY_ENDPOINTS
+from products.warehouse_sources.sources.clockify.source import ClockifySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 class TestClockifySource:
@@ -20,7 +15,7 @@ class TestClockifySource:
 
     def test_validate_credentials_success(self, monkeypatch: Any) -> None:
         monkeypatch.setattr(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.clockify.source.validate_clockify_credentials",
+            "products.warehouse_sources.sources.clockify.source.validate_clockify_credentials",
             lambda api_key: True,
         )
         config = ClockifySourceConfig(api_key="key")
@@ -28,7 +23,7 @@ class TestClockifySource:
 
     def test_validate_credentials_failure(self, monkeypatch: Any) -> None:
         monkeypatch.setattr(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.clockify.source.validate_clockify_credentials",
+            "products.warehouse_sources.sources.clockify.source.validate_clockify_credentials",
             lambda api_key: False,
         )
         config = ClockifySourceConfig(api_key="bad")
@@ -56,7 +51,7 @@ class TestClockifySource:
     def test_source_for_pipeline_drops_incremental_value_when_full_refresh(self, monkeypatch: Any) -> None:
         captured: dict[str, Any] = {}
         monkeypatch.setattr(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.clockify.source.clockify_source",
+            "products.warehouse_sources.sources.clockify.source.clockify_source",
             lambda **kwargs: captured.update(kwargs),
         )
 

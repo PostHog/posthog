@@ -8,27 +8,9 @@ from unittest import mock
 from requests import Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponseCursorPaginator,
-    JSONResponsePaginator,
-    PageNumberPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing.driver import DriveResult
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing.responders import Script
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.intercom import (
-    IntercomSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.intercom import intercom as intercom_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.intercom import (
+from products.warehouse_sources.sources.intercom import intercom as intercom_module
+from products.warehouse_sources.sources.intercom._config import IntercomSourceConfig
+from products.warehouse_sources.sources.intercom.intercom import (
     INTERCOM_API_BASE,
     IntercomConversationCursor,
     IntercomPagesPaginator,
@@ -47,8 +29,24 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.i
     get_resource,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.settings import INTERCOM_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source import IntercomSource
+from products.warehouse_sources.sources.intercom.settings import INTERCOM_ENDPOINTS
+from products.warehouse_sources.sources.intercom.source import IntercomSource
+from products.warehouse_sources.sources.sdk import (
+    JSONResponseCursorPaginator,
+    JSONResponsePaginator,
+    PageNumberPaginator,
+    SinglePagePaginator,
+    SourceCursorManager,
+)
+from products.warehouse_sources.sources.sdk.testing import (
+    DriveResult,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
 
 
 def _make_response(json_body: Any, status_code: int = 200, text: str = "") -> Response:

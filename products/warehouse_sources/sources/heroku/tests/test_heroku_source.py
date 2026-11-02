@@ -1,12 +1,10 @@
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.heroku.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.heroku.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.heroku.source import HerokuSource
+from products.warehouse_sources.sources.heroku.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.heroku.settings import ENDPOINTS
+from products.warehouse_sources.sources.heroku.source import HerokuSource
 
-SOURCE_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.heroku.source"
+SOURCE_PATH = "products.warehouse_sources.sources.heroku.source"
 
 
 class TestHerokuSource:

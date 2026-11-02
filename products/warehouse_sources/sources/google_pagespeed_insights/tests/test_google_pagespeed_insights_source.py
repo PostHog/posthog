@@ -1,11 +1,7 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlepagespeedinsights import (
-    GooglePageSpeedInsightsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.google_pagespeed_insights.source import (
-    GooglePageSpeedInsightsSource,
-)
+from products.warehouse_sources.sources.google_pagespeed_insights._config import GooglePageSpeedInsightsSourceConfig
+from products.warehouse_sources.sources.google_pagespeed_insights.source import GooglePageSpeedInsightsSource
 
 
 class TestGooglePageSpeedInsightsSource:

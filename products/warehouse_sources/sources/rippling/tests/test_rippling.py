@@ -3,17 +3,8 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rippling import (
-    RipplingSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.rippling.rippling import (
+from products.warehouse_sources.sources.rippling._config import RipplingSourceConfig
+from products.warehouse_sources.sources.rippling.rippling import (
     PAGE_SIZE,
     RipplingResumeConfig,
     _absolutize_next_url,
@@ -21,8 +12,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.rippling.r
     _format_filter_timestamp,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.rippling.settings import RIPPLING_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.rippling.source import RipplingSource
+from products.warehouse_sources.sources.rippling.settings import RIPPLING_ENDPOINTS
+from products.warehouse_sources.sources.rippling.source import RipplingSource
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
 
 
 def _response(items: list[dict[str, Any]], next_link: str | None = None) -> ScriptedResponse:

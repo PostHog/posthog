@@ -1,21 +1,12 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_iam_access_analyzer import (
-    aws_iam_access_analyzer as transport,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_iam_access_analyzer.source import (
-    AwsIamAccessAnalyzerSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_iam_access_analyzer.tests.test_aws_iam_access_analyzer import (
+from products.warehouse_sources.sources.aws_iam_access_analyzer import aws_iam_access_analyzer as transport
+from products.warehouse_sources.sources.aws_iam_access_analyzer.source import AwsIamAccessAnalyzerSource
+from products.warehouse_sources.sources.aws_iam_access_analyzer.tests.test_aws_iam_access_analyzer import (
     CONFIG,
     PARENT_A,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 @pytest.mark.parametrize("incremental", [False, True])

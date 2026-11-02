@@ -6,23 +6,16 @@ import pytest
 
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.conekta.conekta import (
+from products.warehouse_sources.sources.conekta._config import ConektaSourceConfig
+from products.warehouse_sources.sources.conekta.conekta import (
     ConektaCursorPaginator,
     ConektaResumeConfig,
     to_epoch_seconds,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.conekta.settings import API_VERSION, PAGE_SIZE
-from products.warehouse_sources.backend.temporal.data_imports.sources.conekta.source import ConektaSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.conekta import (
-    ConektaSourceConfig,
-)
+from products.warehouse_sources.sources.conekta.settings import API_VERSION, PAGE_SIZE
+from products.warehouse_sources.sources.conekta.source import ConektaSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, route, scripted_network
 
 
 def _page(rows: list[dict[str, Any]], next_cursor: str | None) -> Response:

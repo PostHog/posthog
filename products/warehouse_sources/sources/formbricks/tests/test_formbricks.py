@@ -8,14 +8,9 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.formbricks import formbricks
-from products.warehouse_sources.backend.temporal.data_imports.sources.formbricks.formbricks import (
+from products.warehouse_sources.sources.formbricks import formbricks
+from products.warehouse_sources.sources.formbricks._config import FormbricksSourceConfig
+from products.warehouse_sources.sources.formbricks.formbricks import (
     DEFAULT_HOST,
     HTTP_NOT_ALLOWED_ERROR,
     PAGE_SIZE,
@@ -27,11 +22,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.formbricks
     normalize_host,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.formbricks.settings import FORMBRICKS_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.formbricks.source import FormbricksSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.formbricks import (
-    FormbricksSourceConfig,
-)
+from products.warehouse_sources.sources.formbricks.settings import FORMBRICKS_ENDPOINTS
+from products.warehouse_sources.sources.formbricks.source import FormbricksSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 # Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
 _fetch_page_unwrapped = formbricks._fetch_page.__wrapped__  # type: ignore[attr-defined]

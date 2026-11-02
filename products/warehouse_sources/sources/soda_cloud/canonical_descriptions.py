@@ -1,7 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.soda_cloud.settings import API_DOCS_URL
+from products.warehouse_sources.sources.sdk import CanonicalDescriptions
+from products.warehouse_sources.sources.soda_cloud.settings import API_DOCS_URL
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "datasets": {

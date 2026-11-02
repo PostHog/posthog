@@ -1,11 +1,8 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.guru import GuruSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.guru.source import GuruSource
+from products.warehouse_sources.sources.guru._config import GuruSourceConfig
+from products.warehouse_sources.sources.guru.source import GuruSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 class TestGuruSource:

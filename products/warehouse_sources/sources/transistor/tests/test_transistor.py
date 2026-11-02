@@ -8,9 +8,9 @@ from unittest import mock
 import requests
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.transistor.settings import TRANSISTOR_BASE_URL
-from products.warehouse_sources.backend.temporal.data_imports.sources.transistor.transistor import (
+from products.warehouse_sources.sources.sdk import ResumableSourceManager
+from products.warehouse_sources.sources.transistor.settings import TRANSISTOR_BASE_URL
+from products.warehouse_sources.sources.transistor.transistor import (
     RequestThrottle,
     TransistorResumeConfig,
     episode_analytics_rows,
@@ -23,7 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.transistor
     validate_credentials,
 )
 
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.transistor.transistor"
+MODULE = "products.warehouse_sources.sources.transistor.transistor"
 
 LOGGER = structlog.get_logger()
 

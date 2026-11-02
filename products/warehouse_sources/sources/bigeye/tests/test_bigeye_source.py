@@ -3,11 +3,10 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.bigeye.bigeye import BigeyeResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.bigeye.source import BigeyeSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bigeye import BigeyeSourceConfig
+from products.warehouse_sources.sources.bigeye._config import BigeyeSourceConfig
+from products.warehouse_sources.sources.bigeye.bigeye import BigeyeResumeConfig
+from products.warehouse_sources.sources.bigeye.source import BigeyeSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceInputs
 
 
 def _make_inputs(**overrides: Any) -> SourceInputs:
@@ -50,9 +49,7 @@ class TestBigeyeSource:
             ),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.bigeye.source.validate_bigeye_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.bigeye.source.validate_bigeye_credentials")
     def test_validate_credentials(
         self,
         mock_validate: mock.MagicMock,
@@ -73,7 +70,7 @@ class TestBigeyeSource:
         assert isinstance(manager, ResumableSourceManager)
         assert manager._data_class is BigeyeResumeConfig
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bigeye.source.bigeye_source")
+    @mock.patch("products.warehouse_sources.sources.bigeye.source.bigeye_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         config = BigeyeSourceConfig(api_key="test-key", host="bigeye.internal.example.com", workspace_id=7)
         inputs = _make_inputs(schema_name="Issues", team_id=99, job_id="job-xyz")

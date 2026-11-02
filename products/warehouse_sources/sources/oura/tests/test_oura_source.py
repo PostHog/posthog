@@ -1,11 +1,8 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.oura import OuraSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.oura.source import OuraSource
+from products.warehouse_sources.sources.oura._config import OuraSourceConfig
+from products.warehouse_sources.sources.oura.source import OuraSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 class TestValidateCredentials:

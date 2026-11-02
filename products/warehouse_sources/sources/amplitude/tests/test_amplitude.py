@@ -13,7 +13,8 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.amplitude.amplitude import (
+from products.warehouse_sources.sources.amplitude._config import AmplitudeSourceConfig
+from products.warehouse_sources.sources.amplitude.amplitude import (
     AmplitudeResumeConfig,
     AmplitudeRetryableError,
     _auth_headers,
@@ -22,23 +23,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.amplitude.
     _parse_amplitude_ts,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.amplitude.settings import (
+from products.warehouse_sources.sources.amplitude.settings import (
     ANNOTATIONS_ENDPOINT,
     COHORTS_ENDPOINT,
     EVENT_PROPERTIES_ENDPOINT,
     EVENTS_ENDPOINT,
     GROUP_PROPERTIES_ENDPOINT,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.amplitude.source import AmplitudeSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.amplitude import (
-    AmplitudeSourceConfig,
-)
+from products.warehouse_sources.sources.amplitude.source import AmplitudeSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _make_export_zip(files: list[list[dict[str, Any]]]) -> bytes:

@@ -7,7 +7,7 @@ import time_machine
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
     Script,
@@ -16,10 +16,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.wikipediapageviews import (
-    WikipediaPageviewsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.wikipedia_pageviews.settings import (
+from products.warehouse_sources.sources.wikipedia_pageviews._config import WikipediaPageviewsSourceConfig
+from products.warehouse_sources.sources.wikipedia_pageviews.settings import (
     ARTICLE_PAGEVIEWS_ENDPOINT,
     COUNTRY_PAGEVIEWS_ENDPOINT,
     COUNTRY_TOP_ARTICLES_ENDPOINT,
@@ -31,10 +29,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.wikipedia_
     UNIQUE_DEVICES_ENDPOINT,
     WIKIPEDIA_PAGEVIEWS_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.wikipedia_pageviews.source import (
-    WikipediaPageviewsSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.wikipedia_pageviews.wikipedia_pageviews import (
+from products.warehouse_sources.sources.wikipedia_pageviews.source import WikipediaPageviewsSource
+from products.warehouse_sources.sources.wikipedia_pageviews.wikipedia_pageviews import (
     NO_ARTICLES_ERROR,
     NO_COUNTRIES_ERROR,
     WikipediaPageviewsResumeConfig,

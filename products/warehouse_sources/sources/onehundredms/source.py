@@ -2,44 +2,38 @@ from typing import cast
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
-    SourceSchema,
-    build_endpoint_schemas,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.onehundredms import (
-    OneHundredMsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.onehundredms.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.onehundredms.onehundredms import (
+from products.warehouse_sources.sources.onehundredms._config import OneHundredMsSourceConfig
+from products.warehouse_sources.sources.onehundredms.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.onehundredms.onehundredms import (
     OneHundredMsResumeConfig,
     onehundredms_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.onehundredms.settings import (
+from products.warehouse_sources.sources.onehundredms.settings import (
     AUTH_ERROR,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     PERMISSION_ERROR,
     SESSION_LOOKBACK_SECONDS,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    build_endpoint_schemas,
+    detect,
+)
 
 
 @SourceRegistry.register

@@ -2,16 +2,11 @@ import pytest
 
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    route,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vimeo import VimeoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.vimeo.settings import AUTH_ERROR, PERMISSION_ERROR
-from products.warehouse_sources.backend.temporal.data_imports.sources.vimeo.source import VimeoSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.vimeo.vimeo import VimeoResumeConfig
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, route
+from products.warehouse_sources.sources.vimeo._config import VimeoSourceConfig
+from products.warehouse_sources.sources.vimeo.settings import AUTH_ERROR, PERMISSION_ERROR
+from products.warehouse_sources.sources.vimeo.source import VimeoSource
+from products.warehouse_sources.sources.vimeo.vimeo import VimeoResumeConfig
 
 
 def driver() -> SourceDriver:

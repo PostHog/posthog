@@ -8,7 +8,8 @@ from unittest.mock import MagicMock, patch
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_step_functions.aws_step_functions import (
+from products.warehouse_sources.sources.aws_step_functions._config import AwsStepFunctionsSourceConfig
+from products.warehouse_sources.sources.aws_step_functions.aws_step_functions import (
     AwsStepFunctionsClient,
     AwsStepFunctionsError,
     AwsStepFunctionsResumeConfig,
@@ -16,20 +17,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_step_f
     normalize_row,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_step_functions.settings import API_VERSION
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_step_functions.source import (
-    AwsStepFunctionsSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsstepfunctions import (
-    AwsStepFunctionsSourceConfig,
-)
+from products.warehouse_sources.sources.aws_step_functions.settings import API_VERSION
+from products.warehouse_sources.sources.aws_step_functions.source import AwsStepFunctionsSource
+from products.warehouse_sources.sources.sdk import SourceResponse
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 SM1 = "arn:aws:states:us-east-1:123456789012:stateMachine:example-one"
 SM2 = "arn:aws:states:us-east-1:123456789012:stateMachine:example-two"
@@ -51,7 +42,7 @@ def config() -> AwsStepFunctionsSourceConfig:
 @pytest.fixture
 def session() -> Iterator[MagicMock]:
     with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.aws_step_functions.aws_step_functions.make_tracked_session"
+        "products.warehouse_sources.sources.aws_step_functions.aws_step_functions.make_tracked_session"
     ) as factory:
         yield factory.return_value
 

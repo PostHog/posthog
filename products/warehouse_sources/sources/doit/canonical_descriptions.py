@@ -5,9 +5,7 @@ Keyed by the names in `settings.py` `DOIT_ENDPOINTS`. Report tables have account
 so they have no entry here and fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "Budgets": {

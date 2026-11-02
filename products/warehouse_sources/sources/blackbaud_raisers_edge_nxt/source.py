@@ -1,12 +1,14 @@
 from typing import cast
 
-from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, SourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.blackbaudraisersedgenxt import (
-    BlackbaudRaisersEdgeNxtSourceConfig,
+from products.warehouse_sources.sources.blackbaud_raisers_edge_nxt._config import BlackbaudRaisersEdgeNxtSourceConfig
+from products.warehouse_sources.sources.sdk import (
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    SimpleSource,
+    SourceConfig,
+    SourceRegistry,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register

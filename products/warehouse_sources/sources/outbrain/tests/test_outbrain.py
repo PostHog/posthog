@@ -1,29 +1,19 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.outbrain import (
-    OutbrainSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.outbrain.outbrain import (
+from products.warehouse_sources.sources.outbrain._config import OutbrainSourceConfig
+from products.warehouse_sources.sources.outbrain.outbrain import (
     CAMPAIGN_PERIODIC_ROW_LIMIT,
     PAGE_SIZE,
     REPORT_ROW_LIMIT,
     OutbrainResumeConfig,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.outbrain.settings import (
-    ENDPOINTS,
-    OUTBRAIN_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.outbrain.source import OutbrainSource
+from products.warehouse_sources.sources.outbrain.settings import ENDPOINTS, OUTBRAIN_ENDPOINTS
+from products.warehouse_sources.sources.outbrain.source import OutbrainSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.outbrain.outbrain"
+_MODULE = "products.warehouse_sources.sources.outbrain.outbrain"
 
 
 def _driver() -> SourceDriver:

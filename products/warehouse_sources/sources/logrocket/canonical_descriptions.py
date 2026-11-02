@@ -1,11 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.logrocket.settings import (
-    AUDIT_DOCS_URL,
-    ENDPOINTS,
-    EXPORT_DOCS_URL,
-)
+from products.warehouse_sources.sources.logrocket.settings import AUDIT_DOCS_URL, ENDPOINTS, EXPORT_DOCS_URL
+from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "audit_logs": {

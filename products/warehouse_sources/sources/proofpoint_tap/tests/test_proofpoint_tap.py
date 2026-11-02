@@ -12,24 +12,16 @@ from unittest.mock import MagicMock, patch
 import responses
 from requests import HTTPError, PreparedRequest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+from products.warehouse_sources.sources.proofpoint_tap._config import ProofpointTapSourceConfig
+from products.warehouse_sources.sources.proofpoint_tap.proofpoint_tap import TapCursor, TapResumeState
+from products.warehouse_sources.sources.proofpoint_tap.source import ProofpointTapSource
+from products.warehouse_sources.sources.sdk import (
     RESTClientRetryableError,
+    ResumableSourceManager,
+    SourceCursorManager,
+    SourceInputs,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.proofpointtap import (
-    ProofpointTapSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.proofpoint_tap.proofpoint_tap import (
-    TapCursor,
-    TapResumeState,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.proofpoint_tap.source import ProofpointTapSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 NOW = datetime(2026, 1, 8, 12, tzinfo=UTC)
 ROOT = "https://tap-api-v2.proofpoint.com/v2"

@@ -10,19 +10,19 @@ import requests
 from requests.auth import HTTPBasicAuth
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
-    interruptible_wait,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.docusign.settings import (
+from products.warehouse_sources.sources.docusign.settings import (
     API_VERSION_PATH,
     DEFAULT_LOOKBACK_DAYS,
     DOCUSIGN_ENDPOINTS,
     PAGE_SIZE,
     DocusignEndpointConfig,
     DocusignFanOutConfig,
+)
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
+    interruptible_wait,
+    make_tracked_session,
 )
 
 # DocuSign runs completely separate demo and production stacks: an integration key only works

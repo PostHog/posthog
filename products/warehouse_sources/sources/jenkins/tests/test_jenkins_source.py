@@ -5,14 +5,9 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jenkins import (
-    JenkinsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.jenkins.source import JenkinsSource
+from products.warehouse_sources.sources.jenkins._config import JenkinsSourceConfig
+from products.warehouse_sources.sources.jenkins.source import JenkinsSource
+from products.warehouse_sources.sources.sdk.testing import SourceDriver, scripted_network
 
 
 def _config() -> JenkinsSourceConfig:
@@ -49,7 +44,7 @@ class TestJenkinsSource:
     def test_validate_credentials_delegates_when_host_valid(self) -> None:
         with mock.patch.object(self.source, "_validate_host", return_value=(True, None)):
             with mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.jenkins.source.validate_jenkins_credentials",
+                "products.warehouse_sources.sources.jenkins.source.validate_jenkins_credentials",
                 return_value=(True, None),
             ) as mock_validate:
                 result = self.source.validate_credentials(_config(), team_id=self.team_id, schema_name="builds")
@@ -76,7 +71,7 @@ class TestJenkinsSource:
     ) -> None:
         # On Cloud the API token would otherwise be sent in cleartext to a customer-supplied http host.
         with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.jenkins.source.is_cloud",
+            "products.warehouse_sources.sources.jenkins.source.is_cloud",
             return_value=is_cloud,
         ):
             with mock.patch.object(self.source, "is_database_host_valid", return_value=(True, None)):
@@ -97,7 +92,7 @@ class TestJenkinsSource:
 
         with mock.patch.object(self.source, "_validate_host", return_value=(True, None)):
             with mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.jenkins.source.jenkins_source",
+                "products.warehouse_sources.sources.jenkins.source.jenkins_source",
                 side_effect=fake_source,
             ):
                 self.source.source_for_pipeline(_config(), manager, inputs)
@@ -123,7 +118,7 @@ class TestJenkinsSource:
 
         with mock.patch.object(self.source, "_validate_host", return_value=(True, None)):
             with mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.jenkins.source.jenkins_source",
+                "products.warehouse_sources.sources.jenkins.source.jenkins_source",
                 side_effect=fake_source,
             ):
                 self.source.source_for_pipeline(_config(), MagicMock(), inputs)
@@ -133,7 +128,7 @@ class TestJenkinsSource:
     def test_source_for_pipeline_raises_on_invalid_host(self) -> None:
         config = JenkinsSourceConfig(host="http://jenkins.example.com", username="ci-bot", api_token="token")
         with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.jenkins.source.is_cloud",
+            "products.warehouse_sources.sources.jenkins.source.is_cloud",
             return_value=True,
         ):
             with mock.patch.object(self.source, "is_database_host_valid", return_value=(True, None)):

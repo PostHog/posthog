@@ -5,13 +5,11 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
+from products.warehouse_sources.sources.elasticsearch._config import (
+    ElasticsearchAuthMethodConfig,
+    ElasticsearchSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.elasticsearch.elasticsearch import (
+from products.warehouse_sources.sources.elasticsearch.elasticsearch import (
     CLUSTER_UNAVAILABLE_ERROR,
     PAGE_SIZE,
     TLS_ERROR,
@@ -26,13 +24,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.elasticsea
     normalize_host,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.elasticsearch.source import ElasticsearchSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.elasticsearch import (
-    ElasticsearchAuthMethodConfig,
-    ElasticsearchSourceConfig,
-)
+from products.warehouse_sources.sources.elasticsearch.source import ElasticsearchSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.elasticsearch.elasticsearch"
+_MODULE = "products.warehouse_sources.sources.elasticsearch.elasticsearch"
 
 
 def _driver() -> SourceDriver:

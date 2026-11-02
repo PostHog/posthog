@@ -3,7 +3,16 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.recharge._config import RechargeSourceConfig
+from products.warehouse_sources.sources.recharge.recharge import (
+    RechargeResumeConfig,
+    _build_initial_params,
+    _format_incremental_value,
+    validate_credentials,
+)
+from products.warehouse_sources.sources.recharge.settings import RECHARGE_ENDPOINTS
+from products.warehouse_sources.sources.recharge.source import RechargeSource
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     Script,
     ScriptedResponse,
@@ -11,17 +20,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.recharge import (
-    RechargeSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.recharge.recharge import (
-    RechargeResumeConfig,
-    _build_initial_params,
-    _format_incremental_value,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.recharge.settings import RECHARGE_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.recharge.source import RechargeSource
 
 
 def _page(endpoint: str, items: list[dict[str, Any]], next_cursor: str | None) -> ScriptedResponse:

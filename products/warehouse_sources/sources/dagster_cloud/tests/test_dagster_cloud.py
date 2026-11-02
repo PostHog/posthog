@@ -9,14 +9,8 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.dagster_cloud.dagster_cloud import (
+from products.warehouse_sources.sources.dagster_cloud._config import DagsterCloudSourceConfig
+from products.warehouse_sources.sources.dagster_cloud.dagster_cloud import (
     DagsterCloudResumeConfig,
     _build_runs_filter,
     _epoch_to_iso,
@@ -28,20 +22,24 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dagster_cl
     build_graphql_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.dagster_cloud.settings import (
+from products.warehouse_sources.sources.dagster_cloud.settings import (
     DAGSTER_CLOUD_ENDPOINTS,
     DAGSTER_CLOUD_INSIGHTS_LOOKBACK_DAYS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.dagster_cloud.source import DagsterCloudSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dagstercloud import (
-    DagsterCloudSourceConfig,
+from products.warehouse_sources.sources.dagster_cloud.source import DagsterCloudSource
+from products.warehouse_sources.sources.sdk.testing import (
+    DriveResult,
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
 )
 
 # 2024-01-01T00:00:00Z
 EPOCH_2024 = 1704067200.0
 ISO_2024 = "2024-01-01T00:00:00.000000+00:00"
 
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.dagster_cloud.dagster_cloud"
+MODULE = "products.warehouse_sources.sources.dagster_cloud.dagster_cloud"
 
 
 def _driver() -> SourceDriver:

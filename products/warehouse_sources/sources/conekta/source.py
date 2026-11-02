@@ -1,35 +1,27 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.conekta import conekta as api_client
+from products.warehouse_sources.sources.conekta._config import ConektaSourceConfig
+from products.warehouse_sources.sources.conekta.conekta import ConektaResumeConfig
+from products.warehouse_sources.sources.conekta.settings import ENDPOINTS, INCREMENTAL_FIELDS, MERGE_ONLY_ENDPOINTS
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.conekta import conekta as api_client
-from products.warehouse_sources.backend.temporal.data_imports.sources.conekta.conekta import ConektaResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.conekta.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-    MERGE_ONLY_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.conekta import (
-    ConektaSourceConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 CONEKTA_API_KEYS_URL = "https://panel.conekta.com/developers/api-keys"
 
@@ -121,9 +113,7 @@ class ConektaSource(ResumableSource[ConektaSourceConfig, ConektaResumeConfig]):
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.conekta.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.conekta.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

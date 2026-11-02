@@ -1,12 +1,7 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.easypromos.settings import EASYPROMOS_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.easypromos.source import EasypromosSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.easypromos import (
-    EasypromosSourceConfig,
-)
+from products.warehouse_sources.sources.easypromos._config import EasypromosSourceConfig
+from products.warehouse_sources.sources.easypromos.settings import EASYPROMOS_ENDPOINTS
+from products.warehouse_sources.sources.easypromos.source import EasypromosSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 class TestSourceConfig:

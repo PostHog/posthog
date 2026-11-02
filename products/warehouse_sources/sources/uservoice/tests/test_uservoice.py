@@ -5,7 +5,7 @@ import pytest
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     Script,
     ScriptedResponse,
@@ -13,12 +13,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.uservoice import (
-    UservoiceSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.uservoice.settings import PER_PAGE
-from products.warehouse_sources.backend.temporal.data_imports.sources.uservoice.source import UservoiceSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.uservoice.uservoice import (
+from products.warehouse_sources.sources.uservoice._config import UservoiceSourceConfig
+from products.warehouse_sources.sources.uservoice.settings import PER_PAGE
+from products.warehouse_sources.sources.uservoice.source import UservoiceSource
+from products.warehouse_sources.sources.uservoice.uservoice import (
     UservoiceResumeConfig,
     _format_updated_after,
     normalize_subdomain,

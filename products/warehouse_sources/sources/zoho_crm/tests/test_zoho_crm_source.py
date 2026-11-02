@@ -3,13 +3,11 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zohocrm import (
-    ZohoCRMSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.settings import ZOHO_CRM_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.source import ZohoCRMSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.zoho_crm import (
+from products.warehouse_sources.sources.sdk import ResumableSourceManager
+from products.warehouse_sources.sources.zoho_crm._config import ZohoCRMSourceConfig
+from products.warehouse_sources.sources.zoho_crm.settings import ZOHO_CRM_ENDPOINTS
+from products.warehouse_sources.sources.zoho_crm.source import ZohoCRMSource
+from products.warehouse_sources.sources.zoho_crm.zoho_crm import (
     CLIENT_REJECTED_MESSAGE,
     CLIENT_SECRET_REJECTED_MESSAGE,
     REFRESH_TOKEN_REJECTED_MESSAGE,
@@ -17,7 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.z
     ZohoCRMResumeConfig,
 )
 
-_SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.source"
+_SOURCE_MODULE = "products.warehouse_sources.sources.zoho_crm.source"
 
 INCREMENTAL_ENDPOINTS = sorted(name for name, config in ZOHO_CRM_ENDPOINTS.items() if config.incremental)
 FULL_REFRESH_ENDPOINTS = sorted(name for name, config in ZOHO_CRM_ENDPOINTS.items() if not config.incremental)

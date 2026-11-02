@@ -3,14 +3,8 @@ from datetime import UTC, date, datetime
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.plaid import PlaidSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.plaid.plaid import (
+from products.warehouse_sources.sources.plaid._config import PlaidSourceConfig
+from products.warehouse_sources.sources.plaid.plaid import (
     DEFAULT_START_DATE,
     INSTITUTION_COUNTRY_CODES,
     OFFSET_PAGINATED_ENDPOINTS,
@@ -20,10 +14,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.plaid.plai
     _format_date,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.plaid.settings import ENDPOINTS, PLAID_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.plaid.source import PlaidSource
+from products.warehouse_sources.sources.plaid.settings import ENDPOINTS, PLAID_ENDPOINTS
+from products.warehouse_sources.sources.plaid.source import PlaidSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.plaid.plaid"
+_MODULE = "products.warehouse_sources.sources.plaid.plaid"
 
 
 def _driver() -> SourceDriver:

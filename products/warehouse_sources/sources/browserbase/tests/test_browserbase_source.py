@@ -2,16 +2,11 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.browserbase import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.browserbase.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.browserbase.source import BrowserbaseSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.browserbase import (
-    BrowserbaseSourceConfig,
-)
+from products.warehouse_sources.sources.browserbase import source as source_module
+from products.warehouse_sources.sources.browserbase._config import BrowserbaseSourceConfig
+from products.warehouse_sources.sources.browserbase.settings import ENDPOINTS
+from products.warehouse_sources.sources.browserbase.source import BrowserbaseSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 def _config() -> BrowserbaseSourceConfig:

@@ -5,16 +5,12 @@ from unittest import mock
 
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.dynamodb.dynamodb import DynamoDBResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.dynamodb.source import DynamoDBSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dynamodb import (
-    DynamoDBSourceConfig,
-)
+from products.warehouse_sources.sources.dynamodb._config import DynamoDBSourceConfig
+from products.warehouse_sources.sources.dynamodb.dynamodb import DynamoDBResumeConfig
+from products.warehouse_sources.sources.dynamodb.source import DynamoDBSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceInputs, SourceSchema
 
-_SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.dynamodb.source"
+_SOURCE_MODULE = "products.warehouse_sources.sources.dynamodb.source"
 
 
 def _inputs(**overrides: Any) -> SourceInputs:

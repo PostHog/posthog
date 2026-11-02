@@ -1,14 +1,8 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.greenhouse import (
-    GreenhouseSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse.source import GreenhouseSource
+from products.warehouse_sources.sources.greenhouse._config import GreenhouseSourceConfig
+from products.warehouse_sources.sources.greenhouse.source import GreenhouseSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 INCREMENTAL_ENDPOINTS = {
     "candidates",

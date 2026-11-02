@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 
 _DOCS_URL = "https://ezo.io/ezofficeinventory/developers/"
 # Work orders, custom roles, reservation requests and the history sub-resources are documented on

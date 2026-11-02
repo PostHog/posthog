@@ -1,6 +1,6 @@
 from typing import Literal, Optional
 
-from posthog.dataclasses import frozen
+from products.warehouse_sources.sources.sdk import frozen
 
 # The RKI COVID-19 API (api.corona-zahlen.org) is a public, unauthenticated JSON wrapper over
 # published Robert Koch-Institut figures, maintained by Marlon Lückert. Every endpoint returns its

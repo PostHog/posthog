@@ -9,15 +9,9 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gerrit import GerritSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.gerrit import gerrit as gerrit_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.gerrit.gerrit import (
+from products.warehouse_sources.sources.gerrit import gerrit as gerrit_module
+from products.warehouse_sources.sources.gerrit._config import GerritSourceConfig
+from products.warehouse_sources.sources.gerrit.gerrit import (
     HOST_NOT_ALLOWED_ERROR,
     GerritResumeConfig,
     build_changes_query,
@@ -25,7 +19,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gerrit.ger
     normalize_host,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.gerrit.source import GerritSource
+from products.warehouse_sources.sources.gerrit.source import GerritSource
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 
 
 def _response(*, status_code: int = 200, text: str = "") -> ScriptedResponse:

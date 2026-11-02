@@ -1,10 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.doppler.source import DopplerSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.doppler import (
-    DopplerSourceConfig,
-)
+from products.warehouse_sources.sources.doppler._config import DopplerSourceConfig
+from products.warehouse_sources.sources.doppler.source import DopplerSource
 
 
 class TestDopplerSource:
@@ -22,9 +20,7 @@ class TestDopplerSource:
             ((False, None), False, "Could not connect to Doppler with the provided API token"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.doppler.source.validate_doppler_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.doppler.source.validate_doppler_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
         mock_validate.return_value = mock_return
 

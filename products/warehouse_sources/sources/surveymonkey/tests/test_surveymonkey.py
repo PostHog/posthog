@@ -5,17 +5,10 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.surveymonkey import (
-    SurveyMonkeySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.surveymonkey.source import SurveyMonkeySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.surveymonkey.surveymonkey import (
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.surveymonkey._config import SurveyMonkeySourceConfig
+from products.warehouse_sources.sources.surveymonkey.source import SurveyMonkeySource
+from products.warehouse_sources.sources.surveymonkey.surveymonkey import (
     SurveyMonkeyResumeConfig,
     _format_incremental_value,
     validate_credentials,

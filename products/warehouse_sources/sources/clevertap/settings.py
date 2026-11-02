@@ -1,7 +1,4 @@
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ResponseAction
-from products.warehouse_sources.backend.types import IncrementalField
+from products.warehouse_sources.sources.sdk import IncrementalField, ResponseAction, frozen
 
 REGIONS = {
     "eu1": "https://api.clevertap.com",

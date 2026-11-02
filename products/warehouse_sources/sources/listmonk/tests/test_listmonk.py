@@ -9,21 +9,16 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.listmonk._config import ListmonkSourceConfig
+from products.warehouse_sources.sources.listmonk.listmonk import ListmonkResumeConfig, normalize_host
+from products.warehouse_sources.sources.listmonk.source import ListmonkSource
+from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
     route,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.listmonk import (
-    ListmonkSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.listmonk.listmonk import (
-    ListmonkResumeConfig,
-    normalize_host,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.listmonk.source import ListmonkSource
 
 HOST = "https://listmonk.example.com"
 CONFIG = ListmonkSourceConfig(host=HOST, api_user="posthog", api_token="test-listmonk-token")

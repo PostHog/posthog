@@ -4,22 +4,11 @@ import pytest
 
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sevenshifts import (
-    SevenShiftsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.sevenshifts.sevenshifts import (
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.sevenshifts.source import SevenShiftsSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.sevenshifts._config import SevenShiftsSourceConfig
+from products.warehouse_sources.sources.sevenshifts.sevenshifts import validate_credentials
+from products.warehouse_sources.sources.sevenshifts.source import SevenShiftsSource
 
 
 @pytest.fixture

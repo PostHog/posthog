@@ -10,25 +10,21 @@ import pytest
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_and_usage_report.aws_cost_and_usage_report import (
+from products.warehouse_sources.sources.aws_cost_and_usage_report._config import AwsCostAndUsageReportSourceConfig
+from products.warehouse_sources.sources.aws_cost_and_usage_report.aws_cost_and_usage_report import (
     NO_EXPORT_MESSAGE,
     VALIDATION_ERROR_MESSAGES,
     WRONG_REGION_MESSAGE,
     CostAndUsageReportResumeConfig,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_and_usage_report.source import (
-    AwsCostAndUsageReportSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.aws_cost_and_usage_report.source import AwsCostAndUsageReportSource
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
+    UnexpectedRequest,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing.responders import UnexpectedRequest
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awscostandusagereport import (
-    AwsCostAndUsageReportSourceConfig,
 )
 
 BUCKET = "billing-exports"

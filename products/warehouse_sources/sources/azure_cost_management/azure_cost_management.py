@@ -10,16 +10,17 @@ import structlog
 from structlog.types import FilteringBoundLogger
 from urllib3.util.retry import Retry
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.azure_cost_management.settings import (
+from products.warehouse_sources.sources.azure_cost_management.settings import (
     AZURE_COST_MANAGEMENT_ENDPOINTS,
     AzureCostManagementEndpointConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
+    SyncWindow,
+    frozen,
+    make_tracked_session,
+)
 
 LOGIN_HOST = "https://login.microsoftonline.com"
 MANAGEMENT_HOST = "https://management.azure.com"

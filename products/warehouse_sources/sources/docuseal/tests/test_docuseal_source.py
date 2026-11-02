@@ -4,11 +4,9 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.docuseal import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.docuseal.source import DocusealSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.docuseal import (
-    DocusealSourceConfig,
-)
+from products.warehouse_sources.sources.docuseal import source as source_module
+from products.warehouse_sources.sources.docuseal._config import DocusealSourceConfig
+from products.warehouse_sources.sources.docuseal.source import DocusealSource
 
 
 def _config(api_key: str = "tok", region: str = "us") -> DocusealSourceConfig:

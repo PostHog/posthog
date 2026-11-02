@@ -1,7 +1,7 @@
 import dataclasses
 from typing import Any, Literal
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
 # StockData.org windows the price feeds server-side with `date_from` and the news feed and news stats
 # time series with `published_after`, so those endpoints sync incrementally. The other endpoints

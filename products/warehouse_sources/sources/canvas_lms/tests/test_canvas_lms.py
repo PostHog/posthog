@@ -6,8 +6,9 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.canvas_lms import canvas_lms as canvas_lms_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.canvas_lms.canvas_lms import (
+from products.warehouse_sources.sources.canvas_lms import canvas_lms as canvas_lms_module
+from products.warehouse_sources.sources.canvas_lms._config import CanvasLmsSourceConfig
+from products.warehouse_sources.sources.canvas_lms.canvas_lms import (
     CanvasHostNotAllowedError,
     CanvasLmsResumeConfig,
     _format_canvas_datetime,
@@ -15,15 +16,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.canvas_lms
     normalize_domain,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.canvas_lms.source import CanvasLmsSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.canvaslms import (
-    CanvasLmsSourceConfig,
-)
+from products.warehouse_sources.sources.canvas_lms.source import CanvasLmsSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 DOMAIN = "yourschool.instructure.com"
 BASE_URL = f"https://{DOMAIN}/api/v1"

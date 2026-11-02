@@ -6,10 +6,10 @@ import pytest
 
 from requests_mock import Mocker
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import build_default_schemas
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.turso import TursoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.turso.source import TursoSource
+from products.warehouse_sources.sources.sdk import SourceInputs
+from products.warehouse_sources.sources.sdk.testing import build_default_schemas
+from products.warehouse_sources.sources.turso._config import TursoSourceConfig
+from products.warehouse_sources.sources.turso.source import TursoSource
 
 
 def test_permission_denial_disables_only_the_affected_table(requests_mock: Mocker, config: TursoSourceConfig) -> None:

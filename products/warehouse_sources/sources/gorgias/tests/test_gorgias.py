@@ -5,26 +5,16 @@ import pytest
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gorgias import (
-    GorgiasSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.gorgias.gorgias import (
+from products.warehouse_sources.sources.gorgias._config import GorgiasSourceConfig
+from products.warehouse_sources.sources.gorgias.gorgias import (
     GorgiasResumeConfig,
     get_base_url,
     normalize_domain,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.gorgias.settings import (
-    ENDPOINTS,
-    GORGIAS_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.gorgias.source import GorgiasSource
+from products.warehouse_sources.sources.gorgias.settings import ENDPOINTS, GORGIAS_ENDPOINTS
+from products.warehouse_sources.sources.gorgias.source import GorgiasSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

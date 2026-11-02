@@ -3,12 +3,10 @@ from unittest.mock import patch
 import structlog
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sonarcloud import (
-    SonarCloudSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.sonar_cloud import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.sonar_cloud.source import SonarCloudSource
+from products.warehouse_sources.sources.sdk import SourceInputs
+from products.warehouse_sources.sources.sonar_cloud import source as source_module
+from products.warehouse_sources.sources.sonar_cloud._config import SonarCloudSourceConfig
+from products.warehouse_sources.sources.sonar_cloud.source import SonarCloudSource
 
 
 def _config() -> SonarCloudSourceConfig:

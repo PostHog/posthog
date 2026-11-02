@@ -4,7 +4,7 @@ from typing import Any
 from parameterized import parameterized
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     Script,
     ScriptedResponse,
@@ -12,14 +12,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.snyk import SnykSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.snyk.snyk import (
+from products.warehouse_sources.sources.snyk._config import SnykSourceConfig
+from products.warehouse_sources.sources.snyk.snyk import (
     SNYK_REST_VERSION,
     SnykResumeConfig,
     _next_page_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.snyk.source import SnykSource
+from products.warehouse_sources.sources.snyk.source import SnykSource
 
 HOST = "https://api.snyk.io"
 

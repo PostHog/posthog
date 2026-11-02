@@ -1,16 +1,9 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.waydev import WaydevSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.waydev.source import WaydevSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.waydev.waydev import (
-    WaydevResumeConfig,
-    validate_credentials,
-)
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
+from products.warehouse_sources.sources.waydev._config import WaydevSourceConfig
+from products.warehouse_sources.sources.waydev.source import WaydevSource
+from products.warehouse_sources.sources.waydev.waydev import WaydevResumeConfig, validate_credentials
 
 
 class TestWaydevSourceResumeBehavior:

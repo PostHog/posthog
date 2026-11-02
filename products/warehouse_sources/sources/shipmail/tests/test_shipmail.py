@@ -1,20 +1,14 @@
 from datetime import UTC, datetime
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shipmail import (
-    ShipmailSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.shipmail.shipmail import (
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
+from products.warehouse_sources.sources.shipmail._config import ShipmailSourceConfig
+from products.warehouse_sources.sources.shipmail.shipmail import (
     SHIPMAIL_BASE_URL,
     ShipmailResumeConfig,
     _incremental_value,
     get_capabilities,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.shipmail.source import ShipmailSource
+from products.warehouse_sources.sources.shipmail.source import ShipmailSource
 
 
 def _driver() -> SourceDriver:

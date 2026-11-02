@@ -2,16 +2,11 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.coda.coda import coda_source, validate_credentials
-from products.warehouse_sources.backend.temporal.data_imports.sources.coda.settings import CODA_ENDPOINTS, ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.coda.source import CodaSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coda import CodaSourceConfig
+from products.warehouse_sources.sources.coda._config import CodaSourceConfig
+from products.warehouse_sources.sources.coda.coda import coda_source, validate_credentials
+from products.warehouse_sources.sources.coda.settings import CODA_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.sources.coda.source import CodaSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

@@ -3,21 +3,21 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.copper._config import CopperSourceConfig
+from products.warehouse_sources.sources.copper.copper import (
+    COPPER_DEFAULT_PAGE_SIZE,
+    CopperResumeConfig,
+    _to_unix_seconds,
+    validate_credentials,
+)
+from products.warehouse_sources.sources.copper.source import CopperSource
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.copper.copper import (
-    COPPER_DEFAULT_PAGE_SIZE,
-    CopperResumeConfig,
-    _to_unix_seconds,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.copper.source import CopperSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.copper import CopperSourceConfig
 
 
 def _driver() -> SourceDriver:

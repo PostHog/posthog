@@ -1,8 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.plaid import PlaidSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.plaid.source import PlaidSource
+from products.warehouse_sources.sources.plaid._config import PlaidSourceConfig
+from products.warehouse_sources.sources.plaid.source import PlaidSource
 
 
 class TestPlaidSource:
@@ -18,9 +18,7 @@ class TestPlaidSource:
             (False, False, "Invalid Plaid credentials"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.plaid.source.validate_plaid_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.plaid.source.validate_plaid_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
         mock_validate.return_value = mock_return
 

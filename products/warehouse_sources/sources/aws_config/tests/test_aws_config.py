@@ -9,8 +9,9 @@ from unittest.mock import MagicMock, patch
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_config import aws_config
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_config.aws_config import (
+from products.warehouse_sources.sources.aws_config import aws_config
+from products.warehouse_sources.sources.aws_config._config import AwsConfigSourceConfig
+from products.warehouse_sources.sources.aws_config.aws_config import (
     AwsConfigClient,
     AwsConfigError,
     AwsConfigResumeConfig,
@@ -18,16 +19,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_config
     aws_config_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_config.source import AwsConfigSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsconfig import (
-    AwsConfigSourceConfig,
-)
+from products.warehouse_sources.sources.aws_config.source import AwsConfigSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def make_config(**overrides: Any) -> AwsConfigSourceConfig:

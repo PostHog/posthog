@@ -4,14 +4,9 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.teamtailor import (
-    TeamtailorSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.teamtailor.source import TeamtailorSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.teamtailor.teamtailor import (
-    API_VERSION_20240404,
-    API_VERSION_20240904,
-)
+from products.warehouse_sources.sources.teamtailor._config import TeamtailorSourceConfig
+from products.warehouse_sources.sources.teamtailor.source import TeamtailorSource
+from products.warehouse_sources.sources.teamtailor.teamtailor import API_VERSION_20240404, API_VERSION_20240904
 
 
 class TestTeamtailorSource:
@@ -37,7 +32,7 @@ class TestTeamtailorSource:
             ("current_pin_honored", API_VERSION_20240904, API_VERSION_20240904),
         ]
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.teamtailor.source.teamtailor_source")
+    @mock.patch("products.warehouse_sources.sources.teamtailor.source.teamtailor_source")
     def test_source_for_pipeline_threads_resolved_version(
         self, _name: str, pin: str | None, expected_version: str, mock_source: mock.MagicMock
     ) -> None:

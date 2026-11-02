@@ -3,7 +3,8 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aircall.aircall import (
+from products.warehouse_sources.sources.aircall._config import AircallSourceConfig
+from products.warehouse_sources.sources.aircall.aircall import (
     AircallResumeConfig,
     AircallTruncationError,
     _build_params,
@@ -11,19 +12,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aircall.ai
     _to_epoch,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aircall.settings import (
-    AIRCALL_ENDPOINTS,
-    ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.aircall.source import AircallSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.aircall import (
-    AircallSourceConfig,
-)
+from products.warehouse_sources.sources.aircall.settings import AIRCALL_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.sources.aircall.source import AircallSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver() -> SourceDriver:

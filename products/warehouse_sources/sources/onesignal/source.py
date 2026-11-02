@@ -1,37 +1,32 @@
 from typing import cast
 from uuid import UUID
 
-from posthog.schema_enums import ProductKey
-
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.onesignal import (
-    OneSignalSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.onesignal.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.onesignal.onesignal import (
+from products.warehouse_sources.sources.onesignal._config import OneSignalSourceConfig
+from products.warehouse_sources.sources.onesignal.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.onesignal.onesignal import (
     OneSignalResumeConfig,
     onesignal_source,
     validate_credentials as validate_onesignal_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.onesignal.settings import ONESIGNAL_ENDPOINTS
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.sources.onesignal.settings import ONESIGNAL_ENDPOINTS
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ProductKey,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    detect,
+)
 
 
 @SourceRegistry.register

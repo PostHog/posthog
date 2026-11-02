@@ -5,20 +5,10 @@ import pytest
 
 from requests import HTTPError, PreparedRequest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.frontegg.frontegg import (
-    FronteggAuth,
-    FronteggResumeConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.frontegg.source import FronteggSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.frontegg import (
-    FronteggSourceConfig,
-)
+from products.warehouse_sources.sources.frontegg._config import FronteggSourceConfig
+from products.warehouse_sources.sources.frontegg.frontegg import FronteggAuth, FronteggResumeConfig
+from products.warehouse_sources.sources.frontegg.source import FronteggSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 Region = Literal["EU", "US", "CA", "AU"]
 

@@ -10,22 +10,20 @@ from unittest.mock import MagicMock
 import requests
 import requests_mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.fieldpulse.fieldpulse import (
+from products.warehouse_sources.sources.fieldpulse._config import FieldpulseSourceConfig
+from products.warehouse_sources.sources.fieldpulse.fieldpulse import (
     FieldpulseResumeConfig,
     fieldpulse_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.fieldpulse.settings import AUTH_ERROR, BASE_URL
-from products.warehouse_sources.backend.temporal.data_imports.sources.fieldpulse.source import FieldpulseSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fieldpulse import (
-    FieldpulseSourceConfig,
+from products.warehouse_sources.sources.fieldpulse.settings import AUTH_ERROR, BASE_URL
+from products.warehouse_sources.sources.fieldpulse.source import FieldpulseSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
 )
 
 

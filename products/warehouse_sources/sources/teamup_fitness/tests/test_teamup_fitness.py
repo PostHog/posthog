@@ -4,20 +4,11 @@ import pytest
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.teamupfitness import (
-    TeamupFitnessSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.teamup_fitness.settings import PROVIDER_ERROR
-from products.warehouse_sources.backend.temporal.data_imports.sources.teamup_fitness.source import TeamupFitnessSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.teamup_fitness.teamup_fitness import (
-    TeamupFitnessResumeConfig,
-)
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.teamup_fitness._config import TeamupFitnessSourceConfig
+from products.warehouse_sources.sources.teamup_fitness.settings import PROVIDER_ERROR
+from products.warehouse_sources.sources.teamup_fitness.source import TeamupFitnessSource
+from products.warehouse_sources.sources.teamup_fitness.teamup_fitness import TeamupFitnessResumeConfig
 
 BASE_URL = "https://goteamup.com/api/v2"
 

@@ -4,8 +4,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.workiz import WorkizSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.workiz.source import WorkizSource
+from products.warehouse_sources.sources.workiz._config import WorkizSourceConfig
+from products.warehouse_sources.sources.workiz.source import WorkizSource
 
 
 class TestWorkizSource:
@@ -14,7 +14,7 @@ class TestWorkizSource:
         self.team_id = 123
         self.config = WorkizSourceConfig(api_token="tok")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.workiz.source.workiz_source")
+    @mock.patch("products.warehouse_sources.sources.workiz.source.workiz_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         mock_source.return_value.name = "Leads"
         mock_source.return_value.column_hints = None
@@ -48,7 +48,7 @@ class TestWorkizSource:
             ("TimeOff", ["userName", "start"], "asc"),
         ]
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.workiz.source.workiz_source")
+    @mock.patch("products.warehouse_sources.sources.workiz.source.workiz_source")
     def test_source_for_pipeline_response_shape(
         self,
         schema_name: str,

@@ -1,35 +1,27 @@
 from typing import cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.youtubedata import (
-    YoutubeDataSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_data.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_data.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_data.youtube_data import (
+from products.warehouse_sources.sources.youtube_data._config import YoutubeDataSourceConfig
+from products.warehouse_sources.sources.youtube_data.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.youtube_data.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.youtube_data.youtube_data import (
     ACCESS_ERROR,
     AUTH_ERROR,
     COMMENTS_ERROR,
@@ -40,7 +32,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_da
     fetch_channel,
     youtube_data_source,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register

@@ -1,11 +1,6 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.algolia.settings import (
-    ALGOLIA_ENDPOINTS,
-    ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.algolia.source import AlgoliaSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.algolia import (
-    AlgoliaSourceConfig,
-)
+from products.warehouse_sources.sources.algolia._config import AlgoliaSourceConfig
+from products.warehouse_sources.sources.algolia.settings import ALGOLIA_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.sources.algolia.source import AlgoliaSource
 
 
 class TestAlgoliaSource:

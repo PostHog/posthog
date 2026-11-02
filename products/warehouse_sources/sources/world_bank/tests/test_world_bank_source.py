@@ -8,17 +8,13 @@ from unittest.mock import MagicMock, patch
 import structlog
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.worldbank import (
-    WorldBankSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.settings import PRIMARY_KEYS
-from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.source import WorldBankSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.world_bank import MAX_INDICATOR_CODES
+from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceInputs
+from products.warehouse_sources.sources.sdk.internals import Batcher
+from products.warehouse_sources.sources.sdk.testing import SourceDriver, error_message_matches
+from products.warehouse_sources.sources.world_bank._config import WorldBankSourceConfig
+from products.warehouse_sources.sources.world_bank.settings import PRIMARY_KEYS
+from products.warehouse_sources.sources.world_bank.source import WorldBankSource
+from products.warehouse_sources.sources.world_bank.world_bank import MAX_INDICATOR_CODES
 
 
 def _make_inputs(schema_name: str = "countries") -> SourceInputs:

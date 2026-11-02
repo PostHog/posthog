@@ -5,24 +5,24 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.signoz import SigNozSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.signoz import signoz as sgz
-from products.warehouse_sources.backend.temporal.data_imports.sources.signoz.settings import SIGNOZ_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.signoz.signoz import (
+from products.warehouse_sources.sources.signoz import signoz as sgz
+from products.warehouse_sources.sources.signoz._config import SigNozSourceConfig
+from products.warehouse_sources.sources.signoz.settings import SIGNOZ_ENDPOINTS
+from products.warehouse_sources.sources.signoz.signoz import (
     SigNozResumeConfig,
     _extract_config_items,
     _extract_raw_rows,
     _to_epoch_ms,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.signoz.source import SigNozSource
+from products.warehouse_sources.sources.signoz.source import SigNozSource
 
 CONFIG = SigNozSourceConfig(host="example.signoz.io", api_key="key")
 
@@ -142,7 +142,7 @@ class TestValidateCredentials:
         assert is_valid is False
         assert error == "Invalid SigNoz host"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.signoz.signoz._is_host_safe")
+    @mock.patch("products.warehouse_sources.sources.signoz.signoz._is_host_safe")
     def test_unsafe_host_is_blocked(self, mock_host_safe: mock.MagicMock) -> None:
         mock_host_safe.return_value = (False, "Hosts with internal IP addresses are not allowed")
         is_valid, error = validate_credentials("10.0.0.1", "key", team_id=42)

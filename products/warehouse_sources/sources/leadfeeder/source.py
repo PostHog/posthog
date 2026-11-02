@@ -1,34 +1,12 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
-    FieldType,
-    ResumableSource,
-    VersionDeprecation,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.leadfeeder import (
-    LeadfeederSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder.leadfeeder import (
+from products.warehouse_sources.sources.leadfeeder._config import LeadfeederSourceConfig
+from products.warehouse_sources.sources.leadfeeder.leadfeeder import (
     LeadfeederResumeConfig,
     leadfeeder_source,
     validate_credentials as validate_leadfeeder_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder.settings import (
+from products.warehouse_sources.sources.leadfeeder.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     LEADFEEDER_API_LEGACY,
@@ -36,7 +14,24 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder
     LEADFEEDER_ENDPOINTS,
     LEADFEEDER_SUPPORTED_VERSIONS,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    VersionDeprecation,
+    detect,
+)
 
 
 @SourceRegistry.register
@@ -100,9 +95,7 @@ Optionally set a **Start date** to bound the initial sync. Leave it blank to pul
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.leadfeeder.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

@@ -10,23 +10,22 @@ from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_sagemaker.settings import (
+from products.warehouse_sources.sources.aws_sagemaker._config import AwsSagemakerSourceConfig
+from products.warehouse_sources.sources.aws_sagemaker.settings import (
     ENDPOINTS,
     MAX_RESULTS,
     TARGET_PREFIXES,
     SageMakerEndpoint,
     SageMakerParent,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import probe_status_message
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awssagemaker import (
-    AwsSagemakerSourceConfig,
+from products.warehouse_sources.sources.sdk import (
+    BoundedRetry,
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    probe_status_message,
+    schema_for_resource,
 )
 
 TRANSPORT_RETRY = BoundedRetry(

@@ -1,6 +1,6 @@
-from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, ReleaseStatus
-from products.warehouse_sources.backend.temporal.data_imports.sources.cast_ai.source import CastAiSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.castai import CastAiSourceConfig
+from products.warehouse_sources.sources.cast_ai._config import CastAiSourceConfig
+from products.warehouse_sources.sources.cast_ai.source import CastAiSource
+from products.warehouse_sources.sources.sdk import DataWarehouseSourceCategory, ReleaseStatus
 
 
 class TestCastAiSource:

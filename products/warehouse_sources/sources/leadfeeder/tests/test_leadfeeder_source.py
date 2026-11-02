@@ -3,19 +3,11 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import VersionDeprecation
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.leadfeeder import (
-    LeadfeederSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder.settings import (
-    LEADFEEDER_API_2026_08_07,
-    LEADFEEDER_API_LEGACY,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder.source import LeadfeederSource
+from products.warehouse_sources.sources.leadfeeder._config import LeadfeederSourceConfig
+from products.warehouse_sources.sources.leadfeeder.settings import LEADFEEDER_API_2026_08_07, LEADFEEDER_API_LEGACY
+from products.warehouse_sources.sources.leadfeeder.source import LeadfeederSource
+from products.warehouse_sources.sources.sdk import VersionDeprecation
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 class TestLeadfeederSource:
@@ -45,9 +37,7 @@ class TestLeadfeederSource:
             ),
         ]
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder.source.validate_leadfeeder_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.leadfeeder.source.validate_leadfeeder_credentials")
     def test_validate_credentials(
         self, mock_return: bool, expected_valid: bool, expected_message: str | None, mock_validate: mock.MagicMock
     ) -> None:
@@ -59,9 +49,7 @@ class TestLeadfeederSource:
         mock_validate.assert_called_once_with("token", LEADFEEDER_API_2026_08_07)
 
     @parameterized.expand([(None, LEADFEEDER_API_2026_08_07), (LEADFEEDER_API_LEGACY, LEADFEEDER_API_LEGACY)])
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder.source.validate_leadfeeder_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.leadfeeder.source.validate_leadfeeder_credentials")
     def test_validate_credentials_probes_under_the_pinned_version(
         self, pin: str | None, expected_version: str, mock_validate: mock.MagicMock
     ) -> None:
@@ -71,7 +59,7 @@ class TestLeadfeederSource:
         self.source.validate_credentials(self.config, self.team_id, api_version=pin)
         mock_validate.assert_called_once_with("token", expected_version)
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder.source.leadfeeder_source")
+    @mock.patch("products.warehouse_sources.sources.leadfeeder.source.leadfeeder_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "leads"

@@ -5,9 +5,8 @@ from typing import Any
 
 from requests.exceptions import HTTPError
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.axiom.settings import (
+from products.warehouse_sources.sources.axiom._config import AxiomSourceConfig
+from products.warehouse_sources.sources.axiom.settings import (
     AUTH_ERRORS,
     BASE_URL,
     ENDPOINTS,
@@ -17,19 +16,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.axiom.sett
     MONITOR_HISTORY_WINDOW,
     PRIMARY_KEYS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from products.warehouse_sources.sources.sdk import (
+    BearerTokenAuth,
     RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    RESTClient,
+    ResumableSourceManager,
     SinglePagePaginator,
+    SourceInputs,
+    SourceResponse,
+    frozen,
+    rest_api_resource,
+    schema_for_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.axiom import AxiomSourceConfig
 
 
 @frozen

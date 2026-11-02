@@ -4,12 +4,8 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.float_app.float_app import (
+from products.warehouse_sources.sources.float_app._config import FloatAppSourceConfig
+from products.warehouse_sources.sources.float_app.float_app import (
     DELETE_LOG_LIMIT,
     PER_PAGE,
     REQUEST_TIMEOUT_SECONDS,
@@ -18,14 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.float_app.
     _month_windows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.float_app.settings import (
-    PUBLIC_HOLIDAY_YEARS_AHEAD,
-    PUBLIC_HOLIDAY_YEARS_BACK,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.float_app.source import FloatAppSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.floatapp import (
-    FloatAppSourceConfig,
-)
+from products.warehouse_sources.sources.float_app.settings import PUBLIC_HOLIDAY_YEARS_AHEAD, PUBLIC_HOLIDAY_YEARS_BACK
+from products.warehouse_sources.sources.float_app.source import FloatAppSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver() -> SourceDriver:
@@ -136,9 +127,7 @@ class TestReportWindows:
         ReportWindow(start="2026-01-01", end="2026-01-31"),
         ReportWindow(start="2026-02-01", end="2026-02-28"),
     ]
-    MONTH_WINDOWS_PATCH = (
-        "products.warehouse_sources.backend.temporal.data_imports.sources.float_app.float_app._month_windows"
-    )
+    MONTH_WINDOWS_PATCH = "products.warehouse_sources.sources.float_app.float_app._month_windows"
 
     @mock.patch(MONTH_WINDOWS_PATCH, return_value=WINDOWS)
     def test_resumes_from_the_saved_month(self, _windows: mock.MagicMock) -> None:

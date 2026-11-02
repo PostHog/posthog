@@ -2,28 +2,20 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lightspeedretail import (
-    LightspeedRetailSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.constants import (
+from products.warehouse_sources.sources.lightspeed_retail._config import LightspeedRetailSourceConfig
+from products.warehouse_sources.sources.lightspeed_retail.constants import (
     LIGHTSPEED_RETAIL_API_VERSION_2_0,
     LIGHTSPEED_RETAIL_API_VERSION_2026_01,
     LIGHTSPEED_RETAIL_API_VERSION_2026_07,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.lightspeed_retail import (
+from products.warehouse_sources.sources.lightspeed_retail.lightspeed_retail import (
     LightspeedRetailResumeConfig,
     _clean_domain_prefix,
     _to_version,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.source import (
-    LightspeedRetailSource,
-)
+from products.warehouse_sources.sources.lightspeed_retail.source import LightspeedRetailSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 SUPPORTED_API_VERSIONS = [
     LIGHTSPEED_RETAIL_API_VERSION_2_0,

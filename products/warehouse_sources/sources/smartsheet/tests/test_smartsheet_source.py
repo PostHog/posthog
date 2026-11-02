@@ -1,10 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.smartsheet import (
-    SmartsheetSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.smartsheet.source import SmartsheetSource
+from products.warehouse_sources.sources.smartsheet._config import SmartsheetSourceConfig
+from products.warehouse_sources.sources.smartsheet.source import SmartsheetSource
 
 
 class TestSmartsheetSource:
@@ -20,9 +18,7 @@ class TestSmartsheetSource:
             (False, False, "Invalid Smartsheet access token"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.smartsheet.source.validate_smartsheet_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.smartsheet.source.validate_smartsheet_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
         mock_validate.return_value = mock_return
 

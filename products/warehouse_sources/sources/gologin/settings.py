@@ -1,7 +1,6 @@
 from typing import cast
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import Endpoint, IncrementalField, IncrementalFieldType
 
 BASE_URL = "https://api.gologin.com"
 REQUEST_TIMEOUT = (10.0, 60.0)

@@ -2,11 +2,9 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.trunkio import (
-    TrunkIoSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.source import TrunkIoSource
+from products.warehouse_sources.sources.sdk.testing import SourceDriver
+from products.warehouse_sources.sources.trunk_io._config import TrunkIoSourceConfig
+from products.warehouse_sources.sources.trunk_io.source import TrunkIoSource
 
 
 class TestTrunkIoSource:
@@ -27,9 +25,7 @@ class TestTrunkIoSource:
         assert self.source.lists_tables_without_credentials is True
 
     def test_validate_credentials_delegates_with_repo(self):
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.source.validate_trunk_io_credentials"
-        ) as mock_validate:
+        with patch("products.warehouse_sources.sources.trunk_io.source.validate_trunk_io_credentials") as mock_validate:
             mock_validate.return_value = (True, None)
             result = self.source.validate_credentials(self.config, self.team_id, api_version="v1")
 

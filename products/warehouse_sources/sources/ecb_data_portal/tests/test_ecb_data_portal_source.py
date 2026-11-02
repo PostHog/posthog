@@ -3,21 +3,11 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.ecb_data_portal.ecb_data_portal import (
-    ECBResumeConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.ecb_data_portal.source import EcbDataPortalSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ecbdataportal import (
-    EcbDataPortalSourceConfig,
-)
+from products.warehouse_sources.sources.ecb_data_portal._config import EcbDataPortalSourceConfig
+from products.warehouse_sources.sources.ecb_data_portal.ecb_data_portal import ECBResumeConfig
+from products.warehouse_sources.sources.ecb_data_portal.source import EcbDataPortalSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceInputs
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _make_inputs(**overrides: Any) -> SourceInputs:
@@ -85,9 +75,7 @@ class TestEcbDataPortalSource:
         assert result.params("startPeriod") == ["2024-01-01"]
         assert result.rows == [{"KEY": "FM.B.U2.EUR.4F.KR.DFR.LEV", "TIME_PERIOD": "2024-01-01", "OBS_VALUE": "4.5"}]
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.ecb_data_portal.source.ecb_data_portal_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.ecb_data_portal.source.ecb_data_portal_source")
     def test_source_for_pipeline_ignores_stale_last_value_when_not_incremental(
         self, mock_source: mock.MagicMock
     ) -> None:

@@ -5,12 +5,9 @@ from unittest.mock import MagicMock
 
 import responses
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.growthbook import (
-    GrowthBookSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.growthbook.source import GrowthBookSource
+from products.warehouse_sources.sources.growthbook._config import GrowthBookSourceConfig
+from products.warehouse_sources.sources.growthbook.source import GrowthBookSource
+from products.warehouse_sources.sources.sdk import SourceInputs, UnknownResourceError
 
 
 @pytest.mark.parametrize(

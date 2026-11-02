@@ -5,9 +5,7 @@ from typing import Any, Optional
 from requests.auth import HTTPBasicAuth
 from urllib3.util.retry import Retry
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.bol_retailer.settings import (
+from products.warehouse_sources.sources.bol_retailer.settings import (
     BOL_BASE_URL,
     BOL_ENDPOINTS,
     BOL_TOKEN_URL,
@@ -17,20 +15,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bol_retail
     ORDER_HISTORY_DAYS,
     BolEndpointConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from products.warehouse_sources.sources.sdk import (
+    JSONResponseCursorPaginator,
+    OAuth2Auth,
+    PageNumberPaginator,
     RESTAPIConfig,
+    RESTClient,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
     rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import OAuth2Auth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponseCursorPaginator,
-    PageNumberPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 REQUEST_TIMEOUT = (10, 120)
 TOKEN_TIMEOUT = 30

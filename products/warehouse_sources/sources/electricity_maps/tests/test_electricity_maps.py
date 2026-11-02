@@ -4,23 +4,14 @@ from typing import Any
 import pytest
 import time_machine
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.electricity_maps.electricity_maps import (
+from products.warehouse_sources.sources.electricity_maps._config import ElectricityMapsSourceConfig
+from products.warehouse_sources.sources.electricity_maps.electricity_maps import (
     ElectricityMapsResumeConfig,
     initial_window_start,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.electricity_maps.source import (
-    ElectricityMapsSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.electricitymaps import (
-    ElectricityMapsSourceConfig,
-)
+from products.warehouse_sources.sources.electricity_maps.source import ElectricityMapsSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 _NOW = datetime(2025, 6, 15, 12, 0, 0, tzinfo=UTC)
 

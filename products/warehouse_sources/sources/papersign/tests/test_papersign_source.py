@@ -2,11 +2,9 @@ from typing import cast
 
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.papersign import (
-    PapersignSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.papersign import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.papersign.source import PapersignSource
+from products.warehouse_sources.sources.papersign import source as source_module
+from products.warehouse_sources.sources.papersign._config import PapersignSourceConfig
+from products.warehouse_sources.sources.papersign.source import PapersignSource
 
 
 def _config(api_token: str = "tok") -> PapersignSourceConfig:

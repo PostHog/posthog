@@ -5,28 +5,16 @@ import time_machine
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mailtrap import (
-    MailtrapSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.mailtrap.mailtrap import (
+from products.warehouse_sources.sources.mailtrap._config import MailtrapSourceConfig
+from products.warehouse_sources.sources.mailtrap.mailtrap import (
     STATS_START_DATE,
     MailtrapResumeConfig,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.mailtrap.settings import (
-    ENDPOINTS,
-    MAILTRAP_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.mailtrap.source import MailtrapSource
+from products.warehouse_sources.sources.mailtrap.settings import ENDPOINTS, MAILTRAP_ENDPOINTS
+from products.warehouse_sources.sources.mailtrap.source import MailtrapSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

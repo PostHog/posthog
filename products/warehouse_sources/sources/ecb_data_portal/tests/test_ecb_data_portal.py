@@ -4,27 +4,18 @@ from typing import Any
 import pytest
 from unittest.mock import patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.ecb_data_portal.ecb_data_portal import (
+from products.warehouse_sources.sources.ecb_data_portal._config import EcbDataPortalSourceConfig
+from products.warehouse_sources.sources.ecb_data_portal.ecb_data_portal import (
     ECBResumeConfig,
     _coerce_start_period,
     _daterange_chunks,
     _DateWindow,
     check_connection,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.ecb_data_portal.source import EcbDataPortalSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ecbdataportal import (
-    EcbDataPortalSourceConfig,
-)
+from products.warehouse_sources.sources.ecb_data_portal.source import EcbDataPortalSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
-TODAY_FACTORY = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.ecb_data_portal.ecb_data_portal._today"
-)
+TODAY_FACTORY = "products.warehouse_sources.sources.ecb_data_portal.ecb_data_portal._today"
 
 
 def _csv_response(csv_text: str, status_code: int = 200) -> ScriptedResponse:

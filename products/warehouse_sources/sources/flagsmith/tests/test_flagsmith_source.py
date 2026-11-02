@@ -1,16 +1,12 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
-from products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.source import FlagsmithSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.flagsmith import (
-    FlagsmithSourceConfig,
-)
+from products.warehouse_sources.sources.flagsmith._config import FlagsmithSourceConfig
+from products.warehouse_sources.sources.flagsmith.settings import ENDPOINTS
+from products.warehouse_sources.sources.flagsmith.source import FlagsmithSource
+from products.warehouse_sources.sources.sdk.testing import SourceDriver
 
-VALIDATE_PATH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.source.validate_flagsmith_credentials"
-)
+VALIDATE_PATH = "products.warehouse_sources.sources.flagsmith.source.validate_flagsmith_credentials"
 
 
 class TestFlagsmithSource:
@@ -78,7 +74,7 @@ class TestFlagsmithSource:
         assert error == "Invalid Flagsmith API URL"
         mock_validate.assert_not_called()
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.source.is_cloud")
+    @mock.patch("products.warehouse_sources.sources.flagsmith.source.is_cloud")
     @mock.patch(VALIDATE_PATH)
     def test_validate_credentials_rejects_http_on_cloud(self, mock_validate, mock_is_cloud):
         mock_is_cloud.return_value = True
@@ -90,7 +86,7 @@ class TestFlagsmithSource:
         assert error == "Flagsmith API URL must use https"
         mock_validate.assert_not_called()
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.source.flagsmith_source")
+    @mock.patch("products.warehouse_sources.sources.flagsmith.source.flagsmith_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_flagsmith_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "features"

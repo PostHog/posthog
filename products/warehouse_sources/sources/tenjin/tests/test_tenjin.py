@@ -8,8 +8,8 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import validate_incremental_sync
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.internals import validate_incremental_sync
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     Script,
     ScriptedResponse,
@@ -17,11 +17,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tenjin import TenjinSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.tenjin import tenjin
-from products.warehouse_sources.backend.temporal.data_imports.sources.tenjin.settings import TENJIN_REPORTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.tenjin.source import TenjinSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.tenjin.tenjin import (
+from products.warehouse_sources.sources.tenjin import tenjin
+from products.warehouse_sources.sources.tenjin._config import TenjinSourceConfig
+from products.warehouse_sources.sources.tenjin.settings import TENJIN_REPORTS
+from products.warehouse_sources.sources.tenjin.source import TenjinSource
+from products.warehouse_sources.sources.tenjin.tenjin import (
     MAX_HISTORY_DAYS,
     TENJIN_BASE_URL,
     TenjinCredentialsError,

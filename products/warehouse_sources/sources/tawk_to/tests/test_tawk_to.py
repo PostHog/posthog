@@ -5,19 +5,11 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tawkto import TawkToSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.tawk_to.settings import (
-    ENDPOINTS,
-    TAWK_TO_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.tawk_to.source import TawkToSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.tawk_to.tawk_to import (
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.tawk_to._config import TawkToSourceConfig
+from products.warehouse_sources.sources.tawk_to.settings import ENDPOINTS, TAWK_TO_ENDPOINTS
+from products.warehouse_sources.sources.tawk_to.source import TawkToSource
+from products.warehouse_sources.sources.tawk_to.tawk_to import (
     API_KEY_FORBIDDEN_MESSAGE,
     INVALID_API_KEY_MESSAGE,
     PAGE_SIZE,
@@ -29,7 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tawk_to.ta
     validate_credentials,
 )
 
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.tawk_to.tawk_to"
+MODULE = "products.warehouse_sources.sources.tawk_to.tawk_to"
 
 
 def _make_manager(resume_state: TawkToResumeConfig | None = None) -> mock.MagicMock:

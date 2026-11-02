@@ -4,20 +4,10 @@ import pytest
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.referralhero import (
-    ReferralHeroSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.referralhero.referralhero import (
-    ReferralHeroResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.referralhero.source import ReferralHeroSource
+from products.warehouse_sources.sources.referralhero._config import ReferralHeroSourceConfig
+from products.warehouse_sources.sources.referralhero.referralhero import ReferralHeroResumeConfig, validate_credentials
+from products.warehouse_sources.sources.referralhero.source import ReferralHeroSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def driver() -> SourceDriver:

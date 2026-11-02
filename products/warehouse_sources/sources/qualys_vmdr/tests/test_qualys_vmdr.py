@@ -4,19 +4,8 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    Script,
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.qualysvmdr import (
-    QualysVmdrSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.qualys_vmdr.qualys_vmdr import (
+from products.warehouse_sources.sources.qualys_vmdr._config import QualysVmdrSourceConfig
+from products.warehouse_sources.sources.qualys_vmdr.qualys_vmdr import (
     MISSING_GATEWAY_ERROR,
     QualysVmdrResponseTooLargeError,
     QualysVmdrResumeConfig,
@@ -30,10 +19,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.qualys_vmd
     build_base_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.qualys_vmdr.settings import QUALYS_VMDR_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.qualys_vmdr.source import QualysVmdrSource
+from products.warehouse_sources.sources.qualys_vmdr.settings import QUALYS_VMDR_ENDPOINTS
+from products.warehouse_sources.sources.qualys_vmdr.source import QualysVmdrSource
+from products.warehouse_sources.sources.sdk.testing import (
+    DriveResult,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
 
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.qualys_vmdr.qualys_vmdr"
+_MODULE = "products.warehouse_sources.sources.qualys_vmdr.qualys_vmdr"
 
 # tenacity exposes the undecorated function via `__wrapped__`, so status classification can be
 # asserted without sitting through retry backoff.

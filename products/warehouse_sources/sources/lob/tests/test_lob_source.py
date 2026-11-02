@@ -1,11 +1,8 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lob import LobSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.lob.source import LobSource
+from products.warehouse_sources.sources.lob._config import LobSourceConfig
+from products.warehouse_sources.sources.lob.source import LobSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 INCREMENTAL_ENDPOINTS = {"letters", "postcards", "checks", "self_mailers"}
 FULL_REFRESH_ENDPOINTS = {"addresses", "bank_accounts", "templates", "campaigns"}

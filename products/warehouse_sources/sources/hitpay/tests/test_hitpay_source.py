@@ -1,11 +1,8 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hitpay import HitpaySourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.hitpay.source import HitpaySource
+from products.warehouse_sources.sources.hitpay._config import HitpaySourceConfig
+from products.warehouse_sources.sources.hitpay.source import HitpaySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 _INCREMENTAL_ENDPOINTS = {"Charges", "BalanceTransactions"}
 _FULL_REFRESH_ENDPOINTS = {
@@ -24,7 +21,7 @@ class TestHitpaySource:
         self.team_id = 123
         self.config = HitpaySourceConfig(api_key="key", environment="production")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.hitpay.source.hitpay_source")
+    @mock.patch("products.warehouse_sources.sources.hitpay.source.hitpay_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_hitpay_source: mock.MagicMock) -> None:
         config = HitpaySourceConfig(api_key="key", platform_api_key="platform-key", environment="sandbox")
         inputs = mock.MagicMock()

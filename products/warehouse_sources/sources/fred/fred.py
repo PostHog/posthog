@@ -7,15 +7,12 @@ from urllib.parse import urlencode
 import requests
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
+from products.warehouse_sources.sources.fred.settings import FRED_ENDPOINTS, FredEndpointConfig
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
     interruptible_wait,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.fred.settings import (
-    FRED_ENDPOINTS,
-    FredEndpointConfig,
+    make_tracked_session,
 )
 
 # FRED is a single global deployment with no tenant subdomain and no version segment: the

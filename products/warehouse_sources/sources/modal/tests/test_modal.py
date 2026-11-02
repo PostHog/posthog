@@ -14,11 +14,8 @@ from modal.exception import AuthError, NotFoundError, PermissionDeniedError, Res
 from modal.types import BillingReportItem, WorkspaceBillingSummary
 from modal_proto import api_pb2
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.modal import ModalSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.modal.modal import (
+from products.warehouse_sources.sources.modal._config import ModalSourceConfig
+from products.warehouse_sources.sources.modal.modal import (
     MAX_REPORT_RETRY_ATTEMPTS,
     ModalAuthenticationError,
     ModalPermissionError,
@@ -27,7 +24,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.modal.moda
     strip_url_credentials,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.modal.source import ModalSource
+from products.warehouse_sources.sources.modal.source import ModalSource
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceInputs,
+    SourceResponse,
+    UnknownResourceError,
+)
 
 NOW = datetime(2026, 3, 15, 12, 34, 56, tzinfo=UTC)
 
@@ -209,7 +212,7 @@ def test_rides_out_rate_limit_on_report(
     report.side_effect = [ResourceExhaustedError("rate limit"), ResourceExhaustedError("rate limit"), rows]
 
     with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.modal.modal.interruptible_wait",
+        "products.warehouse_sources.sources.modal.modal.interruptible_wait",
         return_value=False,
     ) as wait:
         result = list(source_items(modal_source(config, inputs, manager)))
@@ -234,7 +237,7 @@ def test_persistent_rate_limit_is_reraised_for_temporal_to_retry(
     report.side_effect = ResourceExhaustedError("rate limit")
 
     with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.modal.modal.interruptible_wait",
+        "products.warehouse_sources.sources.modal.modal.interruptible_wait",
         return_value=False,
     ) as wait:
         with pytest.raises(ResourceExhaustedError, match="rate limit"):

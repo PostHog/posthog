@@ -2,8 +2,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hyros import HyrosSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.hyros.source import HyrosSource
+from products.warehouse_sources.sources.hyros._config import HyrosSourceConfig
+from products.warehouse_sources.sources.hyros.source import HyrosSource
 
 _INCREMENTAL_ENDPOINTS = {"Leads", "Sales", "Calls", "Subscriptions"}
 _FULL_REFRESH_ENDPOINTS = {"Sources", "Tags", "Keywords", "Stages"}
@@ -23,9 +23,7 @@ class TestHyrosSource:
             ((False, None), False, "Invalid Hyros API key"),
         ]
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.hyros.source.validate_hyros_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.hyros.source.validate_hyros_credentials")
     def test_validate_credentials(self, mock_return, expected_valid, expected_message_prefix, mock_validate):
         mock_validate.return_value = mock_return
 

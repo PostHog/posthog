@@ -5,7 +5,7 @@ from typing import Any, cast
 import structlog
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.ahrefs.settings import (
+from products.warehouse_sources.sources.ahrefs.settings import (
     API_BASE_URL,
     CREDENTIAL_ERRORS,
     ENDPOINTS,
@@ -18,26 +18,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ahrefs.set
     DailyReport,
     EndpointSettings,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import (
-    create_response_hooks,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from products.warehouse_sources.sources.sdk import (
     BasePaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    BearerTokenAuth,
     Endpoint,
     ResponseAction,
+    RESTAPIConfig,
+    RESTClient,
+    SinglePagePaginator,
+    SourceResponse,
+    create_response_hooks,
+    reach_safe_point,
+    rest_api_resource,
+    schema_for_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import reach_safe_point
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 logger = structlog.get_logger(__name__)
 

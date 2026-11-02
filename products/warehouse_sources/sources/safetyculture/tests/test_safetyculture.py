@@ -4,28 +4,16 @@ from typing import Any, Optional
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.safetyculture import (
-    SafetyCultureSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.safetyculture.safetyculture import (
+from products.warehouse_sources.sources.safetyculture._config import SafetyCultureSourceConfig
+from products.warehouse_sources.sources.safetyculture.safetyculture import (
     SafetyCultureResumeConfig,
     _format_modified_after,
     check_access,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.safetyculture.settings import (
-    ENDPOINTS,
-    SAFETYCULTURE_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.safetyculture.source import SafetyCultureSource
+from products.warehouse_sources.sources.safetyculture.settings import ENDPOINTS, SAFETYCULTURE_ENDPOINTS
+from products.warehouse_sources.sources.safetyculture.source import SafetyCultureSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 BASE_URL = "https://api.safetyculture.io"
 

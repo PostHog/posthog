@@ -3,19 +3,17 @@ from typing import Any, Optional
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientNonRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk import RESTClientNonRetryableError
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.whogho import WhoGhoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.who_gho.source import WhoGhoSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.who_gho.who_gho import (
+from products.warehouse_sources.sources.who_gho._config import WhoGhoSourceConfig
+from products.warehouse_sources.sources.who_gho.source import WhoGhoSource
+from products.warehouse_sources.sources.who_gho.who_gho import (
     MAX_INDICATOR_CODES,
     WhoGhoResumeConfig,
     check_indicator_codes,

@@ -1,7 +1,6 @@
 from typing import Literal
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, incremental_field
 
 # Raw-data resources under the per-workspace Customer API (`https://<workspace>.appfireflow.com/v3/customer/core/`).
 CORE_ENDPOINTS = (

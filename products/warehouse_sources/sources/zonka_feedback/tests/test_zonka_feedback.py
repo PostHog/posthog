@@ -6,7 +6,7 @@ import time_machine
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
     ScriptedResponse,
@@ -14,11 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zonkafeedback import (
-    ZonkaFeedbackSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feedback.source import ZonkaFeedbackSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feedback.zonka_feedback import (
+from products.warehouse_sources.sources.zonka_feedback._config import ZonkaFeedbackSourceConfig
+from products.warehouse_sources.sources.zonka_feedback.source import ZonkaFeedbackSource
+from products.warehouse_sources.sources.zonka_feedback.zonka_feedback import (
     ZonkaFeedbackResumeConfig,
     base_url,
     check_access,

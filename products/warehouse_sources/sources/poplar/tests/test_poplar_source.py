@@ -6,10 +6,10 @@ from unittest.mock import Mock
 import requests_mock
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.poplar import PoplarSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.poplar.settings import BASE_URL
-from products.warehouse_sources.backend.temporal.data_imports.sources.poplar.source import PoplarSource
+from products.warehouse_sources.sources.poplar._config import PoplarSourceConfig
+from products.warehouse_sources.sources.poplar.settings import BASE_URL
+from products.warehouse_sources.sources.poplar.source import PoplarSource
+from products.warehouse_sources.sources.sdk import SourceInputs
 
 
 @pytest.mark.parametrize(

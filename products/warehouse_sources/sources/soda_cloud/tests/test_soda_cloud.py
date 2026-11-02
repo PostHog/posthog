@@ -9,21 +9,11 @@ from unittest.mock import patch
 from requests import Response
 from requests.exceptions import ConnectionError, HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sodacloud import (
-    SodaCloudSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.soda_cloud.settings import (
-    AUTH_ERROR,
-    PERMISSION_ERROR,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.soda_cloud.soda_cloud import SodaCloudResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.soda_cloud.source import SodaCloudSource
+from products.warehouse_sources.sources.sdk.testing import DriveResult, ScriptedResponse, SourceDriver, scripted_network
+from products.warehouse_sources.sources.soda_cloud._config import SodaCloudSourceConfig
+from products.warehouse_sources.sources.soda_cloud.settings import AUTH_ERROR, PERMISSION_ERROR
+from products.warehouse_sources.sources.soda_cloud.soda_cloud import SodaCloudResumeConfig
+from products.warehouse_sources.sources.soda_cloud.source import SodaCloudSource
 
 
 @pytest.fixture

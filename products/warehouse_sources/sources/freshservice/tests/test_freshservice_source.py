@@ -5,13 +5,11 @@ from unittest import mock
 
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.freshservice.source import FreshserviceSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.freshservice import (
-    FreshserviceSourceConfig,
-)
+from products.warehouse_sources.sources.freshservice._config import FreshserviceSourceConfig
+from products.warehouse_sources.sources.freshservice.source import FreshserviceSource
+from products.warehouse_sources.sources.sdk import SourceInputs
 
-PATCH_VALIDATE = "products.warehouse_sources.backend.temporal.data_imports.sources.freshservice.source.validate_freshservice_credentials"
+PATCH_VALIDATE = "products.warehouse_sources.sources.freshservice.source.validate_freshservice_credentials"
 
 
 def _make_inputs(schema_name: str = "tickets") -> SourceInputs:

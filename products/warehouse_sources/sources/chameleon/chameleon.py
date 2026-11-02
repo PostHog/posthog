@@ -4,30 +4,22 @@ from typing import Any, Optional
 
 from requests import Response
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.chameleon.settings import (
-    CHAMELEON_ENDPOINTS,
-    ChameleonEndpointConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from products.warehouse_sources.sources.chameleon.settings import CHAMELEON_ENDPOINTS, ChameleonEndpointConfig
+from products.warehouse_sources.sources.sdk import (
+    ClientConfig,
+    JSONResponseCursorPaginator,
+    Resource,
     RESTAPIConfig,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceResponse,
+    frozen,
+    make_parent_key_name,
+    make_tracked_session,
     rest_api_resource,
     rest_api_resources,
+    validate_via_probe,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import (
-    make_parent_key_name,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponseCursorPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 # Single base URL for every account — Chameleon has no per-account hostname.
 CHAMELEON_BASE_URL = "https://api.chameleon.io/v3"

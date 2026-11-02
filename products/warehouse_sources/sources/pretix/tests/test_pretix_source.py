@@ -1,8 +1,8 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pretix import PretixSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.pretix.settings import INCREMENTAL_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.pretix.source import PretixSource
+from products.warehouse_sources.sources.pretix._config import PretixSourceConfig
+from products.warehouse_sources.sources.pretix.settings import INCREMENTAL_ENDPOINTS
+from products.warehouse_sources.sources.pretix.source import PretixSource
 
 
 class TestPretixSource:
@@ -21,7 +21,7 @@ class TestPretixSource:
         # on another endpoint would silently full-refresh under an incremental label.
         assert set(INCREMENTAL_ENDPOINTS) == {"orders"}
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.pretix.source.pretix_source")
+    @mock.patch("products.warehouse_sources.sources.pretix.source.pretix_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_pretix_source):
         manager = mock.MagicMock()
         inputs = mock.MagicMock()
@@ -47,7 +47,7 @@ class TestPretixSource:
             incremental_field="last_modified",
         )
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.pretix.source.pretix_source")
+    @mock.patch("products.warehouse_sources.sources.pretix.source.pretix_source")
     def test_source_for_pipeline_nulls_last_value_when_not_incremental(self, mock_pretix_source):
         manager = mock.MagicMock()
         inputs = mock.MagicMock()

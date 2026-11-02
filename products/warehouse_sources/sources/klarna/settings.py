@@ -1,6 +1,4 @@
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField
+from products.warehouse_sources.sources.sdk import IncrementalField, frozen
 
 API_DOCS_URL = "https://docs.klarna.com/acquirer/klarna/api/settlements/"
 PAGE_SIZE = 500

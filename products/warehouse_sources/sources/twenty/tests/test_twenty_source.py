@@ -1,5 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.twenty import TwentySourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.twenty.source import TwentySource
+from products.warehouse_sources.sources.twenty._config import TwentySourceConfig
+from products.warehouse_sources.sources.twenty.source import TwentySource
 
 
 class TestTwentySource:

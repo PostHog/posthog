@@ -1,19 +1,10 @@
 from parameterized import parameterized
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.giphy import GiphySourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.giphy.giphy import (
-    PAGE_SIZE,
-    GiphyResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.giphy.source import GiphySource
+from products.warehouse_sources.sources.giphy._config import GiphySourceConfig
+from products.warehouse_sources.sources.giphy.giphy import PAGE_SIZE, GiphyResumeConfig, validate_credentials
+from products.warehouse_sources.sources.giphy.source import GiphySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver(*, api_key: str = "KEY", search_query: str | None = None) -> SourceDriver:

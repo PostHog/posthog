@@ -7,17 +7,8 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.newyorktimes import (
-    NewYorkTimesSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.new_york_times.new_york_times import (
+from products.warehouse_sources.sources.new_york_times._config import NewYorkTimesSourceConfig
+from products.warehouse_sources.sources.new_york_times.new_york_times import (
     ARTICLE_SEARCH_MAX_PAGES,
     NewYorkTimesPageCapError,
     NewYorkTimesResumeConfig,
@@ -25,7 +16,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.new_york_t
     _format_begin_date,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.new_york_times.source import NewYorkTimesSource
+from products.warehouse_sources.sources.new_york_times.source import NewYorkTimesSource
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
 
 
 def _driver(article_search_query: str | None = None) -> SourceDriver:
@@ -224,7 +222,7 @@ class TestGetRowsTimesWire:
         with (
             time_machine.travel(datetime(2026, 7, 2, 0, 0, tzinfo=UTC), tick=False),
             mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.new_york_times.new_york_times.TIMES_WIRE_MAX_PAGES",
+                "products.warehouse_sources.sources.new_york_times.new_york_times.TIMES_WIRE_MAX_PAGES",
                 3,
             ),
         ):

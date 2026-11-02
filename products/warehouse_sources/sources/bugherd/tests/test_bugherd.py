@@ -5,7 +5,8 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.bugherd.bugherd import (
+from products.warehouse_sources.sources.bugherd._config import BugherdSourceConfig
+from products.warehouse_sources.sources.bugherd.bugherd import (
     BugherdResumeConfig,
     _format_bugherd_datetime,
     _incremental_window,
@@ -13,18 +14,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bugherd.bu
     bugherd_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.bugherd.settings import BUGHERD_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.bugherd.source import BugherdSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.bugherd.settings import BUGHERD_ENDPOINTS
+from products.warehouse_sources.sources.bugherd.source import BugherdSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager
+from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
     route,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bugherd import (
-    BugherdSourceConfig,
 )
 
 
@@ -172,7 +170,7 @@ class TestBugherdFanout:
         assert sorted((row["user_id"], row["id"]) for row in result.rows) == [(4561, 1000), (4561, 1001), (4562, 1000)]
         assert result.params("created_since") == [None] * len(result.requests)
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.bugherd.bugherd.build_dependent_resource")
+    @patch("products.warehouse_sources.sources.bugherd.bugherd.build_dependent_resource")
     def test_tasks_fanout_seeds_resume_state_and_wires_hook(self, mock_build) -> None:
         mock_build.return_value = iter([])
         manager = MagicMock(spec=ResumableSourceManager)

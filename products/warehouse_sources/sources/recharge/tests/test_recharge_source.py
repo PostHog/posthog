@@ -1,7 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.recharge import (
-    RechargeSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.recharge.source import RechargeSource
+from products.warehouse_sources.sources.recharge._config import RechargeSourceConfig
+from products.warehouse_sources.sources.recharge.source import RechargeSource
 
 
 def _config(api_key: str = "sk_test") -> RechargeSourceConfig:

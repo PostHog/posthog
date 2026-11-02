@@ -5,15 +5,10 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mailersend import (
-    MailerSendSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.mailersend import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.mailersend.source import MailerSendSource
+from products.warehouse_sources.sources.mailersend import source as source_module
+from products.warehouse_sources.sources.mailersend._config import MailerSendSourceConfig
+from products.warehouse_sources.sources.mailersend.source import MailerSendSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 def _config() -> MailerSendSourceConfig:

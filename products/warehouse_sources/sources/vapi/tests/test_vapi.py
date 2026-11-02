@@ -7,18 +7,10 @@ from unittest.mock import MagicMock
 import pyarrow as pa
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
-from products.warehouse_sources.backend.temporal.data_imports.sources.vapi import vapi
-from products.warehouse_sources.backend.temporal.data_imports.sources.vapi.settings import (
-    VAPI_VERSION_V1,
-    VAPI_VERSION_V2,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.vapi.vapi import (
-    VapiResumeConfig,
-    _format_datetime_param,
-    get_rows,
-    vapi_source,
-)
+from products.warehouse_sources.sources.sdk.internals import table_from_py_list
+from products.warehouse_sources.sources.vapi import vapi
+from products.warehouse_sources.sources.vapi.settings import VAPI_VERSION_V1, VAPI_VERSION_V2
+from products.warehouse_sources.sources.vapi.vapi import VapiResumeConfig, _format_datetime_param, get_rows, vapi_source
 
 
 class TestFormatDatetimeParam:

@@ -1,12 +1,7 @@
-from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, ReleaseStatus
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hightouch import (
-    HightouchSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.hightouch.settings import (
-    ENDPOINTS,
-    SYNC_RUNS_LOOKBACK_SECONDS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.hightouch.source import HightouchSource
+from products.warehouse_sources.sources.hightouch._config import HightouchSourceConfig
+from products.warehouse_sources.sources.hightouch.settings import ENDPOINTS, SYNC_RUNS_LOOKBACK_SECONDS
+from products.warehouse_sources.sources.hightouch.source import HightouchSource
+from products.warehouse_sources.sources.sdk import DataWarehouseSourceCategory, ReleaseStatus
 
 
 class TestHightouchSource:

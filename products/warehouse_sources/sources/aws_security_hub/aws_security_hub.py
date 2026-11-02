@@ -14,9 +14,7 @@ from botocore.credentials import Credentials
 from botocore.serialize import create_serializer
 from botocore.session import Session
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_security_hub.settings import (
+from products.warehouse_sources.sources.aws_security_hub.settings import (
     ACCESS_DENIED_CODES,
     ENDPOINTS,
     ERROR_MESSAGES,
@@ -26,15 +24,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_securi
     UNMODELED_OPERATION_PATHS,
     SecurityHubEndpoint,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.sources.sdk import BoundedRetry, SourceResponse, frozen, make_tracked_session
 
 if TYPE_CHECKING:
-    from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-    from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awssecurityhub import (
-        AwsSecurityHubSourceConfig,
-    )
+    from products.warehouse_sources.sources.aws_security_hub._config import AwsSecurityHubSourceConfig
+    from products.warehouse_sources.sources.sdk import ResumableSourceManager
 
 TRANSPORT_RETRY = BoundedRetry(
     total=3,

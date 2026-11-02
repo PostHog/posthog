@@ -1,7 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.canvas_lms.source import CanvasLmsSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.canvaslms import (
-    CanvasLmsSourceConfig,
-)
+from products.warehouse_sources.sources.canvas_lms._config import CanvasLmsSourceConfig
+from products.warehouse_sources.sources.canvas_lms.source import CanvasLmsSource
 
 
 class TestCanvasLmsSource:

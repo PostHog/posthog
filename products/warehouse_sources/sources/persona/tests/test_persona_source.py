@@ -2,16 +2,12 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.persona import (
-    PersonaSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.persona.persona import (
-    PERSONA_API_VERSION_2026_09_29,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.persona.source import PersonaSource
+from products.warehouse_sources.sources.persona._config import PersonaSourceConfig
+from products.warehouse_sources.sources.persona.persona import PERSONA_API_VERSION_2026_09_29
+from products.warehouse_sources.sources.persona.source import PersonaSource
+from products.warehouse_sources.sources.sdk import UNVERSIONED_API_VERSION
 
-SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.persona.source"
+SOURCE_MODULE = "products.warehouse_sources.sources.persona.source"
 
 
 class TestPersonaGetSchemas:
@@ -54,7 +50,7 @@ class TestPersonaValidateCredentials:
     )
     def test_status_mapping(self, _name: str, status: int, schema_name: str | None, expected_ok: bool) -> None:
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.persona.source.validate_persona_credentials",
+            "products.warehouse_sources.sources.persona.source.validate_persona_credentials",
             return_value=status,
         ):
             ok, _msg = PersonaSource().validate_credentials(

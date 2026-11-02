@@ -4,25 +4,18 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.factorial.factorial import (
+from products.warehouse_sources.sources.factorial._config import FactorialSourceConfig
+from products.warehouse_sources.sources.factorial.factorial import (
     API_VERSION_2026_04_01,
     PAGE_SIZE,
     FactorialCursorPaginator,
     FactorialResumeConfig,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.factorial.source import FactorialSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.factorial import (
-    FactorialSourceConfig,
-)
+from products.warehouse_sources.sources.factorial.source import FactorialSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.factorial.factorial"
+_MODULE = "products.warehouse_sources.sources.factorial.factorial"
 
 
 def _full_page() -> list[dict[str, Any]]:

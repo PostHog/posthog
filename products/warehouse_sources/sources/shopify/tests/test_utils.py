@@ -2,8 +2,8 @@ from copy import deepcopy
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.constants import resolve_schema_name
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.utils import safe_set, safe_unwrap, unwrap
+from products.warehouse_sources.sources.shopify.constants import resolve_schema_name
+from products.warehouse_sources.sources.shopify.utils import safe_set, safe_unwrap, unwrap
 
 
 @pytest.mark.parametrize(

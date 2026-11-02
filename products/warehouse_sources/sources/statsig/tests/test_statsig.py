@@ -4,15 +4,10 @@ import pytest
 
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.statsig import (
-    StatsigSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.statsig.source import StatsigSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.statsig.statsig import StatsigResumeConfig
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
+from products.warehouse_sources.sources.statsig._config import StatsigSourceConfig
+from products.warehouse_sources.sources.statsig.source import StatsigSource
+from products.warehouse_sources.sources.statsig.statsig import StatsigResumeConfig
 
 
 def _driver() -> SourceDriver:

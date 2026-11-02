@@ -3,24 +3,19 @@ from typing import Any
 
 from requests.exceptions import HTTPError
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.abnormal_security.settings import (
-    ENDPOINTS,
-    REGION_HOSTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import rest_api_resources
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+from products.warehouse_sources.sources.abnormal_security._config import AbnormalSecuritySourceConfig
+from products.warehouse_sources.sources.abnormal_security.settings import ENDPOINTS, REGION_HOSTS
+from products.warehouse_sources.sources.sdk import (
     ClientConfig,
     EndpointResource,
     RESTAPIConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.abnormalsecurity import (
-    AbnormalSecuritySourceConfig,
+    ResumableSourceManager,
+    SourceInputs,
+    SourceResponse,
+    frozen,
+    parse_datetime_value,
+    rest_api_resources,
+    schema_for_resource,
 )
 
 AUTH_ERRORS = {

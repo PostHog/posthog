@@ -12,20 +12,12 @@ import structlog
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleplayconsole import (
+from products.warehouse_sources.sources.google_play_console import google_play_console
+from products.warehouse_sources.sources.google_play_console._config import (
     GooglePlayConsoleKeyFileConfig,
     GooglePlayConsoleSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.google_play_console import google_play_console
-from products.warehouse_sources.backend.temporal.data_imports.sources.google_play_console.google_play_console import (
+from products.warehouse_sources.sources.google_play_console.google_play_console import (
     DEFAULT_TOKEN_URI,
     JWT_BEARER_GRANT,
     PLAY_REPORTING_SCOPE,
@@ -46,15 +38,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_pla
     resolve_package_names,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.google_play_console.settings import (
+from products.warehouse_sources.sources.google_play_console.settings import (
     ENDPOINTS,
     LIST_ENDPOINTS,
     METRIC_SETS,
     PRIMARY_KEYS,
     RELEASE_FILTER_OPTIONS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.google_play_console.source import (
-    GooglePlayConsoleSource,
+from products.warehouse_sources.sources.google_play_console.source import GooglePlayConsoleSource
+from products.warehouse_sources.sources.sdk.testing import (
+    DriveResult,
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    error_message_matches,
+    scripted_network,
 )
 
 MODULE = google_play_console.__name__

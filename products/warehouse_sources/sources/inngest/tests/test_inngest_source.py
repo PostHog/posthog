@@ -4,17 +4,11 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.inngest import (
-    InngestSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.inngest import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.inngest.source import InngestSource
+from products.warehouse_sources.sources.inngest import source as source_module
+from products.warehouse_sources.sources.inngest._config import InngestSourceConfig
+from products.warehouse_sources.sources.inngest.source import InngestSource
+from products.warehouse_sources.sources.sdk import SourceInputs
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _source_inputs(

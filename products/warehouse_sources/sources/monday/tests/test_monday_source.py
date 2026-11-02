@@ -1,18 +1,14 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.monday import MondaySourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.monday.monday import (
+from products.warehouse_sources.sources.monday._config import MondaySourceConfig
+from products.warehouse_sources.sources.monday.monday import (
     MONDAY_VERSION_2026_07,
     MONDAY_VERSION_2026_10,
     MONDAY_VERSION_V2,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.monday.source import MondaySource
+from products.warehouse_sources.sources.monday.source import MondaySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, error_message_matches
 
 
 class TestMondaySource:
@@ -52,9 +48,7 @@ class TestMondaySource:
             (False, False, "Invalid monday.com API token", None, MONDAY_VERSION_2026_10),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.monday.source.validate_monday_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.monday.source.validate_monday_credentials")
     def test_validate_credentials(
         self, mock_validate, mock_return, expected_valid, expected_message, api_version, expected_api_version
     ):

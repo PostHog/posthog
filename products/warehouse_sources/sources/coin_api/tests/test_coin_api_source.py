@@ -1,10 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.coin_api.source import CoinApiSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coinapi import (
-    CoinApiSourceConfig,
-)
+from products.warehouse_sources.sources.coin_api._config import CoinApiSourceConfig
+from products.warehouse_sources.sources.coin_api.source import CoinApiSource
 
 
 class TestCoinApiSource:
@@ -28,9 +26,7 @@ class TestCoinApiSource:
             ),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.coin_api.source.validate_coin_api_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.coin_api.source.validate_coin_api_credentials")
     def test_validate_credentials(
         self, mock_validate: mock.MagicMock, mock_return: bool, expected_valid: bool, expected_message: str | None
     ) -> None:
@@ -40,7 +36,7 @@ class TestCoinApiSource:
         assert error_message == expected_message
         mock_validate.assert_called_once_with("key")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.coin_api.source.coin_api_source")
+    @mock.patch("products.warehouse_sources.sources.coin_api.source.coin_api_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "ohlcv_history"
@@ -56,7 +52,7 @@ class TestCoinApiSource:
         assert kwargs["period_id"] == "1DAY"
         assert kwargs["resumable_source_manager"] is manager
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.coin_api.source.coin_api_source")
+    @mock.patch("products.warehouse_sources.sources.coin_api.source.coin_api_source")
     def test_source_for_pipeline_coerces_blank_optionals_to_defaults(self, mock_source: mock.MagicMock) -> None:
         config = CoinApiSourceConfig(api_key="key")
         inputs = mock.MagicMock()

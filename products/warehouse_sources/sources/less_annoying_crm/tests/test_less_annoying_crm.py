@@ -1,24 +1,13 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lessannoyingcrm import (
-    LessAnnoyingCRMSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.less_annoying_crm.less_annoying_crm import (
+from products.warehouse_sources.sources.less_annoying_crm._config import LessAnnoyingCRMSourceConfig
+from products.warehouse_sources.sources.less_annoying_crm.less_annoying_crm import (
     LessAnnoyingCRMResumeConfig,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.less_annoying_crm.source import (
-    LessAnnoyingCRMSource,
-)
+from products.warehouse_sources.sources.less_annoying_crm.source import LessAnnoyingCRMSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

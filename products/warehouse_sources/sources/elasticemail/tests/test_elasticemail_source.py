@@ -5,15 +5,10 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.elasticemail import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.elasticemail.source import ElasticemailSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.elasticemail import (
-    ElasticemailSourceConfig,
-)
+from products.warehouse_sources.sources.elasticemail import source as source_module
+from products.warehouse_sources.sources.elasticemail._config import ElasticemailSourceConfig
+from products.warehouse_sources.sources.elasticemail.source import ElasticemailSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 class TestGetSchemas:

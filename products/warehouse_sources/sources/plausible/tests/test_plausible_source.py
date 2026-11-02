@@ -5,13 +5,10 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.settings import (
-    ENDPOINTS,
-    PLAUSIBLE_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.source import PlausibleSource
+from products.warehouse_sources.sources.plausible.settings import ENDPOINTS, PLAUSIBLE_ENDPOINTS
+from products.warehouse_sources.sources.plausible.source import PlausibleSource
 
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.plausible.source"
+_MODULE = "products.warehouse_sources.sources.plausible.source"
 
 
 def _config(host: str | None = None, custom_property_keys: str | None = None) -> mock.MagicMock:

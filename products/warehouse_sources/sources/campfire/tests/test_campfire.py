@@ -7,7 +7,8 @@ import requests
 from parameterized import parameterized
 from requests import PreparedRequest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.campfire.campfire import (
+from products.warehouse_sources.sources.campfire._config import CampfireSourceConfig
+from products.warehouse_sources.sources.campfire.campfire import (
     CampfireResumeConfig,
     CampfireTokenAuth,
     _format_incremental_value,
@@ -15,19 +16,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.campfire.c
     _validate_next_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.campfire.settings import (
-    CAMPFIRE_BASE_URL,
-    ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.campfire.source import CampfireSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.campfire import (
-    CampfireSourceConfig,
-)
+from products.warehouse_sources.sources.campfire.settings import CAMPFIRE_BASE_URL, ENDPOINTS
+from products.warehouse_sources.sources.campfire.source import CampfireSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver() -> SourceDriver:

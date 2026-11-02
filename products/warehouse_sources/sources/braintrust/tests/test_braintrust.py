@@ -8,25 +8,20 @@ from unittest.mock import MagicMock, patch
 import responses
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.braintrust.braintrust import (
+from products.warehouse_sources.sources.braintrust._config import BraintrustSourceConfig
+from products.warehouse_sources.sources.braintrust.braintrust import (
     BraintrustResumeConfig,
     braintrust_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.braintrust.source import BraintrustSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.braintrust.source import BraintrustSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError, ResumableSourceManager
+from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
     route,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.braintrust import (
-    BraintrustSourceConfig,
 )
 
 API_URL = "https://api.braintrust.dev"

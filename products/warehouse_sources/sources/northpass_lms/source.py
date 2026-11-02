@@ -1,36 +1,34 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.northpasslms import (
-    NorthpassLMSSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.northpass_lms.northpass_lms import (
+from products.warehouse_sources.sources.northpass_lms._config import NorthpassLMSSourceConfig
+from products.warehouse_sources.sources.northpass_lms.northpass_lms import (
     NorthpassResumeConfig,
     northpass_source,
     validate_credentials as validate_northpass_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.northpass_lms.settings import (
+from products.warehouse_sources.sources.northpass_lms.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     NORTHPASS_ENDPOINTS,
     QUIZ_LOG_EMPTY_MESSAGE,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    detect,
+)
 
 
 @SourceRegistry.register
@@ -76,9 +74,7 @@ You can create an API key in your Northpass admin panel under **Apps → API Acc
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.northpass_lms.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.northpass_lms.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

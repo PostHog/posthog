@@ -1,14 +1,10 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.singular import (
-    SingularSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.singular.source import SingularSource
+from products.warehouse_sources.sources.singular._config import SingularSourceConfig
+from products.warehouse_sources.sources.singular.source import SingularSource
 
-_VALIDATE = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.singular.source.validate_singular_credentials"
-)
+_VALIDATE = "products.warehouse_sources.sources.singular.source.validate_singular_credentials"
 
 
 class TestSingularSource:

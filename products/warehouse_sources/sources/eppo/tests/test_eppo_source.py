@@ -1,9 +1,9 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.eppo.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.eppo.source import EppoSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.eppo import EppoSourceConfig
+from products.warehouse_sources.sources.eppo._config import EppoSourceConfig
+from products.warehouse_sources.sources.eppo.settings import ENDPOINTS
+from products.warehouse_sources.sources.eppo.source import EppoSource
 
 # Only "Experiments" documents a server-side timestamp filter (created_since/updated_since).
 _INCREMENTAL_ENDPOINTS = {"Experiments"}
@@ -28,9 +28,7 @@ class TestEppoSource:
             ((False, None), None, False, "Invalid Eppo API key"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.eppo.source.validate_eppo_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.eppo.source.validate_eppo_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, schema_name, expected_valid, expected_message):
         mock_validate.return_value = mock_return
 

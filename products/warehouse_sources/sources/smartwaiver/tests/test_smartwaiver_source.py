@@ -1,9 +1,7 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.smartwaiver import (
-    SmartwaiverSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.smartwaiver.source import SmartwaiverSource
+from products.warehouse_sources.sources.smartwaiver._config import SmartwaiverSourceConfig
+from products.warehouse_sources.sources.smartwaiver.source import SmartwaiverSource
 
 # Endpoints exposing Smartwaiver's server-side `fromDts` timestamp filter.
 _INCREMENTAL_ENDPOINTS = {"waivers": "createdOn", "checkins": "date"}
@@ -16,9 +14,7 @@ class TestSmartwaiverSource:
         self.team_id = 123
         self.config = SmartwaiverSourceConfig(api_key="key")
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.smartwaiver.source.smartwaiver_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.smartwaiver.source.smartwaiver_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_smartwaiver_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "waivers"
@@ -36,9 +32,7 @@ class TestSmartwaiverSource:
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2026-01-01 00:00:00"
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.smartwaiver.source.smartwaiver_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.smartwaiver.source.smartwaiver_source")
     def test_source_for_pipeline_omits_cursor_when_not_incremental(self, mock_smartwaiver_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "templates"

@@ -7,13 +7,10 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
+from products.warehouse_sources.sources.dynamics_365_business_central._config import (
+    Dynamics365BusinessCentralSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.dynamics_365_business_central.dynamics_365_business_central import (
+from products.warehouse_sources.sources.dynamics_365_business_central.dynamics_365_business_central import (
     BUSINESS_CENTRAL_HOST,
     BusinessCentralConfigurationError,
     Dynamics365BusinessCentralResumeConfig,
@@ -21,16 +18,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dynamics_3
     build_incremental_params,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.dynamics_365_business_central.settings import (
+from products.warehouse_sources.sources.dynamics_365_business_central.settings import (
     BUSINESS_CENTRAL_ENDPOINTS,
     ENDPOINTS,
     BusinessCentralEndpoint,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.dynamics_365_business_central.source import (
-    Dynamics365BusinessCentralSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dynamics365businesscentral import (
-    Dynamics365BusinessCentralSourceConfig,
+from products.warehouse_sources.sources.dynamics_365_business_central.source import Dynamics365BusinessCentralSource
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
 )
 
 TENANT = "contoso.onmicrosoft.com"

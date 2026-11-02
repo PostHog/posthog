@@ -4,22 +4,11 @@ from typing import Any, Optional
 from parameterized import parameterized
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    Script,
-    ScriptedResponse,
-    SourceDriver,
-    always,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.savvycal import (
-    SavvyCalSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.savvycal.savvycal import SavvyCalResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.savvycal.settings import (
-    ENDPOINTS,
-    SAVVYCAL_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.savvycal.source import SavvyCalSource
+from products.warehouse_sources.sources.savvycal._config import SavvyCalSourceConfig
+from products.warehouse_sources.sources.savvycal.savvycal import SavvyCalResumeConfig
+from products.warehouse_sources.sources.savvycal.settings import ENDPOINTS, SAVVYCAL_ENDPOINTS
+from products.warehouse_sources.sources.savvycal.source import SavvyCalSource
+from products.warehouse_sources.sources.sdk.testing import DriveResult, Script, ScriptedResponse, SourceDriver, always
 
 
 def _response(

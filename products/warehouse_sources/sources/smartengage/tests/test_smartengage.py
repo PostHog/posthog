@@ -2,21 +2,16 @@ import pytest
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.smartengage import (
-    SmartEngageSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.smartengage.smartengage import (
-    get_resource,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.smartengage.source import SmartEngageSource
+from products.warehouse_sources.sources.smartengage._config import SmartEngageSourceConfig
+from products.warehouse_sources.sources.smartengage.smartengage import get_resource, validate_credentials
+from products.warehouse_sources.sources.smartengage.source import SmartEngageSource
 
 
 def _driver() -> SourceDriver:

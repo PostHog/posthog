@@ -1,12 +1,10 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.splitio import (
-    SplitIoSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.split_io.settings import SPLIT_IO_API_VERSION_V2
-from products.warehouse_sources.backend.temporal.data_imports.sources.split_io.source import SplitIoSource
+from products.warehouse_sources.sources.sdk import UNVERSIONED_API_VERSION
+from products.warehouse_sources.sources.split_io._config import SplitIoSourceConfig
+from products.warehouse_sources.sources.split_io.settings import SPLIT_IO_API_VERSION_V2
+from products.warehouse_sources.sources.split_io.source import SplitIoSource
 
 
 class TestSplitIoSource:
@@ -35,9 +33,7 @@ class TestSplitIoSource:
             (None, None, False),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.split_io.source.validate_split_io_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.split_io.source.validate_split_io_credentials")
     def test_validate_credentials_status_mapping(self, mock_validate, status, schema_name, expected_valid):
         mock_validate.return_value = status
 
@@ -50,7 +46,7 @@ class TestSplitIoSource:
         assert is_valid is False
         assert error is not None and "nope" in error
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.split_io.source.split_io_source")
+    @mock.patch("products.warehouse_sources.sources.split_io.source.split_io_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_split_io_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "workspaces"

@@ -6,10 +6,15 @@ import time_machine
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
-    OAuth2AuthRequestError,
+from products.warehouse_sources.sources.genesys_cloud import genesys_cloud
+from products.warehouse_sources.sources.genesys_cloud._config import GenesysCloudSourceConfig
+from products.warehouse_sources.sources.genesys_cloud.genesys_cloud import (
+    GenesysCloudResumeConfig,
+    validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.genesys_cloud.source import GenesysCloudSource
+from products.warehouse_sources.sources.sdk import OAuth2AuthRequestError
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     Script,
     ScriptedResponse,
@@ -17,15 +22,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.genesyscloud import (
-    GenesysCloudSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.genesys_cloud import genesys_cloud
-from products.warehouse_sources.backend.temporal.data_imports.sources.genesys_cloud.genesys_cloud import (
-    GenesysCloudResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.genesys_cloud.source import GenesysCloudSource
 
 NOW = datetime(2026, 3, 10, 12, 0, tzinfo=UTC)
 TOKEN = ScriptedResponse(json={"access_token": "test-token", "expires_in": 3600})

@@ -5,16 +5,8 @@ from unittest.mock import Mock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.fillout.fillout import (
+from products.warehouse_sources.sources.fillout._config import FilloutSourceConfig
+from products.warehouse_sources.sources.fillout.fillout import (
     FilloutSubmissionsPaginator,
     _format_fillout_datetime,
     _validated_api_base_url,
@@ -22,10 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fillout.fi
     get_resource,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.fillout.source import FilloutSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fillout import (
-    FilloutSourceConfig,
-)
+from products.warehouse_sources.sources.fillout.source import FilloutSource
+from products.warehouse_sources.sources.sdk import SinglePagePaginator
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 class TestFilloutTransport:
@@ -154,7 +145,7 @@ class TestFilloutTransport:
         with pytest.raises(ValueError, match="Fan-out endpoint"):
             get_resource(endpoint=endpoint)
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.fillout.fillout.rest_api_resource")
+    @patch("products.warehouse_sources.sources.fillout.fillout.rest_api_resource")
     def test_fillout_source_forms_response(self, mock_rest_api_resource) -> None:
         mock_rest_api_resource.return_value = Mock()
         response = fillout_source(
@@ -232,7 +223,7 @@ class TestFilloutTransport:
             ("form_metadata", None, SinglePagePaginator, "$"),
         ]
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.fillout.fillout.build_dependent_resource")
+    @patch("products.warehouse_sources.sources.fillout.fillout.build_dependent_resource")
     def test_fillout_source_wires_paginator_and_selectors(
         self, endpoint, expected_page_size_param, expected_paginator, expected_selector, mock_build_dependent_resource
     ) -> None:
@@ -259,7 +250,7 @@ class TestFilloutTransport:
             ("non_incremental", False, datetime(2026, 3, 1, tzinfo=UTC), True),
         ]
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.fillout.fillout.build_dependent_resource")
+    @patch("products.warehouse_sources.sources.fillout.fillout.build_dependent_resource")
     def test_fillout_source_submissions_passes_watermark(
         self, _name, should_use_incremental_field, last_value, expects_after_date, mock_build_dependent_resource
     ) -> None:

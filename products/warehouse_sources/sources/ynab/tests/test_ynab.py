@@ -4,22 +4,17 @@ import pytest
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
     route,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ynab import YnabSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.ynab.source import YnabSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.ynab.ynab import (
-    YnabResumeConfig,
-    validate_credentials,
-)
+from products.warehouse_sources.sources.ynab._config import YnabSourceConfig
+from products.warehouse_sources.sources.ynab.source import YnabSource
+from products.warehouse_sources.sources.ynab.ynab import YnabResumeConfig, validate_credentials
 
 
 @pytest.fixture

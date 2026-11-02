@@ -1,13 +1,8 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.honeybadger import (
-    HoneybadgerSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.honeybadger.source import HoneybadgerSource
+from products.warehouse_sources.sources.honeybadger._config import HoneybadgerSourceConfig
+from products.warehouse_sources.sources.honeybadger.source import HoneybadgerSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 class TestHoneybadgerSource:

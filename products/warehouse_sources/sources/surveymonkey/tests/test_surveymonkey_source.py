@@ -4,13 +4,8 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.surveymonkey import (
-    SurveyMonkeySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.surveymonkey.source import (
-    SurveyMonkeySource,
-    _base_url_for,
-)
+from products.warehouse_sources.sources.surveymonkey._config import SurveyMonkeySourceConfig
+from products.warehouse_sources.sources.surveymonkey.source import SurveyMonkeySource, _base_url_for
 
 
 def _config(access_token: str = "token", data_center: Literal["us", "eu", "ca"] = "us") -> SurveyMonkeySourceConfig:

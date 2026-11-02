@@ -1,12 +1,10 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.everhour.source import EverhourSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.everhour import (
-    EverhourSourceConfig,
-)
+from products.warehouse_sources.sources.everhour._config import EverhourSourceConfig
+from products.warehouse_sources.sources.everhour.source import EverhourSource
 
-SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.everhour.source"
+SOURCE_MODULE = "products.warehouse_sources.sources.everhour.source"
 
 
 class TestEverhourSource:

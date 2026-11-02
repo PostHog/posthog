@@ -2,14 +2,10 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.solarwindsservicedesk import (
-    SolarwindsServiceDeskSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.solarwinds_service_desk.source import (
-    SolarwindsServiceDeskSource,
-)
+from products.warehouse_sources.sources.solarwinds_service_desk._config import SolarwindsServiceDeskSourceConfig
+from products.warehouse_sources.sources.solarwinds_service_desk.source import SolarwindsServiceDeskSource
 
-_SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.solarwinds_service_desk.source"
+_SOURCE_MODULE = "products.warehouse_sources.sources.solarwinds_service_desk.source"
 
 
 class TestSolarwindsServiceDeskSource:

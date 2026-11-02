@@ -3,26 +3,12 @@ from typing import Any
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sendowl import (
-    SendowlSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.sendowl.sendowl import (
-    PER_PAGE,
-    SendowlResumeConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.sendowl.settings import (
-    ENDPOINTS,
-    SENDOWL_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.sendowl.source import SendowlSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always
+from products.warehouse_sources.sources.sendowl._config import SendowlSourceConfig
+from products.warehouse_sources.sources.sendowl.sendowl import PER_PAGE, SendowlResumeConfig
+from products.warehouse_sources.sources.sendowl.settings import ENDPOINTS, SENDOWL_ENDPOINTS
+from products.warehouse_sources.sources.sendowl.source import SendowlSource
 
 
 def _driver() -> SourceDriver:

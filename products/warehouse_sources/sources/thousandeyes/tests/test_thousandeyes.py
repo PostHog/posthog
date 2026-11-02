@@ -5,20 +5,16 @@ import time_machine
 
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     Script,
     ScriptedResponse,
     SourceDriver,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.thousandeyes import (
-    ThousandeyesSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.thousandeyes.source import ThousandeyesSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.thousandeyes.thousandeyes import (
-    ThousandeyesResumeConfig,
-)
+from products.warehouse_sources.sources.thousandeyes._config import ThousandeyesSourceConfig
+from products.warehouse_sources.sources.thousandeyes.source import ThousandeyesSource
+from products.warehouse_sources.sources.thousandeyes.thousandeyes import ThousandeyesResumeConfig
 
 BASE = "https://api.thousandeyes.com/v7/"
 

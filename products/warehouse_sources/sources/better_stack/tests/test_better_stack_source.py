@@ -2,16 +2,9 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.better_stack.source import BetterStackSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.betterstack import (
-    BetterStackSourceConfig,
-)
+from products.warehouse_sources.sources.better_stack._config import BetterStackSourceConfig
+from products.warehouse_sources.sources.better_stack.source import BetterStackSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 class TestBetterStackGetSchemas:

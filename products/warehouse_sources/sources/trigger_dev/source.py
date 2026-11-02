@@ -1,39 +1,33 @@
 from typing import Optional, cast
 from urllib.parse import urlsplit
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    _is_host_safe,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.triggerdev import (
-    TriggerDevSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.trigger_dev.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-    TRIGGER_DEV_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.trigger_dev.trigger_dev import (
+from products.warehouse_sources.sources.trigger_dev._config import TriggerDevSourceConfig
+from products.warehouse_sources.sources.trigger_dev.settings import ENDPOINTS, INCREMENTAL_FIELDS, TRIGGER_DEV_ENDPOINTS
+from products.warehouse_sources.sources.trigger_dev.trigger_dev import (
     TriggerDevResumeConfig,
     resolve_base_url,
     trigger_dev_source,
     validate_base_url,
     validate_credentials as validate_trigger_dev_credentials,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -96,9 +90,7 @@ API keys are per environment (dev / staging / prod), so one connection syncs one
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.trigger_dev.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.trigger_dev.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

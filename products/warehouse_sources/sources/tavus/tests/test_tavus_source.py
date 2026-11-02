@@ -1,7 +1,7 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tavus import TavusSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.tavus.source import TavusSource
+from products.warehouse_sources.sources.tavus._config import TavusSourceConfig
+from products.warehouse_sources.sources.tavus.source import TavusSource
 
 
 class TestTavusSource:
@@ -14,7 +14,7 @@ class TestTavusSource:
         # get_schemas is a static catalog with no I/O, so the public docs can render the table list.
         assert self.source.lists_tables_without_credentials is True
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.tavus.source.tavus_source")
+    @mock.patch("products.warehouse_sources.sources.tavus.source.tavus_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_tavus_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "videos"

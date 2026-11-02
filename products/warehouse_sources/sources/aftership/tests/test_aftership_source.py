@@ -2,21 +2,12 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aftership.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.aftership.source import AftershipSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.aftership import (
-    AftershipSourceConfig,
-)
+from products.warehouse_sources.sources.aftership._config import AftershipSourceConfig
+from products.warehouse_sources.sources.aftership.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.aftership.source import AftershipSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
-AFTERSHIP_SOURCE_PATH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.aftership.source.aftership_source"
-)
+AFTERSHIP_SOURCE_PATH = "products.warehouse_sources.sources.aftership.source.aftership_source"
 
 
 class TestAftershipSource:

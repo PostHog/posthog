@@ -5,24 +5,15 @@ import pytest
 
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.guardian import (
-    GuardianSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.guardian.guardian import (
+from products.warehouse_sources.sources.guardian._config import GuardianSourceConfig
+from products.warehouse_sources.sources.guardian.guardian import (
     GuardianResumeConfig,
     _format_from_date,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.guardian.source import GuardianSource
+from products.warehouse_sources.sources.guardian.source import GuardianSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver(api_key: str = "k") -> SourceDriver:

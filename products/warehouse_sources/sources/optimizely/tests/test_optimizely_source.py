@@ -1,13 +1,8 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.optimizely import (
-    OptimizelySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.optimizely.source import OptimizelySource
+from products.warehouse_sources.sources.optimizely._config import OptimizelySourceConfig
+from products.warehouse_sources.sources.optimizely.source import OptimizelySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 class TestOptimizelySource:

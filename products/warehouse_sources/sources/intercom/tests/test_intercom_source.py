@@ -1,16 +1,10 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.intercom import (
-    IntercomSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.settings import INTERCOM_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source import IntercomSource
+from products.warehouse_sources.sources.intercom._config import IntercomSourceConfig
+from products.warehouse_sources.sources.intercom.settings import INTERCOM_ENDPOINTS
+from products.warehouse_sources.sources.intercom.source import IntercomSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 class TestIntercomSource:
@@ -66,9 +60,7 @@ class TestIntercomSource:
     @pytest.mark.parametrize(
         "pin,expected", [("2.13", "2.13"), ("2.15", "2.15"), ("2.16", "2.16"), ("2.17", "2.17"), (None, "2.17")]
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.IntercomSource.get_oauth_integration"
-    )
+    @mock.patch("products.warehouse_sources.sources.intercom.source.IntercomSource.get_oauth_integration")
     def test_validate_credentials_probes_under_resolved_pin(self, mock_get_integration, pin, expected):
         # The probe must run on the source's pin, not a hardcoded version — otherwise a
         # 2.13-pinned source validates against 2.15 and can report a scope it doesn't have.
@@ -81,9 +73,7 @@ class TestIntercomSource:
         assert network.requests_log[0].path == "/me"
         assert network.requests_log[0].headers["intercom-version"] == expected
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.IntercomSource.get_oauth_integration"
-    )
+    @mock.patch("products.warehouse_sources.sources.intercom.source.IntercomSource.get_oauth_integration")
     def test_validate_credentials_integration_value_error(self, mock_get_integration):
         mock_get_integration.side_effect = ValueError("Integration not found: 162559")
 
@@ -92,9 +82,7 @@ class TestIntercomSource:
         assert is_valid is False
         assert error == "Intercom integration not found. Please reconnect your Intercom integration."
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.IntercomSource.get_oauth_integration"
-    )
+    @mock.patch("products.warehouse_sources.sources.intercom.source.IntercomSource.get_oauth_integration")
     def test_validate_credentials_no_access_token(self, mock_get_integration):
         mock_get_integration.return_value = mock.MagicMock(access_token=None)
 
@@ -103,10 +91,8 @@ class TestIntercomSource:
         assert is_valid is False
         assert error is not None and "no access token" in error
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.intercom_source")
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.IntercomSource.get_oauth_integration"
-    )
+    @mock.patch("products.warehouse_sources.sources.intercom.source.intercom_source")
+    @mock.patch("products.warehouse_sources.sources.intercom.source.IntercomSource.get_oauth_integration")
     def test_source_for_pipeline_plumbing(self, mock_get_integration, mock_intercom_source):
         mock_get_integration.return_value = mock.MagicMock(access_token="token")
         sentinel = mock.MagicMock()
@@ -137,10 +123,8 @@ class TestIntercomSource:
             cursor_manager=None,
         )
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.intercom_source")
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.IntercomSource.get_oauth_integration"
-    )
+    @mock.patch("products.warehouse_sources.sources.intercom.source.intercom_source")
+    @mock.patch("products.warehouse_sources.sources.intercom.source.IntercomSource.get_oauth_integration")
     def test_source_for_pipeline_drops_incremental_args_when_not_incremental(
         self, mock_get_integration, mock_intercom_source
     ):
@@ -160,9 +144,7 @@ class TestIntercomSource:
         assert kwargs["incremental_field"] is None
         assert kwargs["db_incremental_field_last_value"] is None
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.IntercomSource.get_oauth_integration"
-    )
+    @mock.patch("products.warehouse_sources.sources.intercom.source.IntercomSource.get_oauth_integration")
     def test_source_for_pipeline_no_access_token_raises(self, mock_get_integration):
         mock_get_integration.return_value = mock.MagicMock(access_token=None)
 

@@ -10,8 +10,8 @@ import requests
 from parameterized import parameterized
 from tenacity import stop_after_attempt, wait_none
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.honeycomb import honeycomb
-from products.warehouse_sources.backend.temporal.data_imports.sources.honeycomb.honeycomb import (
+from products.warehouse_sources.sources.honeycomb import honeycomb
+from products.warehouse_sources.sources.honeycomb.honeycomb import (
     HoneycombResumeConfig,
     HoneycombRetryableError,
     HoneycombSloCountsUnavailableError,

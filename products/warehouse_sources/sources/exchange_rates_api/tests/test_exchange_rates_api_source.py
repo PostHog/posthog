@@ -1,16 +1,9 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.exchange_rates_api.source import (
-    ExchangeRatesApiSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.exchangeratesapi import (
-    ExchangeRatesApiSourceConfig,
-)
+from products.warehouse_sources.sources.exchange_rates_api._config import ExchangeRatesApiSourceConfig
+from products.warehouse_sources.sources.exchange_rates_api.source import ExchangeRatesApiSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 class TestExchangeRatesApiSource:
@@ -44,9 +37,7 @@ class TestExchangeRatesApiSource:
         assert network.requests_log[0].path == "/v1/symbols"
         assert network.requests_log[0].param("access_key") == "era-test"
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.exchange_rates_api.source.exchange_rates_api_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.exchange_rates_api.source.exchange_rates_api_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "timeseries"
@@ -65,9 +56,7 @@ class TestExchangeRatesApiSource:
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2024-01-01"
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.exchange_rates_api.source.exchange_rates_api_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.exchange_rates_api.source.exchange_rates_api_source")
     def test_source_for_pipeline_drops_watermark_when_not_incremental(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "latest"

@@ -7,23 +7,16 @@ import time_machine
 from parameterized import parameterized
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.onepassword import (
-    OnePasswordSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.onepassword.onepassword import (
+from products.warehouse_sources.sources.onepassword._config import OnePasswordSourceConfig
+from products.warehouse_sources.sources.onepassword.onepassword import (
     OnePasswordResumeConfig,
     _initial_start_time,
     get_base_url,
     introspect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.onepassword.settings import ONEPASSWORD_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.onepassword.source import OnePasswordSource
+from products.warehouse_sources.sources.onepassword.settings import ONEPASSWORD_ENDPOINTS
+from products.warehouse_sources.sources.onepassword.source import OnePasswordSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

@@ -2,16 +2,11 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hibob import HiBobSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.hibob.hibob import validate_credentials
-from products.warehouse_sources.backend.temporal.data_imports.sources.hibob.settings import ENDPOINTS, HIBOB_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.hibob.source import HiBobSource
+from products.warehouse_sources.sources.hibob._config import HiBobSourceConfig
+from products.warehouse_sources.sources.hibob.hibob import validate_credentials
+from products.warehouse_sources.sources.hibob.settings import ENDPOINTS, HIBOB_ENDPOINTS
+from products.warehouse_sources.sources.hibob.source import HiBobSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

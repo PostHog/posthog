@@ -3,7 +3,7 @@ from typing import Any, Optional
 
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.codemagic.settings import (
+from products.warehouse_sources.sources.codemagic.settings import (
     BASE_URL,
     CODEMAGIC_V1,
     CODEMAGIC_V3,
@@ -13,24 +13,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.codemagic.
     V3_PAGE_SIZE,
     V3_TEAMS_PATH,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from products.warehouse_sources.sources.sdk import (
+    BasePaginator,
+    ClientConfig,
+    EndpointResource,
+    JSONResponseCursorPaginator,
+    PageNumberPaginator,
     RESTAPIConfig,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceResponse,
+    make_tracked_session,
     rest_api_resource,
     rest_api_resources,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    BasePaginator,
-    JSONResponseCursorPaginator,
-    PageNumberPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-    ClientConfig,
-    EndpointResource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 
 @dataclasses.dataclass(frozen=True)

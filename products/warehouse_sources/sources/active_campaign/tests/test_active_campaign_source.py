@@ -1,7 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.active_campaign.source import ActiveCampaignSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.activecampaign import (
-    ActiveCampaignSourceConfig,
-)
+from products.warehouse_sources.sources.active_campaign._config import ActiveCampaignSourceConfig
+from products.warehouse_sources.sources.active_campaign.source import ActiveCampaignSource
 
 
 class TestActiveCampaignSource:

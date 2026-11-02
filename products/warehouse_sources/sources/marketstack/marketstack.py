@@ -3,29 +3,20 @@ from collections.abc import Iterator
 from datetime import date
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
-    interruptible_wait,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import (
-    create_response_hooks,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from products.warehouse_sources.sources.marketstack.settings import MARKETSTACK_ENDPOINTS, MarketstackEndpointConfig
+from products.warehouse_sources.sources.sdk import (
+    APIKeyAuth,
     OffsetPaginator,
+    ResponseAction,
+    RESTAPIConfig,
+    RESTClient,
+    ResumableSourceManager,
     SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ResponseAction
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.marketstack.settings import (
-    MARKETSTACK_ENDPOINTS,
-    MarketstackEndpointConfig,
+    SourceResponse,
+    create_response_hooks,
+    interruptible_wait,
+    make_tracked_session,
+    rest_api_resource,
 )
 
 # Opaque Marketstack version labels (never parsed/ordered). Each version is served under its own

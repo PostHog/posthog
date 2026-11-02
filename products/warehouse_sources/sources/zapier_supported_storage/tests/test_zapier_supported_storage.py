@@ -6,20 +6,16 @@ from unittest.mock import MagicMock
 import pyarrow as pa
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zapiersupportedstorage import (
-    ZapierSupportedStorageSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.zapier_supported_storage.source import (
-    ZapierSupportedStorageSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.zapier_supported_storage.zapier_supported_storage import (
+from products.warehouse_sources.sources.zapier_supported_storage._config import ZapierSupportedStorageSourceConfig
+from products.warehouse_sources.sources.zapier_supported_storage.source import ZapierSupportedStorageSource
+from products.warehouse_sources.sources.zapier_supported_storage.zapier_supported_storage import (
     ZapierSupportedStorageRetryableError,
     validate_credentials,
     zapier_supported_storage_source,

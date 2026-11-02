@@ -21,13 +21,7 @@ from botocore.loaders import Loader
 from defusedxml import ElementTree
 from structlog.types import FilteringBoundLogger
 
-from posthog.dataclasses import frozen
-from posthog.exceptions_capture import capture_exception
-
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
-    normalize_column_name as pipeline_column_name,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_and_usage_report.settings import (
+from products.warehouse_sources.sources.aws_cost_and_usage_report.settings import (
     BILLING_PERIOD_DIRECTORY,
     BILLING_PERIOD_INPUT,
     BUCKET_NAME,
@@ -40,19 +34,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_a
     S3_NAMESPACE,
     S3_SIGNING_NAME,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.file_parsing import (
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
+    capture_exception,
+    frozen,
+    interruptible_wait,
     iter_file_rows,
+    make_tracked_session,
     normalize_column_name,
+    reach_safe_point,
     resolve_file_format,
     uses_brotli_compression,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
-    interruptible_wait,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import reach_safe_point
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.sources.sdk.internals import normalize_column_name as pipeline_column_name
 
 REQUEST_TIMEOUT_SECONDS = 120
 # A dropped connection mid-body escapes the transport's retry, which only covers the response

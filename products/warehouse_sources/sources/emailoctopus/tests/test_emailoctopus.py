@@ -6,15 +6,9 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.emailoctopus import emailoctopus
-from products.warehouse_sources.backend.temporal.data_imports.sources.emailoctopus.emailoctopus import (
+from products.warehouse_sources.sources.emailoctopus import emailoctopus
+from products.warehouse_sources.sources.emailoctopus._config import EmailOctopusSourceConfig
+from products.warehouse_sources.sources.emailoctopus.emailoctopus import (
     EMAILOCTOPUS_BASE_URL as BASE,
     EmailOctopusResumeConfig,
     _base_url_for_version,
@@ -22,14 +16,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.emailoctop
     _format_incremental_value,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.emailoctopus.settings import (
+from products.warehouse_sources.sources.emailoctopus.settings import (
     CAMPAIGN_REPORT_STATUSES,
     EMAILOCTOPUS_ENDPOINTS,
     EmailOctopusFanOut,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.emailoctopus.source import EmailOctopusSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.emailoctopus import (
-    EmailOctopusSourceConfig,
+from products.warehouse_sources.sources.emailoctopus.source import EmailOctopusSource
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
 )
 
 

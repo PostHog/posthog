@@ -1,9 +1,7 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lingodev import (
-    LingoDevSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.lingo_dev.source import LingoDevSource
+from products.warehouse_sources.sources.lingo_dev._config import LingoDevSourceConfig
+from products.warehouse_sources.sources.lingo_dev.source import LingoDevSource
 
 
 class TestLingoDevSource:

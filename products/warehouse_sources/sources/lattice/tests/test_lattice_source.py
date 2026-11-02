@@ -1,10 +1,8 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lattice import (
-    LatticeSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.lattice.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.lattice.source import LatticeSource
+from products.warehouse_sources.sources.lattice._config import LatticeSourceConfig
+from products.warehouse_sources.sources.lattice.settings import ENDPOINTS
+from products.warehouse_sources.sources.lattice.source import LatticeSource
 
 
 class TestLatticeSource:

@@ -4,20 +4,14 @@ import pytest
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kustomer import (
-    KustomerSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.kustomer.kustomer import (
+from products.warehouse_sources.sources.kustomer._config import KustomerSourceConfig
+from products.warehouse_sources.sources.kustomer.kustomer import (
     KustomerResumeConfig,
     _clean_org_name,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.kustomer.source import KustomerSource
+from products.warehouse_sources.sources.kustomer.source import KustomerSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver() -> SourceDriver:

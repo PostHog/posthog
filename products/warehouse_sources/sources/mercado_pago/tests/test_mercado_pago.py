@@ -10,20 +10,11 @@ from unittest.mock import MagicMock
 import responses
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mercadopago import (
-    MercadoPagoSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.mercado_pago.mercado_pago import (
-    MercadoPagoResumeConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.mercado_pago.source import MercadoPagoSource
+from products.warehouse_sources.sources.mercado_pago._config import MercadoPagoSourceConfig
+from products.warehouse_sources.sources.mercado_pago.mercado_pago import MercadoPagoResumeConfig
+from products.warehouse_sources.sources.mercado_pago.source import MercadoPagoSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceInputs
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 TOKEN = "fake-mercado-pago-token"
 NOW = datetime(2026, 6, 15, 12, tzinfo=UTC)

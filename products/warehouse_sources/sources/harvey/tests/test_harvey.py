@@ -8,14 +8,8 @@ from unittest import mock
 from parameterized import parameterized
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.harvey import HarveySourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.harvey.harvey import (
+from products.warehouse_sources.sources.harvey._config import HarveySourceConfig
+from products.warehouse_sources.sources.harvey.harvey import (
     HarveyResumeConfig,
     HarveyRetryableError,
     _parse_datetime,
@@ -25,13 +19,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.harvey.har
     get_rows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.harvey.settings import MAX_LOOKBACK_DAYS
-from products.warehouse_sources.backend.temporal.data_imports.sources.harvey.source import HarveySource
+from products.warehouse_sources.sources.harvey.settings import MAX_LOOKBACK_DAYS
+from products.warehouse_sources.sources.harvey.source import HarveySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 NOW = datetime(2026, 7, 1, 12, 0, 0, tzinfo=UTC)
 NOW_EPOCH = int(NOW.timestamp())
 
-HARVEY_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.harvey.harvey"
+HARVEY_MODULE = "products.warehouse_sources.sources.harvey.harvey"
 
 
 class _FakeManager:

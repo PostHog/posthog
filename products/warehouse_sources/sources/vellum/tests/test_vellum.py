@@ -3,15 +3,10 @@ from typing import Any, Optional
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    Script,
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vellum import VellumSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.vellum.source import VellumSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.vellum.vellum import VellumResumeConfig
+from products.warehouse_sources.sources.sdk.testing import DriveResult, Script, ScriptedResponse, SourceDriver
+from products.warehouse_sources.sources.vellum._config import VellumSourceConfig
+from products.warehouse_sources.sources.vellum.source import VellumSource
+from products.warehouse_sources.sources.vellum.vellum import VellumResumeConfig
 
 
 def _resp(

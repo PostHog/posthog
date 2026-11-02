@@ -8,25 +8,12 @@ from unittest.mock import MagicMock
 import requests_mock
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.catchpoint.catchpoint import (
-    CatchpointResumeConfig,
-    catchpoint_source,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.catchpoint.settings import (
-    AUTH_ERROR,
-    INCOMPLETE_ERROR,
-    PERMISSION_ERROR,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.catchpoint.source import CatchpointSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.catchpoint import (
-    CatchpointSourceConfig,
-)
+from products.warehouse_sources.sources.catchpoint._config import CatchpointSourceConfig
+from products.warehouse_sources.sources.catchpoint.catchpoint import CatchpointResumeConfig, catchpoint_source
+from products.warehouse_sources.sources.catchpoint.settings import AUTH_ERROR, INCOMPLETE_ERROR, PERMISSION_ERROR
+from products.warehouse_sources.sources.catchpoint.source import CatchpointSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceResponse
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 BASE_URL = "https://io.catchpoint.com/api/v3"
 

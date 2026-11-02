@@ -3,26 +3,17 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.asknicely.asknicely import (
+from products.warehouse_sources.sources.asknicely._config import AsknicelySourceConfig
+from products.warehouse_sources.sources.asknicely.asknicely import (
     AskNicelyResumeConfig,
     _to_unix_timestamp,
     build_responses_url,
     build_stats_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.asknicely.settings import (
-    RESPONSES_PAGE_SIZE,
-    UNSUBSCRIBED_PAGE_SIZE,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.asknicely.source import AsknicelySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.asknicely import (
-    AsknicelySourceConfig,
-)
+from products.warehouse_sources.sources.asknicely.settings import RESPONSES_PAGE_SIZE, UNSUBSCRIBED_PAGE_SIZE
+from products.warehouse_sources.sources.asknicely.source import AsknicelySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _response(rows: list[dict[str, Any]], total_pages: int | None = None) -> ScriptedResponse:

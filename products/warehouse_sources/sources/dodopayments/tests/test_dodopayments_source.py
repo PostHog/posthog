@@ -1,14 +1,8 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.dodopayments.source import DodoPaymentsSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dodopayments import (
-    DodoPaymentsSourceConfig,
-)
+from products.warehouse_sources.sources.dodopayments._config import DodoPaymentsSourceConfig
+from products.warehouse_sources.sources.dodopayments.source import DodoPaymentsSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, always, scripted_network
 
 
 class TestDodoPaymentsSource:

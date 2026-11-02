@@ -4,20 +4,15 @@ from unittest.mock import Mock, patch
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kandji import KandjiSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.kandji.kandji import (
+from products.warehouse_sources.sources.kandji._config import KandjiSourceConfig
+from products.warehouse_sources.sources.kandji.kandji import (
     KandjiNextLinkPaginator,
     build_base_url,
     kandji_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.kandji.source import KandjiSource
+from products.warehouse_sources.sources.kandji.source import KandjiSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 class TestKandjiTransport:
@@ -88,7 +83,7 @@ class TestKandjiTransport:
         assert message is not None and "boom" in message
         assert {request.path for request in network.requests_log} == {"/api/v1/devices"}
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.kandji.kandji.rest_api_resource")
+    @patch("products.warehouse_sources.sources.kandji.kandji.rest_api_resource")
     def test_kandji_source_devices_top_level(self, mock_rest_api_resource) -> None:
         mock_rest_api_resource.return_value = Mock()
         response = kandji_source(

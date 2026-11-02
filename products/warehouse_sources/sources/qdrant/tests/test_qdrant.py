@@ -8,22 +8,17 @@ from unittest.mock import patch
 import requests_mock
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.qdrant._config import QdrantSourceConfig
+from products.warehouse_sources.sources.qdrant.qdrant import QdrantResumeConfig, validate_credentials
+from products.warehouse_sources.sources.qdrant.source import QdrantSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     Script,
     ScriptedResponse,
     SourceDriver,
+    error_message_matches,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.qdrant import QdrantSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.qdrant.qdrant import (
-    QdrantResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.qdrant.source import QdrantSource
 
 ACCOUNT_ID = "00000000-0000-4000-8000-000000000001"
 ACCOUNTS_URL = "https://api.cloud.qdrant.io/api/account/v1/accounts"

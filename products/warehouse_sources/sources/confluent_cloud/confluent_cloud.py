@@ -8,14 +8,7 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
-    make_tracked_session,
-    retry_with_deadline,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.confluent_cloud.settings import (
+from products.warehouse_sources.sources.confluent_cloud.settings import (
     CONFLUENT_CLOUD_BASE_URL,
     CONFLUENT_CLOUD_ENDPOINTS,
     DATASET,
@@ -25,6 +18,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.confluent_
     INCREMENTAL_OVERLAP,
     QUERY_GROUP_LIMIT,
     QUERY_WINDOW,
+)
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
+    SyncWindow,
+    make_tracked_session,
+    retry_with_deadline,
 )
 
 

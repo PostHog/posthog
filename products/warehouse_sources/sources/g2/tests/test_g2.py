@@ -5,12 +5,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.g2.g2 import (
+from products.warehouse_sources.sources.g2._config import G2SourceConfig
+from products.warehouse_sources.sources.g2.g2 import (
     G2ResumeConfig,
     MissingProductIdError,
     _build_url,
@@ -18,9 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.g2.g2 impo
     _extract_error_detail,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.g2.settings import G2_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.g2.source import G2Source
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.g2 import G2SourceConfig
+from products.warehouse_sources.sources.g2.settings import G2_ENDPOINTS
+from products.warehouse_sources.sources.g2.source import G2Source
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver(product_id: str = "prod-1") -> SourceDriver:

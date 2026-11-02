@@ -1,40 +1,14 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
-    FieldType,
-    ResumableSource,
-    VersionDeprecation,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import CursorSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
-    SourceSchema,
-    build_endpoint_schemas,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.omnisend import (
-    OmnisendSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.omnisend.omnisend import (
+from products.warehouse_sources.sources.omnisend._config import OmnisendSourceConfig
+from products.warehouse_sources.sources.omnisend.omnisend import (
     UNSUPPORTED_ENDPOINT_ERROR,
     OmnisendAnalyticsCursor,
     OmnisendResumeConfig,
     omnisend_source,
     validate_credentials as validate_omnisend_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.omnisend.settings import (
+from products.warehouse_sources.sources.omnisend.settings import (
     DEFAULT_INCREMENTAL_LOOKBACK_SECONDS,
     INCREMENTAL_FIELDS,
     MERGE_ONLY_ENDPOINTS,
@@ -43,7 +17,26 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.omnisend.s
     OMNISEND_V3,
     endpoints_for_version,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    CursorSource,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    VersionDeprecation,
+    build_endpoint_schemas,
+    detect,
+)
 
 
 @SourceRegistry.register
@@ -94,9 +87,7 @@ You can create an API key in your [Omnisend account settings](https://app.omnise
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.omnisend.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.omnisend.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

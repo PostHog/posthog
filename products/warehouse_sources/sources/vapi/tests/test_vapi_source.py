@@ -2,12 +2,9 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vapi import VapiSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.vapi.settings import (
-    VAPI_VERSION_V1,
-    VAPI_VERSION_V2,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.vapi.source import VapiSource
+from products.warehouse_sources.sources.vapi._config import VapiSourceConfig
+from products.warehouse_sources.sources.vapi.settings import VAPI_VERSION_V1, VAPI_VERSION_V2
+from products.warehouse_sources.sources.vapi.source import VapiSource
 
 
 class TestVapiSource:
@@ -53,9 +50,7 @@ class TestVapiSource:
             (False, False, "Invalid Vapi API key"),
         ]
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.vapi.source.validate_vapi_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.vapi.source.validate_vapi_credentials")
     def test_validate_credentials(self, mock_return, expected_valid, expected_message, mock_validate):
         mock_validate.return_value = mock_return
 
@@ -65,7 +60,7 @@ class TestVapiSource:
         assert error_message == expected_message
         mock_validate.assert_called_once_with("key")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.vapi.source.vapi_source")
+    @mock.patch("products.warehouse_sources.sources.vapi.source.vapi_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_vapi_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "calls"
@@ -92,7 +87,7 @@ class TestVapiSource:
             ("v2_pin_preserved", VAPI_VERSION_V2, VAPI_VERSION_V2),
         ]
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.vapi.source.vapi_source")
+    @mock.patch("products.warehouse_sources.sources.vapi.source.vapi_source")
     def test_source_for_pipeline_resolves_api_version(self, _name, pin, expected, mock_vapi_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "phone_numbers"

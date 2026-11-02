@@ -2,21 +2,14 @@ from datetime import UTC, date, datetime
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.convertkit.convertkit import (
+from products.warehouse_sources.sources.convertkit._config import ConvertKitSourceConfig
+from products.warehouse_sources.sources.convertkit.convertkit import (
     ConvertKitResumeConfig,
     _format_incremental_value,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.convertkit.source import ConvertKitSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.convertkit import (
-    ConvertKitSourceConfig,
-)
+from products.warehouse_sources.sources.convertkit.source import ConvertKitSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

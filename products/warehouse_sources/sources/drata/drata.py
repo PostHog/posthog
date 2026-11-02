@@ -4,26 +4,19 @@ from typing import Any, Optional
 
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-    rest_api_resources,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.jsonpath_utils import (
-    find_values,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+from products.warehouse_sources.sources.drata.settings import DRATA_ENDPOINTS, DrataEndpointConfig
+from products.warehouse_sources.sources.sdk import (
+    BasePaginator,
     ClientConfig,
     EndpointResource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.drata.settings import (
-    DRATA_ENDPOINTS,
-    DrataEndpointConfig,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    find_values,
+    make_tracked_session,
+    rest_api_resource,
+    rest_api_resources,
+    validate_via_probe,
 )
 
 # Drata hosts its public API per data-residency region; the user picks their region at connect time.

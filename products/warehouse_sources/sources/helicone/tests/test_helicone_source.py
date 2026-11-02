@@ -1,12 +1,7 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.helicone import (
-    HeliconeSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.helicone.settings import REQUESTS_ENDPOINT
-from products.warehouse_sources.backend.temporal.data_imports.sources.helicone.source import HeliconeSource
+from products.warehouse_sources.sources.helicone._config import HeliconeSourceConfig
+from products.warehouse_sources.sources.helicone.settings import REQUESTS_ENDPOINT
+from products.warehouse_sources.sources.helicone.source import HeliconeSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 class TestHeliconeSource:

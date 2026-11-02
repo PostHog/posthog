@@ -4,26 +4,19 @@ from typing import Any, Optional
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import HttpBasicAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.jsonpath_utils import (
-    find_values,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from products.warehouse_sources.sources.onepagecrm.settings import ONEPAGECRM_ENDPOINTS, OnepagecrmEndpointConfig
+from products.warehouse_sources.sources.sdk import (
     BasePaginator,
+    HttpBasicAuth,
     PageNumberPaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
     SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.onepagecrm.settings import (
-    ONEPAGECRM_ENDPOINTS,
-    OnepagecrmEndpointConfig,
+    SourceResponse,
+    find_values,
+    make_tracked_session,
+    rest_api_resource,
+    validate_via_probe,
 )
 
 ONEPAGECRM_BASE_URL = "https://app.onepagecrm.com/api/v3"

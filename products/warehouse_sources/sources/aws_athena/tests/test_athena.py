@@ -7,7 +7,8 @@ import pytest
 
 import pyarrow as pa
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_athena.athena import (
+from products.warehouse_sources.sources.aws_athena._config import AwsAthenaSourceConfig
+from products.warehouse_sources.sources.aws_athena.athena import (
     NO_RESULT_LOCATION_MESSAGE,
     VALIDATION_ERROR_MESSAGES,
     WORKGROUP_DISABLED_MESSAGE,
@@ -16,18 +17,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_athena
     validate_credentials,
     value_parser,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_athena.source import AwsAthenaSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.aws_athena.source import AwsAthenaSource
+from products.warehouse_sources.sources.sdk import IncrementalFieldType
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
+    UnexpectedRequest,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing.responders import UnexpectedRequest
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsathena import (
-    AwsAthenaSourceConfig,
-)
-from products.warehouse_sources.backend.types import IncrementalFieldType
 
 ORDERS_TABLE = {
     "Table": {

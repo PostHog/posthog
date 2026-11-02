@@ -8,14 +8,8 @@ from unittest.mock import MagicMock
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.perigon import (
-    PerigonSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.perigon.perigon import (
+from products.warehouse_sources.sources.perigon._config import PerigonSourceConfig
+from products.warehouse_sources.sources.perigon.perigon import (
     MAX_PAGE,
     PERIGON_BASE_URL,
     PerigonPaginator,
@@ -23,8 +17,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.perigon.pe
     _clamp_future_value_to_now,
     _format_datetime,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.perigon.settings import PERIGON_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.perigon.source import PerigonSource
+from products.warehouse_sources.sources.perigon.settings import PERIGON_ENDPOINTS
+from products.warehouse_sources.sources.perigon.source import PerigonSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 def _response(body: Any) -> Response:

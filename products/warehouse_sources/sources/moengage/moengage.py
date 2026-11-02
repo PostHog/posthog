@@ -7,24 +7,7 @@ from typing import Any, Optional
 
 from requests import Request, Response
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    BasePaginator,
-    JSONResponseCursorPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-    ClientConfig,
-    EndpointResource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.moengage.settings import (
+from products.warehouse_sources.sources.moengage.settings import (
     ATTRIBUTION_TYPE,
     DEFAULT_BACKFILL_DAYS,
     FLOWS_PAGE_SIZE,
@@ -38,6 +21,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.moengage.s
     REQUEST_TIMEOUT_SECONDS,
     SEARCH_PAGE_SIZE,
     STATS_PAGE_SIZE,
+)
+from products.warehouse_sources.sources.sdk import (
+    BasePaginator,
+    ClientConfig,
+    EndpointResource,
+    JSONResponseCursorPaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    rest_api_resource,
 )
 
 START_DATE_TOO_OLD_ERROR = (

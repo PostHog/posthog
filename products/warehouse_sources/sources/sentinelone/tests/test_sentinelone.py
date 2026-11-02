@@ -4,20 +4,16 @@ from typing import Any, Optional
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sentinelone import (
-    SentineloneSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.sentinelone import (
-    sentinelone as sentinelone_module,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.sentinelone.sentinelone import (
+from products.warehouse_sources.sources.sentinelone import sentinelone as sentinelone_module
+from products.warehouse_sources.sources.sentinelone._config import SentineloneSourceConfig
+from products.warehouse_sources.sources.sentinelone.sentinelone import (
     SentinelOneHostNotAllowedError,
     SentinelOneResumeConfig,
     _build_initial_params,
@@ -25,8 +21,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sentinelon
     _normalize_row,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.sentinelone.settings import SENTINELONE_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.sentinelone.source import SentineloneSource
+from products.warehouse_sources.sources.sentinelone.settings import SENTINELONE_ENDPOINTS
+from products.warehouse_sources.sources.sentinelone.source import SentineloneSource
 
 
 def _mock_response(

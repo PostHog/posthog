@@ -4,15 +4,15 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tally import TallySourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.tally import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.tally.settings import (
+from products.warehouse_sources.sources.tally import source as source_module
+from products.warehouse_sources.sources.tally._config import TallySourceConfig
+from products.warehouse_sources.sources.tally.settings import (
     SUBMISSION_FILTER_ALL,
     SUBMISSION_FILTER_COMPLETED,
     TALLY_API_VERSION_2025_02_01,
     TALLY_API_VERSION_2026_10_27,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.tally.source import TallySource
+from products.warehouse_sources.sources.tally.source import TallySource
 
 
 def _make_inputs(**overrides: Any) -> mock.MagicMock:

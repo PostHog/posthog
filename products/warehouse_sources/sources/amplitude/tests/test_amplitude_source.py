@@ -1,18 +1,10 @@
 import time_machine
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.amplitude.amplitude import (
-    AMPLITUDE_INVALID_ARCHIVE_ERROR,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.amplitude.settings import EVENTS_ENDPOINT
-from products.warehouse_sources.backend.temporal.data_imports.sources.amplitude.source import AmplitudeSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.amplitude import (
-    AmplitudeSourceConfig,
-)
+from products.warehouse_sources.sources.amplitude._config import AmplitudeSourceConfig
+from products.warehouse_sources.sources.amplitude.amplitude import AMPLITUDE_INVALID_ARCHIVE_ERROR
+from products.warehouse_sources.sources.amplitude.settings import EVENTS_ENDPOINT
+from products.warehouse_sources.sources.amplitude.source import AmplitudeSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always
 
 
 class TestAmplitudeSource:

@@ -4,10 +4,8 @@ from typing import Any, Optional
 from parameterized import parameterized
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     Script,
     ScriptedResponse,
@@ -15,12 +13,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.thinkific import (
-    ThinkificSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.thinkific.settings import THINKIFIC_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.thinkific.source import ThinkificSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.thinkific.thinkific import (
+from products.warehouse_sources.sources.thinkific._config import ThinkificSourceConfig
+from products.warehouse_sources.sources.thinkific.settings import THINKIFIC_ENDPOINTS
+from products.warehouse_sources.sources.thinkific.source import ThinkificSource
+from products.warehouse_sources.sources.thinkific.thinkific import (
     ThinkificResumeConfig,
     _format_incremental_date,
     is_valid_subdomain,

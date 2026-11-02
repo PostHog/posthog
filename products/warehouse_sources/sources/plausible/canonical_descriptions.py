@@ -1,10 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.settings import (
-    EVENT_SCOPED_METRICS,
-    SESSION_SCOPED_METRICS,
-)
+from products.warehouse_sources.sources.plausible.settings import EVENT_SCOPED_METRICS, SESSION_SCOPED_METRICS
+from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 
 _DOCS_URL = "https://plausible.io/docs/stats-api"
 

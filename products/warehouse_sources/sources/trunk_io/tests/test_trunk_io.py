@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 from parameterized import parameterized
 from requests import Request, RequestException
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     Script,
     ScriptedResponse,
@@ -15,14 +15,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.trunkio import (
-    TrunkIoSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.settings import (
-    FAILING_TESTS_DEFAULT_LOOKBACK_DAYS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.source import TrunkIoSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.trunk_io import (
+from products.warehouse_sources.sources.trunk_io._config import TrunkIoSourceConfig
+from products.warehouse_sources.sources.trunk_io.settings import FAILING_TESTS_DEFAULT_LOOKBACK_DAYS
+from products.warehouse_sources.sources.trunk_io.source import TrunkIoSource
+from products.warehouse_sources.sources.trunk_io.trunk_io import (
     TrunkCursorPaginator,
     TrunkIoResumeConfig,
     TrunkPageQueryPaginator,

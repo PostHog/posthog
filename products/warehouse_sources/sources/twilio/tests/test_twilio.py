@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
     Script,
@@ -12,13 +12,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.twilio import (
-    TwilioAuthMethodConfig,
-    TwilioSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.twilio.settings import TWILIO_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.twilio.source import TwilioSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.twilio.twilio import (
+from products.warehouse_sources.sources.twilio._config import TwilioAuthMethodConfig, TwilioSourceConfig
+from products.warehouse_sources.sources.twilio.settings import TWILIO_ENDPOINTS
+from products.warehouse_sources.sources.twilio.source import TwilioSource
+from products.warehouse_sources.sources.twilio.twilio import (
     CREDENTIAL_PROBE_ENDPOINTS,
     TWILIO_INVALID_CREDENTIALS_MESSAGE,
     TWILIO_MAIN_KEY_REQUIRED_MESSAGE,

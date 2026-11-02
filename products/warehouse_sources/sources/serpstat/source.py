@@ -3,36 +3,28 @@ from typing import Any, cast
 
 from requests import RequestException
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    RESTClientRetryableError,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.serpstat import (
-    SerpstatSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.serpstat.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.serpstat.serpstat import (
-    SerpstatResumeConfig,
-    serpstat_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.serpstat.settings import (
+from products.warehouse_sources.sources.serpstat._config import SerpstatSourceConfig
+from products.warehouse_sources.sources.serpstat.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.serpstat.serpstat import SerpstatResumeConfig, serpstat_resource
+from products.warehouse_sources.sources.serpstat.settings import (
     AUTH_ERROR,
     DEFAULT_SEARCH_ENGINE,
     DOCS_BASE,
@@ -41,7 +33,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.serpstat.s
     QUOTA_ERROR,
     REQUEST_ERROR,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register

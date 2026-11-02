@@ -1,17 +1,11 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.synthesia import (
-    SynthesiaSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.synthesia.source import SynthesiaSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.synthesia.synthesia import SynthesiaResumeConfig
+from products.warehouse_sources.sources.sdk import ResumableSourceManager
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, always, scripted_network
+from products.warehouse_sources.sources.synthesia._config import SynthesiaSourceConfig
+from products.warehouse_sources.sources.synthesia.source import SynthesiaSource
+from products.warehouse_sources.sources.synthesia.synthesia import SynthesiaResumeConfig
 
 
 @pytest.mark.parametrize("schema_name", [None, "templates", "webhooks"])
@@ -38,7 +32,7 @@ def test_source_for_pipeline_plumbs_sync_context() -> None:
     response = MagicMock()
 
     with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.synthesia.source.synthesia_source",
+        "products.warehouse_sources.sources.synthesia.source.synthesia_source",
         return_value=response,
     ) as source:
         result = SynthesiaSource().source_for_pipeline(config, manager, inputs)

@@ -7,23 +7,21 @@ import time_machine
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
+from products.warehouse_sources.sources.linode._config import LinodeSourceConfig
+from products.warehouse_sources.sources.linode.linode import (
+    LinodeResumeConfig,
+    _format_filter_value,
+    validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.linode.source import LinodeSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.linode import LinodeSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.linode.linode import (
-    LinodeResumeConfig,
-    _format_filter_value,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.linode.source import LinodeSource
 
 
 def _driver() -> SourceDriver:

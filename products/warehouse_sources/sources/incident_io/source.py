@@ -1,45 +1,38 @@
 from datetime import date
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
-    FieldType,
-    ResumableSource,
-    VersionDeprecation,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
-    SourceSchema,
-    build_endpoint_schemas,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.incidentio import (
-    IncidentIoSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.incident_io.incident_io import (
+from products.warehouse_sources.sources.incident_io._config import IncidentIoSourceConfig
+from products.warehouse_sources.sources.incident_io.incident_io import (
     IncidentIoResumeConfig,
     incident_io_source,
     validate_credentials as validate_incident_io_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.incident_io.settings import (
+from products.warehouse_sources.sources.incident_io.settings import (
     ENDPOINTS,
     INCIDENT_IO_API_VERSION_V1,
     INCIDENT_IO_DEFAULT_API_VERSION,
     INCIDENT_IO_SUPPORTED_VERSIONS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    VersionDeprecation,
+    build_endpoint_schemas,
+    detect,
+)
 
 FOLLOW_UPS_V2_REMOVED_MESSAGE = "incident.io removed the follow-ups endpoint that API version v1 reads. Contact PostHog support to move this source to API version v3."
 
@@ -66,9 +59,7 @@ class IncidentIoSource(ResumableSource[IncidentIoSourceConfig, IncidentIoResumeC
         return ExternalDataSourceType.INCIDENTIO
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.incident_io.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.incident_io.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

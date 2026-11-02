@@ -3,11 +3,10 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.canny.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.canny.source import CannySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.canny import CannySourceConfig
+from products.warehouse_sources.sources.canny._config import CannySourceConfig
+from products.warehouse_sources.sources.canny.settings import ENDPOINTS
+from products.warehouse_sources.sources.canny.source import CannySource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceInputs
 
 
 def _make_inputs(**overrides: Any) -> SourceInputs:
@@ -60,9 +59,7 @@ class TestCannySource:
             (False, False, "Invalid Canny API key"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.canny.source.validate_canny_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.canny.source.validate_canny_credentials")
     def test_validate_credentials(
         self,
         mock_validate: mock.MagicMock,
@@ -92,7 +89,7 @@ class TestCannySource:
             ("v2", "v2"),
         ],
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.canny.source.canny_source")
+    @mock.patch("products.warehouse_sources.sources.canny.source.canny_source")
     def test_source_for_pipeline_plumbs_resolved_version(
         self, mock_source: mock.MagicMock, pin: str | None, expected_version: str
     ) -> None:

@@ -2,15 +2,10 @@ from typing import Any
 
 from unittest.mock import MagicMock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.ding_connect import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.ding_connect.source import DingConnectSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dingconnect import (
-    DingConnectSourceConfig,
-)
+from products.warehouse_sources.sources.ding_connect import source as source_module
+from products.warehouse_sources.sources.ding_connect._config import DingConnectSourceConfig
+from products.warehouse_sources.sources.ding_connect.source import DingConnectSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 class TestValidateCredentials:

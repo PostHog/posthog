@@ -2,40 +2,35 @@ import re
 import datetime
 from typing import ClassVar, Optional, cast
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import CursorSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
-    SourceSchema,
-    build_endpoint_schemas,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.depot.depot import (
+from products.warehouse_sources.sources.depot._config import DepotSourceConfig
+from products.warehouse_sources.sources.depot.depot import (
     DepotResumeState,
     depot_source,
     validate_credentials as validate_depot_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.depot.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
+from products.warehouse_sources.sources.depot.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    CursorSource,
+    DataWarehouseSourceCategory,
+    ExternalDataSchemaSyncType,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    build_endpoint_schemas,
+    detect,
+    frozen,
+    parse_datetime_value,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.depot import DepotSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSchemaSyncType, ExternalDataSourceType
 
 _REPOSITORY_RE = re.compile(r"^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$")
 
@@ -108,7 +103,7 @@ class DepotSource(ResumableSource[DepotSourceConfig, DepotResumeState], CursorSo
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.depot.canonical_descriptions import (  # noqa: PLC0415 (keeps the descriptions dict off the registry import path)
+        from products.warehouse_sources.sources.depot.canonical_descriptions import (  # noqa: PLC0415 (keeps the descriptions dict off the registry import path)
             CANONICAL_DESCRIPTIONS,
         )
 

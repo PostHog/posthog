@@ -28,9 +28,7 @@ from tenacity import (
     wait_exponential_jitter,
 )
 
-from posthog.exceptions_capture import capture_exception
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_cloudwatch.settings import (
+from products.warehouse_sources.sources.amazon_cloudwatch.settings import (
     ALARMS_PAGE_SIZE,
     AMAZON_CLOUDWATCH_ENDPOINTS,
     LOG_EVENTS_PAGE_SIZE,
@@ -44,14 +42,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_clo
     AwsService,
     CloudWatchEndpointConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import NO_RETRY
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
+from products.warehouse_sources.sources.sdk import (
+    NO_RETRY,
+    ResumableSourceManager,
+    SourceResponse,
+    capture_exception,
     interruptible_wait,
+    make_tracked_session,
+    reach_safe_point,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import reach_safe_point
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 # (connect, read) seconds for one try.
 REQUEST_TIMEOUT = (10, 60)

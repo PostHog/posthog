@@ -5,19 +5,12 @@ import pytest
 
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.scrunch import (
-    ScrunchSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.scrunch import scrunch
-from products.warehouse_sources.backend.temporal.data_imports.sources.scrunch.scrunch import ScrunchResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.scrunch.settings import PERMISSION_ERROR
-from products.warehouse_sources.backend.temporal.data_imports.sources.scrunch.source import ScrunchSource
+from products.warehouse_sources.sources.scrunch import scrunch
+from products.warehouse_sources.sources.scrunch._config import ScrunchSourceConfig
+from products.warehouse_sources.sources.scrunch.scrunch import ScrunchResumeConfig
+from products.warehouse_sources.sources.scrunch.settings import PERMISSION_ERROR
+from products.warehouse_sources.sources.scrunch.source import ScrunchSource
+from products.warehouse_sources.sources.sdk.testing import DriveResult, ScriptedResponse, SourceDriver, scripted_network
 
 
 @pytest.fixture(autouse=True)

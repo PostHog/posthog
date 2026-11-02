@@ -1,38 +1,36 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sonarcloud import (
-    SonarCloudSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.sonar_cloud.settings import (
+from products.warehouse_sources.sources.sonar_cloud._config import SonarCloudSourceConfig
+from products.warehouse_sources.sources.sonar_cloud.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     REGION_HOSTS,
     SONAR_CLOUD_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.sonar_cloud.sonar_cloud import (
+from products.warehouse_sources.sources.sonar_cloud.sonar_cloud import (
     SonarCloudResumeConfig,
     sonar_cloud_source,
     validate_credentials as validate_sonar_cloud_credentials,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -99,9 +97,7 @@ Generate a **user token** under **My Account → Security** in SonarQube Cloud, 
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.sonar_cloud.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.sonar_cloud.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

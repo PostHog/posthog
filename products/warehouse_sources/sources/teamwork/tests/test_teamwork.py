@@ -5,19 +5,17 @@ import pytest
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.teamwork import (
-    TeamworkSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.teamwork.settings import TEAMWORK_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.teamwork.source import TeamworkSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.teamwork.teamwork import (
+from products.warehouse_sources.sources.teamwork._config import TeamworkSourceConfig
+from products.warehouse_sources.sources.teamwork.settings import TEAMWORK_ENDPOINTS
+from products.warehouse_sources.sources.teamwork.source import TeamworkSource
+from products.warehouse_sources.sources.teamwork.teamwork import (
     _format_updated_after,
     normalize_host,
     validate_credentials,

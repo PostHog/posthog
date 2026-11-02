@@ -1,7 +1,7 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.proofpoint_tap.proofpoint_tap import TapCursor
-from products.warehouse_sources.backend.temporal.data_imports.sources.proofpoint_tap.source import ProofpointTapSource
+from products.warehouse_sources.sources.proofpoint_tap.proofpoint_tap import TapCursor
+from products.warehouse_sources.sources.proofpoint_tap.source import ProofpointTapSource
 
 
 @pytest.mark.parametrize(

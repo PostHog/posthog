@@ -1,14 +1,7 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_athena.athena import (
+from products.warehouse_sources.sources.aws_athena._config import AwsAthenaSourceConfig
+from products.warehouse_sources.sources.aws_athena.athena import (
     ERROR_PREFIX,
     QUERY_ERROR_PREFIX,
     TABLE_NOT_FOUND,
@@ -18,13 +11,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_athena
     AthenaImplementation,
     validate_credentials as validate_athena_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsathena import (
-    AwsAthenaSourceConfig,
+from products.warehouse_sources.sources.sdk import (
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceRegistry,
+    SQLSource,
+    detect,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _ATHENA_IMPLEMENTATION = AthenaImplementation()
 

@@ -2,9 +2,7 @@ from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import quote
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.apify_dataset.settings import (
+from products.warehouse_sources.sources.apify_dataset.settings import (
     APIFY_BASE_URL,
     DATASET_ITEMS_ENDPOINT,
     PLATFORM_ENDPOINTS,
@@ -12,19 +10,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.apify_data
     USAGE_MONTHLY_ENDPOINT,
     ApifyPlatformEndpointConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from products.warehouse_sources.sources.sdk import (
+    EndpointResource,
     OffsetPaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
     SinglePagePaginator,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    rest_api_resource,
+    validate_via_probe,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 # Rows per request. Both /datasets/{id}/items and the platform list endpoints cap `limit` at 1000,
 # and they carry a high rate limit (~400 req/s), so a full page keeps the round-trip count down.

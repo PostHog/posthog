@@ -4,13 +4,8 @@ from typing import Any, cast
 import pytest
 from unittest.mock import MagicMock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.companycam.companycam import (
+from products.warehouse_sources.sources.companycam._config import CompanycamSourceConfig
+from products.warehouse_sources.sources.companycam.companycam import (
     CompanycamCursorPaginator,
     CompanycamResumeConfig,
     _to_iso8601,
@@ -18,10 +13,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.companycam
     get_resource,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.companycam.source import CompanycamSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.companycam import (
-    CompanycamSourceConfig,
-)
+from products.warehouse_sources.sources.companycam.source import CompanycamSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, route, scripted_network
 
 
 class TestCompanycamCursorPaginator:

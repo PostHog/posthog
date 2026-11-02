@@ -1,49 +1,42 @@
 from typing import Optional, cast
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-    SourceFieldSelectConfig,
-    SourceFieldSelectConfigOption,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.clover.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.clover.clover import (
+from products.warehouse_sources.sources.clover._config import CloverSourceConfig
+from products.warehouse_sources.sources.clover.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.clover.clover import (
     CloverResumeConfig,
     clover_source,
     endpoint_permissions as clover_endpoint_permissions,
     validate_credentials as validate_clover_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.clover.settings import (
+from products.warehouse_sources.sources.clover.settings import (
     CLOVER_ENDPOINTS,
     DEFAULT_REGION,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
+from products.warehouse_sources.sources.sdk import (
     AuthConfigBase,
     BearerTokenAuth,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
+    detect,
+    frozen,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clover import CloverSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _REGION_LABELS = {
     "na": "North America",

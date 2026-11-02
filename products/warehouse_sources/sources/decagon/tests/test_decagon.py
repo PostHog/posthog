@@ -8,15 +8,8 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.decagon.decagon import (
+from products.warehouse_sources.sources.decagon._config import DecagonSourceConfig
+from products.warehouse_sources.sources.decagon.decagon import (
     DECAGON_PAGE_SIZE,
     DecagonContractError,
     DecagonResumeConfig,
@@ -24,16 +17,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.decagon.de
     _to_epoch_seconds,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.decagon.settings import (
-    DECAGON_ENDPOINTS,
-    DecagonEndpointConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.decagon.source import DecagonSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.decagon import (
-    DecagonSourceConfig,
+from products.warehouse_sources.sources.decagon.settings import DECAGON_ENDPOINTS, DecagonEndpointConfig
+from products.warehouse_sources.sources.decagon.source import DecagonSource
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    error_message_matches,
+    scripted_network,
 )
 
-DECAGON_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.decagon.decagon"
+DECAGON_MODULE = "products.warehouse_sources.sources.decagon.decagon"
 
 
 def _driver() -> SourceDriver:

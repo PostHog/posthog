@@ -3,30 +3,25 @@ from typing import Any
 
 from requests import Request, Response
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.clevertap.settings import (
+from products.warehouse_sources.sources.clevertap._config import ClevertapSourceConfig
+from products.warehouse_sources.sources.clevertap.settings import (
     ENDPOINTS,
     EXCLUDED_EVENTS,
     PAGE_SIZE,
     REGIONS,
     RESPONSE_ACTIONS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from products.warehouse_sources.sources.sdk import (
     BasePaginator,
+    EndpointResource,
+    RESTAPIConfig,
+    ResumableSourceManager,
     SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clevertap import (
-    ClevertapSourceConfig,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    rest_api_resource,
+    schema_for_resource,
 )
 
 

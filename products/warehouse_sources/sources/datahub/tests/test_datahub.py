@@ -7,15 +7,9 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.datahub import datahub
-from products.warehouse_sources.backend.temporal.data_imports.sources.datahub.datahub import (
+from products.warehouse_sources.sources.datahub import datahub
+from products.warehouse_sources.sources.datahub._config import DatahubSourceConfig
+from products.warehouse_sources.sources.datahub.datahub import (
     PAGE_SIZE,
     DatahubHostNotAllowedError,
     DatahubResponseTooLargeError,
@@ -29,9 +23,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.datahub.da
     normalize_instance_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.datahub.source import DatahubSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.datahub import (
-    DatahubSourceConfig,
+from products.warehouse_sources.sources.datahub.source import DatahubSource
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
 )
 
 # Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.

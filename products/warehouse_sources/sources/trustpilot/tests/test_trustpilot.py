@@ -9,7 +9,7 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
     ScriptedResponse,
@@ -17,12 +17,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     UnexpectedRequest,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.trustpilot import (
-    TrustPilotSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.trustpilot.settings import MAX_PAGES, TOKEN_URL
-from products.warehouse_sources.backend.temporal.data_imports.sources.trustpilot.source import TrustPilotSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.trustpilot.trustpilot import (
+from products.warehouse_sources.sources.trustpilot._config import TrustPilotSourceConfig
+from products.warehouse_sources.sources.trustpilot.settings import MAX_PAGES, TOKEN_URL
+from products.warehouse_sources.sources.trustpilot.source import TrustPilotSource
+from products.warehouse_sources.sources.trustpilot.trustpilot import (
     TrustpilotAuthError,
     TrustpilotBusinessUnitError,
     TrustpilotPaginator,
@@ -35,9 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.trustpilot
     validate_credentials,
 )
 
-RESOLVE_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.trustpilot.trustpilot.resolve_business_unit_id"
-)
+RESOLVE_PATCH = "products.warehouse_sources.sources.trustpilot.trustpilot.resolve_business_unit_id"
 
 BUSINESS_UNIT_ID = "507f191e810c19729de860ea"
 
@@ -213,9 +209,7 @@ class TestMintAccessToken:
 
 
 class TestValidateCredentials:
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.trustpilot.trustpilot.mint_access_token"
-    )
+    @mock.patch("products.warehouse_sources.sources.trustpilot.trustpilot.mint_access_token")
     @mock.patch(RESOLVE_PATCH)
     def test_valid_credentials(self, mock_resolve, mock_mint) -> None:
         mock_resolve.return_value = BUSINESS_UNIT_ID

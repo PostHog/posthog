@@ -3,23 +3,17 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.quo._config import QuoSourceConfig
+from products.warehouse_sources.sources.quo.quo import QuoResumeConfig, validate_credentials
+from products.warehouse_sources.sources.quo.settings import QUO_API_VERSION_2026_03_30, QUO_API_VERSION_V1
+from products.warehouse_sources.sources.quo.source import QuoSource
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     Script,
     ScriptedResponse,
     SourceDriver,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.quo import QuoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.quo.quo import (
-    QuoResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.quo.settings import (
-    QUO_API_VERSION_2026_03_30,
-    QUO_API_VERSION_V1,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.quo.source import QuoSource
 
 WATERMARK = datetime(2026, 1, 1, tzinfo=UTC)
 WATERMARK_ISO = "2026-01-01T00:00:00+00:00"

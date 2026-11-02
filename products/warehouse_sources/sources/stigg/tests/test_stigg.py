@@ -3,23 +3,12 @@ from typing import Any, Optional
 from parameterized import parameterized
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stigg import StiggSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.stigg.settings import ENDPOINTS, STIGG_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.stigg.source import StiggSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.stigg.stigg import (
-    PAGE_SIZE,
-    StiggResumeConfig,
-    validate_credentials,
-)
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.stigg._config import StiggSourceConfig
+from products.warehouse_sources.sources.stigg.settings import ENDPOINTS, STIGG_ENDPOINTS
+from products.warehouse_sources.sources.stigg.source import StiggSource
+from products.warehouse_sources.sources.stigg.stigg import PAGE_SIZE, StiggResumeConfig, validate_credentials
 
 
 def _response(

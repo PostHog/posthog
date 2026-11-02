@@ -1,33 +1,28 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    SimpleSource,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.upstash import (
-    UpstashSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.upstash.settings import (
-    ENDPOINTS,
-    UPSTASH_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.upstash.upstash import (
+from products.warehouse_sources.sources.upstash._config import UpstashSourceConfig
+from products.warehouse_sources.sources.upstash.settings import ENDPOINTS, UPSTASH_ENDPOINTS
+from products.warehouse_sources.sources.upstash.upstash import (
     INVALID_CREDENTIALS_ERROR,
     upstash_source,
     validate_credentials as validate_upstash_credentials,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -94,9 +89,7 @@ Create a management API key in the [Upstash console](https://console.upstash.com
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.upstash.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.upstash.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

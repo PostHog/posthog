@@ -1,7 +1,7 @@
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.veeqo import VeeqoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.veeqo.source import VeeqoSource
+from products.warehouse_sources.sources.veeqo._config import VeeqoSourceConfig
+from products.warehouse_sources.sources.veeqo.source import VeeqoSource
 
 
 class TestVeeqoSourceNonRetryableErrors:

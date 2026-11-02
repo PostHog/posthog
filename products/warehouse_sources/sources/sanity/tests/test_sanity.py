@@ -5,13 +5,10 @@ import pytest
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sanity import SanitySourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.sanity.sanity import SanityResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.sanity.source import SanitySource
+from products.warehouse_sources.sources.sanity._config import SanitySourceConfig
+from products.warehouse_sources.sources.sanity.sanity import SanityResumeConfig
+from products.warehouse_sources.sources.sanity.source import SanitySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 def driver() -> SourceDriver:

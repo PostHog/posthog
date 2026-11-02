@@ -1,11 +1,8 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.linode import LinodeSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.linode.source import LinodeSource
+from products.warehouse_sources.sources.linode._config import LinodeSourceConfig
+from products.warehouse_sources.sources.linode.source import LinodeSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 class TestLinodeSourceClass:

@@ -5,21 +5,10 @@ import pytest
 from parameterized import parameterized
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.justsift import (
-    JustSiftSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.justsift.justsift import (
-    PAGE_SIZE,
-    JustSiftResumeConfig,
-    check_access,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.justsift.source import JustSiftSource
+from products.warehouse_sources.sources.justsift._config import JustSiftSourceConfig
+from products.warehouse_sources.sources.justsift.justsift import PAGE_SIZE, JustSiftResumeConfig, check_access
+from products.warehouse_sources.sources.justsift.source import JustSiftSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _response(items: list[dict[str, Any]] | None, *, total: int | None = None, status: int = 200) -> ScriptedResponse:

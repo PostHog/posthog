@@ -1,16 +1,10 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.bitbucket import BitbucketAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.source import BitbucketSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bitbucket import (
-    BitbucketAuthMethodConfig,
-    BitbucketSourceConfig,
-)
+from products.warehouse_sources.sources.bitbucket._config import BitbucketAuthMethodConfig, BitbucketSourceConfig
+from products.warehouse_sources.sources.bitbucket.bitbucket import BitbucketAuth
+from products.warehouse_sources.sources.bitbucket.source import BitbucketSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 def _config(
@@ -105,9 +99,7 @@ def test_source_for_pipeline_plumbs_arguments(should_use_incremental, last_value
     )
     manager = mock.Mock()
 
-    with mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.source.bitbucket_source"
-    ) as transport:
+    with mock.patch("products.warehouse_sources.sources.bitbucket.source.bitbucket_source") as transport:
         BitbucketSource().source_for_pipeline(_config(), manager, inputs)
 
     transport.assert_called_once_with(

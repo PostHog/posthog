@@ -13,35 +13,20 @@ from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from tenacity.nap import sleep as retry_sleep
 
-from posthog.dataclasses import frozen
-from posthog.exceptions_capture import capture_exception
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
+    ValidatedRowFilter,
+    capture_exception,
+    default_request_timeout,
+    frozen,
     make_tracked_session,
     retry_with_deadline,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import (
-    default_request_timeout,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import ValidatedRowFilter
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.constants import (
-    CREATED_AT,
-    ID,
-    resolve_schema_name,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.parallel import (
-    FetchedPage,
-    ReadWindow,
-    read_windows,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.settings import ENDPOINT_CONFIGS
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.utils import (
-    ShopifyGraphQLObject,
-    safe_unwrap,
-    unwrap,
-)
+from products.warehouse_sources.sources.shopify.constants import CREATED_AT, ID, resolve_schema_name
+from products.warehouse_sources.sources.shopify.parallel import FetchedPage, ReadWindow, read_windows
+from products.warehouse_sources.sources.shopify.settings import ENDPOINT_CONFIGS
+from products.warehouse_sources.sources.shopify.utils import ShopifyGraphQLObject, safe_unwrap, unwrap
 
 from .constants import (
     SHOPIFY_ACCESS_SCOPES_URL,

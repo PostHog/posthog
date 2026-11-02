@@ -1,13 +1,11 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.xendit import XenditSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.xendit.source import XenditSource
+from products.warehouse_sources.sources.xendit._config import XenditSourceConfig
+from products.warehouse_sources.sources.xendit.source import XenditSource
 
-VALIDATE_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.xendit.source.validate_xendit_credentials"
-)
-SOURCE_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.xendit.source.xendit_source"
+VALIDATE_PATCH = "products.warehouse_sources.sources.xendit.source.validate_xendit_credentials"
+SOURCE_PATCH = "products.warehouse_sources.sources.xendit.source.xendit_source"
 
 
 class TestXenditSource:

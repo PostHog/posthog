@@ -2,15 +2,10 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.superwall import (
-    SuperwallSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.superwall.source import SuperwallSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.superwall.superwall import SuperwallResumeConfig
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
+from products.warehouse_sources.sources.superwall._config import SuperwallSourceConfig
+from products.warehouse_sources.sources.superwall.source import SuperwallSource
+from products.warehouse_sources.sources.superwall.superwall import SuperwallResumeConfig
 
 
 def driver() -> SourceDriver:

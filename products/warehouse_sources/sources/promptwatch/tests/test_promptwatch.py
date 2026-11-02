@@ -8,31 +8,20 @@ from unittest.mock import patch
 
 from requests import HTTPError
 
-from posthog.temporal.common.errors import NonReportableError
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.promptwatch import (
-    PromptWatchSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.promptwatch.promptwatch import (
-    PromptWatchResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.promptwatch.settings import (
+from products.warehouse_sources.sources.promptwatch._config import PromptWatchSourceConfig
+from products.warehouse_sources.sources.promptwatch.promptwatch import PromptWatchResumeConfig, validate_credentials
+from products.warehouse_sources.sources.promptwatch.settings import (
     AUTH_ERROR,
     BASE_URL,
     MAX_PAGES,
     NON_RETRYABLE_ERRORS,
     QUOTA_ERROR,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.promptwatch.source import PromptWatchSource
+from products.warehouse_sources.sources.promptwatch.source import PromptWatchSource
+from products.warehouse_sources.sources.sdk import NonReportableError
+from products.warehouse_sources.sources.sdk.testing import DriveResult, ScriptedResponse, SourceDriver, scripted_network
 
-LOGGER_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.promptwatch.promptwatch.logger"
+LOGGER_PATCH = "products.warehouse_sources.sources.promptwatch.promptwatch.logger"
 
 
 @pytest.fixture

@@ -5,21 +5,17 @@ import pytest
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zendesksell import (
-    ZendeskSellSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sell.source import ZendeskSellSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sell.zendesk_sell import (
+from products.warehouse_sources.sources.zendesk_sell._config import ZendeskSellSourceConfig
+from products.warehouse_sources.sources.zendesk_sell.source import ZendeskSellSource
+from products.warehouse_sources.sources.zendesk_sell.zendesk_sell import (
     PER_PAGE,
     ZendeskSellResumeConfig,
     ZendeskSellUntrustedURLError,

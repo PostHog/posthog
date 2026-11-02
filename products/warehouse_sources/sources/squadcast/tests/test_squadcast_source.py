@@ -1,11 +1,11 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.squadcast.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.squadcast.source import SquadcastSource
-from products.warehouse_sources.backend.types import IncrementalFieldType
+from products.warehouse_sources.sources.sdk import IncrementalFieldType
+from products.warehouse_sources.sources.squadcast.settings import ENDPOINTS
+from products.warehouse_sources.sources.squadcast.source import SquadcastSource
 
-SQUADCAST_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.squadcast"
+SQUADCAST_MODULE = "products.warehouse_sources.sources.squadcast"
 
 
 class TestSquadcastSource:

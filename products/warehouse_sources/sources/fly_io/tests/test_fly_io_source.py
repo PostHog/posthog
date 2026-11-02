@@ -1,8 +1,8 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.fly_io.settings import FLY_IO_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.fly_io.source import FlyIoSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.flyio import FlyIoSourceConfig
+from products.warehouse_sources.sources.fly_io._config import FlyIoSourceConfig
+from products.warehouse_sources.sources.fly_io.settings import FLY_IO_ENDPOINTS
+from products.warehouse_sources.sources.fly_io.source import FlyIoSource
 
 
 def _config() -> FlyIoSourceConfig:

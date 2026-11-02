@@ -1,13 +1,8 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.concord.source import ConcordSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.concord import (
-    ConcordSourceConfig,
-)
+from products.warehouse_sources.sources.concord._config import ConcordSourceConfig
+from products.warehouse_sources.sources.concord.source import ConcordSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 class TestConcordSourceClass:

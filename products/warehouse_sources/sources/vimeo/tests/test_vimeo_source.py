@@ -1,13 +1,9 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vimeo import VimeoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.vimeo.settings import AUTH_ERROR, PERMISSION_ERROR
-from products.warehouse_sources.backend.temporal.data_imports.sources.vimeo.source import VimeoSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, always, scripted_network
+from products.warehouse_sources.sources.vimeo._config import VimeoSourceConfig
+from products.warehouse_sources.sources.vimeo.settings import AUTH_ERROR, PERMISSION_ERROR
+from products.warehouse_sources.sources.vimeo.source import VimeoSource
 
 
 @pytest.mark.parametrize(

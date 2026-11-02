@@ -4,16 +4,8 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rollbar import (
-    RollbarSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.rollbar.rollbar import (
+from products.warehouse_sources.sources.rollbar._config import RollbarSourceConfig
+from products.warehouse_sources.sources.rollbar.rollbar import (
     KEYSET_PAGE_SIZE,
     UNREACHABLE_MESSAGE,
     RollbarResumeConfig,
@@ -21,11 +13,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.rollbar.ro
     _to_int,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.rollbar.settings import (
-    ENDPOINTS,
-    ROLLBAR_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.rollbar.source import RollbarSource
+from products.warehouse_sources.sources.rollbar.settings import ENDPOINTS, ROLLBAR_ENDPOINTS
+from products.warehouse_sources.sources.rollbar.source import RollbarSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

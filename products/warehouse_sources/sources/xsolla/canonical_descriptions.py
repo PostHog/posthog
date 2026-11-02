@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 
 PAY_STATION_DOCS = "https://developers.xsolla.com/api/pay-station/"
 SUBSCRIPTIONS_DOCS = "https://developers.xsolla.com/api/subscriptions/"

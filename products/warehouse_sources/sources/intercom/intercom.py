@@ -8,33 +8,24 @@ import structlog
 from requests import Request, Response, Session
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+from products.warehouse_sources.sources.intercom.settings import INTERCOM_ENDPOINTS, IntercomEndpointConfig
+from products.warehouse_sources.sources.sdk import (
     DEFAULT_RETRY,
-    BoundedRetry,
-    make_tracked_session,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BaseNextUrlPaginator,
     BasePaginator,
+    BoundedRetry,
+    Endpoint,
+    EndpointResource,
     JSONResponseCursorPaginator,
     JSONResponsePaginator,
     PageNumberPaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
     SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-    Endpoint,
-    EndpointResource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.settings import (
-    INTERCOM_ENDPOINTS,
-    IntercomEndpointConfig,
+    SourceCursorManager,
+    SourceResponse,
+    make_tracked_session,
+    rest_api_resource,
 )
 
 INTERCOM_API_BASE = "https://api.intercom.io"

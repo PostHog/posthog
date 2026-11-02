@@ -4,8 +4,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.framer.source import FramerSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.framer import FramerSourceConfig
+from products.warehouse_sources.sources.framer._config import FramerSourceConfig
+from products.warehouse_sources.sources.framer.source import FramerSource
 
 
 def _config() -> FramerSourceConfig:
@@ -32,7 +32,7 @@ class TestFramerSource:
         sentinel = mock.MagicMock()
         inputs = _inputs("CollectionItems", api_version=api_version)
         with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.framer.source.framer_source",
+            "products.warehouse_sources.sources.framer.source.framer_source",
             return_value=sentinel,
         ) as factory:
             assert source.source_for_pipeline(_config(), inputs) is sentinel

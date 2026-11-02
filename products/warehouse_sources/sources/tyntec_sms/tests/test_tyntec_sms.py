@@ -2,7 +2,7 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     Script,
     ScriptedResponse,
@@ -10,20 +10,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tyntecsms import (
-    TyntecSMSSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.tyntec_sms.settings import (
+from products.warehouse_sources.sources.tyntec_sms._config import TyntecSMSSourceConfig
+from products.warehouse_sources.sources.tyntec_sms.settings import (
     MAX_REQUEST_IDS,
     MESSAGE_STATUS,
     PHONE_NUMBERS,
     PHONEBOOK_MAX_SIZE,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.tyntec_sms.source import TyntecSMSSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.tyntec_sms.tyntec_sms import (
-    parse_request_ids,
-    validate_credentials,
-)
+from products.warehouse_sources.sources.tyntec_sms.source import TyntecSMSSource
+from products.warehouse_sources.sources.tyntec_sms.tyntec_sms import parse_request_ids, validate_credentials
 
 
 def _make_http_response(body: dict[str, Any], status_code: int = 200) -> ScriptedResponse:

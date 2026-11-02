@@ -1,7 +1,7 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ruddr import RuddrSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.ruddr.source import RuddrSource
+from products.warehouse_sources.sources.ruddr._config import RuddrSourceConfig
+from products.warehouse_sources.sources.ruddr.source import RuddrSource
 
 
 class TestRuddrSource:
@@ -10,7 +10,7 @@ class TestRuddrSource:
         self.team_id = 123
         self.config = RuddrSourceConfig(api_key="ruddr-key")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.ruddr.source.validate_credentials")
+    @mock.patch("products.warehouse_sources.sources.ruddr.source.validate_credentials")
     def test_validate_credentials_delegates_with_api_key(self, mock_validate: mock.MagicMock) -> None:
         # The status-to-message mapping lives in ruddr.validate_credentials; here we only assert the
         # source probes with the configured key and returns the delegate's verdict unchanged.
@@ -19,7 +19,7 @@ class TestRuddrSource:
         mock_validate.assert_called_once_with("ruddr-key")
         assert result == (False, "Invalid Ruddr API key")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.ruddr.source.ruddr_source")
+    @mock.patch("products.warehouse_sources.sources.ruddr.source.ruddr_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "clients"

@@ -7,20 +7,10 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
-    IntegrationAccountListingError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.youtubeanalytics import (
-    YouTubeAnalyticsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_analytics.settings import (
+from products.warehouse_sources.sources.sdk import ERROR_TOKEN_REFRESH_FAILED, IntegrationAccountListingError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always
+from products.warehouse_sources.sources.youtube_analytics._config import YouTubeAnalyticsSourceConfig
+from products.warehouse_sources.sources.youtube_analytics.settings import (
     CHANNEL_DAILY,
     DEMOGRAPHICS,
     FULL_REFRESH_PRIMARY_KEYS,
@@ -29,14 +19,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_an
     TRAFFIC_SOURCE_DETAILS,
     YOUTUBE_ANALYTICS_REPORTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_analytics.source import (
-    YouTubeAnalyticsSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_analytics.youtube_analytics import (
-    YouTubeAnalyticsAuthError,
-)
+from products.warehouse_sources.sources.youtube_analytics.source import YouTubeAnalyticsSource
+from products.warehouse_sources.sources.youtube_analytics.youtube_analytics import YouTubeAnalyticsAuthError
 
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.youtube_analytics.source"
+MODULE = "products.warehouse_sources.sources.youtube_analytics.source"
 INTEGRATION_ID = 42
 
 

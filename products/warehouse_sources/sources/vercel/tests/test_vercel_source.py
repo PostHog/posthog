@@ -5,10 +5,10 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vercel import VercelSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.vercel import source as vercel_source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.source import VercelSource
+from products.warehouse_sources.sources.sdk import SourceInputs
+from products.warehouse_sources.sources.vercel import source as vercel_source_module
+from products.warehouse_sources.sources.vercel._config import VercelSourceConfig
+from products.warehouse_sources.sources.vercel.source import VercelSource
 
 
 def _source_inputs(schema_name: str, **overrides: Any) -> SourceInputs:

@@ -1,10 +1,7 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify import (
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
+from products.warehouse_sources.sources.shopify.shopify import (
     SHOPIFY_INVALID_STORE_ID_ERROR,
     _get_shopify_access_token,
     normalize_store_id,

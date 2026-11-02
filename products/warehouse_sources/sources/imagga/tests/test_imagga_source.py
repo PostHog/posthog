@@ -2,13 +2,10 @@ from base64 import b64encode
 
 import pytest
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.imagga import ImaggaSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.imagga.source import ImaggaSource
+from products.warehouse_sources.sources.imagga._config import ImaggaSourceConfig
+from products.warehouse_sources.sources.imagga.source import ImaggaSource
+from products.warehouse_sources.sources.sdk import SourceFieldInputConfig, SourceFieldInputConfigType
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 class TestImaggaSource:

@@ -2,24 +2,15 @@ import pytest
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.ding_connect.ding_connect import (
+from products.warehouse_sources.sources.ding_connect._config import DingConnectSourceConfig
+from products.warehouse_sources.sources.ding_connect.ding_connect import (
     DingConnectResumeConfig,
     _flatten_transfer_record,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.ding_connect.settings import (
-    DING_CONNECT_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.ding_connect.source import DingConnectSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dingconnect import (
-    DingConnectSourceConfig,
-)
+from products.warehouse_sources.sources.ding_connect.settings import DING_CONNECT_ENDPOINTS
+from products.warehouse_sources.sources.ding_connect.source import DingConnectSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver(api_key: str = "key") -> SourceDriver:

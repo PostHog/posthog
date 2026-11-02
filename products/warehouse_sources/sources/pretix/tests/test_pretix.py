@@ -7,14 +7,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pretix import PretixSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.pretix.pretix import (
+from products.warehouse_sources.sources.pretix._config import PretixSourceConfig
+from products.warehouse_sources.sources.pretix.pretix import (
     HOST_NOT_ALLOWED_ERROR,
     INVALID_ORGANIZER_ERROR,
     PretixHostNotAllowedError,
@@ -24,7 +18,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pretix.pre
     normalize_base_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.pretix.source import PretixSource
+from products.warehouse_sources.sources.pretix.source import PretixSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 IS_CLOUD_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.is_cloud"
 

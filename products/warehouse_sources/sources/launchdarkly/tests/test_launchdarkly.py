@@ -2,27 +2,17 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.launchdarkly import (
-    LaunchDarklySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.launchdarkly.launchdarkly import (
+from products.warehouse_sources.sources.launchdarkly._config import LaunchDarklySourceConfig
+from products.warehouse_sources.sources.launchdarkly.launchdarkly import (
     API_HOST,
     BASE_URL,
     LaunchDarklyResumeConfig,
     _resolve_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.launchdarkly.settings import (
-    ENDPOINTS,
-    LAUNCHDARKLY_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.launchdarkly.source import LaunchDarklySource
+from products.warehouse_sources.sources.launchdarkly.settings import ENDPOINTS, LAUNCHDARKLY_ENDPOINTS
+from products.warehouse_sources.sources.launchdarkly.source import LaunchDarklySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

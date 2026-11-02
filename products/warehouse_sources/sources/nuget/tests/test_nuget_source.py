@@ -1,7 +1,7 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.nuget import NugetSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.nuget.source import NugetSource
+from products.warehouse_sources.sources.nuget._config import NugetSourceConfig
+from products.warehouse_sources.sources.nuget.source import NugetSource
 
 
 class TestNugetSource:
@@ -10,9 +10,7 @@ class TestNugetSource:
         self.team_id = 123
         self.config = NugetSourceConfig(package_ids="Newtonsoft.Json, Serilog")
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.nuget.source.validate_nuget_connection"
-    )
+    @mock.patch("products.warehouse_sources.sources.nuget.source.validate_nuget_connection")
     def test_validate_credentials_surfaces_empty_package_list(self, mock_validate):
         mock_validate.side_effect = ValueError("Enter at least one NuGet package ID (comma-separated).")
 

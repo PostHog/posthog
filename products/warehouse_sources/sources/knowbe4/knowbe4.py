@@ -3,29 +3,23 @@ from typing import Any, cast
 
 from requests.exceptions import RequestException
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    build_dependent_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    BasePaginator,
-    PageNumberPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-    ClientConfig,
-    Endpoint,
-    EndpointResource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.knowbe4.settings import (
+from products.warehouse_sources.sources.knowbe4.settings import (
     KNOWBE4_ENDPOINTS,
     KNOWBE4_REGION_HOSTS,
     KnowBe4EndpointConfig,
+)
+from products.warehouse_sources.sources.sdk import (
+    BasePaginator,
+    ClientConfig,
+    Endpoint,
+    EndpointResource,
+    PageNumberPaginator,
+    RESTAPIConfig,
+    SinglePagePaginator,
+    SourceResponse,
+    build_dependent_resource,
+    make_tracked_session,
+    rest_api_resource,
 )
 
 

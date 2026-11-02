@@ -5,23 +5,11 @@ import pytest
 from parameterized import parameterized
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.huntr import HuntrSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.huntr.huntr import (
-    HuntrResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.huntr.settings import (
-    ENDPOINTS,
-    HUNTR_ENDPOINTS,
-    PAGE_SIZE,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.huntr.source import HuntrSource
+from products.warehouse_sources.sources.huntr._config import HuntrSourceConfig
+from products.warehouse_sources.sources.huntr.huntr import HuntrResumeConfig, validate_credentials
+from products.warehouse_sources.sources.huntr.settings import ENDPOINTS, HUNTR_ENDPOINTS, PAGE_SIZE
+from products.warehouse_sources.sources.huntr.source import HuntrSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _page(items: list[dict[str, Any]] | None, next_cursor: str | None = None) -> ScriptedResponse:

@@ -9,16 +9,9 @@ from unittest.mock import MagicMock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.payfit import PayFitSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.payfit import payfit
-from products.warehouse_sources.backend.temporal.data_imports.sources.payfit.payfit import (
+from products.warehouse_sources.sources.payfit import payfit
+from products.warehouse_sources.sources.payfit._config import PayFitSourceConfig
+from products.warehouse_sources.sources.payfit.payfit import (
     PAGE_SIZE,
     PAYFIT_BASE_URL,
     PayFitInvalidTokenError,
@@ -28,8 +21,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.payfit.pay
     get_company_id,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.payfit.settings import ENDPOINTS, PAYFIT_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.payfit.source import PayFitSource
+from products.warehouse_sources.sources.payfit.settings import ENDPOINTS, PAYFIT_ENDPOINTS
+from products.warehouse_sources.sources.payfit.source import PayFitSource
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
 
 # Call the undecorated functions so the tenacity retry/backoff wrappers don't slow failure-path tests.
 _fetch_page_unwrapped = payfit._fetch_page.__wrapped__  # type: ignore[attr-defined]

@@ -6,21 +6,10 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    Script,
-    ScriptedResponse,
-    SourceDriver,
-    always,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sonatypenexus import (
-    SonatypeNexusSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.sonatype_nexus.settings import (
-    ENDPOINTS,
-    SONATYPE_NEXUS_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.sonatype_nexus.sonatype_nexus import (
+from products.warehouse_sources.sources.sdk.testing import DriveResult, Script, ScriptedResponse, SourceDriver, always
+from products.warehouse_sources.sources.sonatype_nexus._config import SonatypeNexusSourceConfig
+from products.warehouse_sources.sources.sonatype_nexus.settings import ENDPOINTS, SONATYPE_NEXUS_ENDPOINTS
+from products.warehouse_sources.sources.sonatype_nexus.sonatype_nexus import (
     SonatypeNexusPaginationError,
     SonatypeNexusResponseTimeoutError,
     SonatypeNexusResponseTooLargeError,
@@ -30,9 +19,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sonatype_n
     _read_bounded,
     normalize_host,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.sonatype_nexus.source import SonatypeNexusSource
+from products.warehouse_sources.sources.sonatype_nexus.source import SonatypeNexusSource
 
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.sonatype_nexus.sonatype_nexus"
+_MODULE = "products.warehouse_sources.sources.sonatype_nexus.sonatype_nexus"
 
 # `_fetch_page` is wrapped by tenacity's @retry; call the underlying function directly so a
 # retryable status raises immediately instead of sleeping through the backoff schedule.

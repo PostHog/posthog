@@ -1,7 +1,6 @@
 from typing import Any, Literal, NotRequired, TypedDict
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, incremental_field
 
 API_BASE_URL = "https://api.ahrefs.com/v3"
 MAX_PAGE_ROWS = 100

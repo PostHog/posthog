@@ -13,8 +13,9 @@ import requests
 from parameterized import parameterized
 from tenacity import wait_none
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.cody import cody
-from products.warehouse_sources.backend.temporal.data_imports.sources.cody.cody import (
+from products.warehouse_sources.sources.cody import cody
+from products.warehouse_sources.sources.cody._config import CodySourceConfig
+from products.warehouse_sources.sources.cody.cody import (
     CodyCredentialsError,
     CodyResumeConfig,
     CodyRetryableError,
@@ -25,14 +26,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cody.cody 
     normalize_instance_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.cody.source import CodySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cody import CodySourceConfig
+from products.warehouse_sources.sources.cody.source import CodySource
+from products.warehouse_sources.sources.sdk import SourceResponse
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 CSV_BODY = "User Email,Chats,Completion Acceptance Rate (CAR%)\na@b.com,12,0.5\nc@d.com,3,0.25\n"
 

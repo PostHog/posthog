@@ -1,16 +1,8 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.azure_api_management.source import (
-    AzureApiManagementSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.azureapimanagement import (
-    AzureApiManagementSourceConfig,
-)
+from products.warehouse_sources.sources.azure_api_management._config import AzureApiManagementSourceConfig
+from products.warehouse_sources.sources.azure_api_management.source import AzureApiManagementSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, route, scripted_network
 
 TENANT = "11111111-1111-1111-1111-111111111111"
 WORKSPACE = "22222222-2222-2222-2222-222222222222"

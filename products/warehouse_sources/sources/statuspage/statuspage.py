@@ -5,22 +5,20 @@ from urllib.parse import urlencode
 import requests
 from requests import PreparedRequest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from products.warehouse_sources.sources.sdk import (
+    AuthConfigBase,
     ClientConfig,
+    PageNumberPaginator,
+    Resource,
+    ResponseAction,
     RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    make_tracked_session,
     rest_api_resource,
     rest_api_resources,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import AuthConfigBase
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    PageNumberPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ResponseAction
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.statuspage.settings import STATUSPAGE_ENDPOINTS
+from products.warehouse_sources.sources.statuspage.settings import STATUSPAGE_ENDPOINTS
 
 STATUSPAGE_BASE_URL = "https://api.statuspage.io/v1"
 # Every page-scoped endpoint fans out over the ids of this top-level listing.

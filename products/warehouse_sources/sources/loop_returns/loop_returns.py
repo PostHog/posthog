@@ -7,27 +7,7 @@ from urllib.parse import parse_qs, urlsplit
 from requests import Request, Response
 from requests.exceptions import RequestException
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-    rest_api_resources,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    rename_parent_fields,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    BasePaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-    Endpoint,
-    EndpointResource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.loop_returns.settings import (
+from products.warehouse_sources.sources.loop_returns.settings import (
     CURSOR_PAGE_SIZE,
     DEFAULT_BACKFILL_DAYS,
     DEFAULT_PAGE_SIZE,
@@ -36,6 +16,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.loop_retur
     MAX_BACKFILL_DAYS,
     MAX_WINDOW_DAYS,
     LoopReturnsEndpointConfig,
+)
+from products.warehouse_sources.sources.sdk import (
+    BasePaginator,
+    Endpoint,
+    EndpointResource,
+    Resource,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceResponse,
+    make_tracked_session,
+    rename_parent_fields,
+    rest_api_resource,
+    rest_api_resources,
 )
 
 logger = logging.getLogger(__name__)

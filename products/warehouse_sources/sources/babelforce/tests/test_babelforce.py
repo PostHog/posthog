@@ -4,26 +4,17 @@ from typing import Any, Optional
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.babelforce.babelforce import (
+from products.warehouse_sources.sources.babelforce._config import BabelforceSourceConfig
+from products.warehouse_sources.sources.babelforce.babelforce import (
     BabelforceResumeConfig,
     _base_url,
     _build_params,
     _to_epoch,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.babelforce.settings import (
-    BABELFORCE_ENDPOINTS,
-    ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.babelforce.source import BabelforceSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.babelforce import (
-    BabelforceSourceConfig,
-)
+from products.warehouse_sources.sources.babelforce.settings import BABELFORCE_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.sources.babelforce.source import BabelforceSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver() -> SourceDriver:
@@ -143,7 +134,7 @@ class TestPagination:
         assert [row["id"] for row in result.rows] == ["1"]
         assert len(result.requests) == 1
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.babelforce.babelforce.time")
+    @mock.patch("products.warehouse_sources.sources.babelforce.babelforce.time")
     def test_incremental_run_windows_the_query(self, mock_time: mock.MagicMock) -> None:
         mock_time.time.return_value = 1700000100
         result = _driver().run(

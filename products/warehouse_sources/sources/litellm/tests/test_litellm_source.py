@@ -3,21 +3,16 @@ from typing import Any
 import pytest
 from unittest.mock import patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
-    DATABASE_HOST_NOT_ALLOWED_ERROR,
-    HostNotAllowedError,
+from products.warehouse_sources.sources.litellm._config import LiteLLMSourceConfig
+from products.warehouse_sources.sources.litellm.source import LiteLLMSource
+from products.warehouse_sources.sources.sdk import DATABASE_HOST_NOT_ALLOWED_ERROR, HostNotAllowedError
+from products.warehouse_sources.sources.sdk.testing import (
     HostResolution,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.litellm import (
-    LiteLLMSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.litellm.source import LiteLLMSource
 
 
 class TestLiteLLMValidateCredentials:
@@ -49,7 +44,7 @@ class TestLiteLLMValidateCredentials:
         config = LiteLLMSourceConfig(base_url="https://proxy.example.com", api_key="sk-master")
         rejected = HostResolution(connect_host=None, error="Hosts with internal IP addresses are not allowed")
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.litellm.source.resolve_safe_host",
+            "products.warehouse_sources.sources.litellm.source.resolve_safe_host",
             return_value=rejected,
         ):
             result = SourceDriver(LiteLLMSource(), config).run("keys", [])

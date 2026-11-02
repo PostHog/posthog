@@ -3,7 +3,7 @@ from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.autumn.settings import (
+from products.warehouse_sources.sources.autumn.settings import (
     AUTUMN_API_VERSION_2_4_0,
     AUTUMN_BASE_URL,
     AUTUMN_ENDPOINTS,
@@ -11,26 +11,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.autumn.set
     PARTITION_BUCKET_MILLISECONDS,
     AutumnEndpointConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    RESTClient,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from products.warehouse_sources.sources.sdk import (
     BasePaginator,
-    JSONResponseCursorPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    BearerTokenAuth,
     Endpoint,
     EndpointResource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
+    JSONResponseCursorPaginator,
     PartitionMode,
+    RESTAPIConfig,
+    RESTClient,
+    ResumableSourceManager,
+    SinglePagePaginator,
     SourceResponse,
+    make_tracked_session,
+    rest_api_resource,
 )
 
 

@@ -1,29 +1,7 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-    SourceFieldSelectConfig,
-    SourceFieldSelectConfigOption,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
-    SourceSchema,
-    build_endpoint_schemas,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.microsoftclarity import (
-    MicrosoftClaritySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_clarity.microsoft_clarity import (
+from products.warehouse_sources.sources.microsoft_clarity._config import MicrosoftClaritySourceConfig
+from products.warehouse_sources.sources.microsoft_clarity.microsoft_clarity import (
     BASE_URL,
     INSIGHTS_PATH,
     TOKEN_INVALID_ERROR,
@@ -31,7 +9,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_
     microsoft_clarity_source,
     validate_credentials as validate_clarity_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_clarity.settings import (
+from products.warehouse_sources.sources.microsoft_clarity.settings import (
     APPEND_ONLY_ENDPOINTS,
     DEFAULT_NUM_OF_DAYS,
     DIMENSION_OPTIONS,
@@ -39,7 +17,25 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_
     INCREMENTAL_FIELDS,
     NO_DIMENSION,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    SimpleSource,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    build_endpoint_schemas,
+    detect,
+)
 
 
 def _dimension_options() -> list[SourceFieldSelectConfigOption]:
@@ -97,9 +93,7 @@ class MicrosoftClaritySource(SimpleSource[MicrosoftClaritySourceConfig]):
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_clarity.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.microsoft_clarity.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

@@ -2,24 +2,20 @@ from typing import Any, cast
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.digitalocean._config import DigitalOceanSourceConfig
+from products.warehouse_sources.sources.digitalocean.digitalocean import (
+    digitalocean_source,
+    get_resource,
+    validate_credentials,
+)
+from products.warehouse_sources.sources.digitalocean.settings import DIGITALOCEAN_ENDPOINTS
+from products.warehouse_sources.sources.digitalocean.source import DigitalOceanSource
+from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
     route,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.digitalocean import (
-    digitalocean_source,
-    get_resource,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.settings import (
-    DIGITALOCEAN_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.source import DigitalOceanSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.digitalocean import (
-    DigitalOceanSourceConfig,
 )
 
 

@@ -6,7 +6,8 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_organizations.aws_organizations import (
+from products.warehouse_sources.sources.aws_organizations._config import AwsOrganizationsSourceConfig
+from products.warehouse_sources.sources.aws_organizations.aws_organizations import (
     AwsOrganizationsClient,
     AwsOrganizationsError,
     AwsOrganizationsResumeConfig,
@@ -16,24 +17,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_organi
     probe_endpoint_permissions,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_organizations.settings import (
+from products.warehouse_sources.sources.aws_organizations.settings import (
     AWS_ORGANIZATIONS_ENDPOINTS,
     MAX_RESULTS,
     ORGANIZATIONS_ENDPOINT_URL,
     POLICY_FILTERS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_organizations.source import (
-    AwsOrganizationsSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.aws_organizations.source import AwsOrganizationsSource
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsorganizations import (
-    AwsOrganizationsSourceConfig,
 )
 
 ACCOUNTS = AWS_ORGANIZATIONS_ENDPOINTS["accounts"]

@@ -5,28 +5,24 @@ from urllib.parse import urlencode
 import structlog
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.jsonpath_utils import (
-    find_values,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    BasePaginator,
-    JSONResponseCursorPaginator,
-    PageNumberPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.rapid7_insightvm.settings import (
+from products.warehouse_sources.sources.rapid7_insightvm.settings import (
     API_BASE_PATH,
     PAGE_NUMBER_MAX_PAGE,
     RAPID7_INSIGHTVM_ENDPOINTS,
     REGION_HOSTS,
     Rapid7InsightvmEndpointConfig,
+)
+from products.warehouse_sources.sources.sdk import (
+    BasePaginator,
+    Endpoint,
+    JSONResponseCursorPaginator,
+    PageNumberPaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    find_values,
+    make_tracked_session,
+    rest_api_resource,
 )
 
 logger = structlog.get_logger(__name__)

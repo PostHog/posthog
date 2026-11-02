@@ -7,35 +7,29 @@ from typing import Any, Optional
 
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-    rest_api_resources,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    rename_parent_fields,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    BasePaginator,
-    JSONResponsePaginator,
-    OffsetPaginator,
-    set_json_param,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-    ClientConfig,
-    Endpoint,
-    EndpointResource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.prefect_cloud.settings import (
+from products.warehouse_sources.sources.prefect_cloud.settings import (
     EVENTS_FULL_REFRESH_SINCE,
     LOGS_MAX_OFFSET,
     PAGE_LIMIT,
     PREFECT_CLOUD_ENDPOINTS,
     PrefectCloudEndpointConfig,
+)
+from products.warehouse_sources.sources.sdk import (
+    BasePaginator,
+    ClientConfig,
+    Endpoint,
+    EndpointResource,
+    JSONResponsePaginator,
+    OffsetPaginator,
+    Resource,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    make_tracked_session,
+    rename_parent_fields,
+    rest_api_resource,
+    rest_api_resources,
+    set_json_param,
 )
 
 PREFECT_CLOUD_API_HOST = "api.prefect.cloud"

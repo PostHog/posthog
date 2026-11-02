@@ -3,20 +3,16 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.front.front import (
+from products.warehouse_sources.sources.front._config import FrontSourceConfig
+from products.warehouse_sources.sources.front.front import (
     FrontResumeConfig,
     _resolve_after_value,
     _to_unix_seconds,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.front.settings import FRONT_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.front.source import FrontSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.front import FrontSourceConfig
+from products.warehouse_sources.sources.front.settings import FRONT_ENDPOINTS
+from products.warehouse_sources.sources.front.source import FrontSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver() -> SourceDriver:

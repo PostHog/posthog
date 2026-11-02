@@ -3,20 +3,19 @@ from urllib.parse import urlsplit
 
 from requests import PreparedRequest, Request
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from products.warehouse_sources.sources.looker._config import LookerSourceConfig
+from products.warehouse_sources.sources.looker.settings import ENDPOINTS, PAGE_SIZE
+from products.warehouse_sources.sources.sdk import (
+    EndpointResource,
+    OAuth2Auth,
     RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    _is_host_safe,
+    frozen,
     rest_api_resource,
+    schema_for_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import OAuth2Auth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.looker import LookerSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.looker.settings import ENDPOINTS, PAGE_SIZE
 
 REQUEST_TIMEOUT = (10.0, 30.0)
 

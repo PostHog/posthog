@@ -4,18 +4,12 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.dataforseo import MAX_KEYWORDS
-from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.source import DataForSEOSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dataforseo import (
-    DataForSEOSourceConfig,
-)
+from products.warehouse_sources.sources.dataforseo._config import DataForSEOSourceConfig
+from products.warehouse_sources.sources.dataforseo.dataforseo import MAX_KEYWORDS
+from products.warehouse_sources.sources.dataforseo.source import DataForSEOSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, error_message_matches
 
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.source"
+MODULE = "products.warehouse_sources.sources.dataforseo.source"
 
 
 def _make_config(

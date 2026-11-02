@@ -1,15 +1,13 @@
 from collections.abc import Iterable
 from typing import Any, cast
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.boldsign.settings import BOLDSIGN_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+from products.warehouse_sources.sources.boldsign.settings import BOLDSIGN_ENDPOINTS
+from products.warehouse_sources.sources.sdk import (
+    ClientConfig,
+    SinglePagePaginator,
+    SourceResponse,
     build_dependent_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 
 def _client_config(base_url: str, api_key: str) -> ClientConfig:

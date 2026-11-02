@@ -12,16 +12,8 @@ import structlog
 from parameterized import parameterized
 from requests import HTTPError, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.etsy.etsy import (
+from products.warehouse_sources.sources.etsy._config import EtsySourceConfig
+from products.warehouse_sources.sources.etsy.etsy import (
     DAILY_QUOTA_EXHAUSTED_ERROR,
     ETSY_HISTORY_START,
     MAX_OFFSET,
@@ -35,14 +27,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.etsy.etsy 
     etsy_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.etsy.settings import (
-    ETSY_ENDPOINTS,
-    LISTING_STATES,
+from products.warehouse_sources.sources.etsy.settings import ETSY_ENDPOINTS, LISTING_STATES
+from products.warehouse_sources.sources.etsy.source import EtsySource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager
+from products.warehouse_sources.sources.sdk.testing import (
+    DriveResult,
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    route,
+    scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.etsy.source import EtsySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.etsy import EtsySourceConfig
 
-_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.etsy.etsy.make_tracked_session"
+_SESSION_PATCH = "products.warehouse_sources.sources.etsy.etsy.make_tracked_session"
 _API_KEY = "etsy-keystring-abcdef123456"
 _SHARED_SECRET = "etsy-shared-secret-abcdef123456"
 _REFRESH_TOKEN = "etsy-refresh-token-abcdef123456"

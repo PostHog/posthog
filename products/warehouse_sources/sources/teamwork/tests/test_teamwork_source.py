@@ -4,15 +4,11 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.teamwork import (
-    TeamworkSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.teamwork import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.teamwork.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.teamwork.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.teamwork.source import TeamworkSource
+from products.warehouse_sources.sources.teamwork import source as source_module
+from products.warehouse_sources.sources.teamwork._config import TeamworkSourceConfig
+from products.warehouse_sources.sources.teamwork.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.teamwork.settings import ENDPOINTS
+from products.warehouse_sources.sources.teamwork.source import TeamworkSource
 
 INCREMENTAL_ENDPOINTS = {"tasks", "tasklists", "milestones", "timelogs"}
 FULL_REFRESH_ENDPOINTS = {"projects", "people", "companies", "tags", "comments"}

@@ -1,7 +1,7 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.spotio import SpotIoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.spot_io.source import SpotIoSource
+from products.warehouse_sources.sources.spot_io._config import SpotIoSourceConfig
+from products.warehouse_sources.sources.spot_io.source import SpotIoSource
 
 
 class TestSpotIoSource:
@@ -10,7 +10,7 @@ class TestSpotIoSource:
         self.team_id = 123
         self.config = SpotIoSourceConfig(api_token="spot-token")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.spot_io.source.spot_io_source")
+    @mock.patch("products.warehouse_sources.sources.spot_io.source.spot_io_source")
     def test_source_for_pipeline_omits_watermark_when_not_incremental(
         self, mock_spot_io_source: mock.MagicMock
     ) -> None:

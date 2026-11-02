@@ -3,22 +3,15 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.apitally.apitally import (
+from products.warehouse_sources.sources.apitally._config import ApitallySourceConfig
+from products.warehouse_sources.sources.apitally.apitally import (
     _format_apitally_datetime,
     _incremental_window,
     get_resource,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.apitally.source import ApitallySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.apitally import (
-    ApitallySourceConfig,
-)
+from products.warehouse_sources.sources.apitally.source import ApitallySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

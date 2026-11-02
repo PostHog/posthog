@@ -5,9 +5,7 @@ Keyed by the endpoint names in `settings.py` `NEWSDATA_ENDPOINTS`, which match t
 `ExternalDataSchema.name` of a synced NewsData.io table. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 
 # The latest, archive, crypto, and market endpoints all return the same news-article shape.
 _ARTICLE_COLUMNS = {

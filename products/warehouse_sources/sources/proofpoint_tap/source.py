@@ -1,46 +1,40 @@
 from typing import cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import CursorSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
-    SourceSchema,
-    build_endpoint_schemas,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.proofpointtap import (
-    ProofpointTapSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.proofpoint_tap.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.proofpoint_tap.proofpoint_tap import (
+from products.warehouse_sources.sources.proofpoint_tap._config import ProofpointTapSourceConfig
+from products.warehouse_sources.sources.proofpoint_tap.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.proofpoint_tap.proofpoint_tap import (
     TapCursor,
     TapResumeState,
     parse_timestamp,
     proofpoint_tap_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.proofpoint_tap.settings import (
+from products.warehouse_sources.sources.proofpoint_tap.settings import (
     API_DOCS_URL,
     API_VERSION,
     AUTH_ERRORS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    CursorSource,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    build_endpoint_schemas,
+    detect,
+)
 
 
 @SourceRegistry.register

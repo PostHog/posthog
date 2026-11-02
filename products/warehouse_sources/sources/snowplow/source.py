@@ -2,38 +2,31 @@ from typing import Optional, cast
 
 import structlog
 
-from posthog.schema_enums import ProductKey
-
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ProductKey,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.snowplow import (
-    SnowplowSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.snowplow.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-    SNOWPLOW_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.snowplow.snowplow import (
+from products.warehouse_sources.sources.snowplow._config import SnowplowSourceConfig
+from products.warehouse_sources.sources.snowplow.settings import ENDPOINTS, INCREMENTAL_FIELDS, SNOWPLOW_ENDPOINTS
+from products.warehouse_sources.sources.snowplow.snowplow import (
     SnowplowResumeConfig,
     snowplow_source,
     validate_credentials as validate_snowplow_credentials,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -189,9 +182,7 @@ This connector talks to the standard BDP Console host (`console.snowplowanalytic
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.snowplow.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.snowplow.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

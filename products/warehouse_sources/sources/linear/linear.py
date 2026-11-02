@@ -5,16 +5,17 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from posthog.exceptions_capture import capture_exception
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.linear.queries import QUERIES, VIEWER_QUERY
-from products.warehouse_sources.backend.temporal.data_imports.sources.linear.settings import (
+from products.warehouse_sources.sources.linear.queries import QUERIES, VIEWER_QUERY
+from products.warehouse_sources.sources.linear.settings import (
     LINEAR_API_URL,
     LINEAR_DEFAULT_PAGE_SIZE,
     LINEAR_ENDPOINTS,
+)
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
+    capture_exception,
+    make_tracked_session,
 )
 
 # Linear's edge returns short bursts of 5xx/429 that clear within a minute or two, so

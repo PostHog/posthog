@@ -3,25 +3,17 @@ from typing import Any
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.semgrep import (
-    SemgrepSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.semgrep.semgrep import (
-    SemgrepResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.semgrep.settings import (
-    ENDPOINTS,
-    SEMGREP_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.semgrep.source import SemgrepSource
+from products.warehouse_sources.sources.semgrep._config import SemgrepSourceConfig
+from products.warehouse_sources.sources.semgrep.semgrep import SemgrepResumeConfig, validate_credentials
+from products.warehouse_sources.sources.semgrep.settings import ENDPOINTS, SEMGREP_ENDPOINTS
+from products.warehouse_sources.sources.semgrep.source import SemgrepSource
 
 DEPLOYMENT = {"id": 123, "slug": "my-org", "name": "My Org"}
 

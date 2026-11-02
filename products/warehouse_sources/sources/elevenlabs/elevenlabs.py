@@ -5,27 +5,20 @@ from typing import Any, Optional, cast
 
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    FanoutEndpointLike,
-    build_dependent_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from products.warehouse_sources.sources.elevenlabs.settings import ELEVENLABS_ENDPOINTS, ElevenLabsEndpointConfig
+from products.warehouse_sources.sources.sdk import (
     BasePaginator,
+    ClientConfig,
+    FanoutEndpointLike,
     PageNumberPaginator,
+    Resource,
+    RESTAPIConfig,
+    ResumableSourceManager,
     SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.elevenlabs.settings import (
-    ELEVENLABS_ENDPOINTS,
-    ElevenLabsEndpointConfig,
+    SourceResponse,
+    build_dependent_resource,
+    make_tracked_session,
+    rest_api_resource,
 )
 
 ELEVENLABS_BASE_URL = "https://api.elevenlabs.io"

@@ -6,7 +6,8 @@ from unittest import mock
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.braze.braze import (
+from products.warehouse_sources.sources.braze._config import BrazeSourceConfig
+from products.warehouse_sources.sources.braze.braze import (
     BrazeHostNotAllowedError,
     BrazeResumeConfig,
     _canvas_series_rows,
@@ -16,25 +17,24 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.braze.braz
     _series_windows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.braze.settings import (
+from products.warehouse_sources.sources.braze.settings import (
     BRAZE_DATA_SERIES_ENDPOINTS,
     BRAZE_DETAILS_ENDPOINTS,
     BRAZE_ENDPOINTS,
     DATA_SERIES_HISTORY_DAYS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.braze.source import BrazeSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.braze.source import BrazeSource
+from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
     route,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.braze import BrazeSourceConfig
 
 BASE_URL = "https://rest.iad-01.braze.com"
 
-HOST_SAFE_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.braze.braze._is_host_safe"
+HOST_SAFE_PATCH = "products.warehouse_sources.sources.braze.braze._is_host_safe"
 
 
 def _driver(url: str = BASE_URL) -> SourceDriver:

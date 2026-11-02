@@ -2,8 +2,8 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk import UnknownResourceError
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     Script,
     ScriptedResponse,
@@ -11,13 +11,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ticketmaster import (
-    TicketmasterSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.ticketmaster.source import TicketmasterSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.ticketmaster.ticketmaster import (
-    validate_credentials,
-)
+from products.warehouse_sources.sources.ticketmaster._config import TicketmasterSourceConfig
+from products.warehouse_sources.sources.ticketmaster.source import TicketmasterSource
+from products.warehouse_sources.sources.ticketmaster.ticketmaster import validate_credentials
 
 UNREACHABLE_MESSAGE = "Couldn't reach Ticketmaster to check your credentials. Try again in a few minutes."
 

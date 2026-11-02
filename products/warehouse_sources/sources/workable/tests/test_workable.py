@@ -6,19 +6,17 @@ import pytest
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
     route,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.workable import (
-    WorkableSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.workable.settings import WORKABLE_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.workable.source import WorkableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.workable.workable import (
+from products.warehouse_sources.sources.workable._config import WorkableSourceConfig
+from products.warehouse_sources.sources.workable.settings import WORKABLE_ENDPOINTS
+from products.warehouse_sources.sources.workable.source import WorkableSource
+from products.warehouse_sources.sources.workable.workable import (
     WorkableResumeConfig,
     _format_datetime,
     _sort_mode_for,

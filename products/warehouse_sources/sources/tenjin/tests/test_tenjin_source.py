@@ -3,14 +3,11 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tenjin import TenjinSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.tenjin.source import TenjinSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.tenjin.tenjin import (
-    TenjinCredentialsError,
-    TenjinRetryableError,
-)
+from products.warehouse_sources.sources.tenjin._config import TenjinSourceConfig
+from products.warehouse_sources.sources.tenjin.source import TenjinSource
+from products.warehouse_sources.sources.tenjin.tenjin import TenjinCredentialsError, TenjinRetryableError
 
-_SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.tenjin.source"
+_SOURCE_MODULE = "products.warehouse_sources.sources.tenjin.source"
 
 
 class TestTenjinSource:

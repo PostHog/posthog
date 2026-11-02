@@ -1,12 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jfrogartifactory import (
-    JfrogArtifactorySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.jfrog_artifactory.source import (
-    JfrogArtifactorySource,
-)
+from products.warehouse_sources.sources.jfrog_artifactory._config import JfrogArtifactorySourceConfig
+from products.warehouse_sources.sources.jfrog_artifactory.source import JfrogArtifactorySource
 
 
 class TestJfrogArtifactorySource:
@@ -33,9 +29,7 @@ class TestJfrogArtifactorySource:
             ((False, None), None, False, "Could not connect"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.jfrog_artifactory.source.probe_endpoint"
-    )
+    @mock.patch("products.warehouse_sources.sources.jfrog_artifactory.source.probe_endpoint")
     @mock.patch.object(JfrogArtifactorySource, "is_database_host_valid")
     def test_validate_credentials(
         self, mock_host_valid, mock_probe, probe_return, schema_name, expected_valid, expected_message_part
@@ -82,9 +76,7 @@ class TestJfrogArtifactorySource:
             ((False, None), "builds", None),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.jfrog_artifactory.source.probe_endpoint"
-    )
+    @mock.patch("products.warehouse_sources.sources.jfrog_artifactory.source.probe_endpoint")
     def test_get_endpoint_permissions(self, mock_probe, probe_return, endpoint, expected_reason_part):
         mock_probe.return_value = probe_return
 
@@ -95,9 +87,7 @@ class TestJfrogArtifactorySource:
         else:
             assert expected_reason_part in (permissions[endpoint] or "")
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.jfrog_artifactory.source.jfrog_artifactory_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.jfrog_artifactory.source.jfrog_artifactory_source")
     @mock.patch.object(JfrogArtifactorySource, "is_database_host_valid")
     def test_source_for_pipeline_plumbs_arguments(self, mock_host_valid, mock_source_fn):
         mock_host_valid.return_value = (True, None)
@@ -119,9 +109,7 @@ class TestJfrogArtifactorySource:
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00+00:00"
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.jfrog_artifactory.source.jfrog_artifactory_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.jfrog_artifactory.source.jfrog_artifactory_source")
     @mock.patch.object(JfrogArtifactorySource, "is_database_host_valid")
     def test_source_for_pipeline_omits_cursor_when_not_incremental(self, mock_host_valid, mock_source_fn):
         mock_host_valid.return_value = (True, None)

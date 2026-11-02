@@ -1,7 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.infisical import (
-    InfisicalSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.infisical.source import InfisicalSource
+from products.warehouse_sources.sources.infisical._config import InfisicalSourceConfig
+from products.warehouse_sources.sources.infisical.source import InfisicalSource
 
 
 class TestInfisicalSource:

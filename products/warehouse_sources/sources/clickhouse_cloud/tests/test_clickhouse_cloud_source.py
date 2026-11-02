@@ -2,17 +2,9 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse_cloud.source import (
-    ClickhouseCloudSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clickhousecloud import (
-    ClickhouseCloudSourceConfig,
-)
+from products.warehouse_sources.sources.clickhouse_cloud._config import ClickhouseCloudSourceConfig
+from products.warehouse_sources.sources.clickhouse_cloud.source import ClickhouseCloudSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 class TestClickhouseCloudSchemas:

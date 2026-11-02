@@ -1,33 +1,31 @@
 import re
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.freshcaller.freshcaller import (
+from products.warehouse_sources.sources.freshcaller._config import FreshcallerSourceConfig
+from products.warehouse_sources.sources.freshcaller.freshcaller import (
     FreshcallerResumeConfig,
     freshcaller_source,
     normalize_subdomain,
     validate_credentials as validate_freshcaller_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.freshcaller.settings import FRESHCALLER_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.freshcaller import (
-    FreshcallerSourceConfig,
+from products.warehouse_sources.sources.freshcaller.settings import FRESHCALLER_ENDPOINTS
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    detect,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # This first cut covers Freshcaller's top-level v1 list endpoints (Users, Teams, User Statuses,
 # Calls, Call Metrics). Account-level data export is an asynchronous request/poll job rather than a list
@@ -62,9 +60,7 @@ class FreshcallerSource(ResumableSource[FreshcallerSourceConfig, FreshcallerResu
         return ["subdomain"]
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.freshcaller.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.freshcaller.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

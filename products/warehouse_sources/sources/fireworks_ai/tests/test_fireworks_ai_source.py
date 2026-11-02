@@ -1,14 +1,8 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.fireworks_ai.source import FireworksAISource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fireworksai import (
-    FireworksAISourceConfig,
-)
+from products.warehouse_sources.sources.fireworks_ai._config import FireworksAISourceConfig
+from products.warehouse_sources.sources.fireworks_ai.source import FireworksAISource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, always, scripted_network
 
 
 def _config(api_key: str = "fw_test", account_id: str = "my-account") -> FireworksAISourceConfig:

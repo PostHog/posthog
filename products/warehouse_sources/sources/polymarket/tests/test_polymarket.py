@@ -2,21 +2,11 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.polymarket import (
-    PolymarketSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.polymarket.polymarket import (
-    PolymarketResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.polymarket.settings import POLYMARKET_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.polymarket.source import PolymarketSource
+from products.warehouse_sources.sources.polymarket._config import PolymarketSourceConfig
+from products.warehouse_sources.sources.polymarket.polymarket import PolymarketResumeConfig, validate_credentials
+from products.warehouse_sources.sources.polymarket.settings import POLYMARKET_ENDPOINTS
+from products.warehouse_sources.sources.polymarket.source import PolymarketSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

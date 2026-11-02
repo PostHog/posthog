@@ -5,22 +5,12 @@ from unittest import mock
 from parameterized import parameterized
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.n8n import N8nSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.n8n.n8n import (
-    N8nResumeConfig,
-    _build_url,
-    normalize_host,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.n8n.source import N8nSource
+from products.warehouse_sources.sources.n8n._config import N8nSourceConfig
+from products.warehouse_sources.sources.n8n.n8n import N8nResumeConfig, _build_url, normalize_host, validate_credentials
+from products.warehouse_sources.sources.n8n.source import N8nSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.n8n.n8n"
+_MODULE = "products.warehouse_sources.sources.n8n.n8n"
 
 
 def _response(

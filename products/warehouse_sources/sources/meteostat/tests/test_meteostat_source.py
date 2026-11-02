@@ -1,17 +1,9 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.meteostat import (
-    MeteostatSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.meteostat.settings import (
-    MAX_STATIONS,
-    POINT_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.meteostat.source import MeteostatSource
+from products.warehouse_sources.sources.meteostat._config import MeteostatSourceConfig
+from products.warehouse_sources.sources.meteostat.settings import MAX_STATIONS, POINT_ENDPOINTS
+from products.warehouse_sources.sources.meteostat.source import MeteostatSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 class TestMeteostatSource:

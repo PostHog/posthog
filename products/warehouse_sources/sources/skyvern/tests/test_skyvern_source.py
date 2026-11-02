@@ -1,4 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.skyvern.source import SkyvernSource
+from products.warehouse_sources.sources.skyvern.source import SkyvernSource
 
 
 class TestSkyvernSource:

@@ -5,28 +5,18 @@ import pytest
 from parameterized import parameterized
 from requests.exceptions import ConnectionError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    BasePaginator,
-    PageNumberPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.knowbe4._config import Knowbe4SourceConfig
+from products.warehouse_sources.sources.knowbe4.knowbe4 import build_base_url, get_resource, validate_credentials
+from products.warehouse_sources.sources.knowbe4.settings import KNOWBE4_ENDPOINTS
+from products.warehouse_sources.sources.knowbe4.source import Knowbe4Source
+from products.warehouse_sources.sources.sdk import BasePaginator, PageNumberPaginator, SinglePagePaginator
+from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
     route,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.knowbe4 import (
-    Knowbe4SourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.knowbe4.knowbe4 import (
-    build_base_url,
-    get_resource,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.knowbe4.settings import KNOWBE4_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.knowbe4.source import Knowbe4Source
 
 
 class TestKnowBe4Transport:

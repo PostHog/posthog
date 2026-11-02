@@ -5,17 +5,17 @@ from typing import Any
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.square import SquareSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.square.settings import SQUARE_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.square.source import SquareSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.square.square import (
+from products.warehouse_sources.sources.square._config import SquareSourceConfig
+from products.warehouse_sources.sources.square.settings import SQUARE_ENDPOINTS
+from products.warehouse_sources.sources.square.source import SquareSource
+from products.warehouse_sources.sources.square.square import (
     MAX_CURSOR_RESTARTS,
     SQUARE_API_VERSION_2026_09_16,
     SQUARE_API_VERSION_V2,

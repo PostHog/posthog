@@ -3,21 +3,14 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.cloudzero import (
+from products.warehouse_sources.sources.cloudzero._config import CloudzeroSourceConfig
+from products.warehouse_sources.sources.cloudzero.cloudzero import (
     CloudzeroResumeConfig,
     _rolling_incremental_start_date,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.source import CloudzeroSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cloudzero import (
-    CloudzeroSourceConfig,
-)
+from products.warehouse_sources.sources.cloudzero.source import CloudzeroSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 class TestRollingIncrementalStartDate:

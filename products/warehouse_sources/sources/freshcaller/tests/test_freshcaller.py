@@ -5,21 +5,15 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.freshcaller.freshcaller import (
+from products.warehouse_sources.sources.freshcaller._config import FreshcallerSourceConfig
+from products.warehouse_sources.sources.freshcaller.freshcaller import (
     FreshcallerResumeConfig,
     _format_datetime,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.freshcaller.settings import DEFAULT_START_DATETIME
-from products.warehouse_sources.backend.temporal.data_imports.sources.freshcaller.source import FreshcallerSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.freshcaller import (
-    FreshcallerSourceConfig,
-)
+from products.warehouse_sources.sources.freshcaller.settings import DEFAULT_START_DATETIME
+from products.warehouse_sources.sources.freshcaller.source import FreshcallerSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver() -> SourceDriver:

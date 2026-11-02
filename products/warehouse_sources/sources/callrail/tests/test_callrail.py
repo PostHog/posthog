@@ -4,26 +4,16 @@ from typing import Any
 import pytest
 import time_machine
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.callrail.callrail import (
+from products.warehouse_sources.sources.callrail._config import CallRailSourceConfig
+from products.warehouse_sources.sources.callrail.callrail import (
     CallRailResumeConfig,
     _format_start_date,
     resolve_account_id,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.callrail.settings import (
-    CALLRAIL_ENDPOINTS,
-    ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.callrail.source import CallRailSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.callrail import (
-    CallRailSourceConfig,
-)
+from products.warehouse_sources.sources.callrail.settings import CALLRAIL_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.sources.callrail.source import CallRailSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver(account_id: str | None = "ACC") -> SourceDriver:

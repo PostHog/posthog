@@ -5,31 +5,27 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aviationstack.aviationstack import (
+from products.warehouse_sources.sources.aviationstack._config import AviationstackSourceConfig
+from products.warehouse_sources.sources.aviationstack.aviationstack import (
     AviationstackResumeConfig,
     build_request_plan,
     parse_iata_codes,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aviationstack.settings import (
+from products.warehouse_sources.sources.aviationstack.settings import (
     AVIATIONSTACK_ENDPOINTS,
     FLIGHTS_FUTURE_FIRST_DAY_AHEAD,
     FLIGHTS_FUTURE_MAX_DAYS,
     MAX_AIRPORTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aviationstack.source import AviationstackSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.aviationstack.source import AviationstackSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.aviationstack import (
-    AviationstackSourceConfig,
 )
 
 

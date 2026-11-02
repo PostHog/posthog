@@ -1,4 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.apify_dataset.source import ApifyDatasetSource
+from products.warehouse_sources.sources.apify_dataset.source import ApifyDatasetSource
 
 
 class TestApifyDatasetSource:

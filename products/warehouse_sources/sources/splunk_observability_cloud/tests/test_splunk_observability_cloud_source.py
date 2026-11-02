@@ -1,13 +1,6 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.splunkobservabilitycloud import (
-    SplunkObservabilityCloudSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.splunk_observability_cloud.source import (
-    SplunkObservabilityCloudSource,
-)
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
+from products.warehouse_sources.sources.splunk_observability_cloud._config import SplunkObservabilityCloudSourceConfig
+from products.warehouse_sources.sources.splunk_observability_cloud.source import SplunkObservabilityCloudSource
 
 
 class TestSplunkObservabilityCloudSource:

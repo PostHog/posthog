@@ -1,27 +1,15 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.conekta.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.conekta.conekta import ConektaResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.conekta.settings import (
-    API_VERSION,
-    CONEKTA_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.conekta.source import ConektaSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.conekta import (
-    ConektaSourceConfig,
-)
+from products.warehouse_sources.sources.conekta._config import ConektaSourceConfig
+from products.warehouse_sources.sources.conekta.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.conekta.conekta import ConektaResumeConfig
+from products.warehouse_sources.sources.conekta.settings import API_VERSION, CONEKTA_ENDPOINTS
+from products.warehouse_sources.sources.conekta.source import ConektaSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
-API_CLIENT_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.conekta.source.api_client"
+API_CLIENT_PATCH = "products.warehouse_sources.sources.conekta.source.api_client"
 
 
 class TestConektaSource:

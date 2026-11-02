@@ -2,16 +2,11 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.glassfrog import (
-    GlassfrogSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.glassfrog import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.glassfrog.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.glassfrog.source import GlassfrogSource
+from products.warehouse_sources.sources.glassfrog import source as source_module
+from products.warehouse_sources.sources.glassfrog._config import GlassfrogSourceConfig
+from products.warehouse_sources.sources.glassfrog.settings import ENDPOINTS
+from products.warehouse_sources.sources.glassfrog.source import GlassfrogSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 def _config() -> GlassfrogSourceConfig:

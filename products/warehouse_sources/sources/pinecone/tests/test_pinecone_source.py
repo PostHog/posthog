@@ -4,10 +4,8 @@ import responses
 from parameterized import parameterized
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pinecone import (
-    PineconeSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.pinecone.source import PineconeSource
+from products.warehouse_sources.sources.pinecone._config import PineconeSourceConfig
+from products.warehouse_sources.sources.pinecone.source import PineconeSource
 
 
 class TestPineconeCredentials(SimpleTestCase):

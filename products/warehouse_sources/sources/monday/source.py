@@ -1,35 +1,32 @@
 from datetime import date
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
-    FieldType,
-    SimpleSource,
-    VersionDeprecation,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.monday import MondaySourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.monday.monday import (
+from products.warehouse_sources.sources.monday._config import MondaySourceConfig
+from products.warehouse_sources.sources.monday.monday import (
     MONDAY_VERSION_2026_07,
     MONDAY_VERSION_2026_10,
     MONDAY_VERSION_V2,
     monday_source,
     validate_credentials as validate_monday_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.monday.settings import ENDPOINTS, MONDAY_ENDPOINTS
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.sources.monday.settings import ENDPOINTS, MONDAY_ENDPOINTS
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    SimpleSource,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    VersionDeprecation,
+    detect,
+)
 
 
 @SourceRegistry.register
@@ -99,9 +96,7 @@ You can find your personal API token in monday.com under your avatar > Developer
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.monday.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.monday.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

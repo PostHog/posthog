@@ -3,31 +3,25 @@ from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.bigcommerce.settings import (
+from products.warehouse_sources.sources.bigcommerce.settings import (
     ENDPOINT_PATHS,
     INCREMENTAL_FILTERS,
     UNPAGINATED_ENDPOINTS,
     V2_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import (
-    create_response_hooks,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    PageNumberPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+from products.warehouse_sources.sources.sdk import (
+    APIKeyAuth,
     Endpoint,
     EndpointResource,
+    PageNumberPaginator,
+    RESTAPIConfig,
+    RESTClient,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    create_response_hooks,
+    make_tracked_session,
+    rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 BASE_URL = "https://api.bigcommerce.com"
 # BigCommerce caps `limit` at 250 on both the V3 catalog/customers collections and the

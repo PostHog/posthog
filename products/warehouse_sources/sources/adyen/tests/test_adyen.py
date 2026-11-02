@@ -9,8 +9,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.adyen import adyen as adyen_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.adyen.adyen import (
+from products.warehouse_sources.sources.adyen import adyen as adyen_module
+from products.warehouse_sources.sources.adyen.adyen import (
     MAX_CONSECUTIVE_MISSING_BATCHES,
     MAX_WINDOW_DAYS,
     PAGE_SIZE,
@@ -31,8 +31,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.adyen.adye
     resolve_environment,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.adyen.settings import ADYEN_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.sources.adyen.settings import ADYEN_ENDPOINTS
+from products.warehouse_sources.sources.sdk import ResumableSourceManager
 
 
 class _FakeRaw:

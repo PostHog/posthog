@@ -5,25 +5,23 @@ import time_machine
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
+from products.warehouse_sources.sources.phyllo._config import PhylloSourceConfig
+from products.warehouse_sources.sources.phyllo.phyllo import (
+    PAGE_SIZE,
+    PhylloResumeConfig,
+    get_base_url,
+    validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.phyllo.settings import ENDPOINTS, PHYLLO_ENDPOINTS
+from products.warehouse_sources.sources.phyllo.source import PhylloSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
     route,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.phyllo import PhylloSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.phyllo.phyllo import (
-    PAGE_SIZE,
-    PhylloResumeConfig,
-    get_base_url,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.phyllo.settings import ENDPOINTS, PHYLLO_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.phyllo.source import PhylloSource
 
 
 def _driver() -> SourceDriver:

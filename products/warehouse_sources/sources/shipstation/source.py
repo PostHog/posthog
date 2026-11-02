@@ -1,43 +1,36 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
-    FieldType,
-    ResumableSource,
-    VersionDeprecation,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
+    VersionDeprecation,
     build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shipstation import (
-    ShipStationSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.shipstation.settings import (
+from products.warehouse_sources.sources.shipstation._config import ShipStationSourceConfig
+from products.warehouse_sources.sources.shipstation.settings import (
     SHIPSTATION_DEFAULT_VERSION,
     SHIPSTATION_SUPPORTED_VERSIONS,
     SHIPSTATION_V1,
     schema_catalog_for_version,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.shipstation.shipstation import (
+from products.warehouse_sources.sources.shipstation.shipstation import (
     ShipStationResumeConfig,
     shipstation_source,
     validate_credentials as validate_shipstation_credentials,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -59,9 +52,7 @@ class ShipStationSource(ResumableSource[ShipStationSourceConfig, ShipStationResu
         return ExternalDataSourceType.SHIPSTATION
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.shipstation.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.shipstation.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

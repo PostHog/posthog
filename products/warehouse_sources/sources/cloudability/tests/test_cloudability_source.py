@@ -1,15 +1,8 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.cloudability.source import CloudabilitySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cloudability import (
-    CloudabilitySourceConfig,
-)
+from products.warehouse_sources.sources.cloudability._config import CloudabilitySourceConfig
+from products.warehouse_sources.sources.cloudability.source import CloudabilitySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 class TestCloudabilitySource:

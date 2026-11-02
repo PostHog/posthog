@@ -8,14 +8,8 @@ import pyarrow as pa
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
-    append_partition_key_to_table,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.checkout_com import (
-    CheckoutComResumeConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.payments import (
+from products.warehouse_sources.sources.checkout_com.checkout_com import CheckoutComResumeConfig
+from products.warehouse_sources.sources.checkout_com.payments import (
     FINANCIAL_ACTIONS_UNAVAILABLE_MARKER,
     SYNC_BUDGET_EXCEEDED_MARKER,
     UNRESOLVED_REFERENCES_MARKER,
@@ -24,18 +18,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_c
     CheckoutComUnresolvedReferencesError,
     checkout_com_payments_source,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.sources.sdk import ResumableSourceManager
+from products.warehouse_sources.sources.sdk.internals import PARTITION_KEY, append_partition_key_to_table
 
-PAGE_LIMIT_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.payments.SEARCH_PAGE_LIMIT"
-)
-LOOKUP_BUDGET_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.payments.MAX_FANOUT_LOOKUPS_PER_SYNC"
-)
-CUSTOMER_LOOKUP_CAP_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.payments.MAX_CUSTOMER_ID_LOOKUPS_PER_SYNC"
-SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.reports.make_tracked_session"
-)
+PAGE_LIMIT_PATCH = "products.warehouse_sources.sources.checkout_com.payments.SEARCH_PAGE_LIMIT"
+LOOKUP_BUDGET_PATCH = "products.warehouse_sources.sources.checkout_com.payments.MAX_FANOUT_LOOKUPS_PER_SYNC"
+CUSTOMER_LOOKUP_CAP_PATCH = "products.warehouse_sources.sources.checkout_com.payments.MAX_CUSTOMER_ID_LOOKUPS_PER_SYNC"
+SESSION_PATCH = "products.warehouse_sources.sources.checkout_com.reports.make_tracked_session"
 
 NOW = "2024-03-01T00:00:00Z"
 # Stored watermark for the budget tests. A payment stamped with exactly this value is the

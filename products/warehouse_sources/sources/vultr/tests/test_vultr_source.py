@@ -3,15 +3,13 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vultr import VultrSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.vultr.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.vultr.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.vultr.source import VultrSource
+from products.warehouse_sources.sources.sdk import SourceInputs
+from products.warehouse_sources.sources.vultr._config import VultrSourceConfig
+from products.warehouse_sources.sources.vultr.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.vultr.settings import ENDPOINTS
+from products.warehouse_sources.sources.vultr.source import VultrSource
 
-SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.vultr.source"
+SOURCE_MODULE = "products.warehouse_sources.sources.vultr.source"
 
 
 def _make_inputs(**overrides: Any) -> SourceInputs:

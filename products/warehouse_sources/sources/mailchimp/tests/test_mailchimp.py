@@ -10,18 +10,8 @@ from unittest.mock import MagicMock
 from requests import Response
 from requests.exceptions import HTTPError, ProxyError, RequestException
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    route,
-    scripted_network,
-    source_inputs,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mailchimp import (
-    MailchimpSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.mailchimp.mailchimp import (
+from products.warehouse_sources.sources.mailchimp._config import MailchimpSourceConfig
+from products.warehouse_sources.sources.mailchimp.mailchimp import (
     EVENT_TABLE_APPEND_ERROR,
     MAX_RETRY_ATTEMPTS,
     MailchimpResumeConfig,
@@ -33,9 +23,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailchimp.
     extract_data_center,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.mailchimp.settings import MAILCHIMP_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.mailchimp.source import MailchimpSource
-from products.warehouse_sources.backend.types import ExternalDataSchemaSyncType
+from products.warehouse_sources.sources.mailchimp.settings import MAILCHIMP_ENDPOINTS
+from products.warehouse_sources.sources.mailchimp.source import MailchimpSource
+from products.warehouse_sources.sources.sdk import ExternalDataSchemaSyncType
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+    source_inputs,
+)
 
 
 class TestExtractDataCenter:

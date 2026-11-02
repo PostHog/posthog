@@ -47,23 +47,23 @@ from urllib.parse import quote
 import requests
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.checkout_com import (
+from products.warehouse_sources.sources.checkout_com.checkout_com import (
     CheckoutComResumeConfig,
     _error_details,
     _format_timestamp,
     _hosts,
     _make_auth,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.reports import (
+from products.warehouse_sources.sources.checkout_com.reports import (
     _make_api_session,
     _next_pagination_token,
     _strip_links,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import OAuth2Auth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
+from products.warehouse_sources.sources.sdk import (
+    OAuth2Auth,
     PartitionFormat,
     PartitionMode,
+    ResumableSourceManager,
     SourceResponse,
 )
 

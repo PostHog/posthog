@@ -3,23 +3,12 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gusto import GustoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.gusto.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.gusto.gusto import (
-    GUSTO_API_VERSION_2024_04_01,
-    GUSTO_API_VERSION_2026_06_15,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.gusto.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.gusto.source import GustoSource
+from products.warehouse_sources.sources.gusto._config import GustoSourceConfig
+from products.warehouse_sources.sources.gusto.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.gusto.gusto import GUSTO_API_VERSION_2024_04_01, GUSTO_API_VERSION_2026_06_15
+from products.warehouse_sources.sources.gusto.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.gusto.source import GustoSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 INCREMENTAL_ENDPOINTS = {"payrolls", "pay_periods", "contractor_payments"}
 

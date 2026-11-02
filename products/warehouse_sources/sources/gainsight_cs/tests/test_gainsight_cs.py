@@ -6,13 +6,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_cs.gainsight_cs import (
+from products.warehouse_sources.sources.gainsight_cs._config import GainsightCsSourceConfig
+from products.warehouse_sources.sources.gainsight_cs.gainsight_cs import (
     GainsightCsHostNotAllowedError,
     GainsightCsPageBudgetExhaustedError,
     GainsightCsResponseTooLargeError,
@@ -27,18 +22,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_
     parse_custom_objects,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_cs.source import GainsightCsSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gainsightcs import (
-    GainsightCsSourceConfig,
-)
+from products.warehouse_sources.sources.gainsight_cs.source import GainsightCsSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
-HOST_CHECK_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_cs.gainsight_cs._is_host_safe"
-)
-PAGE_SIZE_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_cs.gainsight_cs.MAX_PAGE_SIZE"
-)
-GAINSIGHT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_cs.gainsight_cs"
+HOST_CHECK_PATCH = "products.warehouse_sources.sources.gainsight_cs.gainsight_cs._is_host_safe"
+PAGE_SIZE_PATCH = "products.warehouse_sources.sources.gainsight_cs.gainsight_cs.MAX_PAGE_SIZE"
+GAINSIGHT_MODULE = "products.warehouse_sources.sources.gainsight_cs.gainsight_cs"
 
 DOMAIN = "acme.gainsightcloud.com"
 

@@ -1,17 +1,13 @@
 from typing import Any
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from products.warehouse_sources.sources.google_webfonts.settings import GOOGLE_WEBFONTS_ENDPOINTS
+from products.warehouse_sources.sources.sdk import (
     RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.google_webfonts.settings import (
-    GOOGLE_WEBFONTS_ENDPOINTS,
+    SourceResponse,
+    make_tracked_session,
+    rest_api_resource,
+    validate_via_probe,
 )
 
 GOOGLE_WEBFONTS_BASE_URL = "https://www.googleapis.com"

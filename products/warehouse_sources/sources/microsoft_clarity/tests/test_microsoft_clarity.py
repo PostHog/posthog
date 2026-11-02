@@ -5,24 +5,15 @@ import time_machine
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.microsoftclarity import (
-    MicrosoftClaritySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_clarity.microsoft_clarity import (
+from products.warehouse_sources.sources.microsoft_clarity._config import MicrosoftClaritySourceConfig
+from products.warehouse_sources.sources.microsoft_clarity.microsoft_clarity import (
     CLARITY_UNREACHABLE_ERROR,
     INSIGHTS_PATH,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_clarity.settings import ENDPOINT_NAME
-from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_clarity.source import (
-    MicrosoftClaritySource,
-)
+from products.warehouse_sources.sources.microsoft_clarity.settings import ENDPOINT_NAME
+from products.warehouse_sources.sources.microsoft_clarity.source import MicrosoftClaritySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

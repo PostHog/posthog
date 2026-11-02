@@ -2,8 +2,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.luma import LumaSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.luma.source import LumaSource
+from products.warehouse_sources.sources.luma._config import LumaSourceConfig
+from products.warehouse_sources.sources.luma.source import LumaSource
 
 
 class TestLumaSource:
@@ -31,7 +31,7 @@ class TestLumaSource:
         retryable = self.source.get_retryable_errors()
         assert not any(key in unrelated_error for key in retryable)
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.luma.source.luma_source")
+    @mock.patch("products.warehouse_sources.sources.luma.source.luma_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "events"
@@ -57,7 +57,7 @@ class TestLumaSource:
         self, _name: str, status: int, expected_reason_prefix: str | None
     ) -> None:
         with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.luma.source.check_access",
+            "products.warehouse_sources.sources.luma.source.check_access",
             return_value=(status, None),
         ) as mock_check:
             permissions = self.source.get_endpoint_permissions(self.config, self.team_id, ["calendars", "events"])

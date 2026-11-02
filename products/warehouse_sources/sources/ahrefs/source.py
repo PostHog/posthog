@@ -1,21 +1,12 @@
 from typing import cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.ahrefs.ahrefs import (
+from products.warehouse_sources.sources.ahrefs._config import AhrefsSourceConfig
+from products.warehouse_sources.sources.ahrefs.ahrefs import (
     ahrefs_source,
     validate_credentials as validate_ahrefs_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.ahrefs.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.ahrefs.settings import (
+from products.warehouse_sources.sources.ahrefs.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.ahrefs.settings import (
     ENDPOINTS,
     HISTORY_DAYS,
     INCREMENTAL_FIELDS,
@@ -28,18 +19,23 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ahrefs.set
     RETRYABLE_QUOTA_ERRORS,
     SITE_METRICS_FIRST_SYNC_DAYS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+from products.warehouse_sources.sources.sdk import (
     CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    SimpleSource,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ahrefs import AhrefsSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register

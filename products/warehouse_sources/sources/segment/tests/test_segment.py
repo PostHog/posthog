@@ -2,22 +2,17 @@ from typing import Any, Literal, cast
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.segment import (
-    SegmentSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.segment.segment import (
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
+from products.warehouse_sources.sources.segment._config import SegmentSourceConfig
+from products.warehouse_sources.sources.segment.segment import (
     SegmentResumeConfig,
     _base_url,
     _extract_rows,
     _next_cursor,
     _redact_rows,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.segment.settings import SEGMENT_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.segment.source import SegmentSource
+from products.warehouse_sources.sources.segment.settings import SEGMENT_ENDPOINTS
+from products.warehouse_sources.sources.segment.source import SegmentSource
 
 
 def _driver(region: str = "api") -> SourceDriver:

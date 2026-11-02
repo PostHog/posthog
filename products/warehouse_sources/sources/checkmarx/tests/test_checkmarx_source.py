@@ -3,10 +3,8 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.source import CheckmarxSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.checkmarx import (
-    CheckmarxSourceConfig,
-)
+from products.warehouse_sources.sources.checkmarx._config import CheckmarxSourceConfig
+from products.warehouse_sources.sources.checkmarx.source import CheckmarxSource
 
 
 def _make_config(**overrides: Any) -> CheckmarxSourceConfig:
@@ -26,9 +24,7 @@ class TestCheckmarxSource:
         inputs.db_incremental_field_last_value = "2026-01-01T00:00:00Z"
         manager = MagicMock()
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.source.checkmarx_source"
-        ) as mock_source:
+        with patch("products.warehouse_sources.sources.checkmarx.source.checkmarx_source") as mock_source:
             self.source.source_for_pipeline(_make_config(), manager, inputs)
 
         mock_source.assert_called_once_with(

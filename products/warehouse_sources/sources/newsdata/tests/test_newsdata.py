@@ -6,24 +6,15 @@ import time_machine
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.newsdata import (
-    NewsDataSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.newsdata.newsdata import (
+from products.warehouse_sources.sources.newsdata._config import NewsDataSourceConfig
+from products.warehouse_sources.sources.newsdata.newsdata import (
     NewsDataResumeConfig,
     _to_from_date,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.newsdata.source import NewsDataSource
+from products.warehouse_sources.sources.newsdata.source import NewsDataSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

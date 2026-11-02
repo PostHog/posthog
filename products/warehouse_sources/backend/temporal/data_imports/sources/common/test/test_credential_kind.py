@@ -1,7 +1,6 @@
 import pytest
 from unittest.mock import PropertyMock, patch
 
-import products.warehouse_sources.backend.temporal.data_imports.sources._load_all  # noqa: F401
 from products.warehouse_sources.backend.facade.credential_kinds import CREDENTIAL_KINDS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.credential_kind import (
     CREDENTIAL_KIND_MAX_LENGTH,

@@ -4,21 +4,10 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.circleci_insights.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.circleci_insights.source import (
-    CircleciInsightsSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    route,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.circleciinsights import (
-    CircleciInsightsSourceConfig,
-)
+from products.warehouse_sources.sources.circleci_insights._config import CircleciInsightsSourceConfig
+from products.warehouse_sources.sources.circleci_insights.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.circleci_insights.source import CircleciInsightsSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, route
 
 
 class TestCircleciInsightsSource:
@@ -58,9 +47,7 @@ class TestCircleciInsightsSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable_errors) is should_match
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.circleci_insights.source.circleci_insights_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.circleci_insights.source.circleci_insights_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "workflow_runs"

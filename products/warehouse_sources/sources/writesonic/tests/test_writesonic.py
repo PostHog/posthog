@@ -9,19 +9,17 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.writesonic import (
-    WritesonicSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.writesonic.settings import WRITESONIC_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.writesonic.source import WritesonicSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.writesonic.writesonic import (
+from products.warehouse_sources.sources.writesonic._config import WritesonicSourceConfig
+from products.warehouse_sources.sources.writesonic.settings import WRITESONIC_ENDPOINTS
+from products.warehouse_sources.sources.writesonic.source import WritesonicSource
+from products.warehouse_sources.sources.writesonic.writesonic import (
     WritesonicResumeConfig,
     WritesonicRetryableError,
     _check_response,

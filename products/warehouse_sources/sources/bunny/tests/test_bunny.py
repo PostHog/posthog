@@ -4,30 +4,23 @@ from typing import Any
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.bunny.bunny import (
+from products.warehouse_sources.sources.bunny._config import BunnySourceConfig
+from products.warehouse_sources.sources.bunny.bunny import (
     BUNNY_BASE_URL,
     BUNNY_STREAM_BASE_URL,
     PER_PAGE,
     BunnyResumeConfig,
     check_access,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.bunny.settings import (
+from products.warehouse_sources.sources.bunny.settings import (
     BUNNY_ENDPOINTS,
     ENDPOINTS,
     LOG_RETENTION,
     LOG_WINDOW_MARGIN,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.bunny.source import BunnySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bunny import BunnySourceConfig
+from products.warehouse_sources.sources.bunny.source import BunnySource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

@@ -4,16 +4,10 @@ import pytest
 
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.freshcaller.source import FreshcallerSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.freshcaller import (
-    FreshcallerSourceConfig,
-)
+from products.warehouse_sources.sources.freshcaller._config import FreshcallerSourceConfig
+from products.warehouse_sources.sources.freshcaller.source import FreshcallerSource
+from products.warehouse_sources.sources.sdk import SourceInputs
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, always, scripted_network
 
 
 def _make_inputs(schema_name: str = "calls") -> SourceInputs:

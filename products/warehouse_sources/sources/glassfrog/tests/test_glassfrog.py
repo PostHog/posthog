@@ -1,25 +1,16 @@
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.glassfrog import (
-    GlassfrogSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.glassfrog.glassfrog import (
+from products.warehouse_sources.sources.glassfrog._config import GlassfrogSourceConfig
+from products.warehouse_sources.sources.glassfrog.glassfrog import (
     GLASSFROG_BASE_URL,
     GLASSFROG_PAGE_SIZE,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.glassfrog.settings import GLASSFROG_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.glassfrog.source import GlassfrogSource
+from products.warehouse_sources.sources.glassfrog.settings import GLASSFROG_ENDPOINTS
+from products.warehouse_sources.sources.glassfrog.source import GlassfrogSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver(api_key: str = "gf_key") -> SourceDriver:

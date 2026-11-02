@@ -6,15 +6,10 @@ import time_machine
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.cal_com.settings import BOOKINGS_WINDOW_ORIGIN
-from products.warehouse_sources.backend.temporal.data_imports.sources.cal_com.source import CalComSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.calcom import CalComSourceConfig
+from products.warehouse_sources.sources.cal_com._config import CalComSourceConfig
+from products.warehouse_sources.sources.cal_com.settings import BOOKINGS_WINDOW_ORIGIN
+from products.warehouse_sources.sources.cal_com.source import CalComSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 @pytest.fixture(autouse=True)

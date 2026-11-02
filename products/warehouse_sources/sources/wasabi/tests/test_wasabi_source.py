@@ -1,8 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.wasabi import WasabiSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.wasabi.source import WasabiSource
+from products.warehouse_sources.sources.wasabi._config import WasabiSourceConfig
+from products.warehouse_sources.sources.wasabi.source import WasabiSource
 
 
 class TestWasabiSource:
@@ -12,7 +12,7 @@ class TestWasabiSource:
         self.config = WasabiSourceConfig(api_key="wasabi-key")
 
     @pytest.mark.parametrize("should_use_incremental_field", [True, False])
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.wasabi.source.wasabi_source")
+    @mock.patch("products.warehouse_sources.sources.wasabi.source.wasabi_source")
     def test_source_for_pipeline_plumbs_arguments(
         self, mock_wasabi_source: mock.MagicMock, should_use_incremental_field: bool
     ) -> None:

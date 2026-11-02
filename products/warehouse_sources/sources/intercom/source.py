@@ -1,38 +1,32 @@
 from typing import cast
 
-from posthog.schema_enums import ProductKey
-
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldOauthConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import CursorSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import OAuthMixin
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.intercom import (
-    IntercomSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.intercom import (
+from products.warehouse_sources.sources.intercom._config import IntercomSourceConfig
+from products.warehouse_sources.sources.intercom.intercom import (
     IntercomConversationCursor,
     IntercomResumeConfig,
     intercom_source,
     validate_credentials as validate_intercom_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.settings import (
-    INCREMENTAL_FIELDS,
-    INTERCOM_ENDPOINTS,
+from products.warehouse_sources.sources.intercom.settings import INCREMENTAL_FIELDS, INTERCOM_ENDPOINTS
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    CursorSource,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    OAuthMixin,
+    ProductKey,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldOauthConfig,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    detect,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -98,9 +92,7 @@ class IntercomSource(
         return ExternalDataSourceType.INTERCOM
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.intercom.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

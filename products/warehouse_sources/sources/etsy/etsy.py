@@ -8,16 +8,14 @@ import structlog
 from requests import HTTPError, Response
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.etsy.settings import (
+from products.warehouse_sources.sources.etsy.settings import (
     ETSY_ENDPOINTS,
     LISTING_STATES,
     EtsyBatchLookup,
     EtsyEndpointConfig,
     EtsyFanOut,
 )
+from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceResponse, make_tracked_session
 
 ETSY_API_BASE = "https://api.etsy.com/v3/application"
 ETSY_TOKEN_URL = "https://api.etsy.com/v3/public/oauth/token"

@@ -2,25 +2,17 @@ from typing import Any, cast
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.ezofficeinventory.ezofficeinventory import (
+from products.warehouse_sources.sources.ezofficeinventory._config import EZOfficeInventorySourceConfig
+from products.warehouse_sources.sources.ezofficeinventory.ezofficeinventory import (
     EZOfficeInventoryResumeConfig,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.ezofficeinventory.settings import (
+from products.warehouse_sources.sources.ezofficeinventory.settings import (
     EZOFFICEINVENTORY_API_VERSION_V1,
     EZOFFICEINVENTORY_API_VERSION_V2,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.ezofficeinventory.source import (
-    EZOfficeInventorySource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ezofficeinventory import (
-    EZOfficeInventorySourceConfig,
-)
+from products.warehouse_sources.sources.ezofficeinventory.source import EZOfficeInventorySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver() -> SourceDriver:

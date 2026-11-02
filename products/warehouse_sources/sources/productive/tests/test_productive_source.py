@@ -5,10 +5,8 @@ import pytest
 import responses
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.productive import (
-    ProductiveSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.productive.source import ProductiveSource
+from products.warehouse_sources.sources.productive._config import ProductiveSourceConfig
+from products.warehouse_sources.sources.productive.source import ProductiveSource
 
 
 @pytest.mark.parametrize(

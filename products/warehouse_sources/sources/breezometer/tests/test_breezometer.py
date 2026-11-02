@@ -7,7 +7,8 @@ from unittest import mock
 import requests
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.breezometer.breezometer import (
+from products.warehouse_sources.sources.breezometer._config import BreezometerSourceConfig
+from products.warehouse_sources.sources.breezometer.breezometer import (
     MAX_LOCATIONS,
     MAX_PAGES_PER_LOCATION,
     BreezometerRetryableError,
@@ -22,17 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.breezomete
     parse_locations,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.breezometer.settings import BREEZOMETER_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.breezometer.source import BreezometerSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.breezometer import (
-    BreezometerSourceConfig,
-)
+from products.warehouse_sources.sources.breezometer.settings import BREEZOMETER_ENDPOINTS
+from products.warehouse_sources.sources.breezometer.source import BreezometerSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 # Source the base URLs from the endpoint configs (the single source of truth) rather than duplicating
 # the literals here, so a base-URL change in settings can't leave these assertions checking a stale value.

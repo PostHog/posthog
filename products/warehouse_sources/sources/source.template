@@ -9,11 +9,11 @@
 #       sources for examples. set `category` to the closest DataWarehouseSourceCategory bucket (required —
 #       it groups the source in the new-source wizard catalog) and optionally `keywords` (search aliases).
 #       see other sources for examples.
-# 6. TODO: add a line to `products/warehouse_sources/backend/temporal/data_imports/sources/__init__.py` to import your
-#       source and include it in the  __all__ list
+# 6. TODO: add an empty `products/warehouse_sources/sources/{your_source}/__init__.py` (and `tests/__init__.py` once you add tests).
+#       the loader finds `products/warehouse_sources/sources/{your_source}/source.py` on its own, so there is no import list to edit
 # 7. TODO: run `pnpm run generate:source-configs`. you should see "Generating config for
 #       {YOUR_SOURCE}" in the logs. you should also see a generated config class for your
-#       source in `products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs/{your_source}.py`
+#       source in `products/warehouse_sources/sources/{your_source}/_config.py`
 # 8. TODO: update all the references to `Config` in this file to the newly generated source
 #       config class from step 7
 # 9. TODO: implement the logic for your source or mark it as unreleased by setting
@@ -30,17 +30,18 @@
 
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    Config,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    SimpleSource,
     SourceConfig,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
 )
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import SimpleSource, FieldType
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.config import Config
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register

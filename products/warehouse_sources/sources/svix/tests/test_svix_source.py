@@ -1,7 +1,7 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.svix import SvixSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.svix.source import SvixSource
+from products.warehouse_sources.sources.svix._config import SvixSourceConfig
+from products.warehouse_sources.sources.svix.source import SvixSource
 
 
 class TestSvixSource:
@@ -10,7 +10,7 @@ class TestSvixSource:
         self.team_id = 123
         self.config = SvixSourceConfig(api_key="sk-key")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.svix.source.svix_source")
+    @mock.patch("products.warehouse_sources.sources.svix.source.svix_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "applications"

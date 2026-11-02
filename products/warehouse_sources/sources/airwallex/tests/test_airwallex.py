@@ -6,7 +6,8 @@ from parameterized import parameterized
 from requests import PreparedRequest, Response
 from requests.structures import CaseInsensitiveDict
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.airwallex.airwallex import (
+from products.warehouse_sources.sources.airwallex._config import AirwallexSourceConfig
+from products.warehouse_sources.sources.airwallex.airwallex import (
     AIRWALLEX_DEMO_BASE_URL,
     AIRWALLEX_LIVE_BASE_URL,
     DEFAULT_TOKEN_LIFETIME_SECONDS,
@@ -20,15 +21,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.airwallex.
     base_url_for,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.airwallex.source import AirwallexSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.airwallex import (
-    AirwallexSourceConfig,
-)
+from products.warehouse_sources.sources.airwallex.source import AirwallexSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _response(

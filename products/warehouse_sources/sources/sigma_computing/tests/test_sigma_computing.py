@@ -6,13 +6,9 @@ import pytest
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.sigma_computing.settings import (
-    REGION_HOSTS,
-    resolve_base_url,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.sigma_computing.sigma_computing import (
+from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceResponse
+from products.warehouse_sources.sources.sigma_computing.settings import REGION_HOSTS, resolve_base_url
+from products.warehouse_sources.sources.sigma_computing.sigma_computing import (
     SigmaComputingResumeConfig,
     get_resource,
     sigma_computing_source,

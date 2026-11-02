@@ -5,23 +5,12 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.statuspage import (
-    StatuspageSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.statuspage.settings import STATUSPAGE_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.statuspage.source import StatuspageSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.statuspage.statuspage import (
-    StatuspageAuth,
-    StatuspageResumeConfig,
-)
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always
+from products.warehouse_sources.sources.statuspage._config import StatuspageSourceConfig
+from products.warehouse_sources.sources.statuspage.settings import STATUSPAGE_ENDPOINTS
+from products.warehouse_sources.sources.statuspage.source import StatuspageSource
+from products.warehouse_sources.sources.statuspage.statuspage import StatuspageAuth, StatuspageResumeConfig
 
 
 def _ok(body: Any) -> ScriptedResponse:

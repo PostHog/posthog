@@ -6,15 +6,15 @@ from urllib.parse import parse_qsl, urlsplit
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     UnexpectedRequest,
     always,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tally import TallySourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.tally.settings import (
+from products.warehouse_sources.sources.tally._config import TallySourceConfig
+from products.warehouse_sources.sources.tally.settings import (
     FORMS_PAGE_SIZE,
     SUBMISSION_FILTER_ALL,
     SUBMISSION_FILTER_COMPLETED,
@@ -25,8 +25,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tally.sett
     TALLY_VERSION_HEADER,
     WEBHOOKS_PAGE_SIZE,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.tally.source import TallySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.tally.tally import TallyResumeConfig
+from products.warehouse_sources.sources.tally.source import TallySource
+from products.warehouse_sources.sources.tally.tally import TallyResumeConfig
 
 BASE = TALLY_BASE_URL
 FORMS_PAGE_1 = f"{BASE}/forms?limit={FORMS_PAGE_SIZE}&page=1"

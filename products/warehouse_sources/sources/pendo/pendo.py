@@ -8,19 +8,18 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
-    make_tracked_session,
-    retry_with_deadline,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.pendo.settings import (
+from products.warehouse_sources.sources.pendo.settings import (
     DEFAULT_REGION,
     EVENTS_DEFAULT_LOOKBACK_DAYS,
     PENDO_ENDPOINTS,
     PENDO_REGION_BASE_URLS,
+)
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    retry_with_deadline,
 )
 
 AGGREGATION_PATH = "/api/v1/aggregation"

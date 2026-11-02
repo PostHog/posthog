@@ -8,8 +8,8 @@ from django.test import override_settings
 import fakeredis
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.turso import TursoSourceConfig
+from products.warehouse_sources.sources.sdk import SourceInputs
+from products.warehouse_sources.sources.turso._config import TursoSourceConfig
 
 
 @pytest.fixture

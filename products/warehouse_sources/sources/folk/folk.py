@@ -6,25 +6,23 @@ from urllib.parse import quote, urlsplit
 
 from requests import HTTPError, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponsePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.folk.settings import (
+from products.warehouse_sources.sources.folk.settings import (
     FOLK_BASE_URL,
     FOLK_BUILTIN_ENTITY_TYPES,
     FOLK_ENDPOINTS,
     FolkEndpointConfig,
+)
+from products.warehouse_sources.sources.sdk import (
+    BearerTokenAuth,
+    JSONResponsePaginator,
+    RESTAPIConfig,
+    RESTClient,
+    ResumableSourceManager,
+    SourceResponse,
+    make_tracked_session,
+    rest_api_resource,
+    schema_for_resource,
+    validate_via_probe,
 )
 
 # Documented maximum on every list endpoint (the default is 20).

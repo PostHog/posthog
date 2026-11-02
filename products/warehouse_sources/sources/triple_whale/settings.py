@@ -1,9 +1,6 @@
 from typing import Literal
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
-from products.warehouse_sources.backend.types import IncrementalField
+from products.warehouse_sources.sources.sdk import IncrementalField, SortMode, frozen
 
 API_ROOT = "https://api.triplewhale.com/api"
 PAGE_SIZE = 100

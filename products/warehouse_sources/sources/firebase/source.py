@@ -1,24 +1,7 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldFileUploadConfig,
-    SourceFieldFileUploadJsonFormatConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.firebase import (
+from products.warehouse_sources.sources.firebase._config import FirebaseSourceConfig
+from products.warehouse_sources.sources.firebase.firebase import (
     FirebaseCredentials,
     FirebaseResumeConfig,
     firebase_source,
@@ -26,7 +9,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.f
     get_tables,
     validate_credentials as validate_firebase_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.settings import (
+from products.warehouse_sources.sources.firebase.settings import (
     API_VERSION,
     DEFAULT_DATABASE_ID,
     FIRESTORE_INDEX_REQUIRED_ERROR,
@@ -34,10 +17,25 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.s
     RESPONSE_TOO_LARGE_ERROR,
     parse_realtime_database_paths,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.firebase import (
-    FirebaseSourceConfig,
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldFileUploadConfig,
+    SourceFieldFileUploadJsonFormatConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    detect,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -320,9 +318,7 @@ Create a service account key in the Firebase console under Project settings, Ser
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.firebase.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

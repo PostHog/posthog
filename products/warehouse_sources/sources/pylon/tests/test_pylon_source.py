@@ -3,13 +3,10 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pylon import PylonSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.pylon import source as pylon_source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.pylon.pylon import (
-    PYLON_EU_BASE_URL,
-    PYLON_US_BASE_URL,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.pylon.source import PylonSource
+from products.warehouse_sources.sources.pylon import source as pylon_source_module
+from products.warehouse_sources.sources.pylon._config import PylonSourceConfig
+from products.warehouse_sources.sources.pylon.pylon import PYLON_EU_BASE_URL, PYLON_US_BASE_URL
+from products.warehouse_sources.sources.pylon.source import PylonSource
 
 
 def _config(api_token: str = "token") -> PylonSourceConfig:

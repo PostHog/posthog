@@ -3,19 +3,11 @@ from typing import Any
 from parameterized import parameterized
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.flowlu.flowlu import (
-    FlowluResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.flowlu.settings import ENDPOINTS, FLOWLU_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.flowlu.source import FlowluSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.flowlu import FlowluSourceConfig
+from products.warehouse_sources.sources.flowlu._config import FlowluSourceConfig
+from products.warehouse_sources.sources.flowlu.flowlu import FlowluResumeConfig, validate_credentials
+from products.warehouse_sources.sources.flowlu.settings import ENDPOINTS, FLOWLU_ENDPOINTS
+from products.warehouse_sources.sources.flowlu.source import FlowluSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _envelope(items: list[dict[str, Any]], total: int | None = None) -> dict[str, Any]:

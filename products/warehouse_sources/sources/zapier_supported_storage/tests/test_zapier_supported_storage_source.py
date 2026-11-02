@@ -1,16 +1,8 @@
-from products.warehouse_sources.backend.facade.source_config import (
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zapiersupportedstorage import (
-    ZapierSupportedStorageSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.zapier_supported_storage.source import (
-    ZapierSupportedStorageSource,
-)
+from products.warehouse_sources.sources.sdk import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from products.warehouse_sources.sources.zapier_supported_storage._config import ZapierSupportedStorageSourceConfig
+from products.warehouse_sources.sources.zapier_supported_storage.source import ZapierSupportedStorageSource
 
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.zapier_supported_storage.source"
+MODULE = "products.warehouse_sources.sources.zapier_supported_storage.source"
 
 
 class TestZapierSupportedStorageSource:

@@ -3,26 +3,16 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.bitrise.bitrise import (
+from products.warehouse_sources.sources.bitrise._config import BitriseSourceConfig
+from products.warehouse_sources.sources.bitrise.bitrise import (
     BitriseResumeConfig,
     _build_after_param,
     _to_unix_timestamp,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.bitrise.settings import (
-    BITRISE_ENDPOINTS,
-    ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.bitrise.source import BitriseSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bitrise import (
-    BitriseSourceConfig,
-)
+from products.warehouse_sources.sources.bitrise.settings import BITRISE_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.sources.bitrise.source import BitriseSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

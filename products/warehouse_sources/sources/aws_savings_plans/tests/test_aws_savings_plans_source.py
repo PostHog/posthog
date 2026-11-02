@@ -1,16 +1,9 @@
 import pytest
 import time_machine
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_savings_plans.source import (
-    AwsSavingsPlansSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awssavingsplans import (
-    AwsSavingsPlansSourceConfig,
-)
+from products.warehouse_sources.sources.aws_savings_plans._config import AwsSavingsPlansSourceConfig
+from products.warehouse_sources.sources.aws_savings_plans.source import AwsSavingsPlansSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 @pytest.mark.parametrize(

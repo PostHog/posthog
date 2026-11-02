@@ -6,8 +6,9 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.cimis import cimis
-from products.warehouse_sources.backend.temporal.data_imports.sources.cimis.cimis import (
+from products.warehouse_sources.sources.cimis import cimis
+from products.warehouse_sources.sources.cimis._config import CimisSourceConfig
+from products.warehouse_sources.sources.cimis.cimis import (
     _date_windows,
     _flatten_record,
     _iter_data_records,
@@ -15,18 +16,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cimis.cimi
     parse_targets,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.cimis.settings import (
-    CIMIS_ENDPOINTS,
-    CIMIS_RECORD_CAP,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.cimis.source import CimisSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cimis import CimisSourceConfig
+from products.warehouse_sources.sources.cimis.settings import CIMIS_ENDPOINTS, CIMIS_RECORD_CAP
+from products.warehouse_sources.sources.cimis.source import CimisSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 class TestParseTargets:

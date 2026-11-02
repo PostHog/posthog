@@ -4,7 +4,8 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.coinmarketcap.coinmarketcap import (
+from products.warehouse_sources.sources.coinmarketcap._config import CoinMarketCapSourceConfig
+from products.warehouse_sources.sources.coinmarketcap.coinmarketcap import (
     CoinMarketCapPaginator,
     CoinMarketCapResumeConfig,
     _history_start,
@@ -13,7 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coinmarket
     _snapshot_start_date,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.coinmarketcap.settings import (
+from products.warehouse_sources.sources.coinmarketcap.settings import (
     CMC_AI_BATCH_SIZE,
     CMC_AI_PAGE_SIZE,
     HISTORICAL_BACKFILL_DAYS,
@@ -21,16 +22,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coinmarket
     HISTORICAL_EXCHANGE_LIMIT,
     PAGE_SIZE,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.coinmarketcap.source import CoinMarketCapSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coinmarketcap import (
-    CoinMarketCapSourceConfig,
-)
+from products.warehouse_sources.sources.coinmarketcap.source import CoinMarketCapSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 class TestCoinMarketCapPaginator:

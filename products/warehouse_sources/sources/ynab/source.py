@@ -1,28 +1,27 @@
 from typing import cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
+    detect,
     schema_for_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ynab import YnabSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.ynab.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.ynab.ynab import (
+from products.warehouse_sources.sources.ynab._config import YnabSourceConfig
+from products.warehouse_sources.sources.ynab.settings import ENDPOINTS
+from products.warehouse_sources.sources.ynab.ynab import (
     AUTH_ERROR,
     PERMISSION_ERROR,
     RATE_LIMIT_ERROR,
@@ -30,7 +29,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ynab.ynab 
     validate_credentials,
     ynab_source,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -126,8 +124,6 @@ class YnabSource(ResumableSource[YnabSourceConfig, YnabResumeConfig]):
         return {"HTTP 429 for https://api.ynab.com/": RATE_LIMIT_ERROR}
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.ynab.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.ynab.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS

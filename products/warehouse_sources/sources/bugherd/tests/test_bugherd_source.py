@@ -1,5 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.bugherd.bugherd import BugherdResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.bugherd.source import BugherdSource
+from products.warehouse_sources.sources.bugherd.bugherd import BugherdResumeConfig
+from products.warehouse_sources.sources.bugherd.source import BugherdSource
 
 
 class TestBugherdSourceConfig:

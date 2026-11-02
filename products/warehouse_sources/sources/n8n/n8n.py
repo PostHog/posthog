@@ -6,40 +6,31 @@ from urllib.parse import urlencode, urlparse
 
 from requests import Response
 
-from posthog.cloud_utils import is_cloud
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import (
-    make_parent_key_name,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    build_chained_resource,
-    build_dependent_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    BasePaginator,
-    JSONResponseCursorPaginator,
-    OffsetPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-    ClientConfig,
-    Endpoint,
-    EndpointResource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.n8n.settings import (
+from products.warehouse_sources.sources.n8n.settings import (
     INSIGHTS_BACKFILL_DAYS,
     N8N_API_PATH,
     N8N_ENDPOINTS,
     N8nEndpointConfig,
+)
+from products.warehouse_sources.sources.sdk import (
+    BasePaginator,
+    ClientConfig,
+    Endpoint,
+    EndpointResource,
+    JSONResponseCursorPaginator,
+    OffsetPaginator,
+    Resource,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    build_chained_resource,
+    build_dependent_resource,
+    is_cloud,
+    make_parent_key_name,
+    make_tracked_session,
+    parse_datetime_value,
+    rest_api_resource,
+    validate_via_probe,
 )
 
 INSIGHTS_REQUEST_TIMEOUT = 60

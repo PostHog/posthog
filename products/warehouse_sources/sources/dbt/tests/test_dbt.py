@@ -4,14 +4,8 @@ from typing import Any, Optional
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.dbt.dbt import (
+from products.warehouse_sources.sources.dbt._config import DbtSourceConfig
+from products.warehouse_sources.sources.dbt.dbt import (
     DISCOVERY_TOKEN_ERROR,
     DbtHostNotAllowedError,
     DbtResumeConfig,
@@ -23,10 +17,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dbt.dbt im
     get_endpoint_permissions,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.dbt.source import DbtSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dbt import DbtSourceConfig
+from products.warehouse_sources.sources.dbt.source import DbtSource
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
 
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.dbt.dbt"
+MODULE = "products.warehouse_sources.sources.dbt.dbt"
 
 
 def _page(rows: list[dict[str, Any]], *, count: int | None = None, total_count: int | None = None) -> ScriptedResponse:

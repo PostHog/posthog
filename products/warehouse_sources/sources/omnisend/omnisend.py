@@ -6,32 +6,29 @@ from typing import Any, ClassVar, Optional
 from requests import Response
 from requests.exceptions import HTTPError
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    RESTClient,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    BasePaginator,
-    JSONResponseCursorPaginator,
-    JSONResponsePaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.omnisend.settings import (
+from products.warehouse_sources.sources.omnisend.settings import (
     OMNISEND_2026_03_15,
     OMNISEND_ENDPOINTS,
     OMNISEND_V3,
     OmnisendAnalyticsQuery,
     OmnisendWire,
+)
+from products.warehouse_sources.sources.sdk import (
+    APIKeyAuth,
+    BasePaginator,
+    ClientConfig,
+    JSONResponseCursorPaginator,
+    JSONResponsePaginator,
+    RESTAPIConfig,
+    RESTClient,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceCursorManager,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    rest_api_resource,
+    validate_via_probe,
 )
 
 OMNISEND_BASE_URL = "https://api.omnisend.com/v3"

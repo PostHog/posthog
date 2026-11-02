@@ -1,8 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aha.source import AhaSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.aha import AhaSourceConfig
+from products.warehouse_sources.sources.aha._config import AhaSourceConfig
+from products.warehouse_sources.sources.aha.source import AhaSource
 
 
 class TestAhaSource:
@@ -24,7 +24,7 @@ class TestAhaSource:
             ((False, None), False, "Could not connect to Aha! with the provided account domain and API key"),
         ],
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.aha.source.validate_aha_credentials")
+    @mock.patch("products.warehouse_sources.sources.aha.source.validate_aha_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
         mock_validate.return_value = mock_return
 
@@ -34,7 +34,7 @@ class TestAhaSource:
         assert error_message == expected_message
         mock_validate.assert_called_once_with("acme", "key")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.aha.source.validate_aha_credentials")
+    @mock.patch("products.warehouse_sources.sources.aha.source.validate_aha_credentials")
     def test_validate_credentials_surfaces_bad_subdomain(self, mock_validate):
         mock_validate.side_effect = ValueError("Invalid Aha! account domain: 'a/b'.")
 

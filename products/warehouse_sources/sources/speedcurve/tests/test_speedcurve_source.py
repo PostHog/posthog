@@ -1,8 +1,6 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import build_default_sync_settings
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.speedcurve import (
-    SpeedcurveSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.speedcurve.source import SpeedcurveSource
+from products.warehouse_sources.sources.sdk.testing import build_default_sync_settings
+from products.warehouse_sources.sources.speedcurve._config import SpeedcurveSourceConfig
+from products.warehouse_sources.sources.speedcurve.source import SpeedcurveSource
 
 
 def test_incremental_defaults_revisit_recent_records_and_merge_updates() -> None:

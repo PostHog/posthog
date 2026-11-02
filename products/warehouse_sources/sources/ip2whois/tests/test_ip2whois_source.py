@@ -1,7 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ip2whois import (
-    IP2WhoisSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.ip2whois.source import IP2WhoisSource
+from products.warehouse_sources.sources.ip2whois._config import IP2WhoisSourceConfig
+from products.warehouse_sources.sources.ip2whois.source import IP2WhoisSource
 
 
 class TestIP2WhoisSource:

@@ -3,12 +3,10 @@ from typing import Any
 from unittest import mock
 from unittest.mock import MagicMock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.upstash import (
-    UpstashSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.upstash import source as upstash_source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.upstash.source import UpstashSource
+from products.warehouse_sources.sources.sdk import SourceInputs
+from products.warehouse_sources.sources.upstash import source as upstash_source_module
+from products.warehouse_sources.sources.upstash._config import UpstashSourceConfig
+from products.warehouse_sources.sources.upstash.source import UpstashSource
 
 
 def _source_inputs(schema_name: str, **overrides: Any) -> SourceInputs:

@@ -1,23 +1,12 @@
 from parameterized import parameterized
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shortio import (
-    ShortioSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.shortio.settings import (
-    ENDPOINTS,
-    SHORTIO_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.shortio.shortio import SHORTIO_BASE_URL
-from products.warehouse_sources.backend.temporal.data_imports.sources.shortio.source import ShortioSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always
+from products.warehouse_sources.sources.shortio._config import ShortioSourceConfig
+from products.warehouse_sources.sources.shortio.settings import ENDPOINTS, SHORTIO_ENDPOINTS
+from products.warehouse_sources.sources.shortio.shortio import SHORTIO_BASE_URL
+from products.warehouse_sources.sources.shortio.source import ShortioSource
 
 DOMAINS_URL = f"{SHORTIO_BASE_URL}/api/domains"
 

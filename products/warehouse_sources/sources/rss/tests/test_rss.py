@@ -3,20 +3,11 @@ from typing import Any, cast
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rss import RssSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.rss.rss import (
-    RSS_BASE_URL,
-    RssResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.rss.settings import ENDPOINTS, RSS_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.rss.source import RssSource
+from products.warehouse_sources.sources.rss._config import RssSourceConfig
+from products.warehouse_sources.sources.rss.rss import RSS_BASE_URL, RssResumeConfig, validate_credentials
+from products.warehouse_sources.sources.rss.settings import ENDPOINTS, RSS_ENDPOINTS
+from products.warehouse_sources.sources.rss.source import RssSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _response(body: Any, status: int = 200) -> ScriptedResponse:

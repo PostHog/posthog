@@ -5,10 +5,10 @@ from typing import TYPE_CHECKING, Any
 
 from structlog.types import FilteringBoundLogger
 
-from posthog.dataclasses import frozen
+from products.warehouse_sources.sources.sdk import frozen
 
 if TYPE_CHECKING:
-    from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.settings import DatadogEndpointConfig
+    from products.warehouse_sources.sources.datadog.settings import DatadogEndpointConfig
 
 SEARCH_BATCH_SIZE = 500
 

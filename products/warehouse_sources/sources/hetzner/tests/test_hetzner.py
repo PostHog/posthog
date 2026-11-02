@@ -10,26 +10,17 @@ import requests
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hetzner import (
-    HetznerSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.hetzner.hetzner import (
+from products.warehouse_sources.sources.hetzner._config import HetznerSourceConfig
+from products.warehouse_sources.sources.hetzner.hetzner import (
     HETZNER_BASE_URL,
     METRICS_RETENTION,
     HetznerResumeConfig,
     hetzner_metrics_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.hetzner.source import HetznerSource
+from products.warehouse_sources.sources.hetzner.source import HetznerSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"

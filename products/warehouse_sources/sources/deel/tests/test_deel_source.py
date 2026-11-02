@@ -1,8 +1,8 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.deel.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.deel.source import DeelSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.deel import DeelSourceConfig
+from products.warehouse_sources.sources.deel._config import DeelSourceConfig
+from products.warehouse_sources.sources.deel.settings import ENDPOINTS
+from products.warehouse_sources.sources.deel.source import DeelSource
 
 
 class TestDeelSource:

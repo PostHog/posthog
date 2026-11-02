@@ -6,27 +6,17 @@ import pytest
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.e_conomic.e_conomic import (
+from products.warehouse_sources.sources.e_conomic._config import EConomicSourceConfig
+from products.warehouse_sources.sources.e_conomic.e_conomic import (
     E_CONOMIC_BASE_URL,
     EConomicResumeConfig,
     _assert_trusted_url,
     _format_incremental_value,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.e_conomic.settings import (
-    E_CONOMIC_ENDPOINTS,
-    ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.e_conomic.source import EConomicSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.economic import (
-    EConomicSourceConfig,
-)
+from products.warehouse_sources.sources.e_conomic.settings import E_CONOMIC_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.sources.e_conomic.source import EConomicSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

@@ -5,10 +5,8 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.source import BuildkiteSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.buildkite import (
-    BuildkiteSourceConfig,
-)
+from products.warehouse_sources.sources.buildkite._config import BuildkiteSourceConfig
+from products.warehouse_sources.sources.buildkite.source import BuildkiteSource
 
 
 def _config() -> BuildkiteSourceConfig:
@@ -77,7 +75,7 @@ class TestBuildkiteSource:
             return MagicMock()
 
         with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.source.buildkite_source",
+            "products.warehouse_sources.sources.buildkite.source.buildkite_source",
             side_effect=fake_source,
         ):
             self.source.source_for_pipeline(_config(), manager, inputs)
@@ -106,7 +104,7 @@ class TestBuildkiteSource:
             return "response"
 
         with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.source.buildkite_source",
+            "products.warehouse_sources.sources.buildkite.source.buildkite_source",
             side_effect=fake_source,
         ):
             self.source.source_for_pipeline(_config(), MagicMock(), inputs)

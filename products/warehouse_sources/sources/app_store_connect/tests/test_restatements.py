@@ -4,26 +4,20 @@ import pytest
 
 import duckdb
 
-from posthog.hogql.parser import parse_select
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.restatements import (
+from products.warehouse_sources.sources.app_store_connect.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.app_store_connect.restatements import (
     analytics_stream_names,
     restatement_caption,
     restatement_recipe,
     with_restatement_guidance,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.settings import (
+from products.warehouse_sources.sources.app_store_connect.settings import (
     APP_STORE_CONNECT_ENDPOINTS,
     AppStoreConnectEndpointConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.source import (
-    AppStoreConnectSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.types import IncrementalFieldType
+from products.warehouse_sources.sources.app_store_connect.source import AppStoreConnectSource
+from products.warehouse_sources.sources.sdk import IncrementalFieldType, incremental_field
+from products.warehouse_sources.sources.sdk.testing import parse_select
 
 
 def _analytics_config(name: str) -> AppStoreConnectEndpointConfig:

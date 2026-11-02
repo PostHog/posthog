@@ -1,32 +1,24 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.dynamics365.dynamics365 import (
-    INVALID_ORGANIZATION_URL_ERROR,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.dynamics365.settings import (
-    DYNAMICS365_ENDPOINTS,
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.dynamics365.source import (
+from products.warehouse_sources.sources.dynamics365._config import Dynamics365SourceConfig
+from products.warehouse_sources.sources.dynamics365.dynamics365 import INVALID_ORGANIZATION_URL_ERROR
+from products.warehouse_sources.sources.dynamics365.settings import DYNAMICS365_ENDPOINTS, ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.dynamics365.source import (
     CREDENTIALS_REJECTED_ERROR,
     PERMISSION_ERROR,
     TABLE_MISSING_ERROR,
     UNREACHABLE_ERROR,
     Dynamics365Source,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dynamics365 import (
-    Dynamics365SourceConfig,
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
 )
 
-SOURCE_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.dynamics365.source.dynamics365_source"
+SOURCE_PATCH = "products.warehouse_sources.sources.dynamics365.source.dynamics365_source"
 
 
 def _token_response() -> ScriptedResponse:

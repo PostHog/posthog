@@ -7,17 +7,11 @@ from unittest.mock import MagicMock, patch
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.scalr import ScalrSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.scalr.scalr import ScalrResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.scalr.source import ScalrSource
+from products.warehouse_sources.sources.scalr._config import ScalrSourceConfig
+from products.warehouse_sources.sources.scalr.scalr import ScalrResumeConfig
+from products.warehouse_sources.sources.scalr.source import ScalrSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceInputs
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 MIXINS = "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins"
 

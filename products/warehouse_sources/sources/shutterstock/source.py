@@ -1,42 +1,38 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shutterstock import (
-    ShutterstockSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.shutterstock.settings import (
+from products.warehouse_sources.sources.shutterstock._config import ShutterstockSourceConfig
+from products.warehouse_sources.sources.shutterstock.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     SHUTTERSTOCK_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.shutterstock.shutterstock import (
+from products.warehouse_sources.sources.shutterstock.shutterstock import (
     ShutterstockAuth,
     ShutterstockResumeConfig,
     check_endpoint_access,
     shutterstock_source,
     validate_credentials as validate_shutterstock_credentials,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _auth_from_config(config: ShutterstockSourceConfig) -> ShutterstockAuth:
@@ -134,9 +130,7 @@ To also sync account-level tables, use an OAuth access token instead. Collection
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.shutterstock.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.shutterstock.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

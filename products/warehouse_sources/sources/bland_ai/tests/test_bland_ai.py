@@ -4,7 +4,8 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.bland_ai.bland_ai import (
+from products.warehouse_sources.sources.bland_ai._config import BlandAISourceConfig
+from products.warehouse_sources.sources.bland_ai.bland_ai import (
     BASE_URL,
     EVALS_PAGE_SIZE,
     PAGE_SIZE,
@@ -13,16 +14,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bland_ai.b
     _format_start_date,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.bland_ai.source import BlandAISource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.blandai import (
-    BlandAISourceConfig,
-)
+from products.warehouse_sources.sources.bland_ai.source import BlandAISource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

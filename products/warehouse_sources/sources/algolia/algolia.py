@@ -8,9 +8,7 @@ from urllib.parse import quote
 import requests
 from requests import Response
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.algolia.settings import (
+from products.warehouse_sources.sources.algolia.settings import (
     ALGOLIA_ENDPOINTS,
     ANALYTICS_LOOKBACK_DAYS,
     INGESTION_LOOKBACK_HOURS,
@@ -18,31 +16,26 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.algolia.se
     AlgoliaEndpointConfig,
     PaginationStyle,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-    build_dependent_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from products.warehouse_sources.sources.sdk import (
     BasePaginator,
-    JSONResponseCursorPaginator,
-    OffsetPaginator,
-    PageNumberPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
+    DependentEndpointConfig,
     Endpoint,
     HTTPMethodBasic,
     IncrementalConfig,
+    JSONResponseCursorPaginator,
+    OffsetPaginator,
+    PageNumberPaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceResponse,
+    build_dependent_resource,
+    frozen,
+    make_tracked_session,
+    parse_datetime_value,
+    rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 # Algolia's Search API is served per-application. The main host handles both reads and the
 # admin/list operations we use; the `-dsn` replica is only a latency optimisation for search,

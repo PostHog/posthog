@@ -7,18 +7,9 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jamfpro import (
-    JamfProAuthMethodConfig,
-    JamfProSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.jamf_pro import jamf_pro as jamf_pro_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.jamf_pro.jamf_pro import (
+from products.warehouse_sources.sources.jamf_pro import jamf_pro as jamf_pro_module
+from products.warehouse_sources.sources.jamf_pro._config import JamfProAuthMethodConfig, JamfProSourceConfig
+from products.warehouse_sources.sources.jamf_pro.jamf_pro import (
     JamfProConfigurationError,
     JamfProCredentials,
     JamfProHostNotAllowedError,
@@ -32,8 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.jamf_pro.j
     get_rows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.jamf_pro.settings import JAMF_PRO_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.jamf_pro.source import JamfProSource
+from products.warehouse_sources.sources.jamf_pro.settings import JAMF_PRO_ENDPOINTS
+from products.warehouse_sources.sources.jamf_pro.source import JamfProSource
+from products.warehouse_sources.sources.sdk.testing import DriveResult, ScriptedResponse, SourceDriver, scripted_network
 
 CLIENT_CREDENTIALS = JamfProCredentials(method="client_credentials", client_id="cid", client_secret="secret")
 BASIC_CREDENTIALS = JamfProCredentials(method="basic", username="admin", password="hunter2")

@@ -7,24 +7,17 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.inngest import (
-    InngestSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.inngest import inngest
-from products.warehouse_sources.backend.temporal.data_imports.sources.inngest.inngest import (
+from products.warehouse_sources.sources.inngest import inngest
+from products.warehouse_sources.sources.inngest._config import InngestSourceConfig
+from products.warehouse_sources.sources.inngest.inngest import (
     EVENTS_PAGE_SIZE,
     InngestResumeConfig,
     _event_window,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.inngest.settings import INNGEST_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.inngest.source import InngestSource
+from products.warehouse_sources.sources.inngest.settings import INNGEST_ENDPOINTS
+from products.warehouse_sources.sources.inngest.source import InngestSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, route, scripted_network
 
 
 def _event(internal_id: str, received_at: str = "2026-07-10T10:00:00.000Z", **extra: Any) -> dict[str, Any]:

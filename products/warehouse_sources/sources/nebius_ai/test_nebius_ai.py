@@ -6,24 +6,22 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.nebius_ai import nebius_ai
+from products.warehouse_sources.sources.nebius_ai._config import NebiusAISourceConfig
+from products.warehouse_sources.sources.nebius_ai.nebius_ai import (
+    NEBIUS_AI_BASE_URL,
+    NebiusAIResumeConfig,
+    NebiusAIRetryableError,
+    validate_credentials,
+)
+from products.warehouse_sources.sources.nebius_ai.source import NebiusAISource
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.nebiusai import (
-    NebiusAISourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.nebius_ai import nebius_ai
-from products.warehouse_sources.backend.temporal.data_imports.sources.nebius_ai.nebius_ai import (
-    NEBIUS_AI_BASE_URL,
-    NebiusAIResumeConfig,
-    NebiusAIRetryableError,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.nebius_ai.source import NebiusAISource
 
 
 def _driver(api_key: str = "nbk_test") -> SourceDriver:

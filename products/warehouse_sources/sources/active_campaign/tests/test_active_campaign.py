@@ -3,26 +3,17 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.active_campaign.active_campaign import (
+from products.warehouse_sources.sources.active_campaign._config import ActiveCampaignSourceConfig
+from products.warehouse_sources.sources.active_campaign.active_campaign import (
     PAGE_SIZE,
     ActiveCampaignPaginator,
     ActiveCampaignResumeConfig,
     _normalize_base_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.active_campaign.settings import (
-    ACTIVE_CAMPAIGN_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.active_campaign.source import ActiveCampaignSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.activecampaign import (
-    ActiveCampaignSourceConfig,
-)
+from products.warehouse_sources.sources.active_campaign.settings import ACTIVE_CAMPAIGN_ENDPOINTS
+from products.warehouse_sources.sources.active_campaign.source import ActiveCampaignSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _full_page() -> list[dict[str, Any]]:

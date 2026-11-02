@@ -2,15 +2,13 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.formbricks.formbricks import (
+from products.warehouse_sources.sources.formbricks._config import FormbricksSourceConfig
+from products.warehouse_sources.sources.formbricks.formbricks import (
     FORMBRICKS_API_VERSION_V1,
     FORMBRICKS_API_VERSION_V2,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.formbricks.settings import FORMBRICKS_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.formbricks.source import FormbricksSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.formbricks import (
-    FormbricksSourceConfig,
-)
+from products.warehouse_sources.sources.formbricks.settings import FORMBRICKS_ENDPOINTS
+from products.warehouse_sources.sources.formbricks.source import FormbricksSource
 
 
 class TestFormbricksSource:
@@ -56,7 +54,7 @@ class TestFormbricksSource:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.formbricks.source.formbricks_source")
+    @mock.patch("products.warehouse_sources.sources.formbricks.source.formbricks_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "responses"
@@ -79,7 +77,7 @@ class TestFormbricksSource:
         assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"
         assert kwargs["incremental_field"] == "updatedAt"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.formbricks.source.formbricks_source")
+    @mock.patch("products.warehouse_sources.sources.formbricks.source.formbricks_source")
     def test_source_for_pipeline_drops_last_value_on_full_refresh(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "responses"

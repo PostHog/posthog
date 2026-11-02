@@ -8,20 +8,18 @@ import pytest
 import time_machine
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
+    error_message_matches,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.singular import (
-    SingularSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.singular.settings import HISTORY_DAYS, LOOKUPS
-from products.warehouse_sources.backend.temporal.data_imports.sources.singular.singular import (
+from products.warehouse_sources.sources.singular._config import SingularSourceConfig
+from products.warehouse_sources.sources.singular.settings import HISTORY_DAYS, LOOKUPS
+from products.warehouse_sources.sources.singular.singular import (
     ACCESS_ERROR,
     AUTH_ERROR,
     CREATE_MAX_ATTEMPTS,
@@ -38,9 +36,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.singular.s
     singular_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.singular.source import SingularSource
+from products.warehouse_sources.sources.singular.source import SingularSource
 
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.singular.singular"
+_MODULE = "products.warehouse_sources.sources.singular.singular"
 _API_KEY = "sk-invented-key"
 _DOWNLOAD_URL = "https://reports.example.com/files/report.json?Signature=invented-signature"
 _NOW = "2026-06-30T12:00:00Z"

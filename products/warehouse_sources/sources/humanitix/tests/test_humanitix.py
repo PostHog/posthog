@@ -3,21 +3,14 @@ from typing import Any
 from parameterized import parameterized
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.humanitix import (
-    HumanitixSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.humanitix.humanitix import (
+from products.warehouse_sources.sources.humanitix._config import HumanitixSourceConfig
+from products.warehouse_sources.sources.humanitix.humanitix import (
     PAGE_SIZE,
     HumanitixResumeConfig,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.humanitix.source import HumanitixSource
+from products.warehouse_sources.sources.humanitix.source import HumanitixSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

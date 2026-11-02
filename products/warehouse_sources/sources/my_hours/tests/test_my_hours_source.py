@@ -2,11 +2,9 @@ from unittest import mock
 
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.myhours import (
-    MyHoursSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.my_hours.source import MyHoursSource
+from products.warehouse_sources.sources.my_hours._config import MyHoursSourceConfig
+from products.warehouse_sources.sources.my_hours.source import MyHoursSource
+from products.warehouse_sources.sources.sdk import SourceInputs
 
 
 def _make_inputs(schema_name: str = "clients") -> SourceInputs:
@@ -32,7 +30,7 @@ class TestMyHoursSource:
         self.team_id = 123
         self.config = MyHoursSourceConfig(api_key="mh-key")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.my_hours.source.my_hours_source")
+    @mock.patch("products.warehouse_sources.sources.my_hours.source.my_hours_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = _make_inputs(schema_name="clients")
 

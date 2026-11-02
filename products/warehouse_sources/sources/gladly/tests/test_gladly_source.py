@@ -1,5 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gladly import GladlySourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.source import GladlySource
+from products.warehouse_sources.sources.gladly._config import GladlySourceConfig
+from products.warehouse_sources.sources.gladly.source import GladlySource
 
 
 class TestGladlySource:

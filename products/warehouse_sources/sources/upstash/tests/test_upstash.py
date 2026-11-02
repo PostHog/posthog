@@ -1,22 +1,17 @@
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.upstash import (
-    UpstashSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.upstash.settings import (
-    UPSTASH_API_BASE_URL,
-    UPSTASH_ROOT_BASE_URL,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.upstash.source import UpstashSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.upstash.upstash import validate_credentials
+from products.warehouse_sources.sources.upstash._config import UpstashSourceConfig
+from products.warehouse_sources.sources.upstash.settings import UPSTASH_API_BASE_URL, UPSTASH_ROOT_BASE_URL
+from products.warehouse_sources.sources.upstash.source import UpstashSource
+from products.warehouse_sources.sources.upstash.upstash import validate_credentials
 
 
 def _driver() -> SourceDriver:

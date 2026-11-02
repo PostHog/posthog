@@ -1,41 +1,32 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.everflow._config import EverflowSourceConfig
+from products.warehouse_sources.sources.everflow.everflow import (
+    EverflowResumeConfig,
+    everflow_source,
+    validate_credentials as validate_everflow_credentials,
+)
+from products.warehouse_sources.sources.everflow.settings import ENDPOINTS, INCREMENTAL_FIELDS, LOOKBACK, MERGE_ONLY
+from products.warehouse_sources.sources.sdk import (
+    NOT_DETECTABLE,
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.everflow.everflow import (
-    EverflowResumeConfig,
-    everflow_source,
-    validate_credentials as validate_everflow_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.everflow.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-    LOOKBACK,
-    MERGE_ONLY,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.everflow import (
-    EverflowSourceConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 DEFAULT_CURRENCY = "USD"
 
@@ -62,9 +53,7 @@ class EverflowSource(ResumableSource[EverflowSourceConfig, EverflowResumeConfig]
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.everflow.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.everflow.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

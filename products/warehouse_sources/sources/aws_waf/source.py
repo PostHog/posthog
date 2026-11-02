@@ -1,24 +1,9 @@
 from typing import cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-    SourceFieldSelectConfig,
-    SourceFieldSelectConfigOption,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_waf.aws_waf import (
-    AwsWafResumeConfig,
-    aws_waf_source,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_waf.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_waf.settings import (
+from products.warehouse_sources.sources.aws_waf._config import AwsWafSourceConfig
+from products.warehouse_sources.sources.aws_waf.aws_waf import AwsWafResumeConfig, aws_waf_source, validate_credentials
+from products.warehouse_sources.sources.aws_waf.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.aws_waf.settings import (
     ENDPOINT_DESCRIPTIONS,
     ENDPOINTS,
     ERROR_MESSAGES,
@@ -27,19 +12,26 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_waf.se
     SHOULD_SYNC_DEFAULT,
     WAF_API_VERSION,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+from products.warehouse_sources.sources.sdk import (
     CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awswaf import AwsWafSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register

@@ -1,13 +1,8 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.eventzilla.source import EventzillaSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.eventzilla import (
-    EventzillaSourceConfig,
-)
+from products.warehouse_sources.sources.eventzilla._config import EventzillaSourceConfig
+from products.warehouse_sources.sources.eventzilla.source import EventzillaSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 class TestEventzillaSourceClass:

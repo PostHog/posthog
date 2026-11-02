@@ -3,10 +3,16 @@ from typing import Any
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
+from products.warehouse_sources.sources.reply_io._config import ReplyIoSourceConfig
+from products.warehouse_sources.sources.reply_io.reply_io import (
+    ReplyIoResumeConfig,
+    check_endpoint_permissions,
+    validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.reply_io.settings import ENDPOINTS, PAGE_SIZE, REPLY_IO_ENDPOINTS
+from products.warehouse_sources.sources.reply_io.source import ReplyIoSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import (
     Script,
     ScriptedResponse,
     SourceDriver,
@@ -14,20 +20,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     route,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.replyio import (
-    ReplyIoSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.reply_io.reply_io import (
-    ReplyIoResumeConfig,
-    check_endpoint_permissions,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.reply_io.settings import (
-    ENDPOINTS,
-    PAGE_SIZE,
-    REPLY_IO_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.reply_io.source import ReplyIoSource
 
 
 def _driver() -> SourceDriver:

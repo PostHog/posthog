@@ -5,19 +5,11 @@ import pytest
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.humanitec import (
-    HumanitecSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.humanitec.humanitec import validate_credentials
-from products.warehouse_sources.backend.temporal.data_imports.sources.humanitec.source import HumanitecSource
+from products.warehouse_sources.sources.humanitec._config import HumanitecSourceConfig
+from products.warehouse_sources.sources.humanitec.humanitec import validate_credentials
+from products.warehouse_sources.sources.humanitec.source import HumanitecSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 BASE = "https://api.humanitec.io/orgs/example-org"
 CONFIG = HumanitecSourceConfig(api_token="test-token", organization_id="example-org")

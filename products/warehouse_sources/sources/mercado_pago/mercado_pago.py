@@ -4,33 +4,29 @@ from typing import Any
 from requests.exceptions import HTTPError
 from urllib3.util.retry import Retry
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    Endpoint,
-    EndpointResource,
-    RESTAPIConfig,
-    RESTClient,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mercadopago import (
-    MercadoPagoSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.mercado_pago.settings import (
+from products.warehouse_sources.sources.mercado_pago._config import MercadoPagoSourceConfig
+from products.warehouse_sources.sources.mercado_pago.settings import (
     AUTH_ERROR,
     BASE_URL,
     ENDPOINTS,
     PAGE_SIZE,
     PARTITION_KEYS,
     PRIMARY_KEYS,
+)
+from products.warehouse_sources.sources.sdk import (
+    BearerTokenAuth,
+    Endpoint,
+    EndpointResource,
+    RESTAPIConfig,
+    RESTClient,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceInputs,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    rest_api_resource,
+    schema_for_resource,
 )
 
 

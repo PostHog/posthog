@@ -3,7 +3,8 @@ from typing import Any, cast
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.cliniko.cliniko import (
+from products.warehouse_sources.sources.cliniko._config import ClinikoSourceConfig
+from products.warehouse_sources.sources.cliniko.cliniko import (
     ClinikoResumeConfig,
     _to_iso8601,
     base_url,
@@ -11,17 +12,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cliniko.cl
     shard_from_api_key,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.cliniko.source import ClinikoSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cliniko import (
-    ClinikoSourceConfig,
-)
+from products.warehouse_sources.sources.cliniko.source import ClinikoSource
+from products.warehouse_sources.sources.sdk import Endpoint
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 class TestShardDetection:

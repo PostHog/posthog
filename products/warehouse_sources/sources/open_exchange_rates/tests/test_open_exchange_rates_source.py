@@ -3,18 +3,9 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openexchangerates import (
-    OpenExchangeRatesSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates.source import (
-    OpenExchangeRatesSource,
-)
+from products.warehouse_sources.sources.open_exchange_rates._config import OpenExchangeRatesSourceConfig
+from products.warehouse_sources.sources.open_exchange_rates.source import OpenExchangeRatesSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 class TestOpenExchangeRatesSource:
@@ -42,9 +33,7 @@ class TestOpenExchangeRatesSource:
         assert [request.path for request in network.requests_log] == ["/api/usage.json"]
         assert network.requests_log[0].headers["authorization"] == "Token oxr-test"
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates.source.open_exchange_rates_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.open_exchange_rates.source.open_exchange_rates_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "historical"

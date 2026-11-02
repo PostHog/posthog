@@ -3,20 +3,11 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.koyeb import KoyebSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.koyeb.koyeb import (
-    KoyebResumeConfig,
-    _format_time_value,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.koyeb.settings import KOYEB_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.koyeb.source import KoyebSource
+from products.warehouse_sources.sources.koyeb._config import KoyebSourceConfig
+from products.warehouse_sources.sources.koyeb.koyeb import KoyebResumeConfig, _format_time_value, validate_credentials
+from products.warehouse_sources.sources.koyeb.settings import KOYEB_ENDPOINTS
+from products.warehouse_sources.sources.koyeb.source import KoyebSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

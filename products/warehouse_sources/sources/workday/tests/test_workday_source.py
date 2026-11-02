@@ -3,15 +3,12 @@ from typing import Optional, cast
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.workday import (
-    WorkdaySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.workday.source import WorkdaySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.workday.workday import WorkdayResumeConfig
+from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceInputs
+from products.warehouse_sources.sources.workday._config import WorkdaySourceConfig
+from products.warehouse_sources.sources.workday.source import WorkdaySource
+from products.warehouse_sources.sources.workday.workday import WorkdayResumeConfig
 
-SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.workday.source"
+SOURCE_MODULE = "products.warehouse_sources.sources.workday.source"
 
 
 def _config() -> WorkdaySourceConfig:

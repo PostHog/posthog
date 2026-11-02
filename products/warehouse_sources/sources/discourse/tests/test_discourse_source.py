@@ -2,10 +2,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.discourse.source import DiscourseSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.discourse import (
-    DiscourseSourceConfig,
-)
+from products.warehouse_sources.sources.discourse._config import DiscourseSourceConfig
+from products.warehouse_sources.sources.discourse.source import DiscourseSource
 
 
 class TestDiscourseSource:
@@ -30,7 +28,7 @@ class TestDiscourseSource:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.discourse.source.discourse_source")
+    @mock.patch("products.warehouse_sources.sources.discourse.source.discourse_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "posts"

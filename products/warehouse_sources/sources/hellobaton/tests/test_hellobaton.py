@@ -2,20 +2,14 @@ import pytest
 
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hellobaton import (
-    HellobatonSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.hellobaton.hellobaton import (
+from products.warehouse_sources.sources.hellobaton._config import HellobatonSourceConfig
+from products.warehouse_sources.sources.hellobaton.hellobaton import (
     HellobatonResumeConfig,
     normalize_company,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.hellobaton.source import HellobatonSource
+from products.warehouse_sources.sources.hellobaton.source import HellobatonSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _page(items: list[dict[str, int]], *, next_url: str | None = None) -> ScriptedResponse:

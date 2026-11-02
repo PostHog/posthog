@@ -6,23 +6,16 @@ from unittest.mock import MagicMock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.luma import LumaSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.luma import luma
-from products.warehouse_sources.backend.temporal.data_imports.sources.luma.luma import (
+from products.warehouse_sources.sources.luma import luma
+from products.warehouse_sources.sources.luma._config import LumaSourceConfig
+from products.warehouse_sources.sources.luma.luma import (
     LUMA_BASE_URL,
     LumaResumeConfig,
     LumaRetryableError,
     check_access,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.luma.settings import (
+from products.warehouse_sources.sources.luma.settings import (
     BLASTS_PATH,
     ENDPOINTS,
     EVENTS_PATH,
@@ -30,7 +23,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.luma.setti
     LUMA_ENDPOINTS,
     TICKET_TYPES_PATH,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.luma.source import LumaSource
+from products.warehouse_sources.sources.luma.source import LumaSource
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    error_message_matches,
+    scripted_network,
+)
 
 # Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
 _fetch_page_unwrapped = luma._fetch_page.__wrapped__  # type: ignore[attr-defined]

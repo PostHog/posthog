@@ -3,27 +3,17 @@ from unittest.mock import patch
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.codescene import codescene as codescene_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.codescene.codescene import (
+from products.warehouse_sources.sources.codescene import codescene as codescene_module
+from products.warehouse_sources.sources.codescene._config import CodesceneSourceConfig
+from products.warehouse_sources.sources.codescene.codescene import (
     CodesceneResumeConfig,
     normalize_base_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.codescene.settings import CODESCENE_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.codescene.source import CodesceneSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    PageNumberPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.codescene import (
-    CodesceneSourceConfig,
-)
+from products.warehouse_sources.sources.codescene.settings import CODESCENE_ENDPOINTS
+from products.warehouse_sources.sources.codescene.source import CodesceneSource
+from products.warehouse_sources.sources.sdk import PageNumberPaginator, SinglePagePaginator
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

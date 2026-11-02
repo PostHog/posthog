@@ -1,4 +1,4 @@
-from posthog.dataclasses import frozen
+from products.warehouse_sources.sources.sdk import frozen
 
 DEFAULT_BASE_URL = "https://api.umami.is/v1"
 PAGE_SIZE = 100

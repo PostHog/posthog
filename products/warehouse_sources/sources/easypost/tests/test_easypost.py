@@ -3,25 +3,15 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.easypost.easypost import (
+from products.warehouse_sources.sources.easypost._config import EasypostSourceConfig
+from products.warehouse_sources.sources.easypost.easypost import (
     EasypostResumeConfig,
     _parse_datetime,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.easypost.settings import (
-    EASYPOST_ENDPOINTS,
-    ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.easypost.source import EasypostSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.easypost import (
-    EasypostSourceConfig,
-)
+from products.warehouse_sources.sources.easypost.settings import EASYPOST_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.sources.easypost.source import EasypostSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver(api_key: str = "k") -> SourceDriver:

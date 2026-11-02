@@ -2,24 +2,11 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.asana.asana import (
-    ASANA_BASE_URL,
-    AsanaResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.asana.settings import (
-    ASANA_ENDPOINTS,
-    ENDPOINTS,
-    AsanaEndpointConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.asana.source import AsanaSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.asana import AsanaSourceConfig
+from products.warehouse_sources.sources.asana._config import AsanaSourceConfig
+from products.warehouse_sources.sources.asana.asana import ASANA_BASE_URL, AsanaResumeConfig, validate_credentials
+from products.warehouse_sources.sources.asana.settings import ASANA_ENDPOINTS, ENDPOINTS, AsanaEndpointConfig
+from products.warehouse_sources.sources.asana.source import AsanaSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _page(items: list[dict[str, Any]], next_uri: str | None = None) -> ScriptedResponse:

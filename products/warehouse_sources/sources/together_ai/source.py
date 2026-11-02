@@ -1,32 +1,24 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    SimpleSource,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.togetherai import (
-    TogetherAISourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.together_ai.settings import (
-    ENDPOINTS,
-    TOGETHER_AI_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.together_ai.together_ai import (
-    get_status_code,
-    together_ai_source,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.sources.together_ai._config import TogetherAISourceConfig
+from products.warehouse_sources.sources.together_ai.settings import ENDPOINTS, TOGETHER_AI_ENDPOINTS
+from products.warehouse_sources.sources.together_ai.together_ai import get_status_code, together_ai_source
 
 
 @SourceRegistry.register
@@ -75,9 +67,7 @@ You can find or create an API key in your [Together AI settings](https://api.tog
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.together_ai.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.together_ai.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

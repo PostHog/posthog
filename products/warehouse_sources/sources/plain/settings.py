@@ -1,13 +1,13 @@
 from dataclasses import field
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
+from products.warehouse_sources.sources.sdk import (
+    IncrementalField,
+    IncrementalFieldType,
     PartitionFormat,
     PartitionMode,
     SortMode,
+    frozen,
 )
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 UPDATED_AT = "updatedAt"
 CREATED_AT = "createdAt"

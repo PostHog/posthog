@@ -1,10 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.teamcity import (
-    TeamcitySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.teamcity.source import TeamcitySource
+from products.warehouse_sources.sources.teamcity._config import TeamcitySourceConfig
+from products.warehouse_sources.sources.teamcity.source import TeamcitySource
 
 
 class TestTeamcitySource:
@@ -22,9 +20,7 @@ class TestTeamcitySource:
             ((False, None), False, "Could not connect to TeamCity with the provided server URL and access token"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.teamcity.source.validate_teamcity_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.teamcity.source.validate_teamcity_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
         mock_validate.return_value = mock_return
 
@@ -34,9 +30,7 @@ class TestTeamcitySource:
         assert error_message == expected_message
         mock_validate.assert_called_once_with("https://teamcity.example.com", "token", self.team_id)
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.teamcity.source.validate_teamcity_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.teamcity.source.validate_teamcity_credentials")
     def test_validate_credentials_surfaces_bad_host(self, mock_validate):
         mock_validate.side_effect = ValueError("Invalid TeamCity server URL: 'ftp://x'.")
 

@@ -1,12 +1,9 @@
 from typing import Any
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.svix import SvixSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.svix.source import SvixSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.svix.svix import SvixResumeConfig
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
+from products.warehouse_sources.sources.svix._config import SvixSourceConfig
+from products.warehouse_sources.sources.svix.source import SvixSource
+from products.warehouse_sources.sources.svix.svix import SvixResumeConfig
 
 
 def _response(items: list[dict[str, Any]], iterator: str | None, done: bool) -> ScriptedResponse:

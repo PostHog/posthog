@@ -1,12 +1,8 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.crisp.source import CrispSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.crisp import CrispSourceConfig
+from products.warehouse_sources.sources.crisp._config import CrispSourceConfig
+from products.warehouse_sources.sources.crisp.source import CrispSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, always, scripted_network
 
 
 @pytest.mark.parametrize(

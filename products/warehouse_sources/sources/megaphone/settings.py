@@ -1,11 +1,11 @@
 from typing import Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+from products.warehouse_sources.sources.sdk import (
     DependentEndpointConfig,
+    IncrementalField,
+    IncrementalFieldType,
+    frozen,
 )
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 MEGAPHONE_HOST = "cms.megaphone.fm"
 MEGAPHONE_BASE_URL = f"https://{MEGAPHONE_HOST}/api"

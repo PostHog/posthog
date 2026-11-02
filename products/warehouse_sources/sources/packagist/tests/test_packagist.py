@@ -4,16 +4,8 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.packagist import (
-    PackagistSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.packagist.packagist import (
+from products.warehouse_sources.sources.packagist._config import PackagistSourceConfig
+from products.warehouse_sources.sources.packagist.packagist import (
     MAX_PACKAGES,
     PackagistResumeConfig,
     PackagistRetryableError,
@@ -24,9 +16,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.packagist.
     parse_packages,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.packagist.source import PackagistSource
+from products.warehouse_sources.sources.packagist.source import PackagistSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.packagist.packagist"
+MODULE = "products.warehouse_sources.sources.packagist.packagist"
 
 
 def _metadata_document(name: str = "monolog/monolog") -> dict[str, Any]:

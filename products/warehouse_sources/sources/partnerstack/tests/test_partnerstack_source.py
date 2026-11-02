@@ -1,13 +1,8 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.partnerstack import (
-    PartnerStackSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.partnerstack.source import PartnerStackSource
+from products.warehouse_sources.sources.partnerstack._config import PartnerStackSourceConfig
+from products.warehouse_sources.sources.partnerstack.source import PartnerStackSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 class TestPartnerStackSource:
@@ -23,9 +18,7 @@ class TestPartnerStackSource:
         assert result == (False, "Invalid PartnerStack API keys")
         assert network.requests_log[0].headers["authorization"] == "Basic cHViOnByaXY="
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.partnerstack.source.partnerstack_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.partnerstack.source.partnerstack_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "partnerships"

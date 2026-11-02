@@ -4,7 +4,8 @@ import pytest
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.codefresh.codefresh import (
+from products.warehouse_sources.sources.codefresh._config import CodefreshSourceConfig
+from products.warehouse_sources.sources.codefresh.codefresh import (
     ACCOUNT_LOOKUP_FAILED,
     ACCOUNT_LOOKUP_MESSAGE,
     CodefreshResumeConfig,
@@ -13,20 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.codefresh.
     _transform_row,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.codefresh.settings import (
-    CODEFRESH_ENDPOINTS,
-    CodefreshEndpointConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.codefresh.source import CodefreshSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.codefresh import (
-    CodefreshSourceConfig,
-)
+from products.warehouse_sources.sources.codefresh.settings import CODEFRESH_ENDPOINTS, CodefreshEndpointConfig
+from products.warehouse_sources.sources.codefresh.source import CodefreshSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

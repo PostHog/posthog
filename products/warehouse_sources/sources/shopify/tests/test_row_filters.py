@@ -4,22 +4,11 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
-    ColumnTypeCategory,
-    RowFilterColumn,
-    ValidatedRowFilter,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.constants import (
-    BLOGS,
-    COLLECTIONS,
-    CUSTOMERS,
-    ORDERS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify import (
-    row_filter_search_terms,
-    shopify_source,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.source import ShopifySource
+from products.warehouse_sources.sources.sdk import RowFilterColumn, ValidatedRowFilter
+from products.warehouse_sources.sources.sdk.testing import ColumnTypeCategory
+from products.warehouse_sources.sources.shopify.constants import BLOGS, COLLECTIONS, CUSTOMERS, ORDERS
+from products.warehouse_sources.sources.shopify.shopify import row_filter_search_terms, shopify_source
+from products.warehouse_sources.sources.shopify.source import ShopifySource
 
 CREATED_AT_COLUMN = RowFilterColumn(name="created_at", data_type="timestamp", operators=(">", ">=", "<", "<="))
 
@@ -129,9 +118,7 @@ class TestShopifySourceQueries:
         manager.can_resume.return_value = False
         queries: list[Any] = []
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify.requests.Session"
-        ) as session_cls:
+        with patch("products.warehouse_sources.sources.shopify.shopify.requests.Session") as session_cls:
 
             def _post(url: str, json: dict[str, Any] | None = None, **kwargs: Any) -> MagicMock:
                 queries.append((json or {}).get("variables", {}).get("query"))

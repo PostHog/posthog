@@ -3,24 +3,15 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.clever.clever import (
-    CleverPaginator,
-    CleverResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.clever.settings import (
+from products.warehouse_sources.sources.clever._config import CleverSourceConfig
+from products.warehouse_sources.sources.clever.clever import CleverPaginator, CleverResumeConfig, validate_credentials
+from products.warehouse_sources.sources.clever.settings import (
     CLEVER_API_VERSION_V3_0,
     CLEVER_API_VERSION_V3_1,
     clever_base_url,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.clever.source import CleverSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clever import CleverSourceConfig
+from products.warehouse_sources.sources.clever.source import CleverSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _next_link(starting_after: str) -> dict[str, Any]:

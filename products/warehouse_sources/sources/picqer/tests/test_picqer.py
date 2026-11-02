@@ -3,23 +3,23 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.picqer import PicqerSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.picqer.picqer import (
+from products.warehouse_sources.sources.picqer._config import PicqerSourceConfig
+from products.warehouse_sources.sources.picqer.picqer import (
     PicqerResumeConfig,
     _build_params,
     normalize_account,
     to_picqer_datetime,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.picqer.settings import PAGE_SIZE, PICQER_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.picqer.source import PicqerSource
+from products.warehouse_sources.sources.picqer.settings import PAGE_SIZE, PICQER_ENDPOINTS
+from products.warehouse_sources.sources.picqer.source import PicqerSource
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
 
 
 class TestNormalizeAccount:

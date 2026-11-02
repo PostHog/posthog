@@ -2,10 +2,7 @@ from dataclasses import field
 from datetime import timedelta
 from typing import Literal
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.types import IncrementalField
+from products.warehouse_sources.sources.sdk import IncrementalField, frozen, incremental_field
 
 CHANNEL_IO_BASE_URL = "https://api.channel.io"
 CHANNEL_IO_API_VERSION = "2026-06-01"

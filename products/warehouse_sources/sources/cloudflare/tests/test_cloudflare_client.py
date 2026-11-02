@@ -5,7 +5,8 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.cloudflare import (
+from products.warehouse_sources.sources.cloudflare._config import CloudflareSourceConfig
+from products.warehouse_sources.sources.cloudflare.cloudflare import (
     DNS_ANALYTICS_ALL_ZONES_FAILED,
     PAGE_SIZE,
     TokenCheck,
@@ -15,27 +16,22 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare
     _redact_logpush_destination,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.settings import (
+from products.warehouse_sources.sources.cloudflare.settings import (
     ACCOUNTS_PARENT,
     CLOUDFLARE_ENDPOINTS,
     ENDPOINTS,
     SINGLE_PAGE,
     ZONES_PARENT,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.source import CloudflareSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.cloudflare.source import CloudflareSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
+    error_message_matches,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cloudflare import (
-    CloudflareSourceConfig,
 )
 
 

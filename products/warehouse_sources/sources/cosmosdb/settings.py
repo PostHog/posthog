@@ -1,4 +1,4 @@
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
 # Newest version Microsoft lists for the Cosmos DB REST API; sent as `x-ms-version` on every call.
 API_VERSION = "2018-12-31"

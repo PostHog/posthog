@@ -1,12 +1,12 @@
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+from products.warehouse_sources.sources.sdk import (
+    UNVERSIONED_API_VERSION,
     DependentEndpointConfig,
+    IncrementalField,
+    SortMode,
+    incremental_field,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
-from products.warehouse_sources.backend.types import IncrementalField
 
 COURIER_BASE_URL = "https://api.courier.com"
 

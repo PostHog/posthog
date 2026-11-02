@@ -3,11 +3,9 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.fleetio import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.fleetio.source import FleetioSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fleetio import (
-    FleetioSourceConfig,
-)
+from products.warehouse_sources.sources.fleetio import source as source_module
+from products.warehouse_sources.sources.fleetio._config import FleetioSourceConfig
+from products.warehouse_sources.sources.fleetio.source import FleetioSource
 
 
 class TestFleetioSource:

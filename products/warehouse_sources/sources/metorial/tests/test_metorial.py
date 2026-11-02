@@ -4,21 +4,15 @@ from typing import Any
 from parameterized import parameterized
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.metorial import (
-    MetorialSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.metorial.metorial import (
+from products.warehouse_sources.sources.metorial._config import MetorialSourceConfig
+from products.warehouse_sources.sources.metorial.metorial import (
     DEFAULT_PAGE_SIZE,
     MetorialResumeConfig,
     _format_incremental_value,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.metorial.source import MetorialSource
+from products.warehouse_sources.sources.metorial.source import MetorialSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 # A stand-in API key long enough to be caught by the transport's value-based redaction.
 _SECRET_KEY = "metorial_sk_abcdef1234567890"

@@ -8,13 +8,14 @@ import time_machine
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.cal_com.cal_com import (
+from products.warehouse_sources.sources.cal_com._config import CalComSourceConfig
+from products.warehouse_sources.sources.cal_com.cal_com import (
     CalComResumeConfig,
     check_organization_access,
     resolve_organization_id,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.cal_com.settings import (
+from products.warehouse_sources.sources.cal_com.settings import (
     BOOKING_ATTENDEES_ENDPOINT,
     BOOKINGS_WINDOW_ORIGIN,
     CAL_COM_ENDPOINTS,
@@ -22,8 +23,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cal_com.se
     ENDPOINTS,
     endpoint_requires_organization,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.cal_com.source import CalComSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.cal_com.source import CalComSource
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
     ScriptedResponse,
@@ -31,7 +32,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.calcom import CalComSourceConfig
 
 US_BASE_URL = CAL_COM_HOSTS["us"]
 ORG_ID = 77

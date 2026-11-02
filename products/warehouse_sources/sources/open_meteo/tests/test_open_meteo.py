@@ -8,19 +8,8 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openmeteo import (
-    OpenMeteoSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.open_meteo.open_meteo import (
+from products.warehouse_sources.sources.open_meteo._config import OpenMeteoSourceConfig
+from products.warehouse_sources.sources.open_meteo.open_meteo import (
     ARCHIVE_WINDOW_DAYS,
     MAX_LABEL_LENGTH,
     MAX_LOCATIONS,
@@ -35,8 +24,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.open_meteo
     resolve_archive_range,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.open_meteo.settings import OPEN_METEO_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.open_meteo.source import OpenMeteoSource
+from products.warehouse_sources.sources.open_meteo.settings import OPEN_METEO_ENDPOINTS
+from products.warehouse_sources.sources.open_meteo.source import OpenMeteoSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 LONDON = Location(51.5074, -0.1278, "London")
 

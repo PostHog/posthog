@@ -1,9 +1,9 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.motion import MotionSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.motion.source import MotionSource
+from products.warehouse_sources.sources.motion._config import MotionSourceConfig
+from products.warehouse_sources.sources.motion.source import MotionSource
 
-_SOURCE = "products.warehouse_sources.backend.temporal.data_imports.sources.motion.source"
+_SOURCE = "products.warehouse_sources.sources.motion.source"
 
 
 class TestMotionSourceClass:

@@ -8,9 +8,8 @@ import requests
 import requests_mock
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
-from products.warehouse_sources.backend.temporal.data_imports.sources.persona import persona
-from products.warehouse_sources.backend.temporal.data_imports.sources.persona.persona import (
+from products.warehouse_sources.sources.persona import persona
+from products.warehouse_sources.sources.persona.persona import (
     PERSONA_API_VERSION_2026_09_29,
     PERSONA_BASE_URL,
     PersonaRedirectError,
@@ -21,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.persona.pe
     get_rows,
     persona_source,
 )
+from products.warehouse_sources.sources.sdk import UNVERSIONED_API_VERSION
 
 
 class _FakeResumableManager:

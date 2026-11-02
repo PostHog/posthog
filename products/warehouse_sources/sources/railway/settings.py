@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
 RAILWAY_API_URL = "https://backboard.railway.com/graphql/v2"
 # Railway doesn't document a hard max page size; dashboard queries use small values, so stay <= 100.

@@ -1,15 +1,10 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.smartreach import (
-    SmartreachSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.smartreach.smartreach import (
-    SMARTREACH_API_V1,
-    SMARTREACH_API_V3,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.smartreach.source import SmartreachSource
+from products.warehouse_sources.sources.sdk import SourceFieldInputConfig, SourceFieldInputConfigType
+from products.warehouse_sources.sources.smartreach._config import SmartreachSourceConfig
+from products.warehouse_sources.sources.smartreach.smartreach import SMARTREACH_API_V1, SMARTREACH_API_V3
+from products.warehouse_sources.sources.smartreach.source import SmartreachSource
 
 
 class TestSmartreachSource:
@@ -36,7 +31,7 @@ class TestSmartreachSource:
         # get_schemas is a static catalog with no I/O, so the public docs can render the table list.
         assert self.source.lists_tables_without_credentials is True
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.smartreach.source.check_access")
+    @mock.patch("products.warehouse_sources.sources.smartreach.source.check_access")
     def test_validate_credentials_v3_requires_team_id(self, mock_check: mock.MagicMock) -> None:
         # v3 list endpoints reject requests without team_id, so fail fast (before probing) when it's
         # missing on a v3-resolved source rather than letting every table 400 mid-sync.
@@ -46,7 +41,7 @@ class TestSmartreachSource:
         assert message == "Enter your SmartReach team ID. The current SmartReach API needs it to return your data."
         mock_check.assert_not_called()
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.smartreach.source.check_access")
+    @mock.patch("products.warehouse_sources.sources.smartreach.source.check_access")
     def test_validate_credentials_v1_does_not_require_team_id(self, mock_check: mock.MagicMock) -> None:
         # A source pinned to v1 (no team_id in its stored config) still validates — v1 never sends one.
         mock_check.return_value = (200, None)
@@ -63,7 +58,7 @@ class TestSmartreachSource:
             (SMARTREACH_API_V3, SMARTREACH_API_V3),
         ],
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.smartreach.source.smartreach_source")
+    @mock.patch("products.warehouse_sources.sources.smartreach.source.smartreach_source")
     def test_source_for_pipeline_plumbs_arguments(
         self, mock_smartreach_source: mock.MagicMock, pinned_version: str | None, expected_version: str
     ) -> None:

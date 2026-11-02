@@ -5,29 +5,20 @@ from typing import Any, Optional
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-    rest_api_resources,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    rename_parent_fields,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponseCursorPaginator,
-    OffsetPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+from products.warehouse_sources.sources.hex.settings import HEX_ENDPOINTS, HexEndpointConfig
+from products.warehouse_sources.sources.sdk import (
     ClientConfig,
     EndpointResource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.hex.settings import (
-    HEX_ENDPOINTS,
-    HexEndpointConfig,
+    JSONResponseCursorPaginator,
+    OffsetPaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    _is_host_safe,
+    make_tracked_session,
+    rename_parent_fields,
+    rest_api_resource,
+    rest_api_resources,
 )
 
 DEFAULT_WORKSPACE_HOST = "app.hex.tech"

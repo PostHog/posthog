@@ -2,21 +2,12 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openaiads import (
-    OpenAIAdsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.openai_ads.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.openai_ads.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.openai_ads.source import OpenAIAdsSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.sources.openai_ads._config import OpenAIAdsSourceConfig
+from products.warehouse_sources.sources.openai_ads.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.openai_ads.settings import ENDPOINTS
+from products.warehouse_sources.sources.openai_ads.source import OpenAIAdsSource
+from products.warehouse_sources.sources.sdk import ExternalDataSourceType, ReleaseStatus, SourceFieldInputConfig
+from products.warehouse_sources.sources.sdk.testing import RecordedRequest, ScriptedResponse, SourceDriver
 
 _ENTITY_ENDPOINTS = ["campaigns", "ad_groups", "ads"]
 _INSIGHTS_ENDPOINTS = ["campaign_insights", "ad_group_insights", "ad_insights", "ad_account_insights"]

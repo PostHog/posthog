@@ -1,15 +1,9 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.devin_ai.devin_ai import DevinAIResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.devin_ai.source import DevinAISource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.devinai import (
-    DevinAISourceConfig,
-)
+from products.warehouse_sources.sources.devin_ai._config import DevinAISourceConfig
+from products.warehouse_sources.sources.devin_ai.devin_ai import DevinAIResumeConfig
+from products.warehouse_sources.sources.devin_ai.source import DevinAISource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, always, scripted_network
 
 
 def _config(api_key: str = "cog_test", org_id: str = "org-abc") -> DevinAISourceConfig:

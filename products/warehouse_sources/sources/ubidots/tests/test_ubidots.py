@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
     Script,
@@ -18,17 +18,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     SourceDriver,
     UnexpectedRequest,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ubidots import (
-    UbidotsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots import ubidots
-from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.settings import (
-    DEFAULT_UBIDOTS_API_BASE_URL,
-    ENDPOINTS,
-    VALUES_ENDPOINT,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.source import UbidotsSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.ubidots import (
+from products.warehouse_sources.sources.ubidots import ubidots
+from products.warehouse_sources.sources.ubidots._config import UbidotsSourceConfig
+from products.warehouse_sources.sources.ubidots.settings import DEFAULT_UBIDOTS_API_BASE_URL, ENDPOINTS, VALUES_ENDPOINT
+from products.warehouse_sources.sources.ubidots.source import UbidotsSource
+from products.warehouse_sources.sources.ubidots.ubidots import (
     UBIDOTS_API_VERSION_LEGACY,
     UBIDOTS_API_VERSION_V2_0,
     VALUES_WINDOW_MS,

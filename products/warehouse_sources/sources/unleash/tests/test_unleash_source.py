@@ -1,9 +1,7 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.unleash import (
-    UnleashSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.unleash.source import UnleashSource
+from products.warehouse_sources.sources.unleash._config import UnleashSourceConfig
+from products.warehouse_sources.sources.unleash.source import UnleashSource
 
 
 class TestUnleashSource:
@@ -17,9 +15,7 @@ class TestUnleashSource:
         # URL must force the editor to re-enter the token.
         assert self.source.connection_host_fields == ["instance_url"]
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.unleash.source.check_endpoint_permissions"
-    )
+    @mock.patch("products.warehouse_sources.sources.unleash.source.check_endpoint_permissions")
     def test_get_endpoint_permissions_delegates_to_shared_helper(self, mock_check: mock.MagicMock) -> None:
         mock_check.return_value = {"users": "needs admin", "features": None}
         result = self.source.get_endpoint_permissions(self.config, self.team_id, ["users", "features"])
@@ -28,7 +24,7 @@ class TestUnleashSource:
             "https://unleash.example.com", "user:secret-token", ["users", "features"], self.team_id
         )
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.unleash.source.unleash_source")
+    @mock.patch("products.warehouse_sources.sources.unleash.source.unleash_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "features"

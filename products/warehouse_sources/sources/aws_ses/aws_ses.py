@@ -11,7 +11,7 @@ from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_ses.settings import (
+from products.warehouse_sources.sources.aws_ses.settings import (
     AWS_SES_ENDPOINTS,
     REGION_PATTERN,
     REQUEST_TIMEOUT_SECONDS,
@@ -19,11 +19,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_ses.se
     SES_SIGNING_NAME,
     AwsSesEndpointConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.url_utils import scrub_url
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.sources.sdk import (
+    BoundedRetry,
+    ResumableSourceManager,
+    SourceResponse,
+    make_tracked_session,
+    scrub_url,
+)
 
 # SESv2 returns TooManyRequestsException as HTTP 429 and its read APIs throttle at roughly one
 # request per second, so 429 gets more headroom than the tracked session's default policy.

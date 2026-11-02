@@ -3,17 +3,11 @@ from typing import Any
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.goldcast import (
-    GoldcastSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.goldcast.goldcast import validate_credentials
-from products.warehouse_sources.backend.temporal.data_imports.sources.goldcast.settings import GOLDCAST_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.goldcast.source import GoldcastSource
+from products.warehouse_sources.sources.goldcast._config import GoldcastSourceConfig
+from products.warehouse_sources.sources.goldcast.goldcast import validate_credentials
+from products.warehouse_sources.sources.goldcast.settings import GOLDCAST_ENDPOINTS
+from products.warehouse_sources.sources.goldcast.source import GoldcastSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver(access_key: str = "tok") -> SourceDriver:

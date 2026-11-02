@@ -1,41 +1,31 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.bol_retailer.bol_retailer import (
+from products.warehouse_sources.sources.bol_retailer._config import BolRetailerSourceConfig
+from products.warehouse_sources.sources.bol_retailer.bol_retailer import (
     BolRetailerResumeConfig,
     bol_retailer_source,
     validate_credentials as validate_bol_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.bol_retailer.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-    MERGE_ONLY,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
+from products.warehouse_sources.sources.bol_retailer.settings import ENDPOINTS, INCREMENTAL_FIELDS, MERGE_ONLY
+from products.warehouse_sources.sources.sdk import (
+    NOT_DETECTABLE,
     OAUTH2_PERMANENT_ERROR_MARKER,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bolretailer import (
-    BolRetailerSourceConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _RECONNECT = "Copy the client ID and secret again from API settings in your bol seller dashboard."
 
@@ -63,9 +53,7 @@ class BolRetailerSource(ResumableSource[BolRetailerSourceConfig, BolRetailerResu
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.bol_retailer.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.bol_retailer.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

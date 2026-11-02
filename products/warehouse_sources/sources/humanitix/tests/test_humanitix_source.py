@@ -1,13 +1,8 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.humanitix import (
-    HumanitixSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.humanitix.source import HumanitixSource
+from products.warehouse_sources.sources.humanitix._config import HumanitixSourceConfig
+from products.warehouse_sources.sources.humanitix.source import HumanitixSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 class TestHumanitixSource:
@@ -28,7 +23,7 @@ class TestHumanitixSource:
         assert [request.path for request in network.requests_log] == ["/v1/events"]
         assert network.requests_log[0].headers["x-api-key"] == "hmtx-key"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.humanitix.source.humanitix_source")
+    @mock.patch("products.warehouse_sources.sources.humanitix.source.humanitix_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_humanitix_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "events"

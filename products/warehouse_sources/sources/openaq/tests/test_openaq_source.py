@@ -4,13 +4,9 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openaq import OpenAQSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.openaq.source import OpenAQSource
+from products.warehouse_sources.sources.openaq._config import OpenAQSourceConfig
+from products.warehouse_sources.sources.openaq.source import OpenAQSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, always, scripted_network
 
 
 def _config() -> OpenAQSourceConfig:
@@ -73,9 +69,7 @@ class TestOpenAQPipelineWiring:
     def test_source_for_pipeline_drops_incremental_value_when_disabled(self) -> None:
         # When the schema isn't synced incrementally, the last value must not leak into a filter.
         manager = MagicMock()
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.openaq.source.openaq_source"
-        ) as mock_source:
+        with patch("products.warehouse_sources.sources.openaq.source.openaq_source") as mock_source:
             OpenAQSource().source_for_pipeline(
                 _config(),
                 manager,

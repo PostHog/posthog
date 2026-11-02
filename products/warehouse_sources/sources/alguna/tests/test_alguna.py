@@ -1,16 +1,9 @@
 from typing import Any
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.alguna.alguna import (
-    AlgunaResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.alguna.source import AlgunaSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.alguna import AlgunaSourceConfig
+from products.warehouse_sources.sources.alguna._config import AlgunaSourceConfig
+from products.warehouse_sources.sources.alguna.alguna import AlgunaResumeConfig, validate_credentials
+from products.warehouse_sources.sources.alguna.source import AlgunaSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver() -> SourceDriver:

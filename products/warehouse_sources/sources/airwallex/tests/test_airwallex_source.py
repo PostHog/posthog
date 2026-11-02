@@ -1,14 +1,9 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
-from products.warehouse_sources.backend.temporal.data_imports.sources.airwallex.source import AirwallexSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.airwallex import (
-    AirwallexSourceConfig,
-)
+from products.warehouse_sources.sources.airwallex._config import AirwallexSourceConfig
+from products.warehouse_sources.sources.airwallex.source import AirwallexSource
+from products.warehouse_sources.sources.sdk import SourceFieldInputConfig, SourceFieldInputConfigType
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 def _driver() -> SourceDriver:

@@ -6,15 +6,9 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mux import MuxSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.mux import mux
-from products.warehouse_sources.backend.temporal.data_imports.sources.mux.mux import (
+from products.warehouse_sources.sources.mux import mux
+from products.warehouse_sources.sources.mux._config import MuxSourceConfig
+from products.warehouse_sources.sources.mux.mux import (
     INCREMENTAL_OVERLAP,
     MuxResumeConfig,
     _as_epoch,
@@ -22,12 +16,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mux.mux im
     _strip_sensitive_fields,
     get_validation_status,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.mux.settings import (
+from products.warehouse_sources.sources.mux.settings import (
     AGGREGATE_LOOKBACK,
     DIMENSION_VALUES_MAX_PAGES,
     MUX_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.mux.source import MuxSource
+from products.warehouse_sources.sources.mux.source import MuxSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

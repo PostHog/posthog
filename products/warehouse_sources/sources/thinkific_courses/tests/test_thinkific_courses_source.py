@@ -2,16 +2,9 @@ from typing import Optional
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.thinkificcourses import (
-    ThinkificCoursesSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.thinkific_courses.source import (
-    ThinkificCoursesSource,
-)
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
+from products.warehouse_sources.sources.thinkific_courses._config import ThinkificCoursesSourceConfig
+from products.warehouse_sources.sources.thinkific_courses.source import ThinkificCoursesSource
 
 
 def _config(api_key: str = "key", subdomain: str = "mycompany") -> ThinkificCoursesSourceConfig:

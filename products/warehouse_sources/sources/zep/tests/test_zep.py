@@ -3,22 +3,11 @@ from typing import Any
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    route,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zep import ZepSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.zep.settings import ZEP_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.zep.source import ZepSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.zep.zep import (
-    ZEP_BASE_URL,
-    ZepResumeConfig,
-    ZepRetryableError,
-    _build_url,
-)
+from products.warehouse_sources.sources.sdk.testing import DriveResult, ScriptedResponse, SourceDriver, always, route
+from products.warehouse_sources.sources.zep._config import ZepSourceConfig
+from products.warehouse_sources.sources.zep.settings import ZEP_ENDPOINTS
+from products.warehouse_sources.sources.zep.source import ZepSource
+from products.warehouse_sources.sources.zep.zep import ZEP_BASE_URL, ZepResumeConfig, ZepRetryableError, _build_url
 
 
 def _run(endpoint: str, script: Any, resume_state: ZepResumeConfig | None = None) -> DriveResult:

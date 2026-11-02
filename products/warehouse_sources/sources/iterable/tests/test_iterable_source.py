@@ -1,10 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.iterable import (
-    IterableSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.iterable.source import IterableSource
+from products.warehouse_sources.sources.iterable._config import IterableSourceConfig
+from products.warehouse_sources.sources.iterable.source import IterableSource
 
 
 class TestIterableSource:
@@ -20,9 +18,7 @@ class TestIterableSource:
             (False, False, "Invalid Iterable API key for the selected data center"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.iterable.source.validate_iterable_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.iterable.source.validate_iterable_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
         mock_validate.return_value = mock_return
 

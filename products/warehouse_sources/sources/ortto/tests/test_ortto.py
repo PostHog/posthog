@@ -2,23 +2,11 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ortto import OrttoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.ortto.ortto import (
-    OrttoResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.ortto.settings import (
-    ACCOUNT_BUILTIN_FIELDS,
-    ENDPOINTS,
-    ORTTO_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.ortto.source import OrttoSource
+from products.warehouse_sources.sources.ortto._config import OrttoSourceConfig
+from products.warehouse_sources.sources.ortto.ortto import OrttoResumeConfig, validate_credentials
+from products.warehouse_sources.sources.ortto.settings import ACCOUNT_BUILTIN_FIELDS, ENDPOINTS, ORTTO_ENDPOINTS
+from products.warehouse_sources.sources.ortto.source import OrttoSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

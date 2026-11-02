@@ -1,8 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.plivo import PlivoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.plivo.source import PlivoSource
+from products.warehouse_sources.sources.plivo._config import PlivoSourceConfig
+from products.warehouse_sources.sources.plivo.source import PlivoSource
 
 
 class TestPlivoSource:
@@ -18,9 +18,7 @@ class TestPlivoSource:
             (False, False, "Invalid Plivo Auth ID or Auth Token"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.plivo.source.validate_plivo_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.plivo.source.validate_plivo_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
         mock_validate.return_value = mock_return
 
@@ -30,7 +28,7 @@ class TestPlivoSource:
         assert error_message == expected_message
         mock_validate.assert_called_once_with("MA123", "token")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.plivo.source.plivo_source")
+    @mock.patch("products.warehouse_sources.sources.plivo.source.plivo_source")
     def test_source_for_pipeline_drops_cursor_on_full_refresh(self, mock_plivo_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "messages"

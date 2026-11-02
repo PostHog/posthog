@@ -4,7 +4,8 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.ashby.ashby import (
+from products.warehouse_sources.sources.ashby._config import AshbySourceConfig
+from products.warehouse_sources.sources.ashby.ashby import (
     ASHBY_BASE_URL,
     AUTH_ERROR_HINT,
     AshbyAPIError,
@@ -12,13 +13,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ashby.ashb
     _errors_from_payload,
     check_access,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.ashby.source import AshbySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ashby import AshbySourceConfig
+from products.warehouse_sources.sources.ashby.source import AshbySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _page(items: list[dict[str, Any]], *, more: bool = False, next_cursor: str | None = None) -> ScriptedResponse:

@@ -9,19 +9,18 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
-    interruptible_wait,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import reach_safe_point
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.openweather.settings import (
+from products.warehouse_sources.sources.openweather.settings import (
     PROBE_ENDPOINT_BY_VERSION,
     HistoryWindow,
     OpenWeatherEndpointConfig,
     endpoints_for_version,
+)
+from products.warehouse_sources.sources.sdk import (
+    SourceResponse,
+    frozen,
+    interruptible_wait,
+    make_tracked_session,
+    reach_safe_point,
 )
 
 OPENWEATHER_BASE_URL = "https://api.openweathermap.org"

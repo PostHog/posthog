@@ -3,13 +3,10 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.klarna import KlarnaSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.klarna.klarna import KlarnaResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.klarna.source import KlarnaSource
+from products.warehouse_sources.sources.klarna._config import KlarnaSourceConfig
+from products.warehouse_sources.sources.klarna.klarna import KlarnaResumeConfig
+from products.warehouse_sources.sources.klarna.source import KlarnaSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 def driver(**config: Any) -> SourceDriver:

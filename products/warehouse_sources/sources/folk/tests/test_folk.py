@@ -4,22 +4,17 @@ import pytest
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.folk.folk import (
+from products.warehouse_sources.sources.folk._config import FolkSourceConfig
+from products.warehouse_sources.sources.folk.folk import (
     FolkResumeConfig,
     FolkUntrustedURLError,
     _validate_pagination_url,
     probe_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.folk.settings import FOLK_BASE_URL
-from products.warehouse_sources.backend.temporal.data_imports.sources.folk.source import FolkSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.folk import FolkSourceConfig
+from products.warehouse_sources.sources.folk.settings import FOLK_BASE_URL
+from products.warehouse_sources.sources.folk.source import FolkSource
+from products.warehouse_sources.sources.sdk import UnknownResourceError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, route, scripted_network
 
 
 def _driver() -> SourceDriver:

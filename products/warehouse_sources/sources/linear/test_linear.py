@@ -6,14 +6,8 @@ from unittest.mock import MagicMock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.linear import LinearSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear import (
+from products.warehouse_sources.sources.linear._config import LinearSourceConfig
+from products.warehouse_sources.sources.linear.linear import (
     _FLOAT_FIELDS,
     LINEAR_MAX_RETRY_ATTEMPTS,
     LinearResumeConfig,
@@ -21,13 +15,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.linear.lin
     _parse_retry_after,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.linear.queries import QUERIES
-from products.warehouse_sources.backend.temporal.data_imports.sources.linear.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-    LINEAR_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.linear.source import LinearSource
+from products.warehouse_sources.sources.linear.queries import QUERIES
+from products.warehouse_sources.sources.linear.settings import ENDPOINTS, INCREMENTAL_FIELDS, LINEAR_ENDPOINTS
+from products.warehouse_sources.sources.linear.source import LinearSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _graphql_query_name(endpoint_name: str) -> str:

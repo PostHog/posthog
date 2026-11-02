@@ -1,14 +1,9 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.assemblyai.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.assemblyai.source import AssemblyAISource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.assemblyai import (
-    AssemblyAISourceConfig,
-)
+from products.warehouse_sources.sources.assemblyai._config import AssemblyAISourceConfig
+from products.warehouse_sources.sources.assemblyai.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.assemblyai.source import AssemblyAISource
 
 
 class TestAssemblyAISource:
@@ -65,9 +60,7 @@ class TestAssemblyAISource:
             (False, False, "Invalid AssemblyAI API key"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.assemblyai.source.validate_assemblyai_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.assemblyai.source.validate_assemblyai_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
         mock_validate.return_value = mock_return
 

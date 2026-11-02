@@ -7,8 +7,9 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.coin_api import coin_api
-from products.warehouse_sources.backend.temporal.data_imports.sources.coin_api.coin_api import (
+from products.warehouse_sources.sources.coin_api import coin_api
+from products.warehouse_sources.sources.coin_api._config import CoinApiSourceConfig
+from products.warehouse_sources.sources.coin_api.coin_api import (
     BASE_URL,
     CoinApiResumeConfig,
     CoinApiRetryableError,
@@ -17,17 +18,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coin_api.c
     _resolve_timeseries_request,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.coin_api.settings import COIN_API_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.coin_api.source import CoinApiSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coinapi import (
-    CoinApiSourceConfig,
-)
+from products.warehouse_sources.sources.coin_api.settings import COIN_API_ENDPOINTS
+from products.warehouse_sources.sources.coin_api.source import CoinApiSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 class _FakeResponse:

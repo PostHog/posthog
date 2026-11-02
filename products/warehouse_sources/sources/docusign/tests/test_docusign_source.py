@@ -5,19 +5,13 @@ from unittest import mock
 
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.docusign.docusign import DocusignResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.docusign.settings import DOCUSIGN_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.docusign.source import DocusignSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.docusign import (
-    DocusignAuthTypeConfig,
-    DocusignSourceConfig,
-)
+from products.warehouse_sources.sources.docusign._config import DocusignAuthTypeConfig, DocusignSourceConfig
+from products.warehouse_sources.sources.docusign.docusign import DocusignResumeConfig
+from products.warehouse_sources.sources.docusign.settings import DOCUSIGN_ENDPOINTS
+from products.warehouse_sources.sources.docusign.source import DocusignSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceInputs
 
-_VALIDATE = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.docusign.source.validate_docusign_credentials"
-)
+_VALIDATE = "products.warehouse_sources.sources.docusign.source.validate_docusign_credentials"
 
 
 def jwt_config(**overrides: Any) -> DocusignSourceConfig:

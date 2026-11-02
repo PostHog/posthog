@@ -1,7 +1,7 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sagehr import SageHRSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.sage_hr.source import SageHRSource
+from products.warehouse_sources.sources.sage_hr._config import SageHRSourceConfig
+from products.warehouse_sources.sources.sage_hr.source import SageHRSource
 
 
 class TestSageHRSource:
@@ -15,7 +15,7 @@ class TestSageHRSource:
         # editor to re-enter the key.
         assert self.source.connection_host_fields == ["subdomain"]
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.sage_hr.source.sage_hr_source")
+    @mock.patch("products.warehouse_sources.sources.sage_hr.source.sage_hr_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "employees"

@@ -6,25 +6,23 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.buzzsprout.buzzsprout import (
+from products.warehouse_sources.sources.buzzsprout._config import BuzzsproutSourceConfig
+from products.warehouse_sources.sources.buzzsprout.buzzsprout import (
     BUZZSPROUT_BASE_URL,
     USER_AGENT,
     BuzzsproutDownloadsCursor,
     BuzzsproutResumeConfig,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.buzzsprout.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.buzzsprout.source import BuzzsproutSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.buzzsprout.settings import ENDPOINTS
+from products.warehouse_sources.sources.buzzsprout.source import BuzzsproutSource
+from products.warehouse_sources.sources.sdk import SourceCursorManager
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.buzzsprout import (
-    BuzzsproutSourceConfig,
 )
 
 

@@ -11,23 +11,8 @@ from zoneinfo import ZoneInfo
 
 from requests import PreparedRequest, Request, Response
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import AuthConfigBase
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    BasePaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.naverads import (
-    NaverAdsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.naver_ads.settings import (
+from products.warehouse_sources.sources.naver_ads._config import NaverAdsSourceConfig
+from products.warehouse_sources.sources.naver_ads.settings import (
     ENDPOINTS,
     ENTITIES,
     MAX_HISTORY_DAYS,
@@ -38,6 +23,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.naver_ads.
     STATS_TIMEZONE,
     EntityKind,
     NaverAdsEndpoint,
+)
+from products.warehouse_sources.sources.sdk import (
+    AuthConfigBase,
+    BasePaginator,
+    RESTClient,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceInputs,
+    SourceResponse,
+    SyncWindow,
+    frozen,
+    make_tracked_session,
+    schema_for_resource,
 )
 
 Rows = list[dict[str, Any]]

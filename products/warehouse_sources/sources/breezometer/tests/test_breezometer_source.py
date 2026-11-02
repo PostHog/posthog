@@ -1,7 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.breezometer.source import BreezometerSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.breezometer import (
-    BreezometerSourceConfig,
-)
+from products.warehouse_sources.sources.breezometer._config import BreezometerSourceConfig
+from products.warehouse_sources.sources.breezometer.source import BreezometerSource
 
 
 class TestBreezometerSource:

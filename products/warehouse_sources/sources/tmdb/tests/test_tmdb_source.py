@@ -1,6 +1,6 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tmdb import TMDbSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.tmdb.settings import ENDPOINTS, TMDB_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.tmdb.source import TMDbSource
+from products.warehouse_sources.sources.tmdb._config import TMDbSourceConfig
+from products.warehouse_sources.sources.tmdb.settings import ENDPOINTS, TMDB_ENDPOINTS
+from products.warehouse_sources.sources.tmdb.source import TMDbSource
 
 
 class TestTMDbSource:

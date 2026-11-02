@@ -3,18 +3,10 @@ from unittest import mock
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ghost import GhostSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.ghost.ghost import (
-    AUTH_ERROR,
-    DOMAIN_ERROR,
-    KEY_ERROR,
-    PERMISSION_ERROR,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.ghost.source import GhostSource
+from products.warehouse_sources.sources.ghost._config import GhostSourceConfig
+from products.warehouse_sources.sources.ghost.ghost import AUTH_ERROR, DOMAIN_ERROR, KEY_ERROR, PERMISSION_ERROR
+from products.warehouse_sources.sources.ghost.source import GhostSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 API_KEY = "0123456789abcdef01234567:" + "0123456789abcdef" * 4
 
@@ -84,7 +76,7 @@ def test_source_for_pipeline_rechecks_the_host_at_sync_time(host_valid: bool, ex
     source = GhostSource()
     config = GhostSourceConfig(admin_domain="publication.example.com", admin_api_key=API_KEY)
     inputs = mock.MagicMock(team_id=1)
-    module = "products.warehouse_sources.backend.temporal.data_imports.sources.ghost.source"
+    module = "products.warehouse_sources.sources.ghost.source"
     with (
         mock.patch.object(
             source, "is_database_host_valid", return_value=(host_valid, None if host_valid else "Host not allowed")

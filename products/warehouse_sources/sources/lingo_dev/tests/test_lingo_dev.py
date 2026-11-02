@@ -6,21 +6,14 @@ from unittest.mock import MagicMock
 from parameterized import parameterized
 from requests import Request
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lingodev import (
-    LingoDevSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.lingo_dev.lingo_dev import (
+from products.warehouse_sources.sources.lingo_dev._config import LingoDevSourceConfig
+from products.warehouse_sources.sources.lingo_dev.lingo_dev import (
     LingoDevPaginator,
     LingoDevResumeConfig,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.lingo_dev.source import LingoDevSource
+from products.warehouse_sources.sources.lingo_dev.source import LingoDevSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 class TestLingoDevPaginator:

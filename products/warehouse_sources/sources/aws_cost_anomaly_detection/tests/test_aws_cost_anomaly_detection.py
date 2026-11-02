@@ -10,10 +10,8 @@ import requests
 import structlog
 from tenacity import wait_none
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_anomaly_detection import (
-    aws_cost_anomaly_detection,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_anomaly_detection.aws_cost_anomaly_detection import (
+from products.warehouse_sources.sources.aws_cost_anomaly_detection import aws_cost_anomaly_detection
+from products.warehouse_sources.sources.aws_cost_anomaly_detection.aws_cost_anomaly_detection import (
     ENABLEMENT_MESSAGE,
     AwsCostAnomalyDetectionError,
     AwsCostAnomalyDetectionResumeConfig,
@@ -27,10 +25,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_a
     send_operation,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_anomaly_detection.settings import (
-    AWS_COST_ANOMALY_DETECTION_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.sources.aws_cost_anomaly_detection.settings import AWS_COST_ANOMALY_DETECTION_ENDPOINTS
+from products.warehouse_sources.sources.sdk import ResumableSourceManager
 
 LOGGER = structlog.get_logger()
 

@@ -4,20 +4,15 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     UnexpectedRequest,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.streamelements import (
-    StreamElementsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.streamelements.source import StreamElementsSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.streamelements.streamelements import (
-    StreamElementsResumeConfig,
-    _to_epoch_ms,
-)
+from products.warehouse_sources.sources.streamelements._config import StreamElementsSourceConfig
+from products.warehouse_sources.sources.streamelements.source import StreamElementsSource
+from products.warehouse_sources.sources.streamelements.streamelements import StreamElementsResumeConfig, _to_epoch_ms
 
 CHANNEL_ID = "5b2e2007760aeb7729487dab"
 

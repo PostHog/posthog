@@ -4,15 +4,10 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.logrocket import (
-    LogrocketSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.logrocket.logrocket import LogrocketResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.logrocket.source import LogrocketSource
+from products.warehouse_sources.sources.logrocket._config import LogrocketSourceConfig
+from products.warehouse_sources.sources.logrocket.logrocket import LogrocketResumeConfig
+from products.warehouse_sources.sources.logrocket.source import LogrocketSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 def driver() -> SourceDriver:

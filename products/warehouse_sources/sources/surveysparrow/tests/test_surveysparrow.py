@@ -5,17 +5,10 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.surveysparrow import (
-    SurveySparrowSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.surveysparrow.source import SurveySparrowSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.surveysparrow.surveysparrow import (
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.surveysparrow._config import SurveySparrowSourceConfig
+from products.warehouse_sources.sources.surveysparrow.source import SurveySparrowSource
+from products.warehouse_sources.sources.surveysparrow.surveysparrow import (
     SurveySparrowResumeConfig,
     _format_cutoff,
     validate_credentials,

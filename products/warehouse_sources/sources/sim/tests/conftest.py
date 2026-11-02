@@ -8,10 +8,9 @@ from django.conf import settings
 import structlog
 from requests_mock import Mocker
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sim import SimSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.sim.sim import SimResumeConfig
+from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceInputs
+from products.warehouse_sources.sources.sim._config import SimSourceConfig
+from products.warehouse_sources.sources.sim.sim import SimResumeConfig
 
 
 @pytest.fixture

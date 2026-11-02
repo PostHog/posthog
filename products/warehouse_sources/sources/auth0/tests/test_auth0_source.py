@@ -3,11 +3,11 @@ from typing import Any, Optional
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.auth0.source import Auth0Source
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.auth0 import Auth0SourceConfig
+from products.warehouse_sources.sources.auth0._config import Auth0SourceConfig
+from products.warehouse_sources.sources.auth0.source import Auth0Source
+from products.warehouse_sources.sources.sdk import SourceInputs
 
-SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.auth0.source"
+SOURCE_MODULE = "products.warehouse_sources.sources.auth0.source"
 
 
 def _inputs(**overrides: Any) -> SourceInputs:

@@ -1,11 +1,9 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kubecost import (
-    KubecostSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.kubecost.source import KubecostSource
+from products.warehouse_sources.sources.kubecost._config import KubecostSourceConfig
+from products.warehouse_sources.sources.kubecost.source import KubecostSource
+from products.warehouse_sources.sources.sdk import SourceFieldInputConfig, SourceFieldInputConfigType
+from products.warehouse_sources.sources.sdk.testing import SourceDriver
 
 
 class TestKubecostSource:
@@ -43,9 +41,7 @@ class TestKubecostSource:
         assert is_valid is False
         assert error_message == "Invalid Kubecost API URL"
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.kubecost.source.validate_kubecost_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.kubecost.source.validate_kubecost_credentials")
     @mock.patch.object(KubecostSource, "is_database_host_valid")
     def test_validate_credentials_bad_key(self, mock_host_valid, mock_validate):
         mock_host_valid.return_value = (True, None)
@@ -56,7 +52,7 @@ class TestKubecostSource:
         assert is_valid is False
         assert "authentication failed" in (error_message or "")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.kubecost.source.kubecost_source")
+    @mock.patch("products.warehouse_sources.sources.kubecost.source.kubecost_source")
     @mock.patch.object(KubecostSource, "is_database_host_valid")
     def test_source_for_pipeline_plumbs_arguments(self, mock_host_valid, mock_kubecost_source):
         mock_host_valid.return_value = (True, None)

@@ -3,15 +3,11 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.medusa import MedusaSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.medusa.source import (
-    HTTPS_REQUIRED_MESSAGE,
-    INVALID_URL_MESSAGE,
-    MedusaSource,
-)
+from products.warehouse_sources.sources.medusa._config import MedusaSourceConfig
+from products.warehouse_sources.sources.medusa.source import HTTPS_REQUIRED_MESSAGE, INVALID_URL_MESSAGE, MedusaSource
+from products.warehouse_sources.sources.sdk import SourceInputs
 
-SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.medusa.source"
+SOURCE_MODULE = "products.warehouse_sources.sources.medusa.source"
 
 
 def _make_inputs(**overrides: Any) -> SourceInputs:

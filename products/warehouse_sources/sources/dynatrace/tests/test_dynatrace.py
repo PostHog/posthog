@@ -6,15 +6,9 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.dynatrace import dynatrace as dt
-from products.warehouse_sources.backend.temporal.data_imports.sources.dynatrace.dynatrace import (
+from products.warehouse_sources.sources.dynatrace import dynatrace as dt
+from products.warehouse_sources.sources.dynatrace._config import DynatraceSourceConfig
+from products.warehouse_sources.sources.dynatrace.dynatrace import (
     METRIC_SELECTOR_REQUIRED_ERROR,
     DynatraceHostNotAllowedError,
     DynatraceResumeConfig,
@@ -27,10 +21,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dynatrace.
     normalize_environment_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.dynatrace.settings import TAGGED_ENTITY_TYPES
-from products.warehouse_sources.backend.temporal.data_imports.sources.dynatrace.source import DynatraceSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dynatrace import (
-    DynatraceSourceConfig,
+from products.warehouse_sources.sources.dynatrace.settings import TAGGED_ENTITY_TYPES
+from products.warehouse_sources.sources.dynatrace.source import DynatraceSource
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
 )
 
 BASE_URL = "https://abc12345.live.dynatrace.com"

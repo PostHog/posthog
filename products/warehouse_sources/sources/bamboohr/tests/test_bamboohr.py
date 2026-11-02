@@ -6,7 +6,8 @@ import pytest
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.bamboohr.bamboohr import (
+from products.warehouse_sources.sources.bamboohr._config import BambooHRSourceConfig
+from products.warehouse_sources.sources.bamboohr.bamboohr import (
     BAMBOOHR_API_HOST,
     EMPLOYEE_TABLE_HISTORY_START,
     INVALID_SUBDOMAIN_MESSAGE,
@@ -16,7 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bamboohr.b
     _page_from_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.bamboohr.settings import (
+from products.warehouse_sources.sources.bamboohr.settings import (
     BAMBOOHR_ENDPOINTS,
     CUSTOM_FIELD_ID,
     CUSTOM_FIELDS_PAGE_SIZE,
@@ -24,15 +25,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bamboohr.s
     GOAL_ID,
     LOCATIONS_PAGE_SIZE,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.bamboohr.source import BambooHRSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bamboohr import (
-    BambooHRSourceConfig,
-)
+from products.warehouse_sources.sources.bamboohr.source import BambooHRSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver(subdomain: str = "acme") -> SourceDriver:

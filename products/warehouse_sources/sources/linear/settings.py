@@ -1,10 +1,11 @@
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
+from products.warehouse_sources.sources.sdk import (
+    IncrementalField,
+    IncrementalFieldType,
     PartitionFormat,
     PartitionMode,
 )
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 UPDATED_AT = "updatedAt"
 CREATED_AT = "createdAt"

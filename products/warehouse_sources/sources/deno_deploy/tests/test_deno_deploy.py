@@ -5,12 +5,8 @@ import time_machine
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.deno_deploy.deno_deploy import (
+from products.warehouse_sources.sources.deno_deploy._config import DenoDeploySourceConfig
+from products.warehouse_sources.sources.deno_deploy.deno_deploy import (
     DENO_DEPLOY_ENDPOINTS,
     DenoDeployResumeConfig,
     _as_utc_datetime,
@@ -18,10 +14,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.deno_deplo
     _time_window_params,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.deno_deploy.source import DenoDeploySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.denodeploy import (
-    DenoDeploySourceConfig,
-)
+from products.warehouse_sources.sources.deno_deploy.source import DenoDeploySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver() -> SourceDriver:

@@ -1,10 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pandadoc import (
-    PandaDocSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.pandadoc.source import PandaDocSource
+from products.warehouse_sources.sources.pandadoc._config import PandaDocSourceConfig
+from products.warehouse_sources.sources.pandadoc.source import PandaDocSource
 
 
 class TestPandaDocSource:
@@ -27,9 +25,7 @@ class TestPandaDocSource:
             (False, False, "Invalid PandaDoc API key"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.pandadoc.source.validate_pandadoc_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.pandadoc.source.validate_pandadoc_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
         mock_validate.return_value = mock_return
 

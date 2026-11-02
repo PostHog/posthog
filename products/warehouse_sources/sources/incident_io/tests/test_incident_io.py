@@ -4,23 +4,15 @@ from typing import Any
 import pytest
 import time_machine
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.incidentio import (
-    IncidentIoSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.incident_io.incident_io import (
+from products.warehouse_sources.sources.incident_io._config import IncidentIoSourceConfig
+from products.warehouse_sources.sources.incident_io.incident_io import (
     IncidentIoResumeConfig,
     _build_params,
     _build_url,
     _format_filter_value,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.incident_io.settings import (
+from products.warehouse_sources.sources.incident_io.settings import (
     ENDPOINTS,
     INCIDENT_IO_API_VERSION_V1,
     INCIDENT_IO_API_VERSION_V3,
@@ -28,7 +20,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.incident_i
     INCIDENT_IO_ENDPOINTS,
     endpoints_for_version,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.incident_io.source import IncidentIoSource
+from products.warehouse_sources.sources.incident_io.source import IncidentIoSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _page_body(data_key: str, items: list[dict[str, Any]], after: str | None) -> dict[str, Any]:

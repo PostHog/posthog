@@ -6,8 +6,9 @@ from unittest import mock
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.bigeye import bigeye as bigeye_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.bigeye.bigeye import (
+from products.warehouse_sources.sources.bigeye import bigeye as bigeye_module
+from products.warehouse_sources.sources.bigeye._config import BigeyeSourceConfig
+from products.warehouse_sources.sources.bigeye.bigeye import (
     BigeyeResumeConfig,
     _auth_header_value,
     bigeye_source,
@@ -15,16 +16,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigeye.big
     normalize_host,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.bigeye.settings import REQUEST_TIMEOUT_SECONDS
-from products.warehouse_sources.backend.temporal.data_imports.sources.bigeye.source import BigeyeSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bigeye import BigeyeSourceConfig
+from products.warehouse_sources.sources.bigeye.settings import REQUEST_TIMEOUT_SECONDS
+from products.warehouse_sources.sources.bigeye.source import BigeyeSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"

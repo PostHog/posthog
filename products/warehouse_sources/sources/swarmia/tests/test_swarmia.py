@@ -9,19 +9,17 @@ from unittest.mock import MagicMock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.swarmia import (
-    SwarmiaSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.swarmia.settings import SWARMIA_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.swarmia.source import SwarmiaSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.swarmia.swarmia import (
+from products.warehouse_sources.sources.swarmia._config import SwarmiaSourceConfig
+from products.warehouse_sources.sources.swarmia.settings import SWARMIA_ENDPOINTS
+from products.warehouse_sources.sources.swarmia.source import SwarmiaSource
+from products.warehouse_sources.sources.swarmia.swarmia import (
     SwarmiaResumeConfig,
     SwarmiaRetryableError,
     _build_windows,

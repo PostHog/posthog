@@ -1,12 +1,9 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.giphy import GiphySourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.giphy.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.giphy.source import GiphySource
+from products.warehouse_sources.sources.giphy._config import GiphySourceConfig
+from products.warehouse_sources.sources.giphy.settings import ENDPOINTS
+from products.warehouse_sources.sources.giphy.source import GiphySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 # Endpoints that need a user-supplied search query (hidden until one is set).
 SEARCH_ENDPOINTS = {"gifs_search", "stickers_search"}

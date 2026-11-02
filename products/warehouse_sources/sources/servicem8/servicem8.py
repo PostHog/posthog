@@ -5,18 +5,17 @@ from typing import Any, Optional
 
 from requests import Request, Response
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from products.warehouse_sources.sources.sdk import (
+    BasePaginator,
+    EndpointResource,
+    Resource,
     RESTAPIConfig,
+    ResumableSourceManager,
+    frozen,
+    make_tracked_session,
     rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.servicem8.settings import ENDPOINT_PATHS
+from products.warehouse_sources.sources.servicem8.settings import ENDPOINT_PATHS
 
 BASE_URL = "https://api.servicem8.com/api_1.0"
 # The cursor value ServiceM8 requires on the very first request of every list endpoint.

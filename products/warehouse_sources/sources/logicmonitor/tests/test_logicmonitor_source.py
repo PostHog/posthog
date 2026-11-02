@@ -1,16 +1,12 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.logicmonitor import (
-    LogicmonitorSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.logicmonitor.logicmonitor import (
-    validate_portal_host,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.logicmonitor.source import LogicmonitorSource
+from products.warehouse_sources.sources.logicmonitor._config import LogicmonitorSourceConfig
+from products.warehouse_sources.sources.logicmonitor.logicmonitor import validate_portal_host
+from products.warehouse_sources.sources.logicmonitor.source import LogicmonitorSource
 
 HOST_CHECK = "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.ValidateDatabaseHostMixin.is_database_host_valid"
-CLIENT = "products.warehouse_sources.backend.temporal.data_imports.sources.logicmonitor.source.LogicMonitorClient"
+CLIENT = "products.warehouse_sources.sources.logicmonitor.source.LogicMonitorClient"
 
 
 @pytest.mark.parametrize("valid", [True, False])

@@ -2,8 +2,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pexels import PexelsSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.pexels.source import PexelsSource
+from products.warehouse_sources.sources.pexels._config import PexelsSourceConfig
+from products.warehouse_sources.sources.pexels.source import PexelsSource
 
 
 class TestPexelsSource:
@@ -27,7 +27,7 @@ class TestPexelsSource:
     def test_validate_credentials(self, _name: str, probe_result: bool, expected_valid: bool) -> None:
         config = PexelsSourceConfig(api_key="k", search_query=None)
         with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.pexels.source.validate_pexels_credentials",
+            "products.warehouse_sources.sources.pexels.source.validate_pexels_credentials",
             return_value=probe_result,
         ):
             valid, _ = self.source.validate_credentials(config, self.team_id)

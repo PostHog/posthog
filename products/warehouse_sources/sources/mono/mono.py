@@ -5,31 +5,8 @@ from urllib.parse import parse_qs, urlsplit
 from requests import Response
 from requests.exceptions import HTTPError
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-    rest_api_resources,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    rename_parent_fields,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    PageNumberPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-    ClientConfig,
-    Endpoint,
-    EndpointResource,
-    PaginatorConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mono import MonoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.mono.settings import (
+from products.warehouse_sources.sources.mono._config import MonoSourceConfig
+from products.warehouse_sources.sources.mono.settings import (
     AUTH_ERROR,
     BASE_URL,
     DATA_SELECTORS,
@@ -41,6 +18,22 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mono.setti
     PAYOUT_STATUS,
     PERMISSION_ERROR,
     PRIMARY_KEYS,
+)
+from products.warehouse_sources.sources.sdk import (
+    ClientConfig,
+    Endpoint,
+    EndpointResource,
+    PageNumberPaginator,
+    PaginatorConfig,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
+    parse_datetime_value,
+    rename_parent_fields,
+    rest_api_resource,
+    rest_api_resources,
+    schema_for_resource,
 )
 
 

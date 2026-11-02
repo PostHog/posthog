@@ -9,17 +9,8 @@ from unittest.mock import MagicMock
 import requests
 from tenacity import wait_none
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.honeybadger import (
-    HoneybadgerSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.honeybadger.honeybadger import (
+from products.warehouse_sources.sources.honeybadger._config import HoneybadgerSourceConfig
+from products.warehouse_sources.sources.honeybadger.honeybadger import (
     HONEYBADGER_BASE_URL,
     MAX_RATE_LIMIT_SLEEP_SECONDS,
     HoneybadgerResumeConfig,
@@ -29,8 +20,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.honeybadge
     _to_unix_timestamp,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.honeybadger.settings import HONEYBADGER_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.honeybadger.source import HoneybadgerSource
+from products.warehouse_sources.sources.honeybadger.settings import HONEYBADGER_ENDPOINTS
+from products.warehouse_sources.sources.honeybadger.source import HoneybadgerSource
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 
 # 2023-11-14T22:13:20Z
 WATERMARK_TS = 1_700_000_000
@@ -118,12 +116,10 @@ class TestHoneybadger:
         )
         with (
             mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.honeybadger.honeybadger.time.time",
+                "products.warehouse_sources.sources.honeybadger.honeybadger.time.time",
                 return_value=1_000.0,
             ),
-            mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.honeybadger.honeybadger.time.sleep"
-            ) as mock_sleep,
+            mock.patch("products.warehouse_sources.sources.honeybadger.honeybadger.time.sleep") as mock_sleep,
         ):
             with pytest.raises(HoneybadgerRetryableError):
                 _fetch_page_once(session, f"{HONEYBADGER_BASE_URL}/projects", MagicMock())

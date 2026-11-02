@@ -4,21 +4,16 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lever import LeverSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.lever.lever import (
+from products.warehouse_sources.sources.lever._config import LeverSourceConfig
+from products.warehouse_sources.sources.lever.lever import (
     LEVER_ENDPOINTS,
     LeverResumeConfig,
     _build_initial_params,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.lever.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.lever.source import LeverSource
+from products.warehouse_sources.sources.lever.settings import ENDPOINTS
+from products.warehouse_sources.sources.lever.source import LeverSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

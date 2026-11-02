@@ -1,13 +1,8 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mailtrap import (
-    MailtrapSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.mailtrap.source import MailtrapSource
+from products.warehouse_sources.sources.mailtrap._config import MailtrapSourceConfig
+from products.warehouse_sources.sources.mailtrap.source import MailtrapSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 INCREMENTAL_ENDPOINTS = {"email_logs", "suppressions"}
 
@@ -18,7 +13,7 @@ class TestMailtrapSource:
         self.team_id = 123
         self.config = MailtrapSourceConfig(api_token="token")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailtrap.source.mailtrap_source")
+    @mock.patch("products.warehouse_sources.sources.mailtrap.source.mailtrap_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "email_logs"

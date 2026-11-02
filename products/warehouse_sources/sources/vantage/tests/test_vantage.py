@@ -3,7 +3,7 @@ from typing import Any, Optional
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
     Script,
@@ -12,12 +12,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vantage import (
-    VantageSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.vantage.settings import VANTAGE_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.vantage.source import VantageSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.vantage.vantage import (
+from products.warehouse_sources.sources.vantage._config import VantageSourceConfig
+from products.warehouse_sources.sources.vantage.settings import VANTAGE_ENDPOINTS
+from products.warehouse_sources.sources.vantage.source import VantageSource
+from products.warehouse_sources.sources.vantage.vantage import (
     VANTAGE_BASE_URL,
     VantageResumeConfig,
     VantageUntrustedURLError,

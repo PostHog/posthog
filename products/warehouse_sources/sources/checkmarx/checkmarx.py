@@ -10,21 +10,20 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.settings import (
+from products.warehouse_sources.sources.checkmarx.settings import (
     CHECKMARX_ENDPOINTS,
     CHECKMARX_REGION_HOSTS,
     CheckmarxEndpointConfig,
     CheckmarxFanOutConfig,
     RegionHosts,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
     make_tracked_session,
     retry_with_deadline,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 REQUEST_TIMEOUT = 60
 TOKEN_REQUEST_TIMEOUT = 30

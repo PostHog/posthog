@@ -1,8 +1,6 @@
 from typing import Literal
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 BOL_BASE_URL = "https://api.bol.com/retailer"
 BOL_TOKEN_URL = "https://login.bol.com/token"

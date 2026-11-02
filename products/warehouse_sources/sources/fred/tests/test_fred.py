@@ -1,24 +1,17 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.fred.fred import (
+from products.warehouse_sources.sources.fred._config import FredSourceConfig
+from products.warehouse_sources.sources.fred.fred import (
     FredApiError,
     FredAuthenticationError,
     FredRequestError,
     FredResumeConfig,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.fred.settings import (
-    FRED_ENDPOINTS,
-    FredEndpointConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.fred.source import FredSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fred import FredSourceConfig
+from products.warehouse_sources.sources.fred.settings import FRED_ENDPOINTS, FredEndpointConfig
+from products.warehouse_sources.sources.fred.source import FredSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 class TestFredTransport:

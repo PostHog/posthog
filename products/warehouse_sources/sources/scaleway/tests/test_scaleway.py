@@ -5,31 +5,29 @@ import time_machine
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.scaleway import (
-    ScalewaySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.scaleway.scaleway import (
+from products.warehouse_sources.sources.scaleway._config import ScalewaySourceConfig
+from products.warehouse_sources.sources.scaleway.scaleway import (
     ScalewayResumeConfig,
     _base_params,
     _billing_periods,
     _resolve_path,
     probe_endpoint,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.scaleway.settings import (
+from products.warehouse_sources.sources.scaleway.settings import (
     BILLING_CONSUMPTION_LOOKBACK_MONTHS,
     INSTANCE_ZONES,
     K8S_REGIONS,
     PAGE_SIZE,
     SCALEWAY_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.scaleway.source import ScalewaySource
+from products.warehouse_sources.sources.scaleway.source import ScalewaySource
+from products.warehouse_sources.sources.sdk.testing import (
+    DriveResult,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 
 
 def _response(body: dict, status: int = 200) -> ScriptedResponse:

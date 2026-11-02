@@ -1,39 +1,33 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
-    FieldType,
-    ResumableSource,
-    VersionDeprecation,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
+    VersionDeprecation,
     build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zonkafeedback import (
-    ZonkaFeedbackSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feedback.settings import (
+from products.warehouse_sources.sources.zonka_feedback._config import ZonkaFeedbackSourceConfig
+from products.warehouse_sources.sources.zonka_feedback.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     ZONKA_FEEDBACK_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feedback.zonka_feedback import (
+from products.warehouse_sources.sources.zonka_feedback.zonka_feedback import (
     DATA_CENTER_IDS,
     ZONKA_API_VERSION_V1,
     ZONKA_API_VERSION_V2_1,
@@ -42,7 +36,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feed
     check_access,
     zonka_feedback_source,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -106,9 +99,7 @@ An Admin can generate an auth token under **Company Settings → Developers → 
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feedback.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.zonka_feedback.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

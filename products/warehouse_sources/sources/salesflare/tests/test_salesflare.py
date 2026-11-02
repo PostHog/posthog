@@ -3,27 +3,13 @@ from typing import Any
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.salesflare import (
-    SalesflareSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.salesflare import salesflare
-from products.warehouse_sources.backend.temporal.data_imports.sources.salesflare.salesflare import (
-    PAGE_SIZE,
-    SalesflareResumeConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.salesflare.settings import (
-    ENDPOINTS,
-    SALESFLARE_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.salesflare.source import SalesflareSource
+from products.warehouse_sources.sources.salesflare import salesflare
+from products.warehouse_sources.sources.salesflare._config import SalesflareSourceConfig
+from products.warehouse_sources.sources.salesflare.salesflare import PAGE_SIZE, SalesflareResumeConfig
+from products.warehouse_sources.sources.salesflare.settings import ENDPOINTS, SALESFLARE_ENDPOINTS
+from products.warehouse_sources.sources.salesflare.source import SalesflareSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always
 
 
 def _response(body: Any, *, status_code: int = 200) -> ScriptedResponse:

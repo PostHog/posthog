@@ -4,23 +4,16 @@ from typing import Any
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.heroku import HerokuSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.heroku.heroku import (
+from products.warehouse_sources.sources.heroku._config import HerokuSourceConfig
+from products.warehouse_sources.sources.heroku.heroku import (
     HEROKU_API_ACCEPT,
     HerokuResumeConfig,
     _month_window,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.heroku.settings import (
-    DEFAULT_PAGE_SIZE,
-    HEROKU_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.heroku.source import HerokuSource
+from products.warehouse_sources.sources.heroku.settings import DEFAULT_PAGE_SIZE, HEROKU_ENDPOINTS
+from products.warehouse_sources.sources.heroku.source import HerokuSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 INITIAL_RANGE = f"id ..; order=asc,max={DEFAULT_PAGE_SIZE}"
 

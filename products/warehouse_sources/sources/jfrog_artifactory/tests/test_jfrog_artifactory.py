@@ -8,8 +8,8 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.jfrog_artifactory import jfrog_artifactory
-from products.warehouse_sources.backend.temporal.data_imports.sources.jfrog_artifactory.jfrog_artifactory import (
+from products.warehouse_sources.sources.jfrog_artifactory import jfrog_artifactory
+from products.warehouse_sources.sources.jfrog_artifactory.jfrog_artifactory import (
     RESPONSE_LIMIT_ERROR,
     JfrogArtifactoryResponseTooLargeError,
     JfrogArtifactoryResumeConfig,
@@ -25,7 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.jfrog_arti
     normalize_base_url,
     probe_endpoint,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.jfrog_artifactory.settings import (
+from products.warehouse_sources.sources.jfrog_artifactory.settings import (
     AQL_PAGE_SIZE,
     JFROG_ARTIFACTORY_ENDPOINTS,
     XRAY_PAGE_SIZE,

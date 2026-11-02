@@ -1,13 +1,8 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.appsignal.source import AppsignalSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appsignal import (
-    AppsignalSourceConfig,
-)
+from products.warehouse_sources.sources.appsignal._config import AppsignalSourceConfig
+from products.warehouse_sources.sources.appsignal.source import AppsignalSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 class TestAppsignalSource:

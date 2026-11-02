@@ -1,37 +1,31 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.jumpcloud._config import JumpcloudSourceConfig
+from products.warehouse_sources.sources.jumpcloud.jumpcloud import (
+    JumpcloudResumeConfig,
+    jumpcloud_source,
+    validate_credentials as validate_jumpcloud_credentials,
+)
+from products.warehouse_sources.sources.jumpcloud.settings import ENDPOINTS, INCREMENTAL_FIELDS, JUMPCLOUD_ENDPOINTS
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jumpcloud import (
-    JumpcloudSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.jumpcloud.jumpcloud import (
-    JumpcloudResumeConfig,
-    jumpcloud_source,
-    validate_credentials as validate_jumpcloud_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.jumpcloud.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-    JUMPCLOUD_ENDPOINTS,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _schema_description(endpoint: str) -> str | None:
@@ -111,9 +105,7 @@ The `events` table requires a Directory Insights subscription. If you're an MSP/
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.jumpcloud.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.jumpcloud.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

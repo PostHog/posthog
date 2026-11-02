@@ -5,23 +5,11 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.persistiq import (
-    PersistIqSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.persistiq.persistiq import (
-    PersistiqResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.persistiq.source import PersistIqSource
+from products.warehouse_sources.sources.persistiq._config import PersistIqSourceConfig
+from products.warehouse_sources.sources.persistiq.persistiq import PersistiqResumeConfig, validate_credentials
+from products.warehouse_sources.sources.persistiq.source import PersistIqSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver(api_key: str = "pq-key") -> SourceDriver:

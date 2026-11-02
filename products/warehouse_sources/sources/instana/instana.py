@@ -9,16 +9,7 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
-    make_tracked_session,
-    retry_with_deadline,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.instana.settings import (
+from products.warehouse_sources.sources.instana.settings import (
     APPLICATION_METRICS,
     EVENTS_DEFAULT_LOOKBACK_DAYS,
     EVENTS_WINDOW_CHUNK_MS,
@@ -32,6 +23,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.instana.se
     SNAPSHOTS_MAX_SIZE,
     InstanaEndpointConfig,
     InstanaFanOutConfig,
+)
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
+    _is_host_safe,
+    frozen,
+    make_tracked_session,
+    retry_with_deadline,
 )
 
 REQUEST_TIMEOUT_SECONDS = 60

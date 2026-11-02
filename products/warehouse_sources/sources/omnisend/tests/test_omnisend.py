@@ -5,16 +5,8 @@ import pytest
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.omnisend import (
-    OmnisendSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.omnisend.omnisend import (
+from products.warehouse_sources.sources.omnisend._config import OmnisendSourceConfig
+from products.warehouse_sources.sources.omnisend.omnisend import (
     ANALYTICS_HISTORY_DAYS,
     OMNISEND_API_BASE_URL,
     OMNISEND_BASE_URL,
@@ -23,12 +15,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.omnisend.o
     OmnisendResumeConfig,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.omnisend.settings import (
-    OMNISEND_2026_03_15,
-    OMNISEND_ENDPOINTS,
-    OMNISEND_V3,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.omnisend.source import OmnisendSource
+from products.warehouse_sources.sources.omnisend.settings import OMNISEND_2026_03_15, OMNISEND_ENDPOINTS, OMNISEND_V3
+from products.warehouse_sources.sources.omnisend.source import OmnisendSource
+from products.warehouse_sources.sources.sdk import SourceCursorManager
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver() -> SourceDriver:

@@ -4,22 +4,16 @@ from typing import Any, Optional
 from parameterized import parameterized
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aftership.aftership import (
+from products.warehouse_sources.sources.aftership._config import AftershipSourceConfig
+from products.warehouse_sources.sources.aftership.aftership import (
     API_KEY_HEADER,
     AftershipResumeConfig,
     _to_aftership_datetime,
     check_access,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aftership.settings import DEFAULT_VERSION
-from products.warehouse_sources.backend.temporal.data_imports.sources.aftership.source import AftershipSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.aftership import (
-    AftershipSourceConfig,
-)
+from products.warehouse_sources.sources.aftership.settings import DEFAULT_VERSION
+from products.warehouse_sources.sources.aftership.source import AftershipSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 BASE_URL = f"https://api.aftership.com/tracking/{DEFAULT_VERSION}"
 

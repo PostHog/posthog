@@ -4,23 +4,20 @@ from typing import Any
 import pytest
 from unittest.mock import patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import VersionDeprecation
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk import VersionDeprecation
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shopify import (
-    ShopifyAuthMethodConfig,
-    ShopifySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.constants import (
+from products.warehouse_sources.sources.shopify._config import ShopifyAuthMethodConfig, ShopifySourceConfig
+from products.warehouse_sources.sources.shopify.constants import (
     ORDERS,
     SHOPIFY_API_VERSION_2025_10,
     SHOPIFY_API_VERSION_2026_07,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.source import ShopifySource
+from products.warehouse_sources.sources.shopify.source import ShopifySource
 
 TOKEN_PATH = "/admin/oauth/access_token"
 
@@ -112,9 +109,7 @@ class TestNonSyncSurfacesUseResolvedPin:
             (None, SHOPIFY_API_VERSION_2026_07),
         ],
     )
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.shopify.source.validate_shopify_credentials"
-    )
+    @patch("products.warehouse_sources.sources.shopify.source.validate_shopify_credentials")
     def test_validate_credentials_passes_resolved_pin(self, mock_validate: Any, pin: str | None, expected: str) -> None:
         mock_validate.return_value = True
         config = ShopifySourceConfig(
@@ -135,9 +130,7 @@ class TestNonSyncSurfacesUseResolvedPin:
             (None, SHOPIFY_API_VERSION_2026_07),
         ],
     )
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.shopify.source.check_shopify_endpoint_permissions"
-    )
+    @patch("products.warehouse_sources.sources.shopify.source.check_shopify_endpoint_permissions")
     def test_endpoint_permissions_pass_resolved_pin(self, mock_check: Any, pin: str | None, expected: str) -> None:
         mock_check.return_value = {}
         config = ShopifySourceConfig(
@@ -153,9 +146,7 @@ class TestNonSyncSurfacesUseResolvedPin:
 
     @pytest.mark.parametrize("api_version", [SHOPIFY_API_VERSION_2025_10, SHOPIFY_API_VERSION_2026_07])
     def test_authenticated_session_url_carries_version(self, api_version: str) -> None:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify import (
-            _authenticated_session,
-        )
+        from products.warehouse_sources.sources.shopify.shopify import _authenticated_session
 
         with scripted_network(_shopify):
             api_url, _ = _authenticated_session("my-store", "id", "secret", api_version)

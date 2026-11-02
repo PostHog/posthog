@@ -4,12 +4,8 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.care_quality_commission import (
-    source as cqc_source,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.care_quality_commission.source import (
-    CareQualityCommissionSource,
-)
+from products.warehouse_sources.sources.care_quality_commission import source as cqc_source
+from products.warehouse_sources.sources.care_quality_commission.source import CareQualityCommissionSource
 
 
 def _config(api_key: str = "key", partner_code: str | None = "PC") -> Any:

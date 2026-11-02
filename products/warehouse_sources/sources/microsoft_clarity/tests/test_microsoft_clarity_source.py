@@ -5,15 +5,10 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_clarity import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_clarity.settings import (
-    ENDPOINT_NAME,
-    NO_DIMENSION,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_clarity.source import (
-    MicrosoftClaritySource,
-)
+from products.warehouse_sources.sources.microsoft_clarity import source as source_module
+from products.warehouse_sources.sources.microsoft_clarity.settings import ENDPOINT_NAME, NO_DIMENSION
+from products.warehouse_sources.sources.microsoft_clarity.source import MicrosoftClaritySource
+from products.warehouse_sources.sources.sdk.testing import error_message_matches
 
 
 def _config(

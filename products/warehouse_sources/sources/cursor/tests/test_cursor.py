@@ -10,17 +10,9 @@ import responses
 from parameterized import parameterized
 from tenacity import wait_none
 
-from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.cursor import cursor
-from products.warehouse_sources.backend.temporal.data_imports.sources.cursor.cursor import (
+from products.warehouse_sources.sources.cursor import cursor
+from products.warehouse_sources.sources.cursor._config import CursorSourceConfig
+from products.warehouse_sources.sources.cursor.cursor import (
     CursorResumeConfig,
     _build_windows,
     _extract_rows,
@@ -30,9 +22,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cursor.cur
     cursor_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.cursor.settings import CURSOR_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.cursor.source import CursorSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cursor import CursorSourceConfig
+from products.warehouse_sources.sources.cursor.settings import CURSOR_ENDPOINTS
+from products.warehouse_sources.sources.cursor.source import CursorSource
+from products.warehouse_sources.sources.sdk import SourceResponse
+from products.warehouse_sources.sources.sdk.internals import Any_Source_Errors
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    error_message_matches,
+    scripted_network,
+)
 
 DAY_MS = 24 * 60 * 60 * 1000
 WINDOW_MS = cursor.MAX_WINDOW_DAYS * DAY_MS

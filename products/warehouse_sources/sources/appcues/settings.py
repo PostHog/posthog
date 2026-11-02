@@ -1,4 +1,4 @@
-from posthog.dataclasses import frozen
+from products.warehouse_sources.sources.sdk import frozen
 
 BASE_URLS = {
     "us": "https://api.appcues.com",

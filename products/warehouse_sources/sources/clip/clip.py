@@ -4,9 +4,8 @@ from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 from uuid import UUID
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.clip.settings import (
+from products.warehouse_sources.sources.clip._config import ClipSourceConfig
+from products.warehouse_sources.sources.clip.settings import (
     AUTH_ERROR,
     BASE_URL,
     ENDPOINTS,
@@ -14,21 +13,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clip.setti
     SETTLEMENT_HISTORY_DAYS,
     TRANSACTION_WINDOW,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resources,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
+from products.warehouse_sources.sources.sdk import (
     APIKeyAuth,
+    EndpointResource,
     HttpBasicAuth,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceInputs,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    parse_datetime_value,
+    rest_api_resources,
+    schema_for_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clip import ClipSourceConfig
 
 
 @frozen

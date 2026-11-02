@@ -6,7 +6,7 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
     Script,
@@ -15,12 +15,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sourcegraph import (
-    SourcegraphSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.sourcegraph.settings import SOURCEGRAPH_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.sourcegraph.source import SourcegraphSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.sourcegraph.sourcegraph import (
+from products.warehouse_sources.sources.sourcegraph._config import SourcegraphSourceConfig
+from products.warehouse_sources.sources.sourcegraph.settings import SOURCEGRAPH_ENDPOINTS
+from products.warehouse_sources.sources.sourcegraph.source import SourcegraphSource
+from products.warehouse_sources.sources.sourcegraph.sourcegraph import (
     MAX_RESPONSE_BYTES,
     SourcegraphHostNotAllowedError,
     SourcegraphPaginationLimitError,
@@ -37,7 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sourcegrap
     validate_credentials,
 )
 
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.sourcegraph.sourcegraph"
+MODULE = "products.warehouse_sources.sources.sourcegraph.sourcegraph"
 
 
 def _connection_page(

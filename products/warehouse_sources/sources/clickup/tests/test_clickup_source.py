@@ -1,7 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.clickup.source import ClickUpSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clickup import (
-    ClickUpSourceConfig,
-)
+from products.warehouse_sources.sources.clickup._config import ClickUpSourceConfig
+from products.warehouse_sources.sources.clickup.source import ClickUpSource
 
 
 class TestClickUpSource:

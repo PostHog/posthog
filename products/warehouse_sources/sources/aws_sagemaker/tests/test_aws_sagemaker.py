@@ -8,7 +8,8 @@ from unittest.mock import MagicMock, patch
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_sagemaker.aws_sagemaker import (
+from products.warehouse_sources.sources.aws_sagemaker._config import AwsSagemakerSourceConfig
+from products.warehouse_sources.sources.aws_sagemaker.aws_sagemaker import (
     TRANSPORT_RETRY,
     AwsSagemakerClient,
     AwsSagemakerError,
@@ -19,18 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_sagema
     get_rows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_sagemaker.source import AwsSagemakerSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awssagemaker import (
-    AwsSagemakerSourceConfig,
-)
+from products.warehouse_sources.sources.aws_sagemaker.source import AwsSagemakerSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager, UnknownResourceError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 @pytest.fixture
@@ -45,9 +37,7 @@ def config() -> AwsSagemakerSourceConfig:
 
 @pytest.fixture
 def transport() -> Iterator[MagicMock]:
-    with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.aws_sagemaker.aws_sagemaker.make_tracked_session"
-    ) as factory:
+    with patch("products.warehouse_sources.sources.aws_sagemaker.aws_sagemaker.make_tracked_session") as factory:
         yield factory.return_value
 
 

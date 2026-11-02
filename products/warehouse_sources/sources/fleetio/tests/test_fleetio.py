@@ -4,13 +4,8 @@ from parameterized import parameterized
 from requests import PreparedRequest
 from requests.structures import CaseInsensitiveDict
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.fleetio.fleetio import (
+from products.warehouse_sources.sources.fleetio._config import FleetioSourceConfig
+from products.warehouse_sources.sources.fleetio.fleetio import (
     FLEETIO_API_VERSION,
     FLEETIO_LEGACY_VERSION,
     FLEETIO_VERSION_2025_05_05,
@@ -20,11 +15,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fleetio.fl
     _format_incremental_value,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.fleetio.settings import FLEETIO_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.fleetio.source import FleetioSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fleetio import (
-    FleetioSourceConfig,
-)
+from products.warehouse_sources.sources.fleetio.settings import FLEETIO_ENDPOINTS
+from products.warehouse_sources.sources.fleetio.source import FleetioSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

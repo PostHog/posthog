@@ -5,27 +5,17 @@ from unittest.mock import Mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    PageNumberPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postscript import (
-    PostscriptSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.postscript.postscript import (
+from products.warehouse_sources.sources.postscript._config import PostscriptSourceConfig
+from products.warehouse_sources.sources.postscript.postscript import (
     PostscriptResumeConfig,
     _format_postscript_datetime,
     _rest_api_client_config,
     get_resource,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.postscript.source import PostscriptSource
+from products.warehouse_sources.sources.postscript.source import PostscriptSource
+from products.warehouse_sources.sources.sdk import PageNumberPaginator, SinglePagePaginator
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _subscribers_response(total_pages: int) -> Mock:

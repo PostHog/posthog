@@ -1,10 +1,8 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hatchet import (
-    HatchetSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet import HatchetConnection
-from products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.source import HatchetSource
+from products.warehouse_sources.sources.hatchet._config import HatchetSourceConfig
+from products.warehouse_sources.sources.hatchet.hatchet import HatchetConnection
+from products.warehouse_sources.sources.hatchet.source import HatchetSource
 
 
 class TestHatchetSource:
@@ -21,7 +19,7 @@ class TestHatchetSource:
         config = HatchetSourceConfig(api_token="tok", host="", tenant_id="")
 
         with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.source.validate_hatchet_credentials",
+            "products.warehouse_sources.sources.hatchet.source.validate_hatchet_credentials",
             return_value=(True, None),
         ) as validate:
             result = self.source.validate_credentials(config, self.team_id)
@@ -41,12 +39,10 @@ class TestHatchetSource:
 
         with (
             mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.source.resolve_connection",
+                "products.warehouse_sources.sources.hatchet.source.resolve_connection",
                 return_value=connection,
             ),
-            mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.source.hatchet_source"
-            ) as hatchet_source,
+            mock.patch("products.warehouse_sources.sources.hatchet.source.hatchet_source") as hatchet_source,
         ):
             self.source.source_for_pipeline(self.config, manager, inputs)
 
@@ -64,12 +60,10 @@ class TestHatchetSource:
 
         with (
             mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.source.resolve_connection",
+                "products.warehouse_sources.sources.hatchet.source.resolve_connection",
                 return_value=HatchetConnection(base_url="https://cloud.example", tenant_id="t"),
             ),
-            mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.source.hatchet_source"
-            ) as hatchet_source,
+            mock.patch("products.warehouse_sources.sources.hatchet.source.hatchet_source") as hatchet_source,
         ):
             self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
 

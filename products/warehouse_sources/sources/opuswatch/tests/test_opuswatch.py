@@ -4,18 +4,10 @@ from typing import Any, Optional
 import pytest
 from unittest.mock import patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.opuswatch import (
-    OPUSWatchSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.opuswatch.opuswatch import (
-    OPUSWatchResumeConfig,
-    build_date_window_params,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.opuswatch.source import OPUSWatchSource
+from products.warehouse_sources.sources.opuswatch._config import OPUSWatchSourceConfig
+from products.warehouse_sources.sources.opuswatch.opuswatch import OPUSWatchResumeConfig, build_date_window_params
+from products.warehouse_sources.sources.opuswatch.source import OPUSWatchSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 TODAY = date(2025, 1, 10)
 
@@ -69,7 +61,7 @@ class TestOPUSWatchSourceTransport:
 
     @pytest.mark.parametrize("endpoint", ["registrations", "sessions"])
     def test_transactional_pagination_advances_offset_and_checkpoints(self, endpoint: str) -> None:
-        with patch("products.warehouse_sources.backend.temporal.data_imports.sources.opuswatch.opuswatch.PAGE_SIZE", 2):
+        with patch("products.warehouse_sources.sources.opuswatch.opuswatch.PAGE_SIZE", 2):
             responses = [
                 ScriptedResponse(json={"data": [{"id": "1"}, {"id": "2"}]}),
                 ScriptedResponse(json={"data": [{"id": "3"}, {"id": "4"}]}),
@@ -101,7 +93,7 @@ class TestOPUSWatchSourceTransport:
         assert result.requests[0].param("date") is None
 
     def test_resume_seeds_paginator_with_saved_offset(self) -> None:
-        with patch("products.warehouse_sources.backend.temporal.data_imports.sources.opuswatch.opuswatch.PAGE_SIZE", 2):
+        with patch("products.warehouse_sources.sources.opuswatch.opuswatch.PAGE_SIZE", 2):
             result = self._driver().run(
                 "registrations",
                 [ScriptedResponse(json={"data": [{"id": "5"}]})],

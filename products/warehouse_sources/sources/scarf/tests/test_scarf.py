@@ -5,24 +5,24 @@ from typing import Any
 import pytest
 import time_machine
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.scarf import ScarfSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.scarf import scarf as scarf_transport
-from products.warehouse_sources.backend.temporal.data_imports.sources.scarf.scarf import (
+from products.warehouse_sources.sources.scarf import scarf as scarf_transport
+from products.warehouse_sources.sources.scarf._config import ScarfSourceConfig
+from products.warehouse_sources.sources.scarf.scarf import (
     BACKFILL_MESSAGE,
     OWNER_FORMAT_MESSAGE,
     OWNER_MESSAGE,
     ScarfExportCursor,
     ScarfResumeConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.scarf.source import ScarfSource
+from products.warehouse_sources.sources.scarf.source import ScarfSource
+from products.warehouse_sources.sources.sdk import SourceCursorManager
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 
 CONFIG = ScarfSourceConfig(api_token="scarf-token", owner="my-org", backfill_days=2)
 HEADER = "id,type,package,version,time,origin_latitude,origin_company,dnt,confidence"

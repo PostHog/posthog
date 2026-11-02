@@ -6,21 +6,13 @@ import pytest
 import time_machine
 from unittest.mock import patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pendo import PendoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.pendo.pendo import (
-    PendoResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.pendo.settings import ENDPOINTS, PENDO_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.pendo.source import PendoSource
+from products.warehouse_sources.sources.pendo._config import PendoSourceConfig
+from products.warehouse_sources.sources.pendo.pendo import PendoResumeConfig, validate_credentials
+from products.warehouse_sources.sources.pendo.settings import ENDPOINTS, PENDO_ENDPOINTS
+from products.warehouse_sources.sources.pendo.source import PendoSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
-PENDO_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.pendo.pendo"
+PENDO_PATH = "products.warehouse_sources.sources.pendo.pendo"
 
 
 def _driver() -> SourceDriver:

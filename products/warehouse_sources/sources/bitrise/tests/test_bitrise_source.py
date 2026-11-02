@@ -1,13 +1,8 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.bitrise.source import BitriseSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bitrise import (
-    BitriseSourceConfig,
-)
+from products.warehouse_sources.sources.bitrise._config import BitriseSourceConfig
+from products.warehouse_sources.sources.bitrise.source import BitriseSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 class TestBitriseSource:

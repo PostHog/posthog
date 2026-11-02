@@ -4,24 +4,17 @@ from typing import Any
 import pytest
 import time_machine
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.bol_retailer.bol_retailer import (
-    BolRetailerResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.bol_retailer.source import BolRetailerSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
-    OAUTH2_PERMANENT_ERROR_MARKER,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.bol_retailer._config import BolRetailerSourceConfig
+from products.warehouse_sources.sources.bol_retailer.bol_retailer import BolRetailerResumeConfig, validate_credentials
+from products.warehouse_sources.sources.bol_retailer.source import BolRetailerSource
+from products.warehouse_sources.sources.sdk import OAUTH2_PERMANENT_ERROR_MARKER
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     ScriptedResponse,
     SourceDriver,
     always,
     route,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bolretailer import (
-    BolRetailerSourceConfig,
 )
 
 TOKEN = ScriptedResponse(json={"access_token": "tok", "token_type": "Bearer", "expires_in": 299})

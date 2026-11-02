@@ -3,21 +3,11 @@ from typing import Any, cast
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.chameleon.chameleon import (
-    ChameleonResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.chameleon.settings import CHAMELEON_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.chameleon.source import ChameleonSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.chameleon import (
-    ChameleonSourceConfig,
-)
+from products.warehouse_sources.sources.chameleon._config import ChameleonSourceConfig
+from products.warehouse_sources.sources.chameleon.chameleon import ChameleonResumeConfig, validate_credentials
+from products.warehouse_sources.sources.chameleon.settings import CHAMELEON_ENDPOINTS
+from products.warehouse_sources.sources.chameleon.source import ChameleonSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

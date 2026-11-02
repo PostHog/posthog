@@ -1,19 +1,10 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.cohere import (
-    COHERE_API_VERSION_V1,
-    COHERE_BASE_URL,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.settings import (
-    ENDPOINTS,
-    RETIRED_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.source import CohereSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cohere import CohereSourceConfig
+from products.warehouse_sources.sources.cohere._config import CohereSourceConfig
+from products.warehouse_sources.sources.cohere.cohere import COHERE_API_VERSION_V1, COHERE_BASE_URL
+from products.warehouse_sources.sources.cohere.settings import ENDPOINTS, RETIRED_ENDPOINTS
+from products.warehouse_sources.sources.cohere.source import CohereSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 def _config() -> CohereSourceConfig:

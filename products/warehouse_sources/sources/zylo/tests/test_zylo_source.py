@@ -2,8 +2,8 @@ import pytest
 from unittest import mock
 from unittest.mock import MagicMock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zylo import ZyloSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.zylo.source import ZyloSource
+from products.warehouse_sources.sources.zylo._config import ZyloSourceConfig
+from products.warehouse_sources.sources.zylo.source import ZyloSource
 
 
 class TestZyloSource:
@@ -19,9 +19,7 @@ class TestZyloSource:
             (False, False, "Invalid Zylo credentials"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.zylo.source.validate_zylo_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.zylo.source.validate_zylo_credentials")
     def test_validate_credentials(
         self, mock_validate: MagicMock, mock_return: bool, expected_valid: bool, expected_message: str | None
     ) -> None:
@@ -55,7 +53,7 @@ class TestZyloSource:
             (403, "API key is missing the `applications:read and spend:read` permission scope"),
         ],
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.zylo.source.probe_endpoint_status")
+    @mock.patch("products.warehouse_sources.sources.zylo.source.probe_endpoint_status")
     def test_get_endpoint_permissions(
         self, mock_probe: MagicMock, status: int | None, expected_message: str | None
     ) -> None:
@@ -65,7 +63,7 @@ class TestZyloSource:
 
         assert permissions == {"PurchaseOrders": expected_message}
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.zylo.source.probe_endpoint_status")
+    @mock.patch("products.warehouse_sources.sources.zylo.source.probe_endpoint_status")
     def test_get_endpoint_permissions_probes_fanout_child_via_parent_list(self, mock_probe: MagicMock) -> None:
         mock_probe.return_value = 403
 

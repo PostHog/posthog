@@ -1,42 +1,38 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.surveysparrow import (
-    SurveySparrowSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.surveysparrow.settings import (
+from products.warehouse_sources.sources.surveysparrow._config import SurveySparrowSourceConfig
+from products.warehouse_sources.sources.surveysparrow.settings import (
     DATA_CENTER_BASE_URLS,
     DEFAULT_DATA_CENTER,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     SURVEYSPARROW_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.surveysparrow.surveysparrow import (
+from products.warehouse_sources.sources.surveysparrow.surveysparrow import (
     SurveySparrowResumeConfig,
     surveysparrow_source,
     validate_credentials as validate_surveysparrow_credentials,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _base_url_for(config: SurveySparrowSourceConfig) -> str:
@@ -111,7 +107,7 @@ Pick the data center your SurveySparrow account is hosted in — tokens are only
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.surveysparrow.canonical_descriptions import (  # noqa: PLC0415 — keeps the descriptions dict off the import path
+        from products.warehouse_sources.sources.surveysparrow.canonical_descriptions import (  # noqa: PLC0415 — keeps the descriptions dict off the import path
             CANONICAL_DESCRIPTIONS,
         )
 

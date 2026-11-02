@@ -3,20 +3,11 @@ from typing import Any
 from parameterized import parameterized
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.workiz import WorkizSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.workiz.settings import PAGE_SIZE
-from products.warehouse_sources.backend.temporal.data_imports.sources.workiz.source import WorkizSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.workiz.workiz import (
-    WorkizResumeConfig,
-    get_resource,
-    validate_credentials,
-)
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.workiz._config import WorkizSourceConfig
+from products.warehouse_sources.sources.workiz.settings import PAGE_SIZE
+from products.warehouse_sources.sources.workiz.source import WorkizSource
+from products.warehouse_sources.sources.workiz.workiz import WorkizResumeConfig, get_resource, validate_credentials
 
 
 def _job(uuid: str) -> dict[str, Any]:

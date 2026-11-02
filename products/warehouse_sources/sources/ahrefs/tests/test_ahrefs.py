@@ -11,31 +11,28 @@ from unittest.mock import MagicMock, patch
 from requests import Response, Session
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.ahrefs.ahrefs import validate_credentials
-from products.warehouse_sources.backend.temporal.data_imports.sources.ahrefs.settings import (
+from products.warehouse_sources.sources.ahrefs._config import AhrefsSourceConfig
+from products.warehouse_sources.sources.ahrefs.ahrefs import validate_credentials
+from products.warehouse_sources.sources.ahrefs.settings import (
     BACKLINK_FIELDS,
     ENDPOINTS,
     ORGANIC_KEYWORD_FIELDS,
     RANK_TRACKER_FIELDS,
     REFDOMAIN_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.ahrefs.source import AhrefsSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.ahrefs.source import AhrefsSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError, SourceInputs
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
+    error_message_matches,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ahrefs import AhrefsSourceConfig
 
 CLIENT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client"
-SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.ahrefs.ahrefs"
+SOURCE_MODULE = "products.warehouse_sources.sources.ahrefs.ahrefs"
 
 
 def response(body: object, status: int = 200) -> Response:

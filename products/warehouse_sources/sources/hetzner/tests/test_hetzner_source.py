@@ -1,18 +1,9 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import (
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hetzner import (
-    HetznerSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.hetzner.source import HetznerSource
+from products.warehouse_sources.sources.hetzner._config import HetznerSourceConfig
+from products.warehouse_sources.sources.hetzner.source import HetznerSource
+from products.warehouse_sources.sources.sdk import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 class TestHetznerSource:

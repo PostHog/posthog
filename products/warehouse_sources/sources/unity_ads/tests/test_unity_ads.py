@@ -7,7 +7,7 @@ import time_machine
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
     ScriptedResponse,
@@ -15,14 +15,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.unityads import (
-    UnityAdsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.unity_ads.source import UnityAdsSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.unity_ads.unity_ads import (
-    UnityAdsResumeConfig,
-    validate_credentials,
-)
+from products.warehouse_sources.sources.unity_ads._config import UnityAdsSourceConfig
+from products.warehouse_sources.sources.unity_ads.source import UnityAdsSource
+from products.warehouse_sources.sources.unity_ads.unity_ads import UnityAdsResumeConfig, validate_credentials
 
 NOW = datetime(2026, 10, 15, 12, tzinfo=UTC)
 

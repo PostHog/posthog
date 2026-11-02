@@ -2,49 +2,45 @@ from typing import Optional, cast
 
 import requests
 
-from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, OauthIntegration
-
-from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    ERROR_TOKEN_REFRESH_FAILED,
+    NOT_DETECTABLE,
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    IntegrationAccount,
+    IntegrationAccountListingError,
+    OauthIntegration,
+    OAuthMixin,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
-    IntegrationAccount,
-    IntegrationAccountListingError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import OAuthMixin
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.youtubeanalytics import (
-    YouTubeAnalyticsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_analytics.settings import (
+from products.warehouse_sources.sources.youtube_analytics._config import YouTubeAnalyticsSourceConfig
+from products.warehouse_sources.sources.youtube_analytics.settings import (
     DAY_INCREMENTAL_FIELDS,
     FULL_REFRESH_PRIMARY_KEYS,
     REQUIRED_SCOPES,
     REVISION_LOOKBACK_SECONDS,
     YOUTUBE_ANALYTICS_REPORTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_analytics.youtube_analytics import (
+from products.warehouse_sources.sources.youtube_analytics.youtube_analytics import (
     YouTubeAnalyticsAuthError,
     YouTubeAnalyticsResumeConfig,
     list_channels,
     validate_credentials as validate_youtube_analytics_credentials,
     youtube_analytics_source,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 RECONNECT_MESSAGE = (
     "Could not use the credentials for this YouTube Analytics connection. Please reconnect the Google account."
@@ -86,8 +82,8 @@ class YouTubeAnalyticsSource(ResumableSource[YouTubeAnalyticsSourceConfig, YouTu
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_analytics.canonical_descriptions import (  # noqa: PLC0415
-            CANONICAL_DESCRIPTIONS,
+        from products.warehouse_sources.sources.youtube_analytics.canonical_descriptions import (
+            CANONICAL_DESCRIPTIONS,  # noqa: PLC0415
         )
 
         return CANONICAL_DESCRIPTIONS

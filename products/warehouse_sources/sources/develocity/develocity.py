@@ -3,31 +3,8 @@ from urllib.parse import urlsplit
 
 from requests import HTTPError
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-    build_dependent_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-    ClientConfig,
-    Endpoint,
-    EndpointResource,
-    JSONResponseCursorPaginatorConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.develocity.settings import (
+from products.warehouse_sources.sources.develocity._config import DevelocitySourceConfig
+from products.warehouse_sources.sources.develocity.settings import (
     AVAILABLE_AT_FIELDS,
     BUILD_ID_FIELD,
     ENDPOINTS,
@@ -39,10 +16,25 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.develocity
     BuildChildEndpoint,
     BuildEndpoint,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.develocity import (
-    DevelocitySourceConfig,
+from products.warehouse_sources.sources.sdk import (
+    BearerTokenAuth,
+    ClientConfig,
+    DependentEndpointConfig,
+    Endpoint,
+    EndpointResource,
+    IncrementalField,
+    JSONResponseCursorPaginatorConfig,
+    RESTAPIConfig,
+    RESTClient,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceInputs,
+    SourceResponse,
+    build_dependent_resource,
+    frozen,
+    rest_api_resource,
+    schema_for_resource,
 )
-from products.warehouse_sources.backend.types import IncrementalField
 
 BUILDS_PAGINATOR: JSONResponseCursorPaginatorConfig = {
     "type": "cursor",
@@ -67,7 +59,7 @@ class FanoutEndpoint:
 
 
 def validated_api_url(instance_url: str, team_id: int) -> str:
-    from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (  # noqa: PLC0415 -- avoids loading Django models during source discovery
+    from products.warehouse_sources.sources.sdk import (  # noqa: PLC0415 -- avoids loading Django models during source discovery
         ValidateDatabaseHostMixin,
     )
 

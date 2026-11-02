@@ -2,16 +2,16 @@ import pytest
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.spotio import SpotIoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.spot_io.source import SpotIoSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.spot_io.spot_io import (
+from products.warehouse_sources.sources.spot_io._config import SpotIoSourceConfig
+from products.warehouse_sources.sources.spot_io.source import SpotIoSource
+from products.warehouse_sources.sources.spot_io.spot_io import (
     SpotIoResumeConfig,
     _account_params,
     get_resource,

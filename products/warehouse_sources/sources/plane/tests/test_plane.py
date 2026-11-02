@@ -4,15 +4,8 @@ from typing import Any
 import pytest
 from unittest.mock import patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.plane import PlaneSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.plane.plane import (
+from products.warehouse_sources.sources.plane._config import PlaneSourceConfig
+from products.warehouse_sources.sources.plane.plane import (
     INVALID_KEY_MESSAGE,
     INVALID_URL_MESSAGE,
     SLUG_MESSAGE,
@@ -20,7 +13,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.plane.plan
     PlaneResumeConfig,
     normalize_base_url,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.plane.source import PlaneSource
+from products.warehouse_sources.sources.plane.source import PlaneSource
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
 
 CONFIG = PlaneSourceConfig(api_key="plane_api_test", workspace_slug="my-team")
 

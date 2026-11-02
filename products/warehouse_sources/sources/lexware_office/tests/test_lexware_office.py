@@ -2,17 +2,10 @@ import pytest
 
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lexwareoffice import (
-    LexwareOfficeSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.lexware_office.lexware_office import (
-    LexwareOfficeResumeConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.lexware_office.source import LexwareOfficeSource
+from products.warehouse_sources.sources.lexware_office._config import LexwareOfficeSourceConfig
+from products.warehouse_sources.sources.lexware_office.lexware_office import LexwareOfficeResumeConfig
+from products.warehouse_sources.sources.lexware_office.source import LexwareOfficeSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 def driver() -> SourceDriver:

@@ -1,9 +1,7 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.savvycal import (
-    SavvyCalSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.savvycal.source import SavvyCalSource
+from products.warehouse_sources.sources.savvycal._config import SavvyCalSourceConfig
+from products.warehouse_sources.sources.savvycal.source import SavvyCalSource
 
 
 class TestSavvyCalSource:
@@ -12,7 +10,7 @@ class TestSavvyCalSource:
         self.team_id = 123
         self.config = SavvyCalSourceConfig(api_key="pt_secret_key")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.savvycal.source.validate_credentials")
+    @mock.patch("products.warehouse_sources.sources.savvycal.source.validate_credentials")
     def test_validate_credentials_delegates_to_shared_helper(self, mock_validate: mock.MagicMock) -> None:
         # The source method forwards the token to the shared validator and returns its result verbatim.
         mock_validate.return_value = (False, "Invalid SavvyCal personal access token")
@@ -20,7 +18,7 @@ class TestSavvyCalSource:
         assert result == (False, "Invalid SavvyCal personal access token")
         mock_validate.assert_called_once_with("pt_secret_key")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.savvycal.source.savvycal_source")
+    @mock.patch("products.warehouse_sources.sources.savvycal.source.savvycal_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "events"
@@ -38,7 +36,7 @@ class TestSavvyCalSource:
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2026-01-01"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.savvycal.source.savvycal_source")
+    @mock.patch("products.warehouse_sources.sources.savvycal.source.savvycal_source")
     def test_source_for_pipeline_drops_watermark_for_full_refresh(self, mock_source: mock.MagicMock) -> None:
         # A stale watermark from a previous incremental config must not leak into a full refresh.
         inputs = mock.MagicMock()

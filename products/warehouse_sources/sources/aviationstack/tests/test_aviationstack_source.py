@@ -1,15 +1,9 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.aviationstack.source import AviationstackSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.aviationstack import (
-    AviationstackSourceConfig,
-)
+from products.warehouse_sources.sources.aviationstack._config import AviationstackSourceConfig
+from products.warehouse_sources.sources.aviationstack.source import AviationstackSource
+from products.warehouse_sources.sources.sdk import SourceFieldInputConfig
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _make_config(access_key: str = "key", airport_iata_codes: str | None = "JFK") -> AviationstackSourceConfig:

@@ -1,13 +1,9 @@
 import pytest
 import time_machine
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.adapty.source import AdaptySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.adapty import AdaptySourceConfig
+from products.warehouse_sources.sources.adapty._config import AdaptySourceConfig
+from products.warehouse_sources.sources.adapty.source import AdaptySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, always, scripted_network
 
 
 @pytest.mark.parametrize(

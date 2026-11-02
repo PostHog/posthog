@@ -2,10 +2,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zonkafeedback import (
-    ZonkaFeedbackSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feedback.source import ZonkaFeedbackSource
+from products.warehouse_sources.sources.zonka_feedback._config import ZonkaFeedbackSourceConfig
+from products.warehouse_sources.sources.zonka_feedback.source import ZonkaFeedbackSource
 
 
 class TestZonkaFeedbackSource:
@@ -30,9 +28,7 @@ class TestZonkaFeedbackSource:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feedback.source.zonka_feedback_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.zonka_feedback.source.zonka_feedback_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "responses"

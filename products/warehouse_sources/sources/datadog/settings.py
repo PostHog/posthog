@@ -2,13 +2,9 @@ from collections.abc import Callable
 from dataclasses import field
 from typing import Any, Literal, Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.error_spans import with_span_error_type
-from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.error_tracking import (
-    DatadogIssueSearchConfig,
-)
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.datadog.error_spans import with_span_error_type
+from products.warehouse_sources.sources.datadog.error_tracking import DatadogIssueSearchConfig
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 PaginationStyle = Literal["cursor", "page", "offset", "record_id", "none"]
 # How a timestamp filter value is rendered for the endpoint's query param. Datadog uses a

@@ -1,5 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kandji import KandjiSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.kandji.source import KandjiSource
+from products.warehouse_sources.sources.kandji._config import KandjiSourceConfig
+from products.warehouse_sources.sources.kandji.source import KandjiSource
 
 
 class TestKandjiSource:

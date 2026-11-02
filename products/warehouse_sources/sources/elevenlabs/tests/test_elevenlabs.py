@@ -7,23 +7,16 @@ from typing import Any
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.elevenlabs.elevenlabs import (
+from products.warehouse_sources.sources.elevenlabs._config import ElevenLabsSourceConfig
+from products.warehouse_sources.sources.elevenlabs.elevenlabs import (
     ElevenLabsResumeConfig,
     _build_params,
     _to_unix_seconds,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.elevenlabs.settings import ELEVENLABS_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.elevenlabs.source import ElevenLabsSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.elevenlabs import (
-    ElevenLabsSourceConfig,
-)
+from products.warehouse_sources.sources.elevenlabs.settings import ELEVENLABS_ENDPOINTS
+from products.warehouse_sources.sources.elevenlabs.source import ElevenLabsSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

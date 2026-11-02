@@ -1,6 +1,4 @@
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField
+from products.warehouse_sources.sources.sdk import IncrementalField, frozen
 
 # Bluesky's public AppView (see `bluesky.py`). No auth is required for any of the endpoints below.
 BASE_URL = "https://public.api.bsky.app"

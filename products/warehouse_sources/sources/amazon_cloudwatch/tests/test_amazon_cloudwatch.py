@@ -7,7 +7,8 @@ from urllib.parse import parse_qs
 import pytest
 import time_machine
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_cloudwatch.amazon_cloudwatch import (
+from products.warehouse_sources.sources.amazon_cloudwatch._config import AmazonCloudWatchSourceConfig
+from products.warehouse_sources.sources.amazon_cloudwatch.amazon_cloudwatch import (
     GENERIC_VALIDATION_ERROR,
     MAX_ATTEMPTS,
     TRANSIENT_VALIDATION_ERROR,
@@ -16,19 +17,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_clo
     parse_metric_queries,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_cloudwatch.source import (
-    AmazonCloudWatchSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.amazon_cloudwatch.source import AmazonCloudWatchSource
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
+    UnexpectedRequest,
     always,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing.responders import UnexpectedRequest
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.amazoncloudwatch import (
-    AmazonCloudWatchSourceConfig,
 )
 
 NOW = "2024-03-10T12:00:00Z"

@@ -2,21 +2,16 @@ from typing import Any, cast
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kommo import KommoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.kommo.kommo import (
+from products.warehouse_sources.sources.kommo._config import KommoSourceConfig
+from products.warehouse_sources.sources.kommo.kommo import (
     KommoResumeConfig,
     get_resource,
     normalize_subdomain,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.kommo.settings import ENDPOINT_CONFIG, ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.kommo.source import KommoSource
+from products.warehouse_sources.sources.kommo.settings import ENDPOINT_CONFIG, ENDPOINTS
+from products.warehouse_sources.sources.kommo.source import KommoSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _leads_page(ids: list[int], page: int, page_count: int) -> dict[str, Any]:

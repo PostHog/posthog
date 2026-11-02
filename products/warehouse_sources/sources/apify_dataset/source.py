@@ -1,19 +1,12 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.apify_dataset.apify_dataset import (
+from products.warehouse_sources.sources.apify_dataset._config import ApifyDatasetSourceConfig
+from products.warehouse_sources.sources.apify_dataset.apify_dataset import (
     ApifyResumeConfig,
     apify_dataset_source,
     validate_credentials as validate_apify_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.apify_dataset.settings import (
+from products.warehouse_sources.sources.apify_dataset.settings import (
     ACTOR_RUNS_ENDPOINT,
     ACTORS_ENDPOINT,
     DATASET_ITEMS_ENDPOINT,
@@ -22,21 +15,24 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.apify_data
     INCREMENTAL_FIELDS,
     USAGE_MONTHLY_ENDPOINT,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+from products.warehouse_sources.sources.sdk import (
     CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.apifydataset import (
-    ApifyDatasetSourceConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -131,9 +127,7 @@ The token needs read access to the dataset's storage. The account-level tables (
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.apify_dataset.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.apify_dataset.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

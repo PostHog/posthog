@@ -1,16 +1,9 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.replyio import (
-    ReplyIoSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.reply_io.reply_io import ReplyIoResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.reply_io.source import ReplyIoSource
+from products.warehouse_sources.sources.reply_io._config import ReplyIoSourceConfig
+from products.warehouse_sources.sources.reply_io.reply_io import ReplyIoResumeConfig
+from products.warehouse_sources.sources.reply_io.source import ReplyIoSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 class TestReplyIoSource:

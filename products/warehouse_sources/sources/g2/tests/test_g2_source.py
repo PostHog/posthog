@@ -2,12 +2,9 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.g2.source import G2Source
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.g2 import G2SourceConfig
+from products.warehouse_sources.sources.g2._config import G2SourceConfig
+from products.warehouse_sources.sources.g2.source import G2Source
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 class TestG2Source:
@@ -64,7 +61,7 @@ class TestG2Source:
         assert network.requests_log[0].param("page[size]") == "1"
         assert network.requests_log[0].headers["authorization"] == "Bearer token-1"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.g2.source.g2_source")
+    @mock.patch("products.warehouse_sources.sources.g2.source.g2_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_g2_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "reviews"

@@ -4,18 +4,12 @@ from typing import Any
 import pytest
 from unittest.mock import patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    Script,
-    ScriptedResponse,
-    SourceDriver,
-    always,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.raygun import RaygunSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.raygun.raygun import RaygunResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.raygun.source import RaygunSource
+from products.warehouse_sources.sources.raygun._config import RaygunSourceConfig
+from products.warehouse_sources.sources.raygun.raygun import RaygunResumeConfig
+from products.warehouse_sources.sources.raygun.source import RaygunSource
+from products.warehouse_sources.sources.sdk.testing import DriveResult, Script, ScriptedResponse, SourceDriver, always
 
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.raygun.raygun"
+MODULE = "products.warehouse_sources.sources.raygun.raygun"
 
 
 def _run(endpoint: str, script: Script, **inputs: Any) -> DriveResult:

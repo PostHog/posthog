@@ -1,11 +1,9 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.instana import (
-    InstanaSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.instana.instana import InstanaHostNotAllowedError
-from products.warehouse_sources.backend.temporal.data_imports.sources.instana.source import InstanaSource
+from products.warehouse_sources.sources.instana._config import InstanaSourceConfig
+from products.warehouse_sources.sources.instana.instana import InstanaHostNotAllowedError
+from products.warehouse_sources.sources.instana.source import InstanaSource
 
 
 class TestInstanaSource:
@@ -30,9 +28,7 @@ class TestInstanaSource:
             ((False, None), False),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.instana.source.validate_instana_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.instana.source.validate_instana_credentials")
     def test_validate_credentials(
         self,
         mock_validate: mock.MagicMock,
@@ -48,9 +44,7 @@ class TestInstanaSource:
         mock_validate.assert_called_once_with("https://unit-tenant.instana.io", "secret-token", self.team_id)
 
     @pytest.mark.parametrize("exception", [ValueError("bad url"), InstanaHostNotAllowedError("blocked")])
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.instana.source.validate_instana_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.instana.source.validate_instana_credentials")
     def test_validate_credentials_surfaces_url_errors(
         self, mock_validate: mock.MagicMock, exception: Exception
     ) -> None:

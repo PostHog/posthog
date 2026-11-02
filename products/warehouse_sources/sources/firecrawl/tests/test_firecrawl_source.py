@@ -2,12 +2,13 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.firecrawl.firecrawl import FirecrawlResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.firecrawl.source import FirecrawlSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.firecrawl import (
-    FirecrawlSourceConfig,
+from products.warehouse_sources.sources.firecrawl._config import FirecrawlSourceConfig
+from products.warehouse_sources.sources.firecrawl.firecrawl import FirecrawlResumeConfig
+from products.warehouse_sources.sources.firecrawl.source import FirecrawlSource
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
 )
 
 
@@ -30,7 +31,7 @@ class TestFirecrawlValidateCredentials:
     @parameterized.expand([("valid", True), ("invalid", False)])
     def test_maps_token_probe_to_result(self, _name: str, probe_result: bool) -> None:
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.firecrawl.source.validate_firecrawl_credentials",
+            "products.warehouse_sources.sources.firecrawl.source.validate_firecrawl_credentials",
             return_value=probe_result,
         ):
             ok, error = FirecrawlSource().validate_credentials(_config(), team_id=1)

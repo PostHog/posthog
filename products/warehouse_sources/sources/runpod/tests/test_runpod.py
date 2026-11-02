@@ -8,20 +8,15 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.runpod import RunPodSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.runpod import runpod
-from products.warehouse_sources.backend.temporal.data_imports.sources.runpod.runpod import (
+from products.warehouse_sources.sources.runpod import runpod
+from products.warehouse_sources.sources.runpod._config import RunPodSourceConfig
+from products.warehouse_sources.sources.runpod.runpod import (
     RunPodResumeConfig,
     _normalize_billing_record,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.runpod.source import RunPodSource
+from products.warehouse_sources.sources.runpod.source import RunPodSource
+from products.warehouse_sources.sources.sdk.testing import DriveResult, ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver() -> SourceDriver:

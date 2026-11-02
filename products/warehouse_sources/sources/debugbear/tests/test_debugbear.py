@@ -10,13 +10,8 @@ from requests.exceptions import (
     HTTPError,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.debugbear.debugbear import (
+from products.warehouse_sources.sources.debugbear._config import DebugbearSourceConfig
+from products.warehouse_sources.sources.debugbear.debugbear import (
     _date_only,
     _flatten_page_metrics_item,
     _flatten_rum_metrics,
@@ -30,10 +25,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.debugbear.
     debugbear_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.debugbear.source import DebugbearSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.debugbear import (
-    DebugbearSourceConfig,
-)
+from products.warehouse_sources.sources.debugbear.source import DebugbearSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _response(json_body: Any, status_code: int = 200) -> MagicMock:

@@ -10,14 +10,14 @@ from structlog.types import FilteringBoundLogger
 from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.argocd.settings import ARGOCD_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+from products.warehouse_sources.sources.argocd.settings import ARGOCD_ENDPOINTS
+from products.warehouse_sources.sources.sdk import (
+    SourceResponse,
+    _is_host_safe,
     make_tracked_session,
     request_deadline,
     stop_at_request_deadline,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 REQUEST_TIMEOUT_SECONDS = 120
 MAX_RETRIES = 5

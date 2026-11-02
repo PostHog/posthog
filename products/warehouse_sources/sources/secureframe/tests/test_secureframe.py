@@ -4,23 +4,21 @@ import pytest
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
     route,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.secureframe import (
-    SecureframeSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.secureframe.secureframe import (
+from products.warehouse_sources.sources.secureframe._config import SecureframeSourceConfig
+from products.warehouse_sources.sources.secureframe.secureframe import (
     SecureframeResumeConfig,
     _extract_rows,
     get_endpoint_permissions,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.secureframe.source import SecureframeSource
+from products.warehouse_sources.sources.secureframe.source import SecureframeSource
 
 
 def _driver() -> SourceDriver:

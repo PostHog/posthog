@@ -2,12 +2,9 @@ import pytest
 
 from requests.exceptions import ConnectionError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kajabi import KajabiSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.kajabi.source import KajabiSource
+from products.warehouse_sources.sources.kajabi._config import KajabiSourceConfig
+from products.warehouse_sources.sources.kajabi.source import KajabiSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 @pytest.fixture

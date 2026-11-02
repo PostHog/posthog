@@ -1,14 +1,7 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_and_usage_report.aws_cost_and_usage_report import (
+from products.warehouse_sources.sources.aws_cost_and_usage_report._config import AwsCostAndUsageReportSourceConfig
+from products.warehouse_sources.sources.aws_cost_and_usage_report.aws_cost_and_usage_report import (
     DELIVERY_IN_PROGRESS,
     ERROR_PREFIX,
     MANIFEST_UNREADABLE,
@@ -20,26 +13,29 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_a
     aws_cost_and_usage_report_source,
     validate_credentials as validate_cost_and_usage_report_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_and_usage_report.settings import (
+from products.warehouse_sources.sources.aws_cost_and_usage_report.settings import (
     ENDPOINT_DESCRIPTIONS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+from products.warehouse_sources.sources.sdk import (
     CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awscostandusagereport import (
-    AwsCostAndUsageReportSourceConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -95,7 +91,7 @@ class AwsCostAndUsageReportSource(ResumableSource[AwsCostAndUsageReportSourceCon
         return ResumableSourceManager[CostAndUsageReportResumeConfig](inputs, CostAndUsageReportResumeConfig)
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_and_usage_report.canonical_descriptions import (
+        from products.warehouse_sources.sources.aws_cost_and_usage_report.canonical_descriptions import (
             CANONICAL_DESCRIPTIONS,
         )
 

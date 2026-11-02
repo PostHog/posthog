@@ -3,27 +3,18 @@ from datetime import UTC, date, datetime
 from parameterized import parameterized
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hubplanner import (
-    HubplannerSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.hubplanner.hubplanner import (
+from products.warehouse_sources.sources.hubplanner._config import HubplannerSourceConfig
+from products.warehouse_sources.sources.hubplanner.hubplanner import (
     PAGE_SIZE,
     HubPlannerResumeConfig,
     _build_request_plan,
     _format_value,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.hubplanner.settings import HUBPLANNER_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.hubplanner.source import HubplannerSource
+from products.warehouse_sources.sources.hubplanner.settings import HUBPLANNER_ENDPOINTS
+from products.warehouse_sources.sources.hubplanner.source import HubplannerSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver(api_key: str = "k") -> SourceDriver:

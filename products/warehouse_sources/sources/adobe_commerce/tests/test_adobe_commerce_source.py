@@ -2,18 +2,18 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_commerce.settings import (
+from products.warehouse_sources.sources.adobe_commerce._config import (
+    AdobeCommerceAuthMethodConfig,
+    AdobeCommerceSourceConfig,
+)
+from products.warehouse_sources.sources.adobe_commerce.settings import (
     ADOBE_COMMERCE_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_commerce.source import AdobeCommerceSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.adobecommerce import (
-    AdobeCommerceAuthMethodConfig,
-    AdobeCommerceSourceConfig,
-)
+from products.warehouse_sources.sources.adobe_commerce.source import AdobeCommerceSource
 
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.adobe_commerce.source"
+_MODULE = "products.warehouse_sources.sources.adobe_commerce.source"
 
 INCREMENTAL_ENDPOINTS = (
     "orders",

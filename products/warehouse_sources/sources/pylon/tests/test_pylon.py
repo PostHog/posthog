@@ -8,15 +8,9 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    route,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing.fake_network import RecordedRequest
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pylon import PylonSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.pylon import pylon
-from products.warehouse_sources.backend.temporal.data_imports.sources.pylon.pylon import (
+from products.warehouse_sources.sources.pylon import pylon
+from products.warehouse_sources.sources.pylon._config import PylonSourceConfig
+from products.warehouse_sources.sources.pylon.pylon import (
     PYLON_EU_BASE_URL,
     PYLON_US_BASE_URL,
     PylonResumeConfig,
@@ -26,8 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pylon.pylo
     get_rows,
     pylon_source,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.pylon.settings import PYLON_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.pylon.source import PylonSource
+from products.warehouse_sources.sources.pylon.settings import PYLON_ENDPOINTS
+from products.warehouse_sources.sources.pylon.source import PylonSource
+from products.warehouse_sources.sources.sdk.testing import RecordedRequest, ScriptedResponse, SourceDriver, route
 
 
 def _page(items: list[dict[str, Any]], cursor: str | None = None) -> dict[str, Any]:

@@ -8,7 +8,7 @@ from unittest.mock import Mock
 from parameterized import parameterized
 from requests import Request
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
@@ -16,13 +16,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     route,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.yoco import YocoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.yoco.settings import (
-    DEFAULT_PAGE_SIZE,
-    MAX_FILTER_WINDOW,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.yoco.source import YocoSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.yoco.yoco import (
+from products.warehouse_sources.sources.yoco._config import YocoSourceConfig
+from products.warehouse_sources.sources.yoco.settings import DEFAULT_PAGE_SIZE, MAX_FILTER_WINDOW
+from products.warehouse_sources.sources.yoco.source import YocoSource
+from products.warehouse_sources.sources.yoco.yoco import (
     YocoCursorPaginator,
     YocoResumeConfig,
     _client_config,

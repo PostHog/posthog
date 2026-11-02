@@ -2,11 +2,12 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Literal, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+from products.warehouse_sources.sources.sdk import (
     DependentEndpointConfig,
+    IncrementalField,
+    IncrementalFieldType,
+    incremental_field,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 PaginationStyle = Literal["cursor", "offset", "none"]
 

@@ -7,21 +7,11 @@ import time_machine
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.blueshift.blueshift import (
-    BlueshiftResumeConfig,
-    BlueshiftStatsCursor,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.blueshift.source import BlueshiftSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.blueshift import (
-    BlueshiftSourceConfig,
-)
+from products.warehouse_sources.sources.blueshift._config import BlueshiftSourceConfig
+from products.warehouse_sources.sources.blueshift.blueshift import BlueshiftResumeConfig, BlueshiftStatsCursor
+from products.warehouse_sources.sources.blueshift.source import BlueshiftSource
+from products.warehouse_sources.sources.sdk import SourceCursorManager
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 API_KEY = "test-user-api-key"
 AUTH_VALUE = "Basic " + base64.b64encode(f"{API_KEY}:".encode()).decode()

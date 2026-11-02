@@ -6,9 +6,9 @@ from unittest.mock import MagicMock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import TrackedHTTPAdapter
-from products.warehouse_sources.backend.temporal.data_imports.sources.veracode.settings import VERACODE_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.veracode.veracode import (
+from products.warehouse_sources.sources.sdk import TrackedHTTPAdapter
+from products.warehouse_sources.sources.veracode.settings import VERACODE_ENDPOINTS
+from products.warehouse_sources.sources.veracode.veracode import (
     VeracodeHMACAuth,
     VeracodeResumeConfig,
     VeracodeRetryableError,
@@ -253,7 +253,7 @@ class _patched_session:
         from unittest.mock import patch
 
         self._patcher = patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.veracode.veracode._make_session",
+            "products.warehouse_sources.sources.veracode.veracode._make_session",
             return_value=self._session,
         )
         self._patcher.start()

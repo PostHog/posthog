@@ -1,15 +1,8 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.electricity_maps.source import (
-    ElectricityMapsSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.electricitymaps import (
-    ElectricityMapsSourceConfig,
-)
+from products.warehouse_sources.sources.electricity_maps._config import ElectricityMapsSourceConfig
+from products.warehouse_sources.sources.electricity_maps.source import ElectricityMapsSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 class TestElectricityMapsCredentialValidation:

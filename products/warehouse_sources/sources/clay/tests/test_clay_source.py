@@ -2,12 +2,9 @@ from typing import Optional
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.clay.source import ClaySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clay import ClaySourceConfig
+from products.warehouse_sources.sources.clay._config import ClaySourceConfig
+from products.warehouse_sources.sources.clay.source import ClaySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 @pytest.mark.parametrize(

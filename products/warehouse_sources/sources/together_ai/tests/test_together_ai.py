@@ -3,22 +3,17 @@ from typing import Any
 from parameterized import parameterized
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     Script,
     ScriptedResponse,
     SourceDriver,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.togetherai import (
-    TogetherAISourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.together_ai.settings import TOGETHER_AI_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.together_ai.source import TogetherAISource
-from products.warehouse_sources.backend.temporal.data_imports.sources.together_ai.together_ai import (
-    TOGETHER_AI_BASE_URL,
-    get_status_code,
-)
+from products.warehouse_sources.sources.together_ai._config import TogetherAISourceConfig
+from products.warehouse_sources.sources.together_ai.settings import TOGETHER_AI_ENDPOINTS
+from products.warehouse_sources.sources.together_ai.source import TogetherAISource
+from products.warehouse_sources.sources.together_ai.together_ai import TOGETHER_AI_BASE_URL, get_status_code
 
 
 def _response(body: Any, status_code: int = 200) -> ScriptedResponse:

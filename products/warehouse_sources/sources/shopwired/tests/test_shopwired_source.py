@@ -1,9 +1,7 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shopwired import (
-    ShopWiredSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopwired.source import ShopWiredSource
+from products.warehouse_sources.sources.shopwired._config import ShopWiredSourceConfig
+from products.warehouse_sources.sources.shopwired.source import ShopWiredSource
 
 
 class TestShopWiredSource:
@@ -12,9 +10,7 @@ class TestShopWiredSource:
         self.team_id = 123
         self.config = ShopWiredSourceConfig(api_key="sw-key", api_secret="sw-secret")
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.shopwired.source.validate_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.shopwired.source.validate_credentials")
     def test_validate_credentials_delegates_with_credentials(self, mock_validate: mock.MagicMock) -> None:
         # The status-to-message mapping lives in shopwired.validate_credentials; here we only assert the
         # source probes with the configured credentials and returns the delegate's verdict unchanged.
@@ -23,7 +19,7 @@ class TestShopWiredSource:
         mock_validate.assert_called_once_with("sw-key", "sw-secret")
         assert result == (False, "Invalid ShopWired API key or secret")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.shopwired.source.shopwired_source")
+    @mock.patch("products.warehouse_sources.sources.shopwired.source.shopwired_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "orders"

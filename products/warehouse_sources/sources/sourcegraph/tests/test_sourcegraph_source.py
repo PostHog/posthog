@@ -1,10 +1,8 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sourcegraph import (
-    SourcegraphSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.sourcegraph.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.sourcegraph.source import SourcegraphSource
+from products.warehouse_sources.sources.sourcegraph._config import SourcegraphSourceConfig
+from products.warehouse_sources.sources.sourcegraph.settings import ENDPOINTS
+from products.warehouse_sources.sources.sourcegraph.source import SourcegraphSource
 
 
 class TestSourcegraphSource:

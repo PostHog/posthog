@@ -1,8 +1,6 @@
 from typing import Literal
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField
+from products.warehouse_sources.sources.sdk import IncrementalField, frozen
 
 BASE_URL = "https://api.onesignal.com"
 INITIAL_TIME_OFFSET = "1970-01-01T00:00:00.000Z"

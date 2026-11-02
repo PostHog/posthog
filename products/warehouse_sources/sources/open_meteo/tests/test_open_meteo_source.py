@@ -6,16 +6,13 @@ from unittest import mock
 
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openmeteo import (
-    OpenMeteoSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.open_meteo.open_meteo import OpenMeteoResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.open_meteo.source import OpenMeteoSource
+from products.warehouse_sources.sources.open_meteo._config import OpenMeteoSourceConfig
+from products.warehouse_sources.sources.open_meteo.open_meteo import OpenMeteoResumeConfig
+from products.warehouse_sources.sources.open_meteo.source import OpenMeteoSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceInputs
+from products.warehouse_sources.sources.sdk.testing import error_message_matches
 
-SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.open_meteo.source"
+SOURCE_MODULE = "products.warehouse_sources.sources.open_meteo.source"
 
 
 def _inputs(

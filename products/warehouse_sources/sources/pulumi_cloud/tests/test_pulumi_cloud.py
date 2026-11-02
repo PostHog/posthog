@@ -7,19 +7,9 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pulumicloud import (
-    PulumiCloudSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.pulumi_cloud import pulumi_cloud
-from products.warehouse_sources.backend.temporal.data_imports.sources.pulumi_cloud.pulumi_cloud import (
+from products.warehouse_sources.sources.pulumi_cloud import pulumi_cloud
+from products.warehouse_sources.sources.pulumi_cloud._config import PulumiCloudSourceConfig
+from products.warehouse_sources.sources.pulumi_cloud.pulumi_cloud import (
     AUDIT_LOGS_LOOKBACK_SECONDS,
     PAGE_SIZE,
     STACK_UPDATES_LOOKBACK_SECONDS,
@@ -28,10 +18,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pulumi_clo
     _flatten_update,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.pulumi_cloud.settings import (
-    PULUMI_CLOUD_ENDPOINTS,
+from products.warehouse_sources.sources.pulumi_cloud.settings import PULUMI_CLOUD_ENDPOINTS
+from products.warehouse_sources.sources.pulumi_cloud.source import PulumiCloudSource
+from products.warehouse_sources.sources.sdk.testing import (
+    DriveResult,
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.pulumi_cloud.source import PulumiCloudSource
 
 STACKS_PATH = "/api/user/stacks"
 

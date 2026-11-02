@@ -5,7 +5,8 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.anvil.anvil import (
+from products.warehouse_sources.sources.anvil._config import AnvilSourceConfig
+from products.warehouse_sources.sources.anvil.anvil import (
     AnvilAPIError,
     AnvilResumeConfig,
     _build_organization_page_query,
@@ -14,14 +15,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.anvil.anvi
     _nest_selection,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.anvil.settings import ANVIL_ENDPOINTS, ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.anvil.source import AnvilSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.anvil import AnvilSourceConfig
+from products.warehouse_sources.sources.anvil.settings import ANVIL_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.sources.anvil.source import AnvilSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver() -> SourceDriver:

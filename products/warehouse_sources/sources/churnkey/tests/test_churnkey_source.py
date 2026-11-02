@@ -1,15 +1,8 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.churnkey.source import ChurnkeySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.churnkey import (
-    ChurnkeySourceConfig,
-)
+from products.warehouse_sources.sources.churnkey._config import ChurnkeySourceConfig
+from products.warehouse_sources.sources.churnkey.source import ChurnkeySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _config() -> ChurnkeySourceConfig:

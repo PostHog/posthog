@@ -1,37 +1,30 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stackoverflowforteams import (
-    StackOverflowForTeamsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.stack_overflow_for_teams.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.stack_overflow_for_teams.stack_overflow_for_teams import (
+from products.warehouse_sources.sources.stack_overflow_for_teams._config import StackOverflowForTeamsSourceConfig
+from products.warehouse_sources.sources.stack_overflow_for_teams.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.stack_overflow_for_teams.stack_overflow_for_teams import (
     StackOverflowForTeamsResumeConfig,
     stack_overflow_for_teams_source,
     validate_credentials as validate_stack_overflow_for_teams_credentials,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -92,7 +85,7 @@ Create a token under **Account Settings → Personal access tokens**, scoped to 
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.stack_overflow_for_teams.canonical_descriptions import (
+        from products.warehouse_sources.sources.stack_overflow_for_teams.canonical_descriptions import (
             CANONICAL_DESCRIPTIONS,
         )
 

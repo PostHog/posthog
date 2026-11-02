@@ -2,7 +2,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
 OMNISEND_V3 = "v3"
 # Header-versioned (`Omnisend-Version`) on the `/api` base path, with `Authorization: Omnisend-API-Key`.

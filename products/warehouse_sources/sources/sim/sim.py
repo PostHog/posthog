@@ -5,36 +5,25 @@ from typing import Any, cast
 
 from requests.exceptions import HTTPError
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    RESTClient,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import create_auth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    build_dependent_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponseCursorPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+from products.warehouse_sources.sources.sdk import (
     ClientConfig,
     Endpoint,
     EndpointResource,
+    JSONResponseCursorPaginator,
+    RESTAPIConfig,
+    RESTClient,
+    ResumableSourceManager,
+    SourceInputs,
+    SourceResponse,
+    build_dependent_resource,
+    create_auth,
+    frozen,
+    parse_datetime_value,
+    rest_api_resource,
+    schema_for_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sim import SimSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.sim.settings import (
-    ENDPOINTS,
-    PARENT_ENDPOINTS,
-    USAGE_WINDOW_DAYS,
-    SimEndpoint,
-)
+from products.warehouse_sources.sources.sim._config import SimSourceConfig
+from products.warehouse_sources.sources.sim.settings import ENDPOINTS, PARENT_ENDPOINTS, USAGE_WINDOW_DAYS, SimEndpoint
 
 # Page size for listing organizations while validating usage access.
 USAGE_PROBE_ORGANIZATIONS = 10

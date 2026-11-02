@@ -13,9 +13,8 @@ from botocore.serialize import create_serializer
 from botocore.session import get_session
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_guardduty.settings import (
+from products.warehouse_sources.sources.aws_guardduty._config import AwsGuarddutySourceConfig
+from products.warehouse_sources.sources.aws_guardduty.settings import (
     ENDPOINTS,
     ERROR_MESSAGES,
     GUARDDUTY_API_VERSION,
@@ -23,14 +22,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_guardd
     USAGE_FEATURES,
     USAGE_STATISTIC_TYPES,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import probe_status_message
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsguardduty import (
-    AwsGuarddutySourceConfig,
+from products.warehouse_sources.sources.sdk import (
+    BoundedRetry,
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    probe_status_message,
+    schema_for_resource,
 )
 
 TRANSPORT_RETRY = BoundedRetry(

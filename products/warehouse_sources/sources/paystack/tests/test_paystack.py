@@ -5,21 +5,15 @@ import pytest
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.paystack import (
-    PaystackSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.paystack.paystack import (
+from products.warehouse_sources.sources.paystack._config import PaystackSourceConfig
+from products.warehouse_sources.sources.paystack.paystack import (
     PAGE_SIZE,
     PaystackPaginator,
     PaystackResumeConfig,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.paystack.source import PaystackSource
+from products.warehouse_sources.sources.paystack.source import PaystackSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _meta(page: int, page_count: int) -> dict[str, Any]:

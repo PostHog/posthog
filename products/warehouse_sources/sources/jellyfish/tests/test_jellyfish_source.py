@@ -3,11 +3,9 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jellyfish import (
-    JellyfishSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.jellyfish import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.jellyfish.source import JellyfishSource
+from products.warehouse_sources.sources.jellyfish import source as source_module
+from products.warehouse_sources.sources.jellyfish._config import JellyfishSourceConfig
+from products.warehouse_sources.sources.jellyfish.source import JellyfishSource
 
 
 class TestJellyfishSource:

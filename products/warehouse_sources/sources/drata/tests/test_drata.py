@@ -5,10 +5,17 @@ from typing import Any, Literal
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
+from products.warehouse_sources.sources.drata._config import DrataSourceConfig
+from products.warehouse_sources.sources.drata.drata import (
+    REGION_BASE_URLS,
+    DrataResumeConfig,
+    base_url_for_region,
+    validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.drata.settings import DRATA_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.sources.drata.source import DrataSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError, SourceResponse
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
@@ -16,16 +23,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     route,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.drata.drata import (
-    REGION_BASE_URLS,
-    DrataResumeConfig,
-    base_url_for_region,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.drata.settings import DRATA_ENDPOINTS, ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.drata.source import DrataSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.drata import DrataSourceConfig
 
 US_BASE_URL = REGION_BASE_URLS["US"]
 

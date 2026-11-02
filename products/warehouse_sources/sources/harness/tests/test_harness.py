@@ -10,23 +10,17 @@ from unittest.mock import MagicMock, patch
 from requests import Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.harness._config import HarnessSourceConfig
+from products.warehouse_sources.sources.harness.harness import HarnessResumeConfig, harness_source
+from products.warehouse_sources.sources.harness.source import HarnessSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceResponse
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.harness import (
-    HarnessSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.harness.harness import (
-    HarnessResumeConfig,
-    harness_source,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.harness.source import HarnessSource
 
 SESSION_FACTORY = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
 

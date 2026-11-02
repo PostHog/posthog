@@ -1,15 +1,10 @@
 from datetime import date, datetime
 from typing import Any
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.telnyx import TelnyxSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.telnyx.source import TelnyxSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.telnyx.telnyx import (
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.telnyx._config import TelnyxSourceConfig
+from products.warehouse_sources.sources.telnyx.source import TelnyxSource
+from products.warehouse_sources.sources.telnyx.telnyx import (
     TelnyxResumeConfig,
     _format_created_at,
     validate_credentials,

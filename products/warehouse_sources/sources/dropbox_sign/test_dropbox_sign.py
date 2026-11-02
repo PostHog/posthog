@@ -6,17 +6,14 @@ from unittest.mock import MagicMock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.dropbox_sign import dropbox_sign
-from products.warehouse_sources.backend.temporal.data_imports.sources.dropbox_sign.dropbox_sign import (
+from products.warehouse_sources.sources.dropbox_sign import dropbox_sign
+from products.warehouse_sources.sources.dropbox_sign.dropbox_sign import (
     DROPBOX_SIGN_BASE_URL,
     DropboxSignResumeConfig,
     dropbox_sign_source,
     get_rows,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.dropbox_sign.settings import (
-    DROPBOX_SIGN_ENDPOINTS,
-    ENDPOINTS,
-)
+from products.warehouse_sources.sources.dropbox_sign.settings import DROPBOX_SIGN_ENDPOINTS, ENDPOINTS
 
 
 class _FakeResumableManager:

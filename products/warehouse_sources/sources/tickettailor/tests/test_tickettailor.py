@@ -2,10 +2,8 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     Script,
     ScriptedResponse,
@@ -13,12 +11,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tickettailor import (
-    TicketTailorSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.tickettailor.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.tickettailor.source import TicketTailorSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.tickettailor.tickettailor import (
+from products.warehouse_sources.sources.tickettailor._config import TicketTailorSourceConfig
+from products.warehouse_sources.sources.tickettailor.settings import ENDPOINTS
+from products.warehouse_sources.sources.tickettailor.source import TicketTailorSource
+from products.warehouse_sources.sources.tickettailor.tickettailor import (
     PAGE_SIZE,
     TicketTailorResumeConfig,
     validate_credentials,

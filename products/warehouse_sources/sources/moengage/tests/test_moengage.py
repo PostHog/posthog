@@ -8,17 +8,8 @@ from unittest import mock
 
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.moengage import (
-    MoEngageSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.moengage.moengage import (
+from products.warehouse_sources.sources.moengage._config import MoEngageSourceConfig
+from products.warehouse_sources.sources.moengage.moengage import (
     START_DATE_TOO_OLD_ERROR,
     MoEngageResumeConfig,
     MoEngageSearchPaginator,
@@ -28,21 +19,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.moengage.m
     start_date_error,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.moengage.settings import (
+from products.warehouse_sources.sources.moengage.settings import (
     FLOWS_PAGE_SIZE,
     MAX_BACKFILL_DAYS,
     REPORT_WINDOW_DAYS,
     SEARCH_PAGE_SIZE,
     STATS_PAGE_SIZE,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.moengage.source import MoEngageSource
+from products.warehouse_sources.sources.moengage.source import MoEngageSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 # RESTClient builds its session via make_tracked_session in the rest_client module; the daily
 # report shares one session built in the moengage module instead.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-MOENGAGE_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.moengage.moengage.make_tracked_session"
-)
+MOENGAGE_SESSION_PATCH = "products.warehouse_sources.sources.moengage.moengage.make_tracked_session"
 
 
 def _response(body: dict[str, Any], status: int = 200) -> Response:

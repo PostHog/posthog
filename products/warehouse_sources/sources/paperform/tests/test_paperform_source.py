@@ -1,14 +1,8 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.paperform import (
-    PaperformSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.paperform.source import PaperformSource
+from products.warehouse_sources.sources.paperform._config import PaperformSourceConfig
+from products.warehouse_sources.sources.paperform.source import PaperformSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 class TestPaperformSource:
@@ -27,7 +21,7 @@ class TestPaperformSource:
         assert len(network.requests_log) == 1
         assert network.requests_log[0].headers["authorization"] == "Bearer pf-key"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.paperform.source.paperform_source")
+    @mock.patch("products.warehouse_sources.sources.paperform.source.paperform_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "submissions"

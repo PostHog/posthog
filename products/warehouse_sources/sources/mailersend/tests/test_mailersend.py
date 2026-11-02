@@ -7,26 +7,24 @@ import time_machine
 from parameterized import parameterized
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mailersend import (
-    MailerSendSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.mailersend.mailersend import (
+from products.warehouse_sources.sources.mailersend._config import MailerSendSourceConfig
+from products.warehouse_sources.sources.mailersend.mailersend import (
     MAILERSEND_ANALYTICS_EVENTS,
     MailerSendResumeConfig,
     _date_window,
     _to_datetime,
     check_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.mailersend.settings import MAILERSEND_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.mailersend.source import MailerSendSource
+from products.warehouse_sources.sources.mailersend.settings import MAILERSEND_ENDPOINTS
+from products.warehouse_sources.sources.mailersend.source import MailerSendSource
+from products.warehouse_sources.sources.sdk import SourceResponse
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 
 BASE = "https://api.mailersend.com/v1"
 

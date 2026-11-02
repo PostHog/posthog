@@ -7,25 +7,18 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
+    source_inputs,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing.inputs import source_inputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.weightsandbiases import (
-    WeightsAndBiasesSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.weights_and_biases.settings import (
-    ENDPOINTS,
-    WANDB_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.weights_and_biases.source import (
-    WeightsAndBiasesSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.weights_and_biases.weights_and_biases import (
+from products.warehouse_sources.sources.weights_and_biases._config import WeightsAndBiasesSourceConfig
+from products.warehouse_sources.sources.weights_and_biases.settings import ENDPOINTS, WANDB_ENDPOINTS
+from products.warehouse_sources.sources.weights_and_biases.source import WeightsAndBiasesSource
+from products.warehouse_sources.sources.weights_and_biases.weights_and_biases import (
     WeightsAndBiasesConfigError,
     WeightsAndBiasesGraphQLError,
     WeightsAndBiasesResumeConfig,
@@ -36,7 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.weights_an
     validate_host,
 )
 
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.weights_and_biases.weights_and_biases"
+_MODULE = "products.warehouse_sources.sources.weights_and_biases.weights_and_biases"
 
 
 def _driver() -> SourceDriver:

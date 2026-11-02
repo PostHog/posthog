@@ -2,16 +2,10 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    route,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.livestorm import (
-    LivestormSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.livestorm.livestorm import LivestormResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.livestorm.source import LivestormSource
+from products.warehouse_sources.sources.livestorm._config import LivestormSourceConfig
+from products.warehouse_sources.sources.livestorm.livestorm import LivestormResumeConfig
+from products.warehouse_sources.sources.livestorm.source import LivestormSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, route
 
 API_TOKEN = "test-livestorm-token"
 

@@ -1,10 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_px.source import GainsightPxSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gainsightpx import (
-    GainsightPxSourceConfig,
-)
+from products.warehouse_sources.sources.gainsight_px._config import GainsightPxSourceConfig
+from products.warehouse_sources.sources.gainsight_px.source import GainsightPxSource
 
 
 class TestGainsightPxSource:
@@ -17,9 +15,7 @@ class TestGainsightPxSource:
         "mock_return, expected_valid",
         [(True, True), (False, False)],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_px.source.validate_gainsight_px_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.gainsight_px.source.validate_gainsight_px_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid):
         mock_validate.return_value = mock_return
 

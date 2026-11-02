@@ -4,15 +4,8 @@ from typing import Any, cast
 import pytest
 from unittest.mock import MagicMock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    route,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.recurly import (
-    RecurlySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.recurly.recurly import (
+from products.warehouse_sources.sources.recurly._config import RecurlySourceConfig
+from products.warehouse_sources.sources.recurly.recurly import (
     RecurlyPaginator,
     RecurlyResumeConfig,
     _extract_cursor,
@@ -20,8 +13,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.recurly.re
     _usage_add_ons,
     get_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.recurly.settings import RECURLY_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.recurly.source import RecurlySource
+from products.warehouse_sources.sources.recurly.settings import RECURLY_ENDPOINTS
+from products.warehouse_sources.sources.recurly.source import RecurlySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, route
 
 INCREMENTAL_ENDPOINTS = [name for name, e in RECURLY_ENDPOINTS.items() if e.supports_incremental]
 NO_LIST_PARAMS_ENDPOINTS = [name for name, e in RECURLY_ENDPOINTS.items() if not e.supports_list_params]

@@ -7,15 +7,8 @@ from unittest import mock
 import requests
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlepagespeedinsights import (
-    GooglePageSpeedInsightsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.google_pagespeed_insights.google_pagespeed_insights import (
+from products.warehouse_sources.sources.google_pagespeed_insights._config import GooglePageSpeedInsightsSourceConfig
+from products.warehouse_sources.sources.google_pagespeed_insights.google_pagespeed_insights import (
     MAX_URLS,
     PAGESPEED_BASE_URL,
     PageSpeedRetryableError,
@@ -27,12 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_pag
     parse_urls,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.google_pagespeed_insights.settings import (
-    PAGESPEED_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.google_pagespeed_insights.source import (
-    GooglePageSpeedInsightsSource,
-)
+from products.warehouse_sources.sources.google_pagespeed_insights.settings import PAGESPEED_ENDPOINTS
+from products.warehouse_sources.sources.google_pagespeed_insights.source import GooglePageSpeedInsightsSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver(urls: str = "https://posthog.com") -> SourceDriver:

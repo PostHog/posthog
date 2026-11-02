@@ -3,27 +3,17 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.crunchbase.crunchbase import (
+from products.warehouse_sources.sources.crunchbase._config import CrunchbaseSourceConfig
+from products.warehouse_sources.sources.crunchbase.crunchbase import (
     PAGE_SIZE,
     CrunchbaseResumeConfig,
     _flatten_entity,
     _format_updated_at,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.crunchbase.settings import (
-    CRUNCHBASE_ENDPOINTS,
-    CrunchbaseEndpointConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.crunchbase.source import CrunchbaseSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.crunchbase import (
-    CrunchbaseSourceConfig,
-)
+from products.warehouse_sources.sources.crunchbase.settings import CRUNCHBASE_ENDPOINTS, CrunchbaseEndpointConfig
+from products.warehouse_sources.sources.crunchbase.source import CrunchbaseSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _page(entities: list[dict[str, Any]]) -> ScriptedResponse:

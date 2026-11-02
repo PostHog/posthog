@@ -8,11 +8,12 @@ from unittest.mock import MagicMock, patch
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_batch import (
+from products.warehouse_sources.sources.aws_batch import (
     aws_batch as transport,
     source as source_module,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_batch.aws_batch import (
+from products.warehouse_sources.sources.aws_batch._config import AwsBatchSourceConfig
+from products.warehouse_sources.sources.aws_batch.aws_batch import (
     AwsBatchClient,
     AwsBatchError,
     AwsBatchResumeConfig,
@@ -21,19 +22,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_batch.
     error_for_response,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_batch.settings import BATCH_API_VERSION
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_batch.source import AwsBatchSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.aws_batch.settings import BATCH_API_VERSION
+from products.warehouse_sources.sources.aws_batch.source import AwsBatchSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceInputs
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsbatch import (
-    AwsBatchSourceConfig,
 )
 
 

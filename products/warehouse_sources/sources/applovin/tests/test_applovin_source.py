@@ -2,18 +2,11 @@ from typing import Optional
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.applovin.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.applovin.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.applovin.source import AppLovinSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.applovin import (
-    AppLovinSourceConfig,
-)
+from products.warehouse_sources.sources.applovin._config import AppLovinSourceConfig
+from products.warehouse_sources.sources.applovin.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.applovin.settings import ENDPOINTS
+from products.warehouse_sources.sources.applovin.source import AppLovinSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 class TestAppLovinSource:

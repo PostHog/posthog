@@ -8,16 +8,9 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kongkonnect import (
-    KongKonnectSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.kong_konnect import kong_konnect
-from products.warehouse_sources.backend.temporal.data_imports.sources.kong_konnect.kong_konnect import (
+from products.warehouse_sources.sources.kong_konnect import kong_konnect
+from products.warehouse_sources.sources.kong_konnect._config import KongKonnectSourceConfig
+from products.warehouse_sources.sources.kong_konnect.kong_konnect import (
     LIST_PAGE_SIZE,
     MAX_PAGE_SIZE,
     KongKonnectResumeConfig,
@@ -27,7 +20,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kong_konne
     get_lookup_rows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.kong_konnect.source import KongKonnectSource
+from products.warehouse_sources.sources.kong_konnect.source import KongKonnectSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver(region: Literal["us", "eu"] = "us", lookback_days: int | None = None) -> SourceDriver:

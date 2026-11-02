@@ -2,12 +2,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.inflowinventory import (
-    InflowinventorySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.inflowinventory.source import (
-    InflowinventorySource,
-)
+from products.warehouse_sources.sources.inflowinventory._config import InflowinventorySourceConfig
+from products.warehouse_sources.sources.inflowinventory.source import InflowinventorySource
 
 
 class TestInflowinventorySource:
@@ -36,9 +32,7 @@ class TestInflowinventorySource:
             ("unpinned_resolves_to_default", None, "2026-10-06"),
         ]
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.inflowinventory.source.inflowinventory_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.inflowinventory.source.inflowinventory_source")
     def test_source_for_pipeline_plumbs_arguments(
         self, _name: str, pinned: str | None, expected_version: str, mock_source: mock.MagicMock
     ) -> None:

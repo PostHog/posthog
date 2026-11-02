@@ -2,18 +2,10 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.fly_io.fly_io import (
-    _sanitize_config_field,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.fly_io.source import FlyIoSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.flyio import FlyIoSourceConfig
+from products.warehouse_sources.sources.fly_io._config import FlyIoSourceConfig
+from products.warehouse_sources.sources.fly_io.fly_io import _sanitize_config_field, validate_credentials
+from products.warehouse_sources.sources.fly_io.source import FlyIoSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver(org_slug: str = "acme") -> SourceDriver:

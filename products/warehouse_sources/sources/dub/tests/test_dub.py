@@ -7,14 +7,8 @@ from unittest.mock import MagicMock
 from requests import Request
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub import (
+from products.warehouse_sources.sources.dub._config import DubSourceConfig
+from products.warehouse_sources.sources.dub.dub import (
     NO_PARTNER_PROGRAM_MESSAGE,
     DubCursorPaginator,
     DubLinksScopePaginator,
@@ -24,13 +18,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub im
     get_resource,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.dub.settings import (
-    DUB_ENDPOINTS,
-    ENDPOINTS,
-    PARTNER_PROGRAM_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.dub.source import DubSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dub import DubSourceConfig
+from products.warehouse_sources.sources.dub.settings import DUB_ENDPOINTS, ENDPOINTS, PARTNER_PROGRAM_ENDPOINTS
+from products.warehouse_sources.sources.dub.source import DubSource
+from products.warehouse_sources.sources.sdk import EndpointResource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _rows(n: int, prefix: str = "row") -> list[dict[str, Any]]:

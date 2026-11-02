@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
 BASE_URL = "https://api.kisi.io"
 PAGE_SIZE = 100

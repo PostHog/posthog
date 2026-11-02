@@ -3,13 +3,10 @@ from typing import Any, Optional
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.autumn.source import AutumnSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.autumn import AutumnSourceConfig
+from products.warehouse_sources.sources.autumn._config import AutumnSourceConfig
+from products.warehouse_sources.sources.autumn.source import AutumnSource
+from products.warehouse_sources.sources.sdk import SourceInputs
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 def _make_inputs(
@@ -68,9 +65,7 @@ class TestAutumnSource:
         )
         manager = MagicMock()
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.autumn.source.autumn_source"
-        ) as mock_source:
+        with patch("products.warehouse_sources.sources.autumn.source.autumn_source") as mock_source:
             self.source.source_for_pipeline(self.config, manager, inputs)
 
         mock_source.assert_called_once_with(

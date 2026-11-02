@@ -4,20 +4,15 @@ from unittest import mock
 import requests
 from google.auth.exceptions import RefreshError
 
-from posthog.integrations import IntegrationNotFound
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleanalytics import (
-    GoogleAnalyticsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.settings import (
+from products.warehouse_sources.sources.google_analytics._config import GoogleAnalyticsSourceConfig
+from products.warehouse_sources.sources.google_analytics.settings import (
     GOOGLE_ANALYTICS_REPORT_SCHEMAS,
     CustomReportError,
     parse_custom_reports,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source import (
-    GoogleAnalyticsSource,
-)
+from products.warehouse_sources.sources.google_analytics.source import GoogleAnalyticsSource
+from products.warehouse_sources.sources.sdk import IntegrationNotFound
+from products.warehouse_sources.sources.sdk.testing import error_message_matches
 
 
 def _config(property_id: str = "123456789", custom_reports: str | None = None) -> GoogleAnalyticsSourceConfig:
@@ -154,16 +149,12 @@ def test_validate_credentials_maps_http_errors(status_code, body, expected_subst
     # None of these are bugs worth paging error tracking for: the mapped ones are user/upstream
     # errors with their own message, and 429/5xx are transient and self-resolving.
     with (
+        mock.patch("products.warehouse_sources.sources.google_analytics.source.google_analytics_session"),
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.google_analytics_session"
-        ),
-        mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.get_property_metadata",
+            "products.warehouse_sources.sources.google_analytics.source.get_property_metadata",
             side_effect=_http_error(status_code, body),
         ),
-        mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.capture_exception"
-        ) as mock_capture,
+        mock.patch("products.warehouse_sources.sources.google_analytics.source.capture_exception") as mock_capture,
     ):
         ok, message = GoogleAnalyticsSource().validate_credentials(_config(), team_id=1)
 
@@ -177,11 +168,9 @@ def test_validate_credentials_maps_token_refresh_error():
     # which used to leak verbatim to users. Guard the mapping to a clean reconnect prompt.
     refresh_error = RefreshError("invalid_scope: Bad Request", {"error": "invalid_scope"})
     with (
+        mock.patch("products.warehouse_sources.sources.google_analytics.source.google_analytics_session"),
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.google_analytics_session"
-        ),
-        mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.get_property_metadata",
+            "products.warehouse_sources.sources.google_analytics.source.get_property_metadata",
             side_effect=refresh_error,
         ),
     ):
@@ -196,7 +185,7 @@ def test_validate_credentials_handles_session_failure():
     # The credential-load exception can carry an OAuth token or an HTML error body, so the
     # setup form gets a reconnect prompt and none of the raw text.
     with mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.google_analytics_session",
+        "products.warehouse_sources.sources.google_analytics.source.google_analytics_session",
         side_effect=Exception("token ya29.SECRET rejected"),
     ):
         ok, message = GoogleAnalyticsSource().validate_credentials(_config(), team_id=1)
@@ -210,11 +199,9 @@ def test_validate_credentials_hides_unexpected_metadata_failure_detail():
     # An unexpected metadata failure used to reach the setup form as `str(e)`, which for a
     # requests error is the full URL and response body.
     with (
+        mock.patch("products.warehouse_sources.sources.google_analytics.source.google_analytics_session"),
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.google_analytics_session"
-        ),
-        mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.get_property_metadata",
+            "products.warehouse_sources.sources.google_analytics.source.get_property_metadata",
             side_effect=Exception("https://analyticsdata.googleapis.com/v1beta/properties/1?key=SECRET"),
         ),
     ):
@@ -229,7 +216,7 @@ def test_validate_credentials_handles_missing_integration():
     # A deleted/disconnected OAuth row makes `google_analytics_session` raise the typed
     # `IntegrationNotFound`; surface a reconnect message instead of the raw ORM error.
     with mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.google_analytics_session",
+        "products.warehouse_sources.sources.google_analytics.source.google_analytics_session",
         side_effect=IntegrationNotFound(),
     ):
         ok, message = GoogleAnalyticsSource().validate_credentials(_config(), team_id=1)
@@ -242,11 +229,9 @@ def test_validate_credentials_handles_missing_integration():
 @pytest.mark.parametrize("property_id", ["123456789", "properties/123456789", "p123456789"])
 def test_validate_credentials_succeeds_when_metadata_readable(property_id):
     with (
+        mock.patch("products.warehouse_sources.sources.google_analytics.source.google_analytics_session"),
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.google_analytics_session"
-        ),
-        mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.get_property_metadata",
+            "products.warehouse_sources.sources.google_analytics.source.get_property_metadata",
             return_value={"dimensions": [], "metrics": []},
         ) as get_metadata,
     ):

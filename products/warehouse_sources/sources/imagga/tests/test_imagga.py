@@ -4,18 +4,10 @@ from typing import Any
 from parameterized import parameterized
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.imagga import ImaggaSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.imagga.imagga import (
-    _daily_usage_rows,
-    imagga_source,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.imagga.source import ImaggaSource
+from products.warehouse_sources.sources.imagga._config import ImaggaSourceConfig
+from products.warehouse_sources.sources.imagga.imagga import _daily_usage_rows, imagga_source, validate_credentials
+from products.warehouse_sources.sources.imagga.source import ImaggaSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 # A representative /usage result, shaped after Imagga's public docs example.
 _USAGE_RESULT = {

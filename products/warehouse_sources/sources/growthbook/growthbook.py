@@ -1,27 +1,19 @@
 from typing import Any
 from urllib.parse import urlsplit
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+from products.warehouse_sources.sources.growthbook._config import GrowthBookSourceConfig
+from products.warehouse_sources.sources.growthbook.settings import DEFAULT_BASE_URL, ENDPOINTS, PAGE_SIZE
+from products.warehouse_sources.sources.sdk import (
     ClientConfig,
     Endpoint,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.growthbook import (
-    GrowthBookSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.growthbook.settings import (
-    DEFAULT_BASE_URL,
-    ENDPOINTS,
-    PAGE_SIZE,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceInputs,
+    SourceResponse,
+    _is_host_safe,
+    frozen,
+    rest_api_resource,
+    schema_for_resource,
 )
 
 INVALID_URL = "Enter a GrowthBook API base URL using HTTPS, without credentials, query parameters, or a fragment."

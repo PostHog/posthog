@@ -2,7 +2,7 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.beamer.source import BeamerSource
+from products.warehouse_sources.sources.beamer.source import BeamerSource
 
 
 class TestBeamerSourceConfig:

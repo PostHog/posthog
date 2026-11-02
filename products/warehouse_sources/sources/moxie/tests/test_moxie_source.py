@@ -1,9 +1,7 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.moxie import MoxieSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.moxie.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.moxie.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.moxie.source import MoxieSource
+from products.warehouse_sources.sources.moxie._config import MoxieSourceConfig
+from products.warehouse_sources.sources.moxie.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.moxie.settings import ENDPOINTS
+from products.warehouse_sources.sources.moxie.source import MoxieSource
 
 
 class TestMoxieSource:

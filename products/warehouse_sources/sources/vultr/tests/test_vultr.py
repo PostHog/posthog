@@ -2,19 +2,10 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vultr import VultrSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.vultr.source import VultrSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.vultr.vultr import (
-    VULTR_PER_PAGE,
-    _redact_secrets,
-    validate_credentials,
-)
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.vultr._config import VultrSourceConfig
+from products.warehouse_sources.sources.vultr.source import VultrSource
+from products.warehouse_sources.sources.vultr.vultr import VULTR_PER_PAGE, _redact_secrets, validate_credentials
 
 
 class TestGetResource:

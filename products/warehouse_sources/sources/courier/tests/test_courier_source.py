@@ -2,12 +2,9 @@ from typing import Any
 
 from unittest.mock import MagicMock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
-from products.warehouse_sources.backend.temporal.data_imports.sources.courier.settings import (
-    COURIER_API_VERSION_2_0_0,
-    ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.courier.source import CourierSource
+from products.warehouse_sources.sources.courier.settings import COURIER_API_VERSION_2_0_0, ENDPOINTS
+from products.warehouse_sources.sources.courier.source import CourierSource
+from products.warehouse_sources.sources.sdk import UNVERSIONED_API_VERSION
 
 
 def _config(api_key: str = "sk_test") -> Any:

@@ -7,13 +7,7 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
-    make_tracked_session,
-    retry_with_deadline,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.helicone.settings import (
+from products.warehouse_sources.sources.helicone.settings import (
     EVAL_SCORES_ENDPOINT,
     HELICONE_ENDPOINTS,
     HELICONE_HOSTS,
@@ -26,6 +20,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.helicone.s
     SESSIONS_ENDPOINT,
     SESSIONS_PAGE_SIZE,
     USERS_ENDPOINT,
+)
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
+    make_tracked_session,
+    retry_with_deadline,
 )
 
 REQUEST_TIMEOUT_SECONDS = 120

@@ -5,14 +5,10 @@ import time_machine
 
 import jwt
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ghost import GhostSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.ghost.ghost import GhostResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.ghost.source import GhostSource
+from products.warehouse_sources.sources.ghost._config import GhostSourceConfig
+from products.warehouse_sources.sources.ghost.ghost import GhostResumeConfig
+from products.warehouse_sources.sources.ghost.source import GhostSource
+from products.warehouse_sources.sources.sdk.testing import RecordedRequest, ScriptedResponse, SourceDriver
 
 KEY_ID = "0123456789abcdef01234567"
 KEY_SECRET = "0123456789abcdef" * 4

@@ -1,10 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.propertyware import (
-    PropertywareSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.propertyware.source import PropertywareSource
+from products.warehouse_sources.sources.propertyware._config import PropertywareSourceConfig
+from products.warehouse_sources.sources.propertyware.source import PropertywareSource
 
 
 class TestPropertywareSource:
@@ -25,9 +23,7 @@ class TestPropertywareSource:
             (None, None, False),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.propertyware.source.validate_propertyware_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.propertyware.source.validate_propertyware_credentials")
     def test_validate_credentials(
         self,
         mock_validate: mock.MagicMock,

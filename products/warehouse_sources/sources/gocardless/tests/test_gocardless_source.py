@@ -1,10 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gocardless import (
-    GoCardlessSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.gocardless.source import GoCardlessSource
+from products.warehouse_sources.sources.gocardless._config import GoCardlessSourceConfig
+from products.warehouse_sources.sources.gocardless.source import GoCardlessSource
 
 
 class TestGoCardlessSource:
@@ -20,9 +18,7 @@ class TestGoCardlessSource:
             (False, False, "Invalid GoCardless access token"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.gocardless.source.validate_gocardless_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.gocardless.source.validate_gocardless_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
         mock_validate.return_value = mock_return
 

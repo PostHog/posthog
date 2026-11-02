@@ -2,13 +2,9 @@ import json
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing.responders import always
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sanity import SanitySourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.sanity.source import SanitySource
+from products.warehouse_sources.sources.sanity._config import SanitySourceConfig
+from products.warehouse_sources.sources.sanity.source import SanitySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, always, scripted_network
 
 
 def config(**overrides: str) -> SanitySourceConfig:

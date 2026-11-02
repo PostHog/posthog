@@ -3,17 +3,17 @@ from typing import Any
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aiven.aiven import validate_credentials
-from products.warehouse_sources.backend.temporal.data_imports.sources.aiven.settings import AIVEN_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.aiven.source import AivenSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.aiven._config import AivenSourceConfig
+from products.warehouse_sources.sources.aiven.aiven import validate_credentials
+from products.warehouse_sources.sources.aiven.settings import AIVEN_ENDPOINTS
+from products.warehouse_sources.sources.aiven.source import AivenSource
+from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
     route,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.aiven import AivenSourceConfig
 
 
 def _driver() -> SourceDriver:

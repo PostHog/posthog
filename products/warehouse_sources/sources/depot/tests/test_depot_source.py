@@ -7,20 +7,13 @@ from unittest import mock
 
 from requests import HTTPError, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.depot.depot import (
-    DEPOT_CI_SERVICE_URL,
-    DepotResumeState,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.depot.source import DepotSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.depot import DepotSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSchemaSyncType
+from products.warehouse_sources.sources.depot._config import DepotSourceConfig
+from products.warehouse_sources.sources.depot.depot import DEPOT_CI_SERVICE_URL, DepotResumeState
+from products.warehouse_sources.sources.depot.source import DepotSource
+from products.warehouse_sources.sources.sdk import ExternalDataSchemaSyncType, ResumableSourceManager
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.depot.depot"
+MODULE = "products.warehouse_sources.sources.depot.depot"
 
 
 def _response(status: int, reason: str, body: dict[str, str | list[str]]) -> Response:

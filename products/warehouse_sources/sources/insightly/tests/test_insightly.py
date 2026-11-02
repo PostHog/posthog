@@ -4,23 +4,16 @@ import pytest
 
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.insightly import (
-    InsightlySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.insightly.insightly import (
+from products.warehouse_sources.sources.insightly._config import InsightlySourceConfig
+from products.warehouse_sources.sources.insightly.insightly import (
     PAGE_SIZE,
     InsightlyResumeConfig,
     _format_updated_after,
     normalize_pod,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.insightly.source import InsightlySource
+from products.warehouse_sources.sources.insightly.source import InsightlySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

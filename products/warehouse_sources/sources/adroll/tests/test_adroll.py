@@ -2,24 +2,22 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.adroll.adroll import (
+from products.warehouse_sources.sources.adroll._config import AdRollSourceConfig
+from products.warehouse_sources.sources.adroll.adroll import (
     MAX_RETRY_ATTEMPTS,
     AdRollResumeConfig,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.adroll.settings import ADROLL_ENDPOINTS, ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.adroll.source import AdRollSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.adroll.settings import ADROLL_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.sources.adroll.source import AdRollSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
     route,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.adroll import AdRollSourceConfig
 
 CAMPAIGNS_PATH = ADROLL_ENDPOINTS["campaigns"].path
 ADVERTISABLES_PATH = ADROLL_ENDPOINTS["advertisables"].path

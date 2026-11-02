@@ -8,25 +8,23 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.montecarlo import (
-    MonteCarloSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.monte_carlo.monte_carlo import (
+from products.warehouse_sources.sources.monte_carlo._config import MonteCarloSourceConfig
+from products.warehouse_sources.sources.monte_carlo.monte_carlo import (
     MONITOR_PAGE_SIZE,
     MonteCarloGraphQLError,
     MonteCarloResumeConfig,
     _execute_query,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.monte_carlo.settings import MONTE_CARLO_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.monte_carlo.source import MonteCarloSource
+from products.warehouse_sources.sources.monte_carlo.settings import MONTE_CARLO_ENDPOINTS
+from products.warehouse_sources.sources.monte_carlo.source import MonteCarloSource
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 
 
 def _relay_page(data_path: str, nodes: list[dict], end_cursor: str | None) -> dict:

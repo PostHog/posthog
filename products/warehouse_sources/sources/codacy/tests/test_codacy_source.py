@@ -1,10 +1,7 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.codacy.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.codacy.source import CodacySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.codacy import CodacySourceConfig
+from products.warehouse_sources.sources.codacy._config import CodacySourceConfig
+from products.warehouse_sources.sources.codacy.settings import ENDPOINTS
+from products.warehouse_sources.sources.codacy.source import CodacySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 def _config() -> CodacySourceConfig:

@@ -8,7 +8,23 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.instana import instana as inst
+from products.warehouse_sources.sources.instana._config import InstanaSourceConfig
+from products.warehouse_sources.sources.instana.instana import (
+    InstanaResumeConfig,
+    _to_epoch_ms,
+    normalize_base_url,
+    validate_credentials,
+)
+from products.warehouse_sources.sources.instana.settings import (
+    APDEX_REPORT_WINDOW_MS,
+    EVENTS_DEFAULT_LOOKBACK_DAYS,
+    EVENTS_WINDOW_CHUNK_MS,
+    METRICS_WINDOW_MS,
+    PAGE_SIZE,
+)
+from products.warehouse_sources.sources.instana.source import InstanaSource
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
     ScriptedResponse,
@@ -16,24 +32,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.instana import (
-    InstanaSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.instana import instana as inst
-from products.warehouse_sources.backend.temporal.data_imports.sources.instana.instana import (
-    InstanaResumeConfig,
-    _to_epoch_ms,
-    normalize_base_url,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.instana.settings import (
-    APDEX_REPORT_WINDOW_MS,
-    EVENTS_DEFAULT_LOOKBACK_DAYS,
-    EVENTS_WINDOW_CHUNK_MS,
-    METRICS_WINDOW_MS,
-    PAGE_SIZE,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.instana.source import InstanaSource
 
 BASE_URL = "https://unit-tenant.instana.io"
 

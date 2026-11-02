@@ -1,29 +1,25 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sourcegraph import (
-    SourcegraphSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.sourcegraph.settings import (
-    ENDPOINTS,
-    SOURCEGRAPH_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.sourcegraph.sourcegraph import (
+from products.warehouse_sources.sources.sourcegraph._config import SourcegraphSourceConfig
+from products.warehouse_sources.sources.sourcegraph.settings import ENDPOINTS, SOURCEGRAPH_ENDPOINTS
+from products.warehouse_sources.sources.sourcegraph.sourcegraph import (
     HOST_NOT_ALLOWED_ERROR,
     RESPONSE_TIMEOUT_ERROR,
     RESPONSE_TOO_LARGE_ERROR,
@@ -32,7 +28,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sourcegrap
     sourcegraph_source,
     validate_credentials as validate_sourcegraph_credentials,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -103,9 +98,7 @@ The `users` and `organizations` tables require a token created by a **site admin
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.sourcegraph.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.sourcegraph.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

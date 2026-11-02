@@ -1,13 +1,8 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.freshsales.source import FreshsalesSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.freshsales import (
-    FreshsalesSourceConfig,
-)
+from products.warehouse_sources.sources.freshsales._config import FreshsalesSourceConfig
+from products.warehouse_sources.sources.freshsales.source import FreshsalesSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 def _config(domain: str = "acme", api_key: str = "key") -> FreshsalesSourceConfig:

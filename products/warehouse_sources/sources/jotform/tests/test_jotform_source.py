@@ -1,14 +1,9 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jotform import (
-    JotformSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.jotform.source import JotformSource
+from products.warehouse_sources.sources.jotform._config import JotformSourceConfig
+from products.warehouse_sources.sources.jotform.source import JotformSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 class TestJotformSource:
@@ -28,9 +23,7 @@ class TestJotformSource:
             (False, False, "Invalid Jotform API key, region, or Enterprise domain"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.jotform.source.validate_jotform_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.jotform.source.validate_jotform_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
         mock_validate.return_value = mock_return
 
@@ -40,10 +33,8 @@ class TestJotformSource:
         assert error_message == expected_message
         mock_validate.assert_called_once_with(self.config.api_key, self.config.region, None)
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.jotform.source._is_host_safe")
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.jotform.source.validate_jotform_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.jotform.source._is_host_safe")
+    @mock.patch("products.warehouse_sources.sources.jotform.source.validate_jotform_credentials")
     def test_validate_credentials_rejects_unsafe_enterprise_host(self, mock_validate, mock_host_safe):
         mock_host_safe.return_value = (False, "Hosts with internal IP addresses are not allowed")
         config = JotformSourceConfig(api_key="key", region="us", enterprise_domain="https://10.0.0.1/")
@@ -57,10 +48,10 @@ class TestJotformSource:
         mock_host_safe.assert_called_once_with("10.0.0.1", self.team_id)
 
     @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.jotform.source._is_host_safe",
+        "products.warehouse_sources.sources.jotform.source._is_host_safe",
         return_value=(True, None),
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.jotform.source.jotform_source")
+    @mock.patch("products.warehouse_sources.sources.jotform.source.jotform_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_jotform_source, mock_host_safe):
         inputs = mock.MagicMock()
         inputs.schema_name = "submissions"
@@ -93,7 +84,7 @@ class TestJotformSource:
         assert result.raised is None
         assert result.params("filter") == [None]
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.jotform.source._is_host_safe")
+    @mock.patch("products.warehouse_sources.sources.jotform.source._is_host_safe")
     def test_source_for_pipeline_rejects_unsafe_enterprise_host(self, mock_host_safe):
         # DNS can be repointed at an internal host after setup, so the host is re-checked before each
         # sync — not just at validation.

@@ -1,7 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.knowbe4 import (
-    Knowbe4SourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.knowbe4.source import Knowbe4Source
+from products.warehouse_sources.sources.knowbe4._config import Knowbe4SourceConfig
+from products.warehouse_sources.sources.knowbe4.source import Knowbe4Source
 
 
 class TestKnowBe4Source:

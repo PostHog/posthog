@@ -5,14 +5,9 @@ import pytest
 
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.appcues.source import AppcuesSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appcues import (
-    AppcuesSourceConfig,
-)
+from products.warehouse_sources.sources.appcues._config import AppcuesSourceConfig
+from products.warehouse_sources.sources.appcues.source import AppcuesSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 @pytest.mark.parametrize(

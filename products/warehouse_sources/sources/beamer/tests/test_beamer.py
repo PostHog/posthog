@@ -4,19 +4,10 @@ from typing import Any, cast
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.beamer.beamer import (
-    BeamerResumeConfig,
-    _format_datetime,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.beamer.source import BeamerSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.beamer import BeamerSourceConfig
+from products.warehouse_sources.sources.beamer._config import BeamerSourceConfig
+from products.warehouse_sources.sources.beamer.beamer import BeamerResumeConfig, _format_datetime, validate_credentials
+from products.warehouse_sources.sources.beamer.source import BeamerSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

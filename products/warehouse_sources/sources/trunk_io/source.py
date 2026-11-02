@@ -1,32 +1,26 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
-    FieldType,
-    ResumableSource,
-    VersionDeprecation,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
+    VersionDeprecation,
     build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.trunkio import (
-    TrunkIoSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.settings import (
+from products.warehouse_sources.sources.trunk_io._config import TrunkIoSourceConfig
+from products.warehouse_sources.sources.trunk_io.settings import (
     DESCRIPTIONS,
     INCREMENTAL_FIELDS,
     MERGE_QUEUE_PULL_REQUESTS,
@@ -39,7 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.s
     V2_PRIMARY_KEYS,
     endpoints_for_version,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.trunk_io import (
+from products.warehouse_sources.sources.trunk_io.trunk_io import (
     TrunkIoResumeConfig,
     TrunkRepo,
     failing_tests,
@@ -54,7 +48,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.t
     validate_credentials as validate_trunk_io_credentials,
     validate_v2_credentials,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 MISSING_TARGET_BRANCH_ERROR = (
     f"Trunk.io {MERGE_QUEUE_PULL_REQUESTS} needs a merge queue target branch. "
@@ -87,9 +80,7 @@ class TrunkIoSource(ResumableSource[TrunkIoSourceConfig, TrunkIoResumeConfig]):
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.trunk_io.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

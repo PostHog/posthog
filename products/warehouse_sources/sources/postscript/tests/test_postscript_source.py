@@ -1,9 +1,7 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postscript import (
-    PostscriptSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.postscript.source import PostscriptSource
+from products.warehouse_sources.sources.postscript._config import PostscriptSourceConfig
+from products.warehouse_sources.sources.postscript.source import PostscriptSource
 
 
 class TestPostscriptSource:
@@ -12,7 +10,7 @@ class TestPostscriptSource:
         self.team_id = 123
         self.config = PostscriptSourceConfig(api_key="sk_postscript")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.postscript.source.postscript_source")
+    @mock.patch("products.warehouse_sources.sources.postscript.source.postscript_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_postscript_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "subscribers"
@@ -35,7 +33,7 @@ class TestPostscriptSource:
         assert kwargs["incremental_field"] == "updated_at"
         assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.postscript.source.postscript_source")
+    @mock.patch("products.warehouse_sources.sources.postscript.source.postscript_source")
     def test_source_for_pipeline_omits_watermark_when_not_incremental(
         self, mock_postscript_source: mock.MagicMock
     ) -> None:

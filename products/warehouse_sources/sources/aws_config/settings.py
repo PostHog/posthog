@@ -2,10 +2,7 @@ import datetime as dt
 from collections.abc import Mapping
 from typing import Any
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.types import IncrementalField
+from products.warehouse_sources.sources.sdk import IncrementalField, frozen, incremental_field
 
 CONFIG_API_VERSION = "2014-11-12"
 TARGET_PREFIXES = {CONFIG_API_VERSION: "StarlingDoveService"}

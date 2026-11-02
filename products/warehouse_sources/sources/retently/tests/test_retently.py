@@ -4,25 +4,23 @@ from typing import Any
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import rest_client
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.retently._config import RetentlySourceConfig
+from products.warehouse_sources.sources.retently.retently import (
+    RetentlyResumeConfig,
+    _format_start_date,
+    validate_credentials,
+)
+from products.warehouse_sources.sources.retently.settings import ENDPOINTS
+from products.warehouse_sources.sources.retently.source import RetentlySource
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     Script,
     ScriptedResponse,
     SourceDriver,
     always,
+    rest_client,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.retently import (
-    RetentlySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.retently.retently import (
-    RetentlyResumeConfig,
-    _format_start_date,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.retently.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.retently.source import RetentlySource
 
 
 def _run(endpoint: str, script: Script, **inputs: Any) -> DriveResult:

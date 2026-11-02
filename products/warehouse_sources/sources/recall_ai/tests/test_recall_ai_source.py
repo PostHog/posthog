@@ -1,14 +1,10 @@
 import pytest
 from unittest.mock import patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.recallai import (
-    RecallAISourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.recall_ai.source import RecallAISource
+from products.warehouse_sources.sources.recall_ai._config import RecallAISourceConfig
+from products.warehouse_sources.sources.recall_ai.source import RecallAISource
 
-_VALIDATE = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.recall_ai.source.validate_recall_ai_credentials"
-)
+_VALIDATE = "products.warehouse_sources.sources.recall_ai.source.validate_recall_ai_credentials"
 
 
 class TestRecallAIValidateCredentials:

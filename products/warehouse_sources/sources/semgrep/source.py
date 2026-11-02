@@ -1,34 +1,29 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.semgrep import (
-    SemgrepSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.semgrep.semgrep import (
+from products.warehouse_sources.sources.semgrep._config import SemgrepSourceConfig
+from products.warehouse_sources.sources.semgrep.semgrep import (
     SemgrepResumeConfig,
     semgrep_source,
     validate_credentials as validate_semgrep_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.semgrep.settings import (
-    ENDPOINTS,
-    SEMGREP_ENDPOINTS,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.sources.semgrep.settings import ENDPOINTS, SEMGREP_ENDPOINTS
 
 INVALID_TOKEN_MESSAGE = "Your Semgrep API token is invalid or has been revoked. Create a new token with the Web API scope under Settings → Tokens in Semgrep, then reconnect."
 MISSING_SCOPE_MESSAGE = "Your Semgrep API token does not have permission to read this data. Grant the token the Web API scope (and make sure your plan includes API access), then reconnect."
@@ -76,9 +71,7 @@ Create a token in Semgrep AppSec Platform under **Settings → Tokens** and gran
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.semgrep.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.semgrep.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

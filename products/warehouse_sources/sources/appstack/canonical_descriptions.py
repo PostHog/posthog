@@ -1,7 +1,5 @@
 # Curated from the official Appstack Exports API reference: https://docs.appstack.tech/api/export
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "events": {

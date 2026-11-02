@@ -4,18 +4,10 @@ from typing import Any
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.faire.faire import (
-    FairePaginator,
-    FaireResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.faire.source import FaireSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.faire import FaireSourceConfig
+from products.warehouse_sources.sources.faire._config import FaireSourceConfig
+from products.warehouse_sources.sources.faire.faire import FairePaginator, FaireResumeConfig, validate_credentials
+from products.warehouse_sources.sources.faire.source import FaireSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _response(body: dict[str, Any]) -> Response:

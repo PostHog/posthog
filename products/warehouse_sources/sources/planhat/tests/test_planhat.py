@@ -2,28 +2,12 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.planhat import (
-    PlanhatSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.planhat.planhat import (
-    PAGE_SIZE,
-    PlanhatResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.planhat.settings import (
-    ENDPOINTS,
-    PLANHAT_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.planhat.source import PlanhatSource
+from products.warehouse_sources.sources.planhat._config import PlanhatSourceConfig
+from products.warehouse_sources.sources.planhat.planhat import PAGE_SIZE, PlanhatResumeConfig, validate_credentials
+from products.warehouse_sources.sources.planhat.settings import ENDPOINTS, PLANHAT_ENDPOINTS
+from products.warehouse_sources.sources.planhat.source import PlanhatSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

@@ -4,17 +4,10 @@ from typing import Any
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stockdata import (
-    StockDataSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.stockdata.source import StockDataSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.stockdata.stockdata import (
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.stockdata._config import StockDataSourceConfig
+from products.warehouse_sources.sources.stockdata.source import StockDataSource
+from products.warehouse_sources.sources.stockdata.stockdata import (
     StockDataResumeConfig,
     _format_date,
     _format_datetime,

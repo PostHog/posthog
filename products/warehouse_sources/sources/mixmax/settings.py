@@ -1,9 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-)
+from products.warehouse_sources.sources.sdk import DependentEndpointConfig
 
 # Docs default the page size to 50 and cap it around 300; 100 keeps request volume low against the
 # 120 req/min ceiling without risking a rejected oversized page.

@@ -4,22 +4,16 @@ from typing import Any
 from requests import PreparedRequest
 from requests.structures import CaseInsensitiveDict
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.propertyware import (
-    PropertywareSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.propertyware.propertyware import (
+from products.warehouse_sources.sources.propertyware._config import PropertywareSourceConfig
+from products.warehouse_sources.sources.propertyware.propertyware import (
     PAGE_SIZE,
     PropertywareAuth,
     PropertywareResumeConfig,
     _format_pw_datetime,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.propertyware.source import PropertywareSource
+from products.warehouse_sources.sources.propertyware.source import PropertywareSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 BASE = "https://api.propertyware.com/pw/api/rest/v1"
 

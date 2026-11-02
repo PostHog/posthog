@@ -5,10 +5,8 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.finnhub.source import FinnhubSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.finnhub import (
-    FinnhubSourceConfig,
-)
+from products.warehouse_sources.sources.finnhub._config import FinnhubSourceConfig
+from products.warehouse_sources.sources.finnhub.source import FinnhubSource
 
 
 def _config(**overrides: Any) -> FinnhubSourceConfig:

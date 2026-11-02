@@ -6,21 +6,15 @@ import pytest
 from parameterized import parameterized
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.easybill.easybill import (
+from products.warehouse_sources.sources.easybill._config import EasybillSourceConfig
+from products.warehouse_sources.sources.easybill.easybill import (
     EasybillResumeConfig,
     date_range_since,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.easybill.settings import EASYBILL_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.easybill.source import EasybillSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.easybill import (
-    EasybillSourceConfig,
-)
+from products.warehouse_sources.sources.easybill.settings import EASYBILL_ENDPOINTS
+from products.warehouse_sources.sources.easybill.source import EasybillSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver() -> SourceDriver:

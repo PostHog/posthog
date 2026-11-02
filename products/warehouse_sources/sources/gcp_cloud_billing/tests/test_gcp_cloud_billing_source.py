@@ -2,17 +2,12 @@ import pytest
 
 from google.auth.exceptions import TransportError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.gcp_cloud_billing.source import (
-    GcpCloudBillingSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gcpcloudbilling import (
+from products.warehouse_sources.sources.gcp_cloud_billing._config import (
     GcpCloudBillingKeyFileConfig,
     GcpCloudBillingSourceConfig,
 )
+from products.warehouse_sources.sources.gcp_cloud_billing.source import GcpCloudBillingSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 @pytest.mark.parametrize(

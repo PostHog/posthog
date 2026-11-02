@@ -1,9 +1,7 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.spacelift import (
-    SpaceliftSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.spacelift.source import SpaceliftSource
+from products.warehouse_sources.sources.spacelift._config import SpaceliftSourceConfig
+from products.warehouse_sources.sources.spacelift.source import SpaceliftSource
 
-_SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.spacelift.source"
+_SOURCE_MODULE = "products.warehouse_sources.sources.spacelift.source"
 
 
 class TestSpaceliftSource:

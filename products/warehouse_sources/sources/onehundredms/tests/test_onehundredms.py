@@ -3,17 +3,10 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.onehundredms import (
-    OneHundredMsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.onehundredms.onehundredms import (
-    OneHundredMsResumeConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.onehundredms.source import OneHundredMsSource
+from products.warehouse_sources.sources.onehundredms._config import OneHundredMsSourceConfig
+from products.warehouse_sources.sources.onehundredms.onehundredms import OneHundredMsResumeConfig
+from products.warehouse_sources.sources.onehundredms.source import OneHundredMsSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 @pytest.fixture

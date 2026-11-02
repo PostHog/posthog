@@ -10,27 +10,25 @@ import requests
 from botocore.session import Session
 from botocore.validate import validate_parameters
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_inspector.aws_inspector import (
+from products.warehouse_sources.sources.aws_inspector._config import AwsInspectorSourceConfig
+from products.warehouse_sources.sources.aws_inspector.aws_inspector import (
     AwsInspectorClient,
     AwsInspectorResumeConfig,
     aws_inspector_source,
     error_for_response,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_inspector.source import AwsInspectorSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.aws_inspector.source import AwsInspectorSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
     ScriptedResponse,
     SourceDriver,
+    route,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing.fake_network import RecordedRequest
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing.responders import route
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsinspector import (
-    AwsInspectorSourceConfig,
-)
 
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.aws_inspector.aws_inspector"
+MODULE = "products.warehouse_sources.sources.aws_inspector.aws_inspector"
 SERVICE_MODEL = Session().get_service_model("inspector2", api_version="2020-06-08")
 SCAN_ONE = "arn:aws:inspector2:eu-west-1:111111111111:owner/111111111111/cis-scan/00000000-0000-4000-8000-000000000001"
 SCAN_TWO = "arn:aws:inspector2:eu-west-1:111111111111:owner/111111111111/cis-scan/00000000-0000-4000-8000-000000000002"

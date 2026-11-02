@@ -2,23 +2,14 @@ import pytest
 
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import get_config_for_source
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.beamer import BeamerSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bigquery import (
     BigQuerySourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.chargebee import (
-    ChargebeeSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.doit import DoItSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gitlab import GitLabSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleads import (
     GoogleAdsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlesheets import (
     GoogleSheetsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gorgias import (
-    GorgiasSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hubspot import (
     HubspotSourceConfig,
@@ -37,9 +28,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.salesforce import (
     SalesforceSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shopify import (
-    ShopifySourceConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.snowflake import (
     SnowflakeSourceConfig,
 )
@@ -56,6 +44,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zendesk import (
     ZendeskSourceConfig,
 )
+from products.warehouse_sources.sources.beamer._config import BeamerSourceConfig
+from products.warehouse_sources.sources.chargebee._config import ChargebeeSourceConfig
+from products.warehouse_sources.sources.doit._config import DoItSourceConfig
+from products.warehouse_sources.sources.gitlab._config import GitLabSourceConfig
+from products.warehouse_sources.sources.gorgias._config import GorgiasSourceConfig
+from products.warehouse_sources.sources.shopify._config import ShopifySourceConfig
 
 
 # The form submits "temporary-dataset", but dataclasses.asdict() persists "temporary_dataset",
@@ -495,4 +489,4 @@ def test_get_config_for_source_resolves_every_registered_source():
     # source's module is missing/stale), resolution breaks for that source.
     for source_type in SourceRegistry.get_all_sources():
         config_cls = get_config_for_source(source_type)
-        assert config_cls.__name__ == f"{source_type.value}SourceConfig"
+        assert config_cls.__name__ == f"{source_type}SourceConfig"

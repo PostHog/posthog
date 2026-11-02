@@ -3,23 +3,21 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.buttondown.buttondown import (
+from products.warehouse_sources.sources.buttondown._config import ButtondownSourceConfig
+from products.warehouse_sources.sources.buttondown.buttondown import (
     BUTTONDOWN_BASE_URL,
     ButtondownResumeConfig,
     _to_start_date,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.buttondown.settings import BUTTONDOWN_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.buttondown.source import ButtondownSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.buttondown.settings import BUTTONDOWN_ENDPOINTS
+from products.warehouse_sources.sources.buttondown.source import ButtondownSource
+from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
     route,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.buttondown import (
-    ButtondownSourceConfig,
 )
 
 

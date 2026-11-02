@@ -6,7 +6,8 @@ import pytest
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.codecov.codecov import (
+from products.warehouse_sources.sources.codecov._config import CodecovSourceConfig
+from products.warehouse_sources.sources.codecov.codecov import (
     CodecovResumeConfig,
     _ensure_codecov_url,
     _owner_base_url,
@@ -14,16 +15,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.codecov.co
     parse_repositories,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.codecov.source import CodecovSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.codecov.source import CodecovSource
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.codecov import (
-    CodecovSourceConfig,
 )
 
 _BASE = "https://api.codecov.io/api/v2/github/acme"

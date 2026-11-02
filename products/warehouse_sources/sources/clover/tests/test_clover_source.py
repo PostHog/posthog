@@ -9,10 +9,10 @@ import structlog
 from parameterized import parameterized
 from requests.exceptions import ConnectionError
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.clover.clover import CloverResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.clover.source import CloverSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.clover.tests.test_clover import (
+from products.warehouse_sources.sources.clover._config import CloverSourceConfig
+from products.warehouse_sources.sources.clover.clover import CloverResumeConfig
+from products.warehouse_sources.sources.clover.source import CloverSource
+from products.warehouse_sources.sources.clover.tests.test_clover import (
     MERCHANT_ID,
     NOW_PATCH,
     http_responses,
@@ -20,10 +20,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clover.tes
     response,
     rows,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clover import CloverSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.sources.sdk import (
+    ExternalDataSourceType,
+    ReleaseStatus,
+    ResumableSourceManager,
+    SourceFieldInputConfig,
+    SourceInputs,
+)
 
 TABLES = {
     "orders",

@@ -1,13 +1,8 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.k6cloud import (
-    K6CloudSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.k6_cloud.source import K6CloudSource
+from products.warehouse_sources.sources.k6_cloud._config import K6CloudSourceConfig
+from products.warehouse_sources.sources.k6_cloud.source import K6CloudSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 INCREMENTAL_ENDPOINTS = {"test_runs"}
 

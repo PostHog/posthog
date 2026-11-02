@@ -1,5 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lago import LagoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.lago.source import LagoSource
+from products.warehouse_sources.sources.lago._config import LagoSourceConfig
+from products.warehouse_sources.sources.lago.source import LagoSource
 
 
 class TestLagoSource:

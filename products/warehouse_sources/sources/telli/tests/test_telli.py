@@ -2,14 +2,10 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.telli import TelliSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.telli.source import TelliSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.telli.telli import TelliResumeConfig
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always
+from products.warehouse_sources.sources.telli._config import TelliSourceConfig
+from products.warehouse_sources.sources.telli.source import TelliSource
+from products.warehouse_sources.sources.telli.telli import TelliResumeConfig
 
 
 def _driver() -> SourceDriver:

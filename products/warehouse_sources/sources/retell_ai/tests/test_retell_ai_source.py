@@ -6,11 +6,9 @@ from unittest.mock import MagicMock
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.retellai import (
-    RetellAISourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.retell_ai.source import RetellAISource
-from products.warehouse_sources.backend.temporal.data_imports.sources.retell_ai.tests.conftest import response
+from products.warehouse_sources.sources.retell_ai._config import RetellAISourceConfig
+from products.warehouse_sources.sources.retell_ai.source import RetellAISource
+from products.warehouse_sources.sources.retell_ai.tests.conftest import response
 
 
 @pytest.mark.parametrize("status", [200, 401, 403])

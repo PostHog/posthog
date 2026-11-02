@@ -3,22 +3,20 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.spacelift import (
-    SpaceliftSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.spacelift.settings import (
+from products.warehouse_sources.sources.spacelift._config import SpaceliftSourceConfig
+from products.warehouse_sources.sources.spacelift.settings import (
     AUDIT_TRAIL_INCREMENTAL_LOOKBACK_SECONDS,
     RUNS_INCREMENTAL_LOOKBACK_SECONDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.spacelift.source import SpaceliftSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.spacelift.spacelift import (
+from products.warehouse_sources.sources.spacelift.source import SpaceliftSource
+from products.warehouse_sources.sources.spacelift.spacelift import (
     ACCOUNT_NOT_FOUND_MESSAGE,
     INVALID_API_KEY_MESSAGE,
     SpaceliftAccountNotFoundError,

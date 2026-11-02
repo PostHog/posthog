@@ -2,42 +2,36 @@ from typing import cast
 
 from requests import HTTPError, RequestException
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    RESTClientRetryableError,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     UnknownResourceError,
+    detect,
     schema_for_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.yotpo import YotpoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.yotpo.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.yotpo.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.yotpo.yotpo import (
+from products.warehouse_sources.sources.yotpo._config import YotpoSourceConfig
+from products.warehouse_sources.sources.yotpo.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.yotpo.settings import ENDPOINTS
+from products.warehouse_sources.sources.yotpo.yotpo import (
     YotpoAuthenticationError,
     YotpoResumeConfig,
     validate_credentials as validate_yotpo_credentials,
     validate_start_date,
     yotpo_source,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register

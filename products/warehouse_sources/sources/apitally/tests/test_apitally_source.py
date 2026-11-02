@@ -1,5 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.apitally.apitally import ApitallyResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.apitally.source import ApitallySource
+from products.warehouse_sources.sources.apitally.apitally import ApitallyResumeConfig
+from products.warehouse_sources.sources.apitally.source import ApitallySource
 
 
 class TestApitallySourceConfig:

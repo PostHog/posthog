@@ -4,9 +4,9 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.groq.source import GroqSource
+from products.warehouse_sources.sources.groq.source import GroqSource
 
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.groq.source"
+MODULE = "products.warehouse_sources.sources.groq.source"
 
 
 def _make_config(api_key: str = "gsk_test") -> Any:

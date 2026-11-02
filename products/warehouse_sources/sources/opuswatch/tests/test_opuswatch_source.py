@@ -3,15 +3,10 @@ from typing import Any, Optional
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.opuswatch import (
-    OPUSWatchSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.opuswatch.source import OPUSWatchSource
+from products.warehouse_sources.sources.opuswatch._config import OPUSWatchSourceConfig
+from products.warehouse_sources.sources.opuswatch.source import OPUSWatchSource
+from products.warehouse_sources.sources.sdk import SourceInputs
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 def _make_inputs(
@@ -103,9 +98,7 @@ class TestOPUSWatchSource:
         )
         manager = MagicMock()
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.opuswatch.source.opuswatch_source"
-        ) as mock_source:
+        with patch("products.warehouse_sources.sources.opuswatch.source.opuswatch_source") as mock_source:
             mock_source.return_value.name = "registrations"
             self.source.source_for_pipeline(config, manager, inputs)
 

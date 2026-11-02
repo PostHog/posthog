@@ -2,14 +2,9 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.membrain import (
-    MembrainSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.membrain.source import MembrainSource
+from products.warehouse_sources.sources.membrain._config import MembrainSourceConfig
+from products.warehouse_sources.sources.membrain.source import MembrainSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 class TestMembrainSource:
@@ -49,7 +44,7 @@ class TestMembrainSource:
         assert network.requests_log[0].url == "https://acme.membrain.com/API/v2/users/"
         assert network.requests_log[0].headers["apikey"] == "mb-key"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.membrain.source.membrain_source")
+    @mock.patch("products.warehouse_sources.sources.membrain.source.membrain_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "companies"

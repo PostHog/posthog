@@ -1,18 +1,11 @@
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.groq import GroqSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.groq.groq import groq_source, validate_credentials
-from products.warehouse_sources.backend.temporal.data_imports.sources.groq.source import GroqSource
+from products.warehouse_sources.sources.groq._config import GroqSourceConfig
+from products.warehouse_sources.sources.groq.groq import groq_source, validate_credentials
+from products.warehouse_sources.sources.groq.source import GroqSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 class TestGroq:

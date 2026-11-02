@@ -3,9 +3,9 @@ from unittest.mock import MagicMock
 
 import responses
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ynab import YnabSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.ynab.source import YnabSource
+from products.warehouse_sources.sources.sdk import UnknownResourceError
+from products.warehouse_sources.sources.ynab._config import YnabSourceConfig
+from products.warehouse_sources.sources.ynab.source import YnabSource
 
 
 @pytest.mark.parametrize("operation", ["validate", "sync"])

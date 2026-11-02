@@ -1,31 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema_enums import ProductKey
-
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
-    FieldType,
-    ResumableSource,
-    VersionDeprecation,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.langfuse import (
-    LangfuseSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.langfuse import (
+from products.warehouse_sources.sources.langfuse._config import LangfuseSourceConfig
+from products.warehouse_sources.sources.langfuse.langfuse import (
     HOST_NOT_ALLOWED_ERROR,
     HTTP_NOT_ALLOWED_ERROR,
     REPEATED_CURSOR_ERROR,
@@ -35,7 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.l
     langfuse_source,
     validate_credentials as validate_langfuse_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.settings import (
+from products.warehouse_sources.sources.langfuse.settings import (
     DEFAULT_VERSION,
     INCREMENTAL_FIELDS,
     LANGFUSE_API_VERSION_V1,
@@ -44,7 +20,25 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.s
     SUPPORTED_VERSIONS,
     endpoints_for_version,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ProductKey,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    VersionDeprecation,
+    detect,
+)
 
 
 @SourceRegistry.register
@@ -172,9 +166,7 @@ Find your project API keys in your Langfuse **Project settings > API Keys**. Set
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.langfuse.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

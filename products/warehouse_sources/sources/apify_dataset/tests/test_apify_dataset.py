@@ -3,26 +3,17 @@ from typing import Any
 
 from unittest.mock import patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.apify_dataset import apify_dataset
-from products.warehouse_sources.backend.temporal.data_imports.sources.apify_dataset.apify_dataset import (
-    ApifyResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.apify_dataset.settings import (
+from products.warehouse_sources.sources.apify_dataset import apify_dataset
+from products.warehouse_sources.sources.apify_dataset._config import ApifyDatasetSourceConfig
+from products.warehouse_sources.sources.apify_dataset.apify_dataset import ApifyResumeConfig, validate_credentials
+from products.warehouse_sources.sources.apify_dataset.settings import (
     ACTOR_RUNS_ENDPOINT,
     ACTORS_ENDPOINT,
     DATASET_ITEMS_ENDPOINT,
     USAGE_MONTHLY_ENDPOINT,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.apify_dataset.source import ApifyDatasetSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.apifydataset import (
-    ApifyDatasetSourceConfig,
-)
+from products.warehouse_sources.sources.apify_dataset.source import ApifyDatasetSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver() -> SourceDriver:

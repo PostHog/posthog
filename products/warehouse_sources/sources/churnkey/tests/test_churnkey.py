@@ -1,23 +1,10 @@
 from unittest.mock import patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.churnkey.churnkey import (
-    ChurnkeyResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.churnkey.settings import (
-    CHURNKEY_ENDPOINTS,
-    DEFAULT_PAGE_SIZE,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.churnkey.source import ChurnkeySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.churnkey import (
-    ChurnkeySourceConfig,
-)
+from products.warehouse_sources.sources.churnkey._config import ChurnkeySourceConfig
+from products.warehouse_sources.sources.churnkey.churnkey import ChurnkeyResumeConfig, validate_credentials
+from products.warehouse_sources.sources.churnkey.settings import CHURNKEY_ENDPOINTS, DEFAULT_PAGE_SIZE
+from products.warehouse_sources.sources.churnkey.source import ChurnkeySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

@@ -3,21 +3,16 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lago import LagoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.lago import lago as lago_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.lago.lago import (
+from products.warehouse_sources.sources.lago import lago as lago_module
+from products.warehouse_sources.sources.lago._config import LagoSourceConfig
+from products.warehouse_sources.sources.lago.lago import (
     LagoHostNotAllowedError,
     LagoResumeConfig,
     normalize_base_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.lago.source import LagoSource
+from products.warehouse_sources.sources.lago.source import LagoSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _page(

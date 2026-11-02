@@ -1,9 +1,6 @@
 from datetime import timedelta
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, frozen, incremental_field
 
 SP_API_HOSTS = {
     "na": "https://sellingpartnerapi-na.amazon.com",

@@ -1,7 +1,7 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gridly import GridlySourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.gridly.source import GridlySource
+from products.warehouse_sources.sources.gridly._config import GridlySourceConfig
+from products.warehouse_sources.sources.gridly.source import GridlySource
 
-_SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.gridly.source"
+_SOURCE_MODULE = "products.warehouse_sources.sources.gridly.source"
 
 
 class TestGridlySource:

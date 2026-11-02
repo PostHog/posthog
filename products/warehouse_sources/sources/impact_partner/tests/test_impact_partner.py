@@ -5,21 +5,14 @@ import time_machine
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.impactpartner import (
-    ImpactPartnerSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.impact_partner.impact_partner import (
+from products.warehouse_sources.sources.impact_partner._config import ImpactPartnerSourceConfig
+from products.warehouse_sources.sources.impact_partner.impact_partner import (
     ImpactPartnerResumeConfig,
     _windows_for_actions,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.impact_partner.source import ImpactPartnerSource
+from products.warehouse_sources.sources.impact_partner.source import ImpactPartnerSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 API_VERSION = "16"
 

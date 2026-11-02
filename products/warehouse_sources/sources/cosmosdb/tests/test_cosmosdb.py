@@ -6,16 +6,8 @@ from urllib.parse import unquote
 import pytest
 import time_machine
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.cosmosdb.cosmosdb import (
+from products.warehouse_sources.sources.cosmosdb._config import CosmosDBSourceConfig
+from products.warehouse_sources.sources.cosmosdb.cosmosdb import (
     CosmosDBResumeConfig,
     CosmosDBRetryableError,
     CosmosDBTsCursor,
@@ -25,9 +17,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cosmosdb.c
     partition_key_value,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.cosmosdb.source import CosmosDBSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cosmosdb import (
-    CosmosDBSourceConfig,
+from products.warehouse_sources.sources.cosmosdb.source import CosmosDBSource
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceCursorManager,
+    SourceInputs,
+    SourceResponse,
+)
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
 )
 
 # A syntactically valid 64-byte key, as the Azure portal issues them (the value itself is made up).

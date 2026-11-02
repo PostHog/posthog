@@ -1,6 +1,6 @@
 from typing import Any
 
-from posthog.dataclasses import frozen
+from products.warehouse_sources.sources.sdk import frozen
 
 
 @frozen

@@ -1,15 +1,8 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    Script,
-    ScriptedResponse,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mightynetworks import (
-    MightyNetworksSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.mighty_networks.source import MightyNetworksSource
+from products.warehouse_sources.sources.mighty_networks._config import MightyNetworksSourceConfig
+from products.warehouse_sources.sources.mighty_networks.source import MightyNetworksSource
+from products.warehouse_sources.sources.sdk.testing import Script, ScriptedResponse, always, scripted_network
 
 
 class TestMightyNetworksSource:

@@ -2,13 +2,10 @@ from typing import Literal
 
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.metabase import (
-    MetabaseAuthMethodConfig,
-    MetabaseSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.metabase.metabase import MetabaseAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.metabase.source import MetabaseSource
+from products.warehouse_sources.sources.metabase._config import MetabaseAuthMethodConfig, MetabaseSourceConfig
+from products.warehouse_sources.sources.metabase.metabase import MetabaseAuth
+from products.warehouse_sources.sources.metabase.source import MetabaseSource
+from products.warehouse_sources.sources.sdk import _is_host_safe
 
 
 def _config(selection: Literal["api_key", "session"] = "api_key", **auth_kwargs) -> MetabaseSourceConfig:
@@ -47,7 +44,7 @@ class TestMetabaseSource:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in err for key in non_retryable)
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.metabase.source.metabase_source")
+    @mock.patch("products.warehouse_sources.sources.metabase.source.metabase_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_metabase_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "cards"

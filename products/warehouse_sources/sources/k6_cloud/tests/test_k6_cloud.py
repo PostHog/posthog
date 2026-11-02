@@ -6,23 +6,16 @@ import pytest
 from parameterized import parameterized
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.k6cloud import (
-    K6CloudSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.k6_cloud.k6_cloud import (
+from products.warehouse_sources.sources.k6_cloud._config import K6CloudSourceConfig
+from products.warehouse_sources.sources.k6_cloud.k6_cloud import (
     K6_CLOUD_BASE_URL,
     K6CloudResumeConfig,
     _absolute_url,
     _format_rfc3339,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.k6_cloud.source import K6CloudSource
+from products.warehouse_sources.sources.k6_cloud.source import K6CloudSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

@@ -1,10 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.taboola import (
-    TaboolaSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.taboola.source import TaboolaSource
+from products.warehouse_sources.sources.taboola._config import TaboolaSourceConfig
+from products.warehouse_sources.sources.taboola.source import TaboolaSource
 
 
 class TestTaboolaSource:
@@ -23,9 +21,7 @@ class TestTaboolaSource:
             (False, False),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.taboola.source.validate_taboola_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.taboola.source.validate_taboola_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid):
         mock_validate.return_value = mock_return
 

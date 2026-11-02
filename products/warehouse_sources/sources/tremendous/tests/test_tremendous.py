@@ -3,10 +3,8 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     Script,
     ScriptedResponse,
@@ -14,15 +12,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tremendous import (
-    TremendousSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.tremendous.settings import (
-    ENDPOINTS,
-    TREMENDOUS_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.tremendous.source import TremendousSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.tremendous.tremendous import (
+from products.warehouse_sources.sources.tremendous._config import TremendousSourceConfig
+from products.warehouse_sources.sources.tremendous.settings import ENDPOINTS, TREMENDOUS_ENDPOINTS
+from products.warehouse_sources.sources.tremendous.source import TremendousSource
+from products.warehouse_sources.sources.tremendous.tremendous import (
     TremendousResumeConfig,
     _balance_transaction_row_id,
     _to_iso_datetime,

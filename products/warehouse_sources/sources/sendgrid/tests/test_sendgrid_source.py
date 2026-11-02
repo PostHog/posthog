@@ -3,14 +3,12 @@ from typing import Any
 import pytest
 from unittest.mock import patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sendgrid import (
-    SendGridSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.settings import SENDGRID_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.source import SendGridSource
+from products.warehouse_sources.sources.sendgrid._config import SendGridSourceConfig
+from products.warehouse_sources.sources.sendgrid.settings import SENDGRID_ENDPOINTS
+from products.warehouse_sources.sources.sendgrid.source import SendGridSource
 
-_SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.source"
-_TRANSPORT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.sendgrid"
+_SOURCE_MODULE = "products.warehouse_sources.sources.sendgrid.source"
+_TRANSPORT_MODULE = "products.warehouse_sources.sources.sendgrid.sendgrid"
 
 ALL_ENDPOINTS = {
     "bounces",

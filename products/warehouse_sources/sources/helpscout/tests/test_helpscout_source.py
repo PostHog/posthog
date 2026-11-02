@@ -1,15 +1,16 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldOauthConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.helpscout import (
-    HelpScoutSourceConfig,
+from products.warehouse_sources.sources.helpscout._config import HelpScoutSourceConfig
+from products.warehouse_sources.sources.helpscout.helpscout import HelpScoutResumeConfig
+from products.warehouse_sources.sources.helpscout.settings import ENDPOINTS
+from products.warehouse_sources.sources.helpscout.source import HelpScoutSource
+from products.warehouse_sources.sources.sdk import (
+    ExternalDataSourceType,
+    ReleaseStatus,
+    ResumableSourceManager,
+    SourceFieldOauthConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.helpscout.helpscout import HelpScoutResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.helpscout.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.helpscout.source import HelpScoutSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestHelpScoutSource:
@@ -77,13 +78,9 @@ class TestHelpScoutSource:
         assert schemas[endpoint].supports_incremental is False
         assert schemas[endpoint].incremental_fields == []
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.helpscout.source.OauthIntegration")
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.helpscout.source.HelpScoutSource.get_oauth_integration"
-    )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.helpscout.source.validate_helpscout_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.helpscout.source.OauthIntegration")
+    @mock.patch("products.warehouse_sources.sources.helpscout.source.HelpScoutSource.get_oauth_integration")
+    @mock.patch("products.warehouse_sources.sources.helpscout.source.validate_helpscout_credentials")
     def test_validate_credentials_plumbs_arguments(self, mock_validate, mock_get_integration, mock_oauth):
         mock_validate.return_value = (True, None)
         mock_get_integration.return_value = mock.MagicMock(access_token="token", kind="helpscout")
@@ -96,9 +93,7 @@ class TestHelpScoutSource:
         mock_get_integration.assert_called_once_with(456, self.team_id)
         mock_validate.assert_called_once_with("token", "v3", "tags")
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.helpscout.source.HelpScoutSource.get_oauth_integration"
-    )
+    @mock.patch("products.warehouse_sources.sources.helpscout.source.HelpScoutSource.get_oauth_integration")
     def test_validate_credentials_reports_missing_integration(self, mock_get_integration):
         mock_get_integration.side_effect = ValueError("Integration not found: 456")
 
@@ -107,10 +102,8 @@ class TestHelpScoutSource:
         assert is_valid is False
         assert error_message == "Integration not found: 456"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.helpscout.source.OauthIntegration")
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.helpscout.source.HelpScoutSource.get_oauth_integration"
-    )
+    @mock.patch("products.warehouse_sources.sources.helpscout.source.OauthIntegration")
+    @mock.patch("products.warehouse_sources.sources.helpscout.source.HelpScoutSource.get_oauth_integration")
     def test_integration_of_another_kind_is_rejected(self, mock_get_integration, mock_oauth):
         # The lookup only scopes to the team, so a config pointing at another provider's
         # integration must be rejected before its access token is read or refreshed.
@@ -121,10 +114,8 @@ class TestHelpScoutSource:
 
         mock_oauth.assert_not_called()
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.helpscout.source.OauthIntegration")
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.helpscout.source.HelpScoutSource.get_oauth_integration"
-    )
+    @mock.patch("products.warehouse_sources.sources.helpscout.source.OauthIntegration")
+    @mock.patch("products.warehouse_sources.sources.helpscout.source.HelpScoutSource.get_oauth_integration")
     def test_expired_token_is_refreshed_before_use(self, mock_get_integration, mock_oauth):
         # Help Scout access tokens last ~2 days, so a source syncing on a stale token would 401
         # mid-run instead of refreshing.
@@ -142,11 +133,9 @@ class TestHelpScoutSource:
         assert isinstance(manager, ResumableSourceManager)
         assert manager._data_class is HelpScoutResumeConfig
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.helpscout.source.OauthIntegration")
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.helpscout.source.HelpScoutSource.get_oauth_integration"
-    )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.helpscout.source.helpscout_source")
+    @mock.patch("products.warehouse_sources.sources.helpscout.source.OauthIntegration")
+    @mock.patch("products.warehouse_sources.sources.helpscout.source.HelpScoutSource.get_oauth_integration")
+    @mock.patch("products.warehouse_sources.sources.helpscout.source.helpscout_source")
     @pytest.mark.parametrize("pinned_version,expected_version", [("v2", "v2"), ("v3", "v3"), (None, "v3")])
     def test_source_for_pipeline_plumbs_arguments(
         self, mock_helpscout_source, mock_get_integration, mock_oauth, pinned_version, expected_version
@@ -171,11 +160,9 @@ class TestHelpScoutSource:
         assert kwargs["db_incremental_field_last_value"] == "2024-01-01T00:00:00Z"
         assert kwargs["api_version"] == expected_version
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.helpscout.source.OauthIntegration")
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.helpscout.source.HelpScoutSource.get_oauth_integration"
-    )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.helpscout.source.helpscout_source")
+    @mock.patch("products.warehouse_sources.sources.helpscout.source.OauthIntegration")
+    @mock.patch("products.warehouse_sources.sources.helpscout.source.HelpScoutSource.get_oauth_integration")
+    @mock.patch("products.warehouse_sources.sources.helpscout.source.helpscout_source")
     def test_source_for_pipeline_omits_last_value_on_full_refresh(
         self, mock_helpscout_source, mock_get_integration, mock_oauth
     ):

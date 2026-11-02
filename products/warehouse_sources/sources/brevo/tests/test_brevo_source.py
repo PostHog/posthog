@@ -1,11 +1,8 @@
 import pytest
 from unittest.mock import patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.brevo.source import (
-    BREVO_INVALID_API_KEY_MESSAGE,
-    BrevoSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.brevo import BrevoSourceConfig
+from products.warehouse_sources.sources.brevo._config import BrevoSourceConfig
+from products.warehouse_sources.sources.brevo.source import BREVO_INVALID_API_KEY_MESSAGE, BrevoSource
 
 
 def _config() -> BrevoSourceConfig:
@@ -22,7 +19,7 @@ class TestBrevoSource:
     )
     def test_validate_credentials(self, valid: bool, expected_ok: bool, expected_msg: str | None) -> None:
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.brevo.source.validate_brevo_credentials",
+            "products.warehouse_sources.sources.brevo.source.validate_brevo_credentials",
             return_value=valid,
         ):
             ok, msg = BrevoSource().validate_credentials(_config(), team_id=1)

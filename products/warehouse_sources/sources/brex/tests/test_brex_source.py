@@ -1,12 +1,9 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.brex.brex import (
-    BREX_API_VERSION_V1,
-    BREX_API_VERSION_V2,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.brex.source import BrexSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.brex import BrexSourceConfig
+from products.warehouse_sources.sources.brex._config import BrexSourceConfig
+from products.warehouse_sources.sources.brex.brex import BREX_API_VERSION_V1, BREX_API_VERSION_V2
+from products.warehouse_sources.sources.brex.source import BrexSource
 
 
 class TestBrexSource:
@@ -27,9 +24,7 @@ class TestBrexSource:
             (False, False),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.brex.source.validate_brex_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.brex.source.validate_brex_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid):
         mock_validate.return_value = mock_return
 
@@ -43,7 +38,7 @@ class TestBrexSource:
             assert "90 days" in error_message
         mock_validate.assert_called_once_with(self.config.api_key)
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.brex.source.brex_source")
+    @mock.patch("products.warehouse_sources.sources.brex.source.brex_source")
     def test_source_for_pipeline_passes_pinned_api_version(self, mock_brex_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "users"
@@ -53,7 +48,7 @@ class TestBrexSource:
 
         assert mock_brex_source.call_args.kwargs["api_version"] == BREX_API_VERSION_V1
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.brex.source.brex_source")
+    @mock.patch("products.warehouse_sources.sources.brex.source.brex_source")
     def test_source_for_pipeline_omits_last_value_on_full_refresh(self, mock_brex_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "users"

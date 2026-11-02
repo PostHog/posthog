@@ -4,18 +4,10 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.peecai import PeecAISourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.peec_ai.peec_ai import (
-    PeecAIResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.peec_ai.source import PeecAISource
+from products.warehouse_sources.sources.peec_ai._config import PeecAISourceConfig
+from products.warehouse_sources.sources.peec_ai.peec_ai import PeecAIResumeConfig, validate_credentials
+from products.warehouse_sources.sources.peec_ai.source import PeecAISource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 @pytest.fixture

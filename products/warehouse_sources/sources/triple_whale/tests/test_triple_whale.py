@@ -3,18 +3,11 @@ from datetime import UTC, date, datetime
 import pytest
 from time_machine import travel
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.triplewhale import (
-    TripleWhaleSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.triple_whale.source import TripleWhaleSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.triple_whale.triple_whale import (
-    TripleWhaleResumeConfig,
-)
+from products.warehouse_sources.sources.sdk import UnknownResourceError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
+from products.warehouse_sources.sources.triple_whale._config import TripleWhaleSourceConfig
+from products.warehouse_sources.sources.triple_whale.source import TripleWhaleSource
+from products.warehouse_sources.sources.triple_whale.triple_whale import TripleWhaleResumeConfig
 
 
 @travel("2024-03-02T12:34:56+00:00", tick=False)

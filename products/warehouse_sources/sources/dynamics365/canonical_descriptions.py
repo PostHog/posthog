@@ -4,10 +4,8 @@ Dataverse returns lookup columns as `_<name>_value`, so that's how they're keyed
 standard table shares the ownership and audit columns in `_SYSTEM_COLUMNS`.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.dynamics365.settings import DYNAMICS365_ENDPOINTS
+from products.warehouse_sources.sources.dynamics365.settings import DYNAMICS365_ENDPOINTS
+from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 
 _SYSTEM_COLUMNS: dict[str, str] = {
     "createdon": "Date and time the record was created.",

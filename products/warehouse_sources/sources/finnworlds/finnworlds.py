@@ -7,17 +7,13 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
-    make_tracked_session,
-    retry_with_deadline,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds.settings import (
+from products.warehouse_sources.sources.finnworlds.settings import (
     FINNWORLDS_ENDPOINTS,
     FanoutDimension,
     FinnworldsEndpointConfig,
     ResponseMode,
 )
+from products.warehouse_sources.sources.sdk import SourceResponse, make_tracked_session, retry_with_deadline
 
 FINNWORLDS_BASE_URL = "https://api.finnworlds.com/api/v1"
 

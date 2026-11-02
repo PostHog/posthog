@@ -5,10 +5,7 @@ resource names in `constants.py` / `settings.py` `ENDPOINTS`, which match the `E
 of a synced Polar table. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.polar.constants import (
+from products.warehouse_sources.sources.polar.constants import (
     BENEFIT_RESOURCE_NAME,
     CHECKOUT_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
@@ -18,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.polar.cons
     REFUND_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME,
 )
+from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 
 # Fields shared by most Polar objects; merged into each entry so we don't repeat them.
 _COMMON_COLUMNS = {

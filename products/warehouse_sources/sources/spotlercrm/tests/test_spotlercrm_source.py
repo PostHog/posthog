@@ -2,10 +2,8 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.spotlercrm import (
-    SpotlerCRMSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.spotlercrm.source import SpotlerCRMSource
+from products.warehouse_sources.sources.spotlercrm._config import SpotlerCRMSourceConfig
+from products.warehouse_sources.sources.spotlercrm.source import SpotlerCRMSource
 
 
 class TestSpotlerCRMSource:

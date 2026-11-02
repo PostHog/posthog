@@ -1,8 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jira import JiraSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.jira.source import JiraSource
+from products.warehouse_sources.sources.jira._config import JiraSourceConfig
+from products.warehouse_sources.sources.jira.source import JiraSource
 
 
 class TestJiraSource:
@@ -26,9 +26,7 @@ class TestJiraSource:
             ((False, None), None, False, "Could not connect to Jira. Check your subdomain, email, and API token."),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.jira.source.validate_jira_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.jira.source.validate_jira_credentials")
     def test_validate_credentials(
         self, mock_validate, mock_return, schema_name, expected_valid, expected_message
     ) -> None:
@@ -42,9 +40,7 @@ class TestJiraSource:
         "bad_subdomain",
         ["acme.atlassian.net", "https://acme.atlassian.net", "acme.example.com", ""],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.jira.source.validate_jira_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.jira.source.validate_jira_credentials")
     def test_validate_credentials_rejects_malformed_subdomain_without_probing(
         self, mock_validate, bad_subdomain
     ) -> None:

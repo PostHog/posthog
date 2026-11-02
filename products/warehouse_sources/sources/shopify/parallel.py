@@ -18,7 +18,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Any
 
-from posthog.dataclasses import frozen
+from products.warehouse_sources.sources.sdk import frozen
 
 PARALLEL_READ_WORKERS = 3
 # A range shorter than this is not split. Shopify filters on whole seconds.

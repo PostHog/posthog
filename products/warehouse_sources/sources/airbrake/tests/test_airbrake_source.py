@@ -2,16 +2,10 @@ from datetime import UTC, datetime
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
-from products.warehouse_sources.backend.temporal.data_imports.sources.airbrake.source import AirbrakeSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.airbrake import (
-    AirbrakeSourceConfig,
-)
+from products.warehouse_sources.sources.airbrake._config import AirbrakeSourceConfig
+from products.warehouse_sources.sources.airbrake.source import AirbrakeSource
+from products.warehouse_sources.sources.sdk import SourceFieldInputConfig, SourceFieldInputConfigType
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 class TestAirbrakeSource:

@@ -1,14 +1,9 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.source import BraintreeSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.braintree import (
-    BraintreeSourceConfig,
-)
+from products.warehouse_sources.sources.braintree._config import BraintreeSourceConfig
+from products.warehouse_sources.sources.braintree.source import BraintreeSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 class TestBraintreeSource:
@@ -24,9 +19,7 @@ class TestBraintreeSource:
             (False, False, "Invalid Braintree API keys"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.braintree.source.validate_braintree_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.braintree.source.validate_braintree_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
         mock_validate.return_value = mock_return
 
@@ -36,7 +29,7 @@ class TestBraintreeSource:
         assert error_message == expected_message
         mock_validate.assert_called_once_with("production", "pub", "priv", "2026-10-06")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.braintree.source.braintree_source")
+    @mock.patch("products.warehouse_sources.sources.braintree.source.braintree_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_bt_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "transactions"

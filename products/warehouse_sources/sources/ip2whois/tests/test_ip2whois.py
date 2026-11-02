@@ -7,16 +7,8 @@ from unittest import mock
 import requests
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ip2whois import (
-    IP2WhoisSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.ip2whois.ip2whois import (
+from products.warehouse_sources.sources.ip2whois._config import IP2WhoisSourceConfig
+from products.warehouse_sources.sources.ip2whois.ip2whois import (
     IP2WHOIS_BASE_URL,
     MAX_DOMAINS,
     IP2WhoisAPIError,
@@ -27,7 +19,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ip2whois.i
     parse_domains,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.ip2whois.source import IP2WhoisSource
+from products.warehouse_sources.sources.ip2whois.source import IP2WhoisSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _response(status: int = 200, body: Optional[dict[str, Any]] = None) -> mock.MagicMock:

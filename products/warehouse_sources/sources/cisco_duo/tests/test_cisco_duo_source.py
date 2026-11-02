@@ -1,7 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.cisco_duo.source import CiscoDuoSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ciscoduo import (
-    CiscoDuoSourceConfig,
-)
+from products.warehouse_sources.sources.cisco_duo._config import CiscoDuoSourceConfig
+from products.warehouse_sources.sources.cisco_duo.source import CiscoDuoSource
 
 
 class TestCiscoDuoSource:

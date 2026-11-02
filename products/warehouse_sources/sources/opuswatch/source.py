@@ -2,40 +2,36 @@ import re
 from datetime import datetime
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
-    SourceSchema,
-    build_endpoint_schemas,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.opuswatch import (
-    OPUSWatchSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.opuswatch.opuswatch import (
+from products.warehouse_sources.sources.opuswatch._config import OPUSWatchSourceConfig
+from products.warehouse_sources.sources.opuswatch.opuswatch import (
     OPUSWatchResumeConfig,
     opuswatch_source,
     validate_credentials as validate_opuswatch_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.opuswatch.settings import (
+from products.warehouse_sources.sources.opuswatch.settings import (
     DEFAULT_START_DATE,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     OPUSWATCH_ENDPOINTS,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    build_endpoint_schemas,
+    detect,
+)
 
 _START_DATE_RE = re.compile(r"^\d{8}$")
 
@@ -60,9 +56,7 @@ class OPUSWatchSource(ResumableSource[OPUSWatchSourceConfig, OPUSWatchResumeConf
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.opuswatch.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.opuswatch.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

@@ -1,11 +1,12 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+from products.warehouse_sources.sources.sdk import (
     DependentEndpointConfig,
+    IncrementalField,
+    IncrementalFieldType,
+    ResponseAction,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ResponseAction
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 # Better Stack Uptime API. Standard collections live under /v2; incidents moved to /v3 (the /v2
 # incidents route still exists, but /v3 is the documented current version). Confirmed against the

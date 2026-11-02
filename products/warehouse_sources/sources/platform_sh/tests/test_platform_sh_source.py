@@ -1,4 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.platform_sh.source import PlatformShSource
+from products.warehouse_sources.sources.platform_sh.source import PlatformShSource
 
 
 class TestPlatformShSourceConfig:

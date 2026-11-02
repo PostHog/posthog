@@ -2,12 +2,9 @@ from typing import Optional
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.awin.source import AwinSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awin import AwinSourceConfig
+from products.warehouse_sources.sources.awin._config import AwinSourceConfig
+from products.warehouse_sources.sources.awin.source import AwinSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 class TestAwinSourceClass:

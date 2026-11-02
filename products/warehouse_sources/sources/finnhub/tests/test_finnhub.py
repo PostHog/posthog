@@ -8,13 +8,9 @@ from unittest.mock import MagicMock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.finnhub import finnhub
-from products.warehouse_sources.backend.temporal.data_imports.sources.finnhub.finnhub import (
+from products.warehouse_sources.sources.finnhub import finnhub
+from products.warehouse_sources.sources.finnhub._config import FinnhubSourceConfig
+from products.warehouse_sources.sources.finnhub.finnhub import (
     FinnhubRowCapExceededError,
     _expand_columnar,
     _extract_rows,
@@ -25,11 +21,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.finnhub.fi
     finnhub_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.finnhub.settings import FINNHUB_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.finnhub.source import FinnhubSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.finnhub import (
-    FinnhubSourceConfig,
-)
+from products.warehouse_sources.sources.finnhub.settings import FINNHUB_ENDPOINTS
+from products.warehouse_sources.sources.finnhub.source import FinnhubSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver(**overrides: Any) -> SourceDriver:

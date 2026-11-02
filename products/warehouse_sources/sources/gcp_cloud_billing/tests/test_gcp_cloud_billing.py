@@ -4,26 +4,17 @@ import pytest
 
 from requests import Request
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.gcp_cloud_billing.gcp_cloud_billing import (
-    BillingServiceAccountAuth,
-    GcpCloudBillingResumeConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.gcp_cloud_billing.source import (
-    GcpCloudBillingSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gcpcloudbilling import (
+from products.warehouse_sources.sources.gcp_cloud_billing._config import (
     GcpCloudBillingKeyFileConfig,
     GcpCloudBillingSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.tests.contract_harness import (
-    check_extraction,
-    start_source,
+from products.warehouse_sources.sources.gcp_cloud_billing.gcp_cloud_billing import (
+    BillingServiceAccountAuth,
+    GcpCloudBillingResumeConfig,
 )
+from products.warehouse_sources.sources.gcp_cloud_billing.source import GcpCloudBillingSource
+from products.warehouse_sources.sources.sdk.internals import check_extraction, start_source
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def token_response(token: str = "fake-access-token") -> ScriptedResponse:

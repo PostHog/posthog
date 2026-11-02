@@ -1,14 +1,9 @@
 import pytest
 from unittest.mock import patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.omnisend import (
-    OmnisendSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.omnisend.settings import (
-    OMNISEND_2026_03_15,
-    OMNISEND_V3,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.omnisend.source import OmnisendSource
+from products.warehouse_sources.sources.omnisend._config import OmnisendSourceConfig
+from products.warehouse_sources.sources.omnisend.settings import OMNISEND_2026_03_15, OMNISEND_V3
+from products.warehouse_sources.sources.omnisend.source import OmnisendSource
 
 
 def _config() -> OmnisendSourceConfig:
@@ -60,7 +55,7 @@ class TestOmnisendSource:
         self, api_version: str | None, expected_version: str
     ) -> None:
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.omnisend.source.validate_omnisend_credentials",
+            "products.warehouse_sources.sources.omnisend.source.validate_omnisend_credentials",
             return_value=(True, 200),
         ) as probe:
             OmnisendSource().validate_credentials(_config(), team_id=1, api_version=api_version)
@@ -78,7 +73,7 @@ class TestOmnisendSource:
         self, api_version: str, schema_name: str, expected_ok: bool
     ) -> None:
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.omnisend.source.validate_omnisend_credentials",
+            "products.warehouse_sources.sources.omnisend.source.validate_omnisend_credentials",
             return_value=(True, 200),
         ):
             ok, _ = OmnisendSource().validate_credentials(
@@ -96,7 +91,7 @@ class TestOmnisendSource:
         self, validate_return: tuple[bool, int | None], expected_ok: bool, expected_msg: str | None
     ) -> None:
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.omnisend.source.validate_omnisend_credentials",
+            "products.warehouse_sources.sources.omnisend.source.validate_omnisend_credentials",
             return_value=validate_return,
         ):
             ok, msg = OmnisendSource().validate_credentials(_config(), team_id=1)

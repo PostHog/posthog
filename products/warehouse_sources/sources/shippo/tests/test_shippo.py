@@ -7,16 +7,11 @@ from unittest.mock import MagicMock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-    always,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shippo import ShippoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.shippo import shippo
-from products.warehouse_sources.backend.temporal.data_imports.sources.shippo.settings import ENDPOINTS, SHIPPO_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.shippo.shippo import (
+from products.warehouse_sources.sources.sdk.testing import RecordedRequest, ScriptedResponse, SourceDriver, always
+from products.warehouse_sources.sources.shippo import shippo
+from products.warehouse_sources.sources.shippo._config import ShippoSourceConfig
+from products.warehouse_sources.sources.shippo.settings import ENDPOINTS, SHIPPO_ENDPOINTS
+from products.warehouse_sources.sources.shippo.shippo import (
     PAGE_SIZE,
     SHIPPO_BASE_URL,
     ShippoResumeConfig,
@@ -24,7 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shippo.shi
     ShippoUntrustedURLError,
     _validate_pagination_url,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.shippo.source import ShippoSource
+from products.warehouse_sources.sources.shippo.source import ShippoSource
 
 # Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
 _fetch_page_unwrapped = shippo._fetch_page.__wrapped__  # type: ignore[attr-defined]

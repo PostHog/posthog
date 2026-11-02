@@ -2,14 +2,9 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.codecov.source import CodecovSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.codecov import (
-    CodecovSourceConfig,
-)
+from products.warehouse_sources.sources.codecov._config import CodecovSourceConfig
+from products.warehouse_sources.sources.codecov.source import CodecovSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 class TestCodecovSource:

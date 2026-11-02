@@ -9,16 +9,8 @@ from unittest import mock
 import requests
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openweather import (
-    OpenWeatherSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.openweather.openweather import (
+from products.warehouse_sources.sources.openweather._config import OpenWeatherSourceConfig
+from products.warehouse_sources.sources.openweather.openweather import (
     MAX_LOCATIONS,
     OPENWEATHER_BASE_URL,
     Location,
@@ -33,7 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.openweathe
     parse_locations,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.openweather.settings import (
+from products.warehouse_sources.sources.openweather.settings import (
     API_VERSION_2_5,
     API_VERSION_3_0,
     API_VERSION_4_0,
@@ -42,7 +34,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.openweathe
     HistoryWindow,
     endpoints_for_version,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.openweather.source import OpenWeatherSource
+from products.warehouse_sources.sources.openweather.source import OpenWeatherSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 # (version, endpoint) pairs across every supported version, so the request-path dispatch is
 # exercised for each.

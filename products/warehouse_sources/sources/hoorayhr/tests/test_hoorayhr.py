@@ -1,17 +1,10 @@
 import time_machine
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hoorayhr import (
-    HoorayHRSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.hoorayhr.hoorayhr import validate_credentials
-from products.warehouse_sources.backend.temporal.data_imports.sources.hoorayhr.settings import HOORAYHR_BASE_URL
-from products.warehouse_sources.backend.temporal.data_imports.sources.hoorayhr.source import HoorayHRSource
+from products.warehouse_sources.sources.hoorayhr._config import HoorayHRSourceConfig
+from products.warehouse_sources.sources.hoorayhr.hoorayhr import validate_credentials
+from products.warehouse_sources.sources.hoorayhr.settings import HOORAYHR_BASE_URL
+from products.warehouse_sources.sources.hoorayhr.source import HoorayHRSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 class TestHoorayHRTransport:

@@ -2,11 +2,9 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ubidots import (
-    UbidotsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.settings import VALUES_ENDPOINT
-from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.source import UbidotsSource
+from products.warehouse_sources.sources.ubidots._config import UbidotsSourceConfig
+from products.warehouse_sources.sources.ubidots.settings import VALUES_ENDPOINT
+from products.warehouse_sources.sources.ubidots.source import UbidotsSource
 
 
 class TestUbidotsSource:
@@ -38,7 +36,7 @@ class TestUbidotsSource:
             ("v2_pin_honored", "v2.0", "v2.0"),
         ]
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.source.ubidots_source")
+    @mock.patch("products.warehouse_sources.sources.ubidots.source.ubidots_source")
     def test_source_for_pipeline_threads_resolved_api_version(
         self, _name: str, pin: str | None, expected: str, mock_source: mock.MagicMock
     ) -> None:

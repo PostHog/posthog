@@ -1,8 +1,6 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.avalara.settings import AVALARA_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.avalara.source import AvalaraSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.avalara import (
-    AvalaraSourceConfig,
-)
+from products.warehouse_sources.sources.avalara._config import AvalaraSourceConfig
+from products.warehouse_sources.sources.avalara.settings import AVALARA_ENDPOINTS
+from products.warehouse_sources.sources.avalara.source import AvalaraSource
 
 _FANOUT_ENDPOINTS = {"Transactions", "Nexus", "Customers", "ExemptionCertificates"}
 

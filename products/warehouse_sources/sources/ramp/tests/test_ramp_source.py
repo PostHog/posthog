@@ -1,5 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ramp import RampSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.ramp.source import RampSource
+from products.warehouse_sources.sources.ramp._config import RampSourceConfig
+from products.warehouse_sources.sources.ramp.source import RampSource
 
 
 class TestRampSource:

@@ -3,10 +3,10 @@ from typing import Any
 from unittest import mock
 from unittest.mock import MagicMock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.koyeb import KoyebSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.koyeb import source as koyeb_source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.koyeb.source import KoyebSource
+from products.warehouse_sources.sources.koyeb import source as koyeb_source_module
+from products.warehouse_sources.sources.koyeb._config import KoyebSourceConfig
+from products.warehouse_sources.sources.koyeb.source import KoyebSource
+from products.warehouse_sources.sources.sdk import SourceInputs
 
 
 def _source_inputs(schema_name: str, **overrides: Any) -> SourceInputs:

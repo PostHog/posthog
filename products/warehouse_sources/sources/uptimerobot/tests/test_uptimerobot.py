@@ -7,20 +7,12 @@ from unittest.mock import MagicMock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.uptimerobot import (
-    UptimerobotSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.uptimerobot import uptimerobot
-from products.warehouse_sources.backend.temporal.data_imports.sources.uptimerobot.settings import (
-    PAGE_LIMIT,
-    RESPONSE_TIMES_INITIAL_LOOKBACK_DAYS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.uptimerobot.source import UptimerobotSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.uptimerobot.uptimerobot import (
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
+from products.warehouse_sources.sources.uptimerobot import uptimerobot
+from products.warehouse_sources.sources.uptimerobot._config import UptimerobotSourceConfig
+from products.warehouse_sources.sources.uptimerobot.settings import PAGE_LIMIT, RESPONSE_TIMES_INITIAL_LOOKBACK_DAYS
+from products.warehouse_sources.sources.uptimerobot.source import UptimerobotSource
+from products.warehouse_sources.sources.uptimerobot.uptimerobot import (
     AUTH_ERROR_PREFIX,
     MAX_RETRY_AFTER_SECONDS,
     UptimeRobotAPIError,

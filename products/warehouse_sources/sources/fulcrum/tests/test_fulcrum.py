@@ -5,22 +5,16 @@ from typing import Any
 from parameterized import parameterized
 from requests import HTTPError, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.fulcrum.fulcrum import (
+from products.warehouse_sources.sources.fulcrum._config import FulcrumSourceConfig
+from products.warehouse_sources.sources.fulcrum.fulcrum import (
     FulcrumPageNumberPaginator,
     FulcrumResumeConfig,
     _to_epoch_seconds,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.fulcrum.settings import FULCRUM_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.fulcrum.source import FulcrumSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fulcrum import (
-    FulcrumSourceConfig,
-)
+from products.warehouse_sources.sources.fulcrum.settings import FULCRUM_ENDPOINTS
+from products.warehouse_sources.sources.fulcrum.source import FulcrumSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver() -> SourceDriver:

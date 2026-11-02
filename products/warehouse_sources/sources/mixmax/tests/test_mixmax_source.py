@@ -1,11 +1,8 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mixmax import MixMaxSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.mixmax.source import MixMaxSource
+from products.warehouse_sources.sources.mixmax._config import MixMaxSourceConfig
+from products.warehouse_sources.sources.mixmax.source import MixMaxSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 def _config() -> MixMaxSourceConfig:

@@ -3,21 +3,13 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.beehiiv.beehiiv import BeehiivResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.beehiiv.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.beehiiv.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.beehiiv.source import BeehiivSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.beehiiv import (
-    BeehiivSourceConfig,
-)
+from products.warehouse_sources.sources.beehiiv._config import BeehiivSourceConfig
+from products.warehouse_sources.sources.beehiiv.beehiiv import BeehiivResumeConfig
+from products.warehouse_sources.sources.beehiiv.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.beehiiv.settings import ENDPOINTS
+from products.warehouse_sources.sources.beehiiv.source import BeehiivSource
+from products.warehouse_sources.sources.sdk import SourceInputs
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _config(publication_id: str = "pub_123") -> BeehiivSourceConfig:

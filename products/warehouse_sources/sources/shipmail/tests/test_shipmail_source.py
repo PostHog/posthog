@@ -1,11 +1,9 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shipmail import (
-    ShipmailSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.shipmail.source import ShipmailSource
+from products.warehouse_sources.sources.shipmail._config import ShipmailSourceConfig
+from products.warehouse_sources.sources.shipmail.source import ShipmailSource
 
-CAPABILITIES_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.shipmail.source.get_capabilities"
+CAPABILITIES_PATCH = "products.warehouse_sources.sources.shipmail.source.get_capabilities"
 
 
 class TestShipmailSource:

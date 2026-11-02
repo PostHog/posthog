@@ -3,25 +3,18 @@ from typing import Any
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.oncehub._config import OncehubSourceConfig
+from products.warehouse_sources.sources.oncehub.oncehub import OncehubResumeConfig, validate_credentials
+from products.warehouse_sources.sources.oncehub.settings import ENDPOINTS, PAGE_SIZE
+from products.warehouse_sources.sources.oncehub.source import OncehubSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
     route,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.oncehub import (
-    OncehubSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.oncehub.oncehub import (
-    OncehubResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.oncehub.settings import ENDPOINTS, PAGE_SIZE
-from products.warehouse_sources.backend.temporal.data_imports.sources.oncehub.source import OncehubSource
 
 
 def _response(items: list[dict[str, Any]] | None, has_more: bool, *, status: int = 200) -> ScriptedResponse:

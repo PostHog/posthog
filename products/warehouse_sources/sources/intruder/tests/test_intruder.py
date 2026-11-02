@@ -3,25 +3,11 @@ from typing import Any
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.intruder import (
-    IntruderSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.intruder.intruder import (
-    PAGE_SIZE,
-    IntruderResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.intruder.settings import (
-    INCREMENTAL_FIELDS,
-    INTRUDER_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.intruder.source import IntruderSource
+from products.warehouse_sources.sources.intruder._config import IntruderSourceConfig
+from products.warehouse_sources.sources.intruder.intruder import PAGE_SIZE, IntruderResumeConfig, validate_credentials
+from products.warehouse_sources.sources.intruder.settings import INCREMENTAL_FIELDS, INTRUDER_ENDPOINTS
+from products.warehouse_sources.sources.intruder.source import IntruderSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, route, scripted_network
 
 BASE = "https://api.intruder.io/v1"
 

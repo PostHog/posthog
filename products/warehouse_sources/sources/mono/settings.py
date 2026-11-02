@@ -1,4 +1,4 @@
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
 BASE_URL = "https://api.withmono.com"
 # Relative paths follow the pinned API version. Mono serves bank coverage, Direct Debit and Disburse only on v3.

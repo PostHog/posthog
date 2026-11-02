@@ -5,23 +5,17 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.bloomerang.bloomerang import (
+from products.warehouse_sources.sources.bloomerang._config import BloomerangSourceConfig
+from products.warehouse_sources.sources.bloomerang.bloomerang import (
     BloomerangResumeConfig,
     _build_params,
     _format_last_modified,
     bloomerang_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.bloomerang.settings import BLOOMERANG_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.bloomerang.source import BloomerangSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bloomerang import (
-    BloomerangSourceConfig,
-)
+from products.warehouse_sources.sources.bloomerang.settings import BLOOMERANG_ENDPOINTS
+from products.warehouse_sources.sources.bloomerang.source import BloomerangSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 class TestFormatLastModified:

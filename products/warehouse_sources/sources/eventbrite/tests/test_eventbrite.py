@@ -2,21 +2,14 @@ from datetime import UTC, date, datetime
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.eventbrite.eventbrite import (
+from products.warehouse_sources.sources.eventbrite._config import EventbriteSourceConfig
+from products.warehouse_sources.sources.eventbrite.eventbrite import (
     EventbriteResumeConfig,
     _format_changed_since,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.eventbrite.source import EventbriteSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.eventbrite import (
-    EventbriteSourceConfig,
-)
+from products.warehouse_sources.sources.eventbrite.source import EventbriteSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

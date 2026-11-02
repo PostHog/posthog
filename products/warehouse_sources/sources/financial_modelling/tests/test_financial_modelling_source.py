@@ -4,14 +4,10 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.financial_modelling.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.financial_modelling.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.financial_modelling.source import (
-    FinancialModellingSource,
-)
+from products.warehouse_sources.sources.financial_modelling.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.financial_modelling.settings import ENDPOINTS
+from products.warehouse_sources.sources.financial_modelling.source import FinancialModellingSource
+from products.warehouse_sources.sources.sdk import SourceInputs
 
 
 def _inputs(schema_name: str, **overrides: Any) -> SourceInputs:
@@ -65,9 +61,7 @@ class TestGetSchemas:
 
 
 class TestValidateCredentials:
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.financial_modelling.source.validate_financial_modelling_credentials"
-    )
+    @patch("products.warehouse_sources.sources.financial_modelling.source.validate_financial_modelling_credentials")
     def test_valid(self, mock_validate: MagicMock) -> None:
         mock_validate.return_value = True
         config = FinancialModellingSource().parse_config({"api_key": "k", "symbols": "AAPL"})
@@ -75,9 +69,7 @@ class TestValidateCredentials:
         assert ok is True
         assert error is None
 
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.financial_modelling.source.validate_financial_modelling_credentials"
-    )
+    @patch("products.warehouse_sources.sources.financial_modelling.source.validate_financial_modelling_credentials")
     def test_invalid(self, mock_validate: MagicMock) -> None:
         mock_validate.return_value = False
         config = FinancialModellingSource().parse_config({"api_key": "bad", "symbols": "AAPL"})
@@ -101,9 +93,7 @@ class TestNonRetryableErrors:
 
 
 class TestSourceForPipeline:
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.financial_modelling.source.financial_modelling_source"
-    )
+    @patch("products.warehouse_sources.sources.financial_modelling.source.financial_modelling_source")
     def test_last_value_passed_only_when_incremental(self, mock_source: MagicMock) -> None:
         config = FinancialModellingSource().parse_config({"api_key": "k", "symbols": "AAPL"})
 

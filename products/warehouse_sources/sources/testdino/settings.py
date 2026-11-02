@@ -1,11 +1,7 @@
 from dataclasses import field
 from typing import Any
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-)
+from products.warehouse_sources.sources.sdk import DependentEndpointConfig, frozen
 
 API_VERSION = "v1"
 API_BASE_URL = f"https://api.testdino.com/api/{API_VERSION}/public"

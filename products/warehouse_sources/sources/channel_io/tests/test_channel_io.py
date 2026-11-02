@@ -7,21 +7,16 @@ import time_machine
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.channel_io.channel_io import (
-    ChannelIOResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.channel_io.settings import USER_CHAT_STATES
-from products.warehouse_sources.backend.temporal.data_imports.sources.channel_io.source import ChannelIOSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.channel_io._config import ChannelIOSourceConfig
+from products.warehouse_sources.sources.channel_io.channel_io import ChannelIOResumeConfig, validate_credentials
+from products.warehouse_sources.sources.channel_io.settings import USER_CHAT_STATES
+from products.warehouse_sources.sources.channel_io.source import ChannelIOSource
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.channelio import (
-    ChannelIOSourceConfig,
 )
 
 CONFIG = ChannelIOSourceConfig(access_key="example-access-key", access_secret="example-access-secret")

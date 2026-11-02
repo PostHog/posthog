@@ -9,19 +9,12 @@ import jwt
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleplayconsole import (
+from products.warehouse_sources.sources.google_play_console._config import (
     GooglePlayConsoleKeyFileConfig,
     GooglePlayConsoleSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.google_play_console.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.google_play_console.settings import (
+from products.warehouse_sources.sources.google_play_console.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.google_play_console.settings import (
     BREAKDOWN_TABLES,
     ENDPOINTS,
     LIST_ENDPOINTS,
@@ -29,10 +22,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_pla
     PRIMARY_KEYS,
     RELEASE_FILTER_OPTIONS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.google_play_console.source import (
-    GooglePlayConsoleSource,
-)
-from products.warehouse_sources.backend.types import IncrementalFieldType
+from products.warehouse_sources.sources.google_play_console.source import GooglePlayConsoleSource
+from products.warehouse_sources.sources.sdk import IncrementalFieldType
+from products.warehouse_sources.sources.sdk.testing import RecordedRequest, ScriptedResponse, SourceDriver
 
 
 @functools.cache
@@ -202,7 +194,7 @@ def test_source_for_pipeline_plumbs_config_and_inputs() -> None:
         )
 
     with mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.google_play_console.google_play_console._today",
+        "products.warehouse_sources.sources.google_play_console.google_play_console._today",
         return_value=dt.date(2024, 3, 31),
     ):
         result = SourceDriver(GooglePlayConsoleSource(), _config("com.b, com.a")).run(

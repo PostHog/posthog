@@ -7,17 +7,13 @@ from unittest import mock
 
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_explorer import (
+from products.warehouse_sources.sources.aws_cost_explorer import (
     aws_cost_explorer as transport_module,
     source as source_module,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_explorer.source import (
-    AwsCostExplorerSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awscostexplorer import (
-    AwsCostExplorerSourceConfig,
-)
+from products.warehouse_sources.sources.aws_cost_explorer._config import AwsCostExplorerSourceConfig
+from products.warehouse_sources.sources.aws_cost_explorer.source import AwsCostExplorerSource
+from products.warehouse_sources.sources.sdk import SourceInputs
 
 
 def make_inputs(

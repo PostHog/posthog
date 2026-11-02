@@ -1,8 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.frill.source import FrillSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.frill import FrillSourceConfig
+from products.warehouse_sources.sources.frill._config import FrillSourceConfig
+from products.warehouse_sources.sources.frill.source import FrillSource
 
 
 class TestFrillSource:
@@ -18,9 +18,7 @@ class TestFrillSource:
             (False, False, "Invalid Frill API key"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.frill.source.validate_frill_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.frill.source.validate_frill_credentials")
     def test_validate_credentials(
         self,
         mock_validate: mock.MagicMock,

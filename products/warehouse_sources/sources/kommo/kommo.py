@@ -2,29 +2,19 @@ import re
 import dataclasses
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resources,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    rename_parent_fields,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from products.warehouse_sources.sources.kommo.settings import ENDPOINT_CONFIG, PAGE_LIMIT, KommoEndpoint
+from products.warehouse_sources.sources.sdk import (
     BasePaginator,
-    PageNumberPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     Endpoint,
     EndpointResource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.kommo.settings import (
-    ENDPOINT_CONFIG,
-    PAGE_LIMIT,
-    KommoEndpoint,
+    PageNumberPaginator,
+    Resource,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    make_tracked_session,
+    rename_parent_fields,
+    rest_api_resources,
 )
 
 # Kommo is a per-account host, so bound every request rather than letting a stalled account

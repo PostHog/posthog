@@ -4,21 +4,21 @@ from typing import Optional
 import pytest
 import time_machine
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.clay.clay import (
+from products.warehouse_sources.sources.clay._config import ClaySourceConfig
+from products.warehouse_sources.sources.clay.clay import (
     REQUEST_TIMEOUT_SECONDS,
     ClayResumeConfig,
     flatten_record,
     parse_table_ids,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.clay.source import ClaySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.clay.source import ClaySource
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clay import ClaySourceConfig
 
 TABLE_ID = "t_0te9i4tZEHwc9hihBXu"
 

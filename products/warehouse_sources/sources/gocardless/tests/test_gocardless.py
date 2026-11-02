@@ -4,26 +4,16 @@ from typing import Any
 import pytest
 import time_machine
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gocardless import (
-    GoCardlessSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.gocardless.gocardless import (
+from products.warehouse_sources.sources.gocardless._config import GoCardlessSourceConfig
+from products.warehouse_sources.sources.gocardless.gocardless import (
     GoCardlessResumeConfig,
     _base_url,
     _format_created_at,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.gocardless.settings import (
-    ENDPOINTS,
-    GOCARDLESS_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.gocardless.source import GoCardlessSource
+from products.warehouse_sources.sources.gocardless.settings import ENDPOINTS, GOCARDLESS_ENDPOINTS
+from products.warehouse_sources.sources.gocardless.source import GoCardlessSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _page(data_key: str, items: list[dict[str, Any]], after: str | None = None) -> ScriptedResponse:

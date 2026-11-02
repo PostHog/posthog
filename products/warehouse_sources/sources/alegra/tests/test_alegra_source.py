@@ -6,9 +6,9 @@ import pytest
 from requests import PreparedRequest
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.alegra.source import AlegraSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.alegra import AlegraSourceConfig
+from products.warehouse_sources.sources.alegra._config import AlegraSourceConfig
+from products.warehouse_sources.sources.alegra.source import AlegraSource
+from products.warehouse_sources.sources.sdk import SourceInputs
 
 
 @pytest.mark.parametrize(

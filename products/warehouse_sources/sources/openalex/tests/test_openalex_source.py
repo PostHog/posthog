@@ -3,20 +3,12 @@ from typing import Optional
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openalex import (
-    OpenalexSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.openalex.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.openalex.source import OpenalexSource
+from products.warehouse_sources.sources.openalex._config import OpenalexSourceConfig
+from products.warehouse_sources.sources.openalex.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.openalex.source import OpenalexSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
-SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.openalex.source"
+SOURCE_MODULE = "products.warehouse_sources.sources.openalex.source"
 
 
 class TestOpenalexSource:

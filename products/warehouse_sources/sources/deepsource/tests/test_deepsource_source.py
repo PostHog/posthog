@@ -1,17 +1,9 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.deepsource.settings import (
-    DEEPSOURCE_ENDPOINTS,
-    ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.deepsource.source import DeepsourceSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.deepsource import (
-    DeepsourceSourceConfig,
-)
+from products.warehouse_sources.sources.deepsource._config import DeepsourceSourceConfig
+from products.warehouse_sources.sources.deepsource.settings import DEEPSOURCE_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.sources.deepsource.source import DeepsourceSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 _CONFIG = DeepsourceSourceConfig(api_token="tok", account_login="acme", vcs_provider="GITHUB")
 

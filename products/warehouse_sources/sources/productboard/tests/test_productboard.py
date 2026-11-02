@@ -3,21 +3,15 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.productboard import (
-    ProductboardSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.productboard.productboard import (
+from products.warehouse_sources.sources.productboard._config import ProductboardSourceConfig
+from products.warehouse_sources.sources.productboard.productboard import (
     ProductboardResumeConfig,
     _build_initial_params,
     _format_incremental_value,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.productboard.source import ProductboardSource
+from products.warehouse_sources.sources.productboard.source import ProductboardSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 NOTES_URL = "https://api.productboard.com/v2/notes"
 

@@ -1,14 +1,7 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.genesyscloud import (
-    GenesysCloudSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.genesys_cloud.genesys_cloud import (
-    InvalidGenesysCloudRegionError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.genesys_cloud.source import GenesysCloudSource
+from products.warehouse_sources.sources.genesys_cloud._config import GenesysCloudSourceConfig
+from products.warehouse_sources.sources.genesys_cloud.genesys_cloud import InvalidGenesysCloudRegionError
+from products.warehouse_sources.sources.genesys_cloud.source import GenesysCloudSource
+from products.warehouse_sources.sources.sdk.testing import SourceDriver, scripted_network
 
 
 class TestGenesysCloudSource:

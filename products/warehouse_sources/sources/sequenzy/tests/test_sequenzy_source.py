@@ -5,8 +5,8 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.sequenzy.sequenzy import SequenzyResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.sequenzy.source import SequenzySource
+from products.warehouse_sources.sources.sequenzy.sequenzy import SequenzyResumeConfig
+from products.warehouse_sources.sources.sequenzy.source import SequenzySource
 
 
 class TestSequenzySourceNonRetryableErrors:

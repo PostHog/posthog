@@ -1,13 +1,8 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rudderstack import (
-    RudderStackSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.rudderstack.source import RudderStackSource
+from products.warehouse_sources.sources.rudderstack._config import RudderStackSourceConfig
+from products.warehouse_sources.sources.rudderstack.source import RudderStackSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 @pytest.mark.parametrize(

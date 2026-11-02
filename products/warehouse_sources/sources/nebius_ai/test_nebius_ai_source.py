@@ -2,9 +2,9 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.nebius_ai import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.nebius_ai.nebius_ai import NebiusAIResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.nebius_ai.source import NebiusAISource
+from products.warehouse_sources.sources.nebius_ai import source as source_module
+from products.warehouse_sources.sources.nebius_ai.nebius_ai import NebiusAIResumeConfig
+from products.warehouse_sources.sources.nebius_ai.source import NebiusAISource
 
 
 class TestNebiusAIValidateCredentials:

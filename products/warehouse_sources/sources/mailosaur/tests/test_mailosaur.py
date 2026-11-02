@@ -5,21 +5,14 @@ import pytest
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mailosaur import (
-    MailosaurSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.mailosaur.mailosaur import (
+from products.warehouse_sources.sources.mailosaur._config import MailosaurSourceConfig
+from products.warehouse_sources.sources.mailosaur.mailosaur import (
     MailosaurResumeConfig,
     _format_received_after,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.mailosaur.source import MailosaurSource
+from products.warehouse_sources.sources.mailosaur.source import MailosaurSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

@@ -6,11 +6,7 @@ from typing import Any, Optional
 from requests import Response, Session
 from requests.exceptions import HTTPError
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.rokt_ads.settings import (
+from products.warehouse_sources.sources.rokt_ads.settings import (
     ACCOUNTS_ENDPOINT,
     BASE_URL,
     ENDPOINTS,
@@ -19,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.rokt_ads.s
     TOKEN_URL,
     WINDOW_DAYS,
 )
+from products.warehouse_sources.sources.sdk import ResumableSourceManager, frozen, make_tracked_session
 
 # Rokt access tokens last an hour. Refresh early so a long window request cannot start on a token
 # that expires mid-flight.

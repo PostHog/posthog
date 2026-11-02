@@ -5,18 +5,14 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, ReleaseStatus
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zendesksunshine import (
-    ZendeskSunshineSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sunshine.settings import (
+from products.warehouse_sources.sources.sdk import DataWarehouseSourceCategory, ReleaseStatus
+from products.warehouse_sources.sources.zendesk_sunshine._config import ZendeskSunshineSourceConfig
+from products.warehouse_sources.sources.zendesk_sunshine.settings import (
     ENDPOINTS_BY_VERSION,
     ZENDESK_SUNSHINE_V1,
     ZENDESK_SUNSHINE_V2,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sunshine.source import (
-    ZendeskSunshineSource,
-)
+from products.warehouse_sources.sources.zendesk_sunshine.source import ZendeskSunshineSource
 
 
 class TestZendeskSunshineSource:
@@ -112,7 +108,7 @@ class TestZendeskSunshineSource:
             subdomain=bad_subdomain, api_key="zendesk-token", email_address="agent@example.com"
         )
         with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sunshine.source.validate_zendesk_sunshine_credentials"
+            "products.warehouse_sources.sources.zendesk_sunshine.source.validate_zendesk_sunshine_credentials"
         ) as mock_validate:
             is_valid, message = self.source.validate_credentials(config, self.team_id)
 
@@ -120,9 +116,7 @@ class TestZendeskSunshineSource:
         assert message == "Zendesk subdomain is incorrect"
         mock_validate.assert_not_called()
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sunshine.source.validate_zendesk_sunshine_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.zendesk_sunshine.source.validate_zendesk_sunshine_credentials")
     def test_validate_credentials_plumbs_arguments(self, mock_validate: mock.MagicMock) -> None:
         mock_validate.return_value = (True, None)
 
@@ -132,9 +126,7 @@ class TestZendeskSunshineSource:
         # No pin → resolves to default_version (v2), so a new source validates against v2.
         mock_validate.assert_called_once_with("nibbles", "zendesk-token", "agent@example.com", ZENDESK_SUNSHINE_V2)
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sunshine.source.validate_zendesk_sunshine_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.zendesk_sunshine.source.validate_zendesk_sunshine_credentials")
     def test_validate_credentials_plumbs_pinned_version(self, mock_validate: mock.MagicMock) -> None:
         mock_validate.return_value = (True, None)
 
@@ -142,9 +134,7 @@ class TestZendeskSunshineSource:
 
         mock_validate.assert_called_once_with("nibbles", "zendesk-token", "agent@example.com", ZENDESK_SUNSHINE_V1)
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sunshine.source.zendesk_sunshine_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.zendesk_sunshine.source.zendesk_sunshine_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "object_records"
@@ -168,9 +158,7 @@ class TestZendeskSunshineSource:
         # The resolved source pin reaches the request layer.
         assert kwargs["api_version"] == ZENDESK_SUNSHINE_V1
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sunshine.source.zendesk_sunshine_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.zendesk_sunshine.source.zendesk_sunshine_source")
     def test_source_for_pipeline_omits_watermark_when_not_incremental(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "object_records"

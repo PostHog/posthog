@@ -9,25 +9,17 @@ from unittest.mock import Mock, patch
 import requests
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_macie.aws_macie import (
+from products.warehouse_sources.sources.aws_macie._config import AwsMacieSourceConfig
+from products.warehouse_sources.sources.aws_macie.aws_macie import (
     AwsMacieClient,
     AwsMacieError,
     AwsMacieResumeConfig,
     aws_macie_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_macie.source import AwsMacieSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsmacie import (
-    AwsMacieSourceConfig,
-)
+from products.warehouse_sources.sources.aws_macie.source import AwsMacieSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceInputs
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 class MemoryResumeManager(ResumableSourceManager[AwsMacieResumeConfig]):
@@ -75,9 +67,7 @@ def driver(config: AwsMacieSourceConfig) -> SourceDriver:
 
 @pytest.fixture
 def session() -> Iterator[Mock]:
-    with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.aws_macie.aws_macie.make_tracked_session"
-    ) as factory:
+    with patch("products.warehouse_sources.sources.aws_macie.aws_macie.make_tracked_session") as factory:
         factory.return_value.request.return_value = response({})
         yield factory.return_value
 

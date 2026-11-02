@@ -3,11 +3,9 @@ from typing import Any
 
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.mailosaur.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.mailosaur.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.mailosaur.source import MailosaurSource
+from products.warehouse_sources.sources.mailosaur.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.mailosaur.settings import ENDPOINTS
+from products.warehouse_sources.sources.mailosaur.source import MailosaurSource
 
 
 def _config(api_key: str = "key") -> Any:
@@ -24,9 +22,7 @@ class TestResumableWiring:
         inputs.job_id = "job-1"
         inputs.should_use_incremental_field = False
         inputs.db_incremental_field_last_value = datetime(2026, 1, 1, tzinfo=UTC)
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.mailosaur.source.mailosaur_source"
-        ) as mocked:
+        with patch("products.warehouse_sources.sources.mailosaur.source.mailosaur_source") as mocked:
             MailosaurSource().source_for_pipeline(_config(), MagicMock(), inputs)
         # A full-refresh table must not carry a stale cursor into the request.
         assert mocked.call_args.kwargs["db_incremental_field_last_value"] is None

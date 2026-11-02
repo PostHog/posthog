@@ -6,22 +6,20 @@ from unittest.mock import Mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
     route,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.teachable import (
-    TeachableSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.teachable.settings import (
+from products.warehouse_sources.sources.teachable._config import TeachableSourceConfig
+from products.warehouse_sources.sources.teachable.settings import (
     TEACHABLE_API_VERSION_V1 as V1,
     TEACHABLE_API_VERSION_V2 as V2,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.teachable.source import TeachableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.teachable.teachable import (
+from products.warehouse_sources.sources.teachable.source import TeachableSource
+from products.warehouse_sources.sources.teachable.teachable import (
     TeachableResumeConfig,
     TeachableUsersPaginator,
     _format_teachable_datetime,

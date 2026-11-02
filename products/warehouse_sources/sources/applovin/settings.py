@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
 APPLOVIN_API_BASE_URL = "https://r.applovin.com"
 # The Campaign Management API authenticates with its own key, separate from the Report Key.

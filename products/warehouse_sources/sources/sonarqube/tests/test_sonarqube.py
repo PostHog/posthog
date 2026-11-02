@@ -8,8 +8,8 @@ from unittest.mock import MagicMock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.sonarqube import sonarqube
-from products.warehouse_sources.backend.temporal.data_imports.sources.sonarqube.sonarqube import (
+from products.warehouse_sources.sources.sonarqube import sonarqube
+from products.warehouse_sources.sources.sonarqube.sonarqube import (
     SonarqubeResumeConfig,
     _error_detail,
     _format_created_after,

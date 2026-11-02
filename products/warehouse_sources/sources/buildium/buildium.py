@@ -2,9 +2,8 @@ from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from typing import Any
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.buildium.settings import (
+from products.warehouse_sources.sources.buildium._config import BuildiumSourceConfig
+from products.warehouse_sources.sources.buildium.settings import (
     BASE_URL,
     CREDENTIAL_PROBE_PATHS,
     CUSTOM_FIELD_ENTITY_TYPES,
@@ -21,25 +20,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.buildium.s
     PRIMARY_KEYS,
     UNPAGINATED_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from products.warehouse_sources.sources.sdk import (
+    APIKeyAuth,
+    ClientConfig,
     Endpoint,
     EndpointResource,
+    Resource,
     RESTAPIConfig,
+    ResumableSourceManager,
+    ResumeHook,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
     rest_api_resource,
     rest_api_resources,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import (
-    Resource,
-    ResumeHook,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.buildium import (
-    BuildiumSourceConfig,
+    schema_for_resource,
 )
 
 

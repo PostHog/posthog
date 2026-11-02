@@ -9,17 +9,11 @@ import structlog
 from requests.exceptions import HTTPError
 from requests_mock import Mocker
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.axiom.axiom import AxiomResumeConfig, axiom_source
-from products.warehouse_sources.backend.temporal.data_imports.sources.axiom.source import AxiomSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.axiom import AxiomSourceConfig
+from products.warehouse_sources.sources.axiom._config import AxiomSourceConfig
+from products.warehouse_sources.sources.axiom.axiom import AxiomResumeConfig, axiom_source
+from products.warehouse_sources.sources.axiom.source import AxiomSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceInputs
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 @pytest.fixture

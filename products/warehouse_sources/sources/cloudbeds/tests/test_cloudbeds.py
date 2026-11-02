@@ -4,7 +4,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.cloudbeds.cloudbeds import (
+from products.warehouse_sources.sources.cloudbeds._config import CloudbedsSourceConfig
+from products.warehouse_sources.sources.cloudbeds.cloudbeds import (
     CLOUDBEDS_API_VERSION_V1_2,
     CLOUDBEDS_API_VERSION_V1_3,
     PAGE_SIZE,
@@ -13,20 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cloudbeds.
     cloudbeds_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.cloudbeds.settings import (
-    CLOUDBEDS_ENDPOINTS,
-    ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.cloudbeds.source import CloudbedsSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cloudbeds import (
-    CloudbedsSourceConfig,
-)
+from products.warehouse_sources.sources.cloudbeds.settings import CLOUDBEDS_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.sources.cloudbeds.source import CloudbedsSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver(property_id: str | None = None) -> SourceDriver:

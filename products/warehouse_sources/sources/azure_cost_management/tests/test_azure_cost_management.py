@@ -8,7 +8,8 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.azure_cost_management.azure_cost_management import (
+from products.warehouse_sources.sources.azure_cost_management._config import AzureCostManagementSourceConfig
+from products.warehouse_sources.sources.azure_cost_management.azure_cost_management import (
     LOGIN_HOST,
     MANAGEMENT_HOST,
     AzureCostManagementClient,
@@ -26,22 +27,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.azure_cost
     rows_from_query_result,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.azure_cost_management.settings import (
-    AZURE_COST_MANAGEMENT_ENDPOINTS,
-    ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.azure_cost_management.source import (
-    AzureCostManagementSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.azurecostmanagement import (
-    AzureCostManagementSourceConfig,
-)
+from products.warehouse_sources.sources.azure_cost_management.settings import AZURE_COST_MANAGEMENT_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.sources.azure_cost_management.source import AzureCostManagementSource
+from products.warehouse_sources.sources.sdk import SyncWindow
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _token_response(token: str = "access-token") -> ScriptedResponse:

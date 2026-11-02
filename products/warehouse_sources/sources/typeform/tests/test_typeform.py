@@ -7,12 +7,8 @@ from unittest.mock import Mock, patch
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.typeform.typeform import (
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, always, scripted_network
+from products.warehouse_sources.sources.typeform.typeform import (
     TypeformFormsPaginator,
     TypeformResponsesPaginator,
     _validated_api_base_url,
@@ -201,7 +197,7 @@ class TestTypeformTransport:
         with pytest.raises(ValueError, match="Fan-out endpoint"):
             get_resource(endpoint="responses", should_use_incremental_field=False)
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.typeform.typeform.rest_api_resource")
+    @patch("products.warehouse_sources.sources.typeform.typeform.rest_api_resource")
     def test_typeform_source_forms_response(self, mock_rest_api_resource) -> None:
         mock_rest_api_resource.return_value = Mock()
         response = typeform_source(
@@ -229,9 +225,7 @@ class TestTypeformTransport:
             ("not_incremental", False, datetime(2026, 3, 1, tzinfo=UTC), None),
         ]
     )
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.typeform.typeform.build_dependent_resource"
-    )
+    @patch("products.warehouse_sources.sources.typeform.typeform.build_dependent_resource")
     def test_typeform_source_responses_watermark_wiring(
         self, _name, should_use_incremental_field, last_value, expected_floor, mock_build_dependent_resource
     ) -> None:
@@ -262,9 +256,7 @@ class TestTypeformTransport:
             ),
         ]
     )
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.typeform.typeform.build_dependent_resource"
-    )
+    @patch("products.warehouse_sources.sources.typeform.typeform.build_dependent_resource")
     def test_typeform_source_responses_response_type_wiring(
         self,
         _name,

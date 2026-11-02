@@ -7,13 +7,9 @@ from unittest.mock import MagicMock, Mock
 from requests import Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.heygen.heygen import (
-    HeyGenResumeConfig,
-    heygen_source,
-    probe_endpoint,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.heygen.tests.utils import sync_items
+from products.warehouse_sources.sources.heygen.heygen import HeyGenResumeConfig, heygen_source, probe_endpoint
+from products.warehouse_sources.sources.heygen.tests.utils import sync_items
+from products.warehouse_sources.sources.sdk import ResumableSourceManager
 
 
 @pytest.mark.parametrize(

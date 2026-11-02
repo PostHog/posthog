@@ -1,16 +1,7 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-    SourceFieldSelectConfig,
-    SourceFieldSelectConfigOption,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_selling_partner.amazon_selling_partner import (
+from products.warehouse_sources.sources.amazon_selling_partner._config import AmazonSellingPartnerSourceConfig
+from products.warehouse_sources.sources.amazon_selling_partner.amazon_selling_partner import (
     MISSING_MARKETPLACES_MESSAGE,
     AmazonSellingPartnerResumeConfig,
     amazon_selling_partner_source,
@@ -18,29 +9,32 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_sel
     probe_endpoint_permissions,
     validate_credentials as validate_amazon_selling_partner_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_selling_partner.settings import (
+from products.warehouse_sources.sources.amazon_selling_partner.settings import (
     DEFAULT_INCREMENTAL_LOOKBACK_SECONDS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
+from products.warehouse_sources.sources.sdk import (
     OAUTH2_PERMANENT_ERROR_MARKER,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.amazonsellingpartner import (
-    AmazonSellingPartnerSourceConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -76,7 +70,7 @@ class AmazonSellingPartnerSource(ResumableSource[AmazonSellingPartnerSourceConfi
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_selling_partner.canonical_descriptions import (
+        from products.warehouse_sources.sources.amazon_selling_partner.canonical_descriptions import (
             CANONICAL_DESCRIPTIONS,
         )
 

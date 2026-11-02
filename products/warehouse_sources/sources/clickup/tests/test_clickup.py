@@ -3,7 +3,8 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.clickup.clickup import (
+from products.warehouse_sources.sources.clickup._config import ClickUpSourceConfig
+from products.warehouse_sources.sources.clickup.clickup import (
     TIME_ENTRIES_HISTORY_FLOOR,
     TIME_IN_STATUS_BATCH_SIZE,
     ClickUpResumeConfig,
@@ -11,20 +12,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clickup.cl
     _to_epoch_ms,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.clickup.settings import (
-    CLICKUP_ENDPOINTS,
-    ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.clickup.source import ClickUpSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.clickup.settings import CLICKUP_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.sources.clickup.source import ClickUpSource
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clickup import (
-    ClickUpSourceConfig,
 )
 
 

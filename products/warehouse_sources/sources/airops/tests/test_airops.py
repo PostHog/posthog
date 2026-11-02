@@ -2,7 +2,8 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.airops.airops import (
+from products.warehouse_sources.sources.airops._config import AirOpsSourceConfig
+from products.warehouse_sources.sources.airops.airops import (
     AIROPS_BASE_URL,
     BRAND_KIT_LIST_PATH,
     BRAND_KITS_PATH,
@@ -10,17 +11,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.airops.air
     airops_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.airops.source import AirOpsSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.airops import AirOpsSourceConfig
+from products.warehouse_sources.sources.airops.source import AirOpsSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError, SourceResponse
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 APPS_URL = f"{AIROPS_BASE_URL}/public_api/airops_apps"
 BRAND_KITS_URL = f"{AIROPS_BASE_URL}/{BRAND_KIT_LIST_PATH}"

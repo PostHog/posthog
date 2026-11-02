@@ -2,15 +2,10 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.agilecrm import source as agilecrm_source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.agilecrm.source import AgileCRMSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.agilecrm import (
-    AgileCRMSourceConfig,
-)
+from products.warehouse_sources.sources.agilecrm import source as agilecrm_source_module
+from products.warehouse_sources.sources.agilecrm._config import AgileCRMSourceConfig
+from products.warehouse_sources.sources.agilecrm.source import AgileCRMSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 def _config() -> AgileCRMSourceConfig:

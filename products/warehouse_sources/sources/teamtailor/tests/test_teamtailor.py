@@ -3,24 +3,13 @@ from typing import Any
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.teamtailor import (
-    TeamtailorSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.teamtailor import teamtailor
-from products.warehouse_sources.backend.temporal.data_imports.sources.teamtailor.settings import (
-    ENDPOINTS,
-    TEAMTAILOR_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.teamtailor.source import TeamtailorSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.teamtailor.teamtailor import (
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always
+from products.warehouse_sources.sources.teamtailor import teamtailor
+from products.warehouse_sources.sources.teamtailor._config import TeamtailorSourceConfig
+from products.warehouse_sources.sources.teamtailor.settings import ENDPOINTS, TEAMTAILOR_ENDPOINTS
+from products.warehouse_sources.sources.teamtailor.source import TeamtailorSource
+from products.warehouse_sources.sources.teamtailor.teamtailor import (
     API_VERSION_20240404,
     API_VERSION_20240904,
     SUPPORTED_API_VERSIONS,

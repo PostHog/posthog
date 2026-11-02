@@ -10,8 +10,9 @@ from unittest.mock import Mock, patch
 import requests
 from botocore.session import Session
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_security_hub import aws_security_hub
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_security_hub.aws_security_hub import (
+from products.warehouse_sources.sources.aws_security_hub import aws_security_hub
+from products.warehouse_sources.sources.aws_security_hub._config import AwsSecurityHubSourceConfig
+from products.warehouse_sources.sources.aws_security_hub.aws_security_hub import (
     AwsSecurityHubClient,
     AwsSecurityHubError,
     AwsSecurityHubResumeConfig,
@@ -19,20 +20,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_securi
     probe_endpoint_permissions,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_security_hub.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_security_hub.source import (
-    AwsSecurityHubSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.aws_security_hub.settings import ENDPOINTS
+from products.warehouse_sources.sources.aws_security_hub.source import AwsSecurityHubSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager
+from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
     route,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awssecurityhub import (
-    AwsSecurityHubSourceConfig,
 )
 
 VERSION = "2018-10-26"

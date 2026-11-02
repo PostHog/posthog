@@ -10,16 +10,8 @@ from unittest import mock
 import requests
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hatchet import (
-    HatchetSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet import (
+from products.warehouse_sources.sources.hatchet._config import HatchetSourceConfig
+from products.warehouse_sources.sources.hatchet.hatchet import (
     HatchetHostNotAllowedError,
     HatchetResumeConfig,
     HatchetTokenError,
@@ -29,8 +21,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.ha
     resolve_connection,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.settings import HATCHET_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.source import HatchetSource
+from products.warehouse_sources.sources.hatchet.settings import HATCHET_ENDPOINTS
+from products.warehouse_sources.sources.hatchet.source import HatchetSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 logger = structlog.get_logger()
 
@@ -181,7 +174,7 @@ class TestGetRows:
 
     def test_unsafe_host_raises_before_any_fetch(self):
         with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet._is_host_safe",
+            "products.warehouse_sources.sources.hatchet.hatchet._is_host_safe",
             return_value=(False, "Hosts with internal IP addresses are not allowed"),
         ):
             result = self._driver().run("workflow_runs", [], team_id=99)
@@ -194,11 +187,11 @@ class TestGetRows:
         # SSRF check.
         with (
             mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet._is_host_safe",
+                "products.warehouse_sources.sources.hatchet.hatchet._is_host_safe",
                 return_value=(True, None),
             ),
             mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet.is_cloud",
+                "products.warehouse_sources.sources.hatchet.hatchet.is_cloud",
                 return_value=True,
             ),
         ):
@@ -386,7 +379,7 @@ class TestValidateCredentials:
 
         with (
             mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet._is_host_safe",
+                "products.warehouse_sources.sources.hatchet.hatchet._is_host_safe",
                 return_value=(False, "Hosts with internal IP addresses are not allowed"),
             ),
             scripted_network([]) as network,
@@ -405,11 +398,11 @@ class TestValidateCredentials:
 
         with (
             mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet._is_host_safe",
+                "products.warehouse_sources.sources.hatchet.hatchet._is_host_safe",
                 return_value=(True, None),
             ),
             mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet.is_cloud",
+                "products.warehouse_sources.sources.hatchet.hatchet.is_cloud",
                 return_value=True,
             ),
             scripted_network([]) as network,

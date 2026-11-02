@@ -3,20 +3,10 @@ from typing import Any
 import pytest
 import time_machine
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.clevertap.settings import (
-    AUTH_ERROR,
-    EXPORT_ERROR,
-    PERMISSION_ERROR,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.clevertap.source import ClevertapSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clevertap import (
-    ClevertapSourceConfig,
-)
+from products.warehouse_sources.sources.clevertap._config import ClevertapSourceConfig
+from products.warehouse_sources.sources.clevertap.settings import AUTH_ERROR, EXPORT_ERROR, PERMISSION_ERROR
+from products.warehouse_sources.sources.clevertap.source import ClevertapSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def config(**overrides: Any) -> ClevertapSourceConfig:

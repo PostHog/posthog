@@ -6,22 +6,17 @@ import time_machine
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gnews import GNewsSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.gnews.gnews import (
+from products.warehouse_sources.sources.gnews._config import GNewsSourceConfig
+from products.warehouse_sources.sources.gnews.gnews import (
     GNewsResumeConfig,
     _build_params,
     _flatten_article,
     _format_from_value,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.gnews.settings import GNEWS_ENDPOINTS, PAGE_SIZE
-from products.warehouse_sources.backend.temporal.data_imports.sources.gnews.source import GNewsSource
+from products.warehouse_sources.sources.gnews.settings import GNEWS_ENDPOINTS, PAGE_SIZE
+from products.warehouse_sources.sources.gnews.source import GNewsSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

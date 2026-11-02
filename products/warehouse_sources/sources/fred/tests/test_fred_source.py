@@ -1,13 +1,9 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.fred.settings import ENDPOINTS, FRED_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.fred.source import FredSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fred import FredSourceConfig
+from products.warehouse_sources.sources.fred._config import FredSourceConfig
+from products.warehouse_sources.sources.fred.settings import ENDPOINTS, FRED_ENDPOINTS
+from products.warehouse_sources.sources.fred.source import FredSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 class TestFredSource:

@@ -1,14 +1,10 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.telnyx import TelnyxSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.telnyx.settings import ENDPOINTS, TELNYX_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.telnyx.source import TelnyxSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always
+from products.warehouse_sources.sources.telnyx._config import TelnyxSourceConfig
+from products.warehouse_sources.sources.telnyx.settings import ENDPOINTS, TELNYX_ENDPOINTS
+from products.warehouse_sources.sources.telnyx.source import TelnyxSource
 
 
 class TestTelnyxSource:
@@ -33,9 +29,7 @@ class TestTelnyxSource:
             (False, False, "Invalid Telnyx API key"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.telnyx.source.validate_telnyx_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.telnyx.source.validate_telnyx_credentials")
     def test_validate_credentials(
         self,
         mock_validate: mock.MagicMock,

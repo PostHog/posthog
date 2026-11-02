@@ -1,9 +1,7 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.coassemble.source import CoassembleSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coassemble import (
-    CoassembleSourceConfig,
-)
+from products.warehouse_sources.sources.coassemble._config import CoassembleSourceConfig
+from products.warehouse_sources.sources.coassemble.source import CoassembleSource
 
 
 class TestCoassembleSource:
@@ -12,7 +10,7 @@ class TestCoassembleSource:
         self.team_id = 123
         self.config = CoassembleSourceConfig(workspace_id="ws-1", api_key="sk-key")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.coassemble.source.coassemble_source")
+    @mock.patch("products.warehouse_sources.sources.coassemble.source.coassemble_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "courses"

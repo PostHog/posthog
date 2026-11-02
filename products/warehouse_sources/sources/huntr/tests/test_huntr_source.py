@@ -1,10 +1,7 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.huntr import HuntrSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.huntr.huntr import HuntrResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.huntr.source import HuntrSource
+from products.warehouse_sources.sources.huntr._config import HuntrSourceConfig
+from products.warehouse_sources.sources.huntr.huntr import HuntrResumeConfig
+from products.warehouse_sources.sources.huntr.source import HuntrSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 class TestHuntrSource:

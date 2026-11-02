@@ -9,7 +9,7 @@ from unittest import mock
 import requests
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.checkout_com import (
+from products.warehouse_sources.sources.checkout_com.checkout_com import (
     PAGE_SIZE,
     CheckoutComResumeConfig,
     _format_timestamp,
@@ -25,9 +25,7 @@ AUTH_SESSION_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth.make_tracked_session"
 )
 # validate_credentials probes through a tracked session built in the checkout_com module.
-PROBE_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.checkout_com.make_tracked_session"
-)
+PROBE_SESSION_PATCH = "products.warehouse_sources.sources.checkout_com.checkout_com.make_tracked_session"
 
 
 def _disputes_response(items: list[dict[str, Any]], total: int | None = None, *, drop_data: bool = False) -> Response:

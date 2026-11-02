@@ -4,7 +4,16 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.profound._config import ProfoundSourceConfig
+from products.warehouse_sources.sources.profound.profound import (
+    ProfoundCategoriesError,
+    ProfoundResumeConfig,
+    _to_report_date,
+    fetch_category_ids,
+    validate_credentials,
+)
+from products.warehouse_sources.sources.profound.source import ProfoundSource
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
@@ -12,17 +21,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     route,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.profound import (
-    ProfoundSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.profound.profound import (
-    ProfoundCategoriesError,
-    ProfoundResumeConfig,
-    _to_report_date,
-    fetch_category_ids,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.profound.source import ProfoundSource
 
 CATEGORIES_PATH = "/v1/org/categories"
 

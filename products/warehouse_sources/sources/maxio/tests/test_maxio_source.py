@@ -3,10 +3,9 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.maxio import MaxioSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.maxio.source import MaxioSource
+from products.warehouse_sources.sources.maxio._config import MaxioSourceConfig
+from products.warehouse_sources.sources.maxio.source import MaxioSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceInputs
 
 
 def _config(**overrides: Any) -> MaxioSourceConfig:
@@ -40,9 +39,7 @@ class TestMaxioSource:
 
     @pytest.mark.parametrize("subdomain", ["bad domain", "acme!", ""])
     def test_validate_credentials_rejects_invalid_subdomain_without_network(self, subdomain: str) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.maxio.source.validate_maxio_credentials"
-        ) as mock_validate:
+        with patch("products.warehouse_sources.sources.maxio.source.validate_maxio_credentials") as mock_validate:
             valid, error = MaxioSource().validate_credentials(_config(subdomain=subdomain), team_id=123)
 
         assert valid is False
@@ -54,7 +51,7 @@ class TestMaxioSource:
         self, result: tuple[bool, str | None], message: str | None
     ) -> None:
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.maxio.source.validate_maxio_credentials",
+            "products.warehouse_sources.sources.maxio.source.validate_maxio_credentials",
             return_value=result,
         ) as mock_validate:
             valid, error = MaxioSource().validate_credentials(
@@ -73,9 +70,7 @@ class TestMaxioSourceForPipeline:
         inputs = _inputs("subscriptions", should_use_incremental_field=False)
         inputs.db_incremental_field_last_value = "2024-05-01"
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.maxio.source.maxio_source"
-        ) as mock_source:
+        with patch("products.warehouse_sources.sources.maxio.source.maxio_source") as mock_source:
             mock_source.return_value.name = "subscriptions"
             mock_source.return_value.column_hints = None
             source.source_for_pipeline(_config(), manager, inputs)

@@ -1,8 +1,6 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.coinmarketcap.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.coinmarketcap.source import CoinMarketCapSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coinmarketcap import (
-    CoinMarketCapSourceConfig,
-)
+from products.warehouse_sources.sources.coinmarketcap._config import CoinMarketCapSourceConfig
+from products.warehouse_sources.sources.coinmarketcap.settings import ENDPOINTS
+from products.warehouse_sources.sources.coinmarketcap.source import CoinMarketCapSource
 
 
 class TestCoinMarketCapSource:

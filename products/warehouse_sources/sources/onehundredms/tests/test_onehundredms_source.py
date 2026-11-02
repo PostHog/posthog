@@ -3,13 +3,9 @@ import pytest
 from requests.exceptions import HTTPError
 from requests_mock import Mocker
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.onehundredms import (
-    OneHundredMsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.onehundredms.onehundredms import (
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.onehundredms.source import OneHundredMsSource
+from products.warehouse_sources.sources.onehundredms._config import OneHundredMsSourceConfig
+from products.warehouse_sources.sources.onehundredms.onehundredms import validate_credentials
+from products.warehouse_sources.sources.onehundredms.source import OneHundredMsSource
 
 
 @pytest.mark.parametrize("status,expected", [(200, None), (401, "app access key"), (403, "denied access")])

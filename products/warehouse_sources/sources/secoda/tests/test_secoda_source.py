@@ -1,7 +1,7 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.secoda import SecodaSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.secoda.source import SecodaSource
+from products.warehouse_sources.sources.secoda._config import SecodaSourceConfig
+from products.warehouse_sources.sources.secoda.source import SecodaSource
 
 
 class TestSecodaSource:
@@ -10,7 +10,7 @@ class TestSecodaSource:
         self.team_id = 123
         self.config = SecodaSourceConfig(api_key="sk-key")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.secoda.source.validate_credentials")
+    @mock.patch("products.warehouse_sources.sources.secoda.source.validate_credentials")
     def test_validate_credentials_delegates_to_shared_helper(self, mock_validate: mock.MagicMock) -> None:
         # The source method forwards the workspace API key to the shared validator and returns its result verbatim.
         mock_validate.return_value = (False, "Invalid Secoda API key")
@@ -18,7 +18,7 @@ class TestSecodaSource:
         assert result == (False, "Invalid Secoda API key")
         mock_validate.assert_called_once_with("sk-key")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.secoda.source.secoda_source")
+    @mock.patch("products.warehouse_sources.sources.secoda.source.secoda_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "tables"

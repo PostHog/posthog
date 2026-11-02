@@ -6,7 +6,8 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.circleci.circleci import (
+from products.warehouse_sources.sources.circleci._config import CircleCISourceConfig
+from products.warehouse_sources.sources.circleci.circleci import (
     CIRCLECI_V2,
     CIRCLECI_V3,
     V3_PROJECTS_PAGE_LIMIT,
@@ -16,12 +17,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.circleci.c
     get_rows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.circleci.settings import (
-    CIRCLECI_ENDPOINTS,
-    ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.circleci.source import CircleCISource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.circleci.settings import CIRCLECI_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.sources.circleci.source import CircleCISource
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
@@ -29,13 +27,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     route,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.circleci import (
-    CircleCISourceConfig,
-)
 
-PATCH_SESSION = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.circleci.circleci.make_tracked_session"
-)
+PATCH_SESSION = "products.warehouse_sources.sources.circleci.circleci.make_tracked_session"
 
 
 def _make_manager(resume_state: CircleCIResumeConfig | None = None) -> mock.MagicMock:
@@ -244,7 +237,7 @@ class TestJobsFanOut:
         ]
 
     @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.circleci.circleci.MAX_JOB_PAGES_PER_WORKFLOW",
+        "products.warehouse_sources.sources.circleci.circleci.MAX_JOB_PAGES_PER_WORKFLOW",
         2,
     )
     def test_job_page_cap_logs_workflow_identifier(self):

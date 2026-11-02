@@ -3,22 +3,15 @@ from typing import Any
 import pytest
 import time_machine
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kubecost import (
-    KubecostSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.kubecost.kubecost import (
+from products.warehouse_sources.sources.kubecost._config import KubecostSourceConfig
+from products.warehouse_sources.sources.kubecost.kubecost import (
     KubecostResumeConfig,
     normalize_host,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.kubecost.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.kubecost.source import KubecostSource
+from products.warehouse_sources.sources.kubecost.settings import ENDPOINTS
+from products.warehouse_sources.sources.kubecost.source import KubecostSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 _TODAY_WINDOW = "2026-07-15T00:00:00Z,2026-07-16T00:00:00Z"
 

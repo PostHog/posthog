@@ -4,22 +4,15 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    Script,
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.recallai import (
-    RecallAISourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.recall_ai.recall_ai import (
+from products.warehouse_sources.sources.recall_ai._config import RecallAISourceConfig
+from products.warehouse_sources.sources.recall_ai.recall_ai import (
     RecallAIResumeConfig,
     _to_iso8601,
     base_url_for_region,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.recall_ai.settings import USAGE_BACKFILL_DAYS
-from products.warehouse_sources.backend.temporal.data_imports.sources.recall_ai.source import RecallAISource
+from products.warehouse_sources.sources.recall_ai.settings import USAGE_BACKFILL_DAYS
+from products.warehouse_sources.sources.recall_ai.source import RecallAISource
+from products.warehouse_sources.sources.sdk.testing import DriveResult, Script, ScriptedResponse, SourceDriver
 
 BASE_URL = "https://us-east-1.recall.ai"
 
@@ -187,7 +180,7 @@ class TestRecallAIUsage:
     def _drive_usage(self, days: int, **inputs: Any) -> DriveResult:
         script = [_page({"bot_total": float(index * 60)}) for index in range(days)]
         with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.recall_ai.recall_ai._utc_today",
+            "products.warehouse_sources.sources.recall_ai.recall_ai._utc_today",
             return_value=self.TODAY,
         ):
             return _drive("usage", script, **inputs)

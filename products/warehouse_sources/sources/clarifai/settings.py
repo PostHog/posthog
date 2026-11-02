@@ -1,11 +1,7 @@
 from dataclasses import field
 from typing import Any
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-)
+from products.warehouse_sources.sources.sdk import DependentEndpointConfig, frozen
 
 DEFAULT_API_HOST = "https://api.clarifai.com"
 PAGE_SIZE = 128

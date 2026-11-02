@@ -3,19 +3,10 @@ from typing import Literal
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.grafana import (
-    GrafanaAuthMethodConfig,
-    GrafanaSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.grafana.grafana import (
-    GrafanaAuth,
-    GrafanaRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.grafana.source import GrafanaSource
+from products.warehouse_sources.sources.grafana._config import GrafanaAuthMethodConfig, GrafanaSourceConfig
+from products.warehouse_sources.sources.grafana.grafana import GrafanaAuth, GrafanaRetryableError
+from products.warehouse_sources.sources.grafana.source import GrafanaSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 def _config(selection: Literal["token", "basic"] = "token", **auth_kwargs) -> GrafanaSourceConfig:
@@ -74,7 +65,7 @@ class TestGrafanaSourceForwarding:
         self.source = GrafanaSource()
         self.config = _config(token="glsa_secret")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.grafana.source.grafana_source")
+    @mock.patch("products.warehouse_sources.sources.grafana.source.grafana_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_grafana_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "annotations"

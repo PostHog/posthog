@@ -4,8 +4,8 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldSelectConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.firehydrant.source import FireHydrantSource
+from products.warehouse_sources.sources.firehydrant.source import FireHydrantSource
+from products.warehouse_sources.sources.sdk import SourceFieldSelectConfig
 
 
 def _config() -> Any:
@@ -53,7 +53,7 @@ class TestResumableWiring:
             captured.update(kwargs)
             return "sentinel"
 
-        import products.warehouse_sources.backend.temporal.data_imports.sources.firehydrant.source as source_module
+        import products.warehouse_sources.sources.firehydrant.source as source_module
 
         monkeypatch.setattr(source_module, "firehydrant_source", fake_source)
 

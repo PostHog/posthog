@@ -1,6 +1,4 @@
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalFieldType
+from products.warehouse_sources.sources.sdk import IncrementalFieldType, frozen
 
 BASE_URL = "https://api.cloudflare.com/client/v4"
 # D1 caps a single query at 30 s and a statement at 100 KB; 1,000 rows keeps a wide-row page well

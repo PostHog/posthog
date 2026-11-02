@@ -5,27 +5,14 @@ import pytest
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.semanticscholar import (
-    SemanticScholarSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.semantic_scholar.semantic_scholar import (
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.semantic_scholar._config import SemanticScholarSourceConfig
+from products.warehouse_sources.sources.semantic_scholar.semantic_scholar import (
     SemanticScholarResumeConfig,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.semantic_scholar.settings import (
-    AUTH_ERROR,
-    LIMIT_ERROR,
-    QUERY_ERROR,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.semantic_scholar.source import (
-    SemanticScholarSource,
-)
+from products.warehouse_sources.sources.semantic_scholar.settings import AUTH_ERROR, LIMIT_ERROR, QUERY_ERROR
+from products.warehouse_sources.sources.semantic_scholar.source import SemanticScholarSource
 
 BASE_URL = "https://api.semanticscholar.org/graph/v1"
 CONFIG = SemanticScholarSourceConfig(api_key="test-api-key", query='"test paper" | graphs')

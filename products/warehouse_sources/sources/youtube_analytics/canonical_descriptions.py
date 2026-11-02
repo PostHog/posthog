@@ -1,7 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_analytics.settings import (
+from products.warehouse_sources.sources.sdk import CanonicalDescriptions
+from products.warehouse_sources.sources.youtube_analytics.settings import (
     AUDIENCE_RETENTION,
     CHANNEL_DAILY,
     CONCURRENT_VIEWERS,

@@ -1,21 +1,14 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.wikipediapageviews import (
-    WikipediaPageviewsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.wikipedia_pageviews.settings import (
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
+from products.warehouse_sources.sources.wikipedia_pageviews._config import WikipediaPageviewsSourceConfig
+from products.warehouse_sources.sources.wikipedia_pageviews.settings import (
     ARTICLE_PAGEVIEWS_ENDPOINT,
     COUNTRY_TOP_ARTICLES_ENDPOINT,
     MAX_ARTICLES,
     MAX_COUNTRIES,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.wikipedia_pageviews.source import (
-    WikipediaPageviewsSource,
-)
+from products.warehouse_sources.sources.wikipedia_pageviews.source import WikipediaPageviewsSource
 
 
 class TestWikipediaPageviewsSource:

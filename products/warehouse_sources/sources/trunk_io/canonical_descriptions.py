@@ -1,11 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.settings import (
-    MERGE_QUEUE_PULL_REQUESTS,
-    TEST_COLLECTIONS,
-    TESTS,
-)
+from products.warehouse_sources.sources.sdk import CanonicalDescriptions
+from products.warehouse_sources.sources.trunk_io.settings import MERGE_QUEUE_PULL_REQUESTS, TEST_COLLECTIONS, TESTS
 
 _MERGE_QUEUE_DOCS_URL = "https://docs.trunk.io/merge-queue/reference/merge"
 _V2_DOCS_URL = "https://docs.trunk.io/flaky-tests/reference/api-reference"

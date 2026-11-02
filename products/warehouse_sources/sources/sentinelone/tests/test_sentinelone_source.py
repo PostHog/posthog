@@ -1,7 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sentinelone import (
-    SentineloneSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.sentinelone.source import SentineloneSource
+from products.warehouse_sources.sources.sentinelone._config import SentineloneSourceConfig
+from products.warehouse_sources.sources.sentinelone.source import SentineloneSource
 
 
 class TestSentineloneSource:

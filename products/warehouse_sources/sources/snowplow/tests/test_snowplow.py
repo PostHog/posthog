@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
     ScriptedResponse,
@@ -17,12 +17,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.snowplow import (
-    SnowplowSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.snowplow import snowplow
-from products.warehouse_sources.backend.temporal.data_imports.sources.snowplow.settings import SNOWPLOW_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.snowplow.snowplow import (
+from products.warehouse_sources.sources.snowplow import snowplow
+from products.warehouse_sources.sources.snowplow._config import SnowplowSourceConfig
+from products.warehouse_sources.sources.snowplow.settings import SNOWPLOW_ENDPOINTS
+from products.warehouse_sources.sources.snowplow.snowplow import (
     SnowplowAuthError,
     SnowplowResumeConfig,
     SnowplowRetryableError,
@@ -31,7 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.snowplow.s
     _jobs_window_bounds,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.snowplow.source import SnowplowSource
+from products.warehouse_sources.sources.snowplow.source import SnowplowSource
 
 _ORG_PATH = "/api/msc/v1/organizations/org-1"
 _TOKEN_PATH = f"{_ORG_PATH}/credentials/v3/token"

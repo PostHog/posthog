@@ -5,10 +5,8 @@ from typing import Any
 import pytest
 import time_machine
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
-    OAUTH2_PERMANENT_ERROR_MARKER,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk import OAUTH2_PERMANENT_ERROR_MARKER
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
     ScriptedResponse,
@@ -17,14 +15,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     route,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.trafficstars import (
-    TrafficStarsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.trafficstars.source import TrafficStarsSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.trafficstars.trafficstars import (
-    TrafficStarsResumeConfig,
-    validate_credentials,
-)
+from products.warehouse_sources.sources.trafficstars._config import TrafficStarsSourceConfig
+from products.warehouse_sources.sources.trafficstars.source import TrafficStarsSource
+from products.warehouse_sources.sources.trafficstars.trafficstars import TrafficStarsResumeConfig, validate_credentials
 
 TOKEN = ScriptedResponse(json={"access_token": "tok", "expires_in": 36000, "token_type": "Bearer"})
 INVALID_GRANT = ScriptedResponse(

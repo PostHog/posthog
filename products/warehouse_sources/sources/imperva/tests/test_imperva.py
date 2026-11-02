@@ -8,21 +8,16 @@ from unittest.mock import patch
 import requests_mock
 from requests import HTTPError, Request
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.imperva import (
-    ImpervaSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.imperva.imperva import (
+from products.warehouse_sources.sources.imperva._config import ImpervaSourceConfig
+from products.warehouse_sources.sources.imperva.imperva import (
     ImpervaAPIError,
     ImpervaAuth,
     ImpervaResumeConfig,
     make_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.imperva.settings import DAY_MS
-from products.warehouse_sources.backend.temporal.data_imports.sources.imperva.source import ImpervaSource
+from products.warehouse_sources.sources.imperva.settings import DAY_MS
+from products.warehouse_sources.sources.imperva.source import ImpervaSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 SITES_URL = "https://api.imperva.com/sites-mgmt/v3/sites"
 STATS_URL = "https://my.imperva.com/api/stats/v1"

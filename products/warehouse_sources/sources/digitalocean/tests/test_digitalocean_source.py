@@ -1,15 +1,9 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.source import DigitalOceanSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.digitalocean import (
-    DigitalOceanSourceConfig,
-)
+from products.warehouse_sources.sources.digitalocean._config import DigitalOceanSourceConfig
+from products.warehouse_sources.sources.digitalocean.source import DigitalOceanSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, always, scripted_network
 
 
 def _config() -> DigitalOceanSourceConfig:
@@ -48,7 +42,7 @@ class TestDigitalOceanValidateCredentials:
 
 
 class TestDigitalOceanSourceForPipeline:
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.source.digitalocean_source")
+    @patch("products.warehouse_sources.sources.digitalocean.source.digitalocean_source")
     def test_passes_token_and_endpoint_through(self, mock_source: MagicMock) -> None:
         resource = MagicMock()
         resource.name = "droplets"

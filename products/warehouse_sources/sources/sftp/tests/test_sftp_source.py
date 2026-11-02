@@ -5,31 +5,21 @@ from typing import Any, cast
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.file_parsing import (
-    DELIMITER_ERROR,
-    FILE_PATH_COLUMN,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sftp import (
-    SFTPAuthTypeConfig,
-    SFTPCombineFilesConfig,
-    SFTPSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.sftp.sftp import (
+from products.warehouse_sources.sources.sdk import DELIMITER_ERROR, FILE_PATH_COLUMN, SourceInputs
+from products.warehouse_sources.sources.sftp._config import SFTPAuthTypeConfig, SFTPCombineFilesConfig, SFTPSourceConfig
+from products.warehouse_sources.sources.sftp.sftp import (
     AUTH_FAILED_ERROR,
     DIRECTORY_ERROR,
     SFTPAuth,
     SFTPCredentialsError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.sftp.source import SFTPSource
+from products.warehouse_sources.sources.sftp.source import SFTPSource
 
 DIRECTORY_MODE = stat.S_IFDIR | 0o755
 FILE_MODE = stat.S_IFREG | 0o644
 
-CONNECTION_TARGET = "products.warehouse_sources.backend.temporal.data_imports.sources.sftp.source.sftp_connection"
-TRANSPORT_CONNECTION_TARGET = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.sftp.sftp.sftp_connection"
-)
+CONNECTION_TARGET = "products.warehouse_sources.sources.sftp.source.sftp_connection"
+TRANSPORT_CONNECTION_TARGET = "products.warehouse_sources.sources.sftp.sftp.sftp_connection"
 
 
 class FakeAttributes:
@@ -274,9 +264,7 @@ class TestSourceForPipeline:
             combine_files=SFTPCombineFilesConfig(table_name="orders", enabled=True),
         )
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.sftp.source.sftp_source"
-        ) as source_fn:
+        with patch("products.warehouse_sources.sources.sftp.source.sftp_source") as source_fn:
             self.source.source_for_pipeline(config, make_inputs("orders"))
 
         kwargs = source_fn.call_args.kwargs
@@ -316,9 +304,7 @@ class TestHostRechecks:
         with patch.object(SFTPSource, "is_database_host_valid", return_value=(False, "internal IP")):
             with (
                 patch(CONNECTION_TARGET) as connection,
-                patch(
-                    "products.warehouse_sources.backend.temporal.data_imports.sources.sftp.source.sftp_source"
-                ) as source_fn,
+                patch("products.warehouse_sources.sources.sftp.source.sftp_source") as source_fn,
             ):
                 with pytest.raises(SFTPCredentialsError, match="internal IP"):
                     if method == "get_schemas":

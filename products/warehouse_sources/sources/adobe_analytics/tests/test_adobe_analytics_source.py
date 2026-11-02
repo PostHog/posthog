@@ -2,20 +2,15 @@ from datetime import date
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_analytics.adobe_analytics import (
+from products.warehouse_sources.sources.adobe_analytics._config import AdobeAnalyticsSourceConfig
+from products.warehouse_sources.sources.adobe_analytics.adobe_analytics import (
     ADOBE_ANALYTICS_API_VERSION_2_0,
     ADOBE_ANALYTICS_API_VERSION_V1,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_analytics.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_analytics.source import AdobeAnalyticsSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.adobeanalytics import (
-    AdobeAnalyticsSourceConfig,
-)
+from products.warehouse_sources.sources.adobe_analytics.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.adobe_analytics.source import AdobeAnalyticsSource
 
-_SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.adobe_analytics.source"
+_SOURCE_MODULE = "products.warehouse_sources.sources.adobe_analytics.source"
 
 
 class TestAdobeAnalyticsSource:

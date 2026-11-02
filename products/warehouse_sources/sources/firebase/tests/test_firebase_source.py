@@ -4,23 +4,14 @@ from unittest import mock
 
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.settings import AUTH_USERS_TABLE
-from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.source import FirebaseSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.firebase import (
-    FirebaseKeyFileConfig,
-    FirebaseSourceConfig,
-)
-from products.warehouse_sources.backend.types import IncrementalFieldType
+from products.warehouse_sources.sources.firebase._config import FirebaseKeyFileConfig, FirebaseSourceConfig
+from products.warehouse_sources.sources.firebase.settings import AUTH_USERS_TABLE
+from products.warehouse_sources.sources.firebase.source import FirebaseSource
+from products.warehouse_sources.sources.sdk import IncrementalFieldType, SourceInputs, incremental_field
 
-_GET_TABLES = "products.warehouse_sources.backend.temporal.data_imports.sources.firebase.source.get_tables"
-_GET_INCREMENTAL_FIELDS = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.firebase.source.get_incremental_fields"
-)
-_VALIDATE = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.firebase.source.validate_firebase_credentials"
-)
+_GET_TABLES = "products.warehouse_sources.sources.firebase.source.get_tables"
+_GET_INCREMENTAL_FIELDS = "products.warehouse_sources.sources.firebase.source.get_incremental_fields"
+_VALIDATE = "products.warehouse_sources.sources.firebase.source.validate_firebase_credentials"
 _UPDATED_ON = incremental_field("updatedOn", IncrementalFieldType.DateTime)
 
 

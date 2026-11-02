@@ -1,11 +1,6 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.recurly import (
-    RecurlySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.recurly.source import RecurlySource
+from products.warehouse_sources.sources.recurly._config import RecurlySourceConfig
+from products.warehouse_sources.sources.recurly.source import RecurlySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 _EMPTY_PAGE = ScriptedResponse(json={"object": "list", "has_more": False, "next": None, "data": [{"id": "r1"}]})
 

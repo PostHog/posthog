@@ -2,22 +2,16 @@ import pytest
 import time_machine
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.appdynamics import AppdynamicsAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.settings import (
+from products.warehouse_sources.sources.appdynamics._config import AppdynamicsAuthMethodConfig, AppdynamicsSourceConfig
+from products.warehouse_sources.sources.appdynamics.appdynamics import AppdynamicsAuth
+from products.warehouse_sources.sources.appdynamics.settings import (
     DEFAULT_EVENT_TYPES,
     MAX_EVENT_TYPES,
     MAX_METRIC_PATHS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.source import AppdynamicsSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appdynamics import (
-    AppdynamicsAuthMethodConfig,
-    AppdynamicsSourceConfig,
-)
+from products.warehouse_sources.sources.appdynamics.source import AppdynamicsSource
+from products.warehouse_sources.sources.sdk import SourceInputs
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 def _api_client_config(metric_paths: str | None = None, event_types: str | None = None) -> AppdynamicsSourceConfig:
@@ -119,9 +113,7 @@ class TestAppdynamicsSource:
         assert valid is False
         assert error is not None and "Too many event types" in error
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.source.validate_appdynamics_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.appdynamics.source.validate_appdynamics_credentials")
     def test_validate_credentials_plumbing(self, mock_validate: mock.Mock) -> None:
         mock_validate.return_value = (True, None)
         valid, error = self.source.validate_credentials(_api_client_config(), self.team_id, schema_name="applications")
@@ -130,9 +122,7 @@ class TestAppdynamicsSource:
         _, kwargs = mock_validate.call_args
         assert kwargs["schema_name"] == "applications"
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.source.appdynamics_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.appdynamics.source.appdynamics_source")
     def test_source_for_pipeline_plumbing(self, mock_source: mock.Mock) -> None:
         inputs = _source_inputs(schema_name="health_rule_violations", incremental=True)
         manager = mock.MagicMock()

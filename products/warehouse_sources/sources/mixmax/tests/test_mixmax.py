@@ -5,17 +5,11 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mixmax import MixMaxSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.mixmax.mixmax import (
-    MixmaxResumeConfig,
-    _build_url,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.mixmax.settings import MIXMAX_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.mixmax.source import MixMaxSource
+from products.warehouse_sources.sources.mixmax._config import MixMaxSourceConfig
+from products.warehouse_sources.sources.mixmax.mixmax import MixmaxResumeConfig, _build_url
+from products.warehouse_sources.sources.mixmax.settings import MIXMAX_ENDPOINTS
+from products.warehouse_sources.sources.mixmax.source import MixMaxSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 def _driver() -> SourceDriver:

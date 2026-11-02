@@ -1,28 +1,20 @@
 from collections.abc import Iterator
 from typing import Any, cast
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from products.warehouse_sources.sources.sdk import (
+    APIKeyAuth,
     Endpoint,
     EndpointResource,
     RESTAPIConfig,
     RESTClient,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    ResumableSourceManager,
     SinglePagePaginator,
+    SourceResponse,
+    frozen,
+    rest_api_resource,
+    schema_for_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.sevdesk.settings import (
-    BASE_URL,
-    ENDPOINTS,
-    PAGE_SIZE,
-    REQUEST_TIMEOUT_SECONDS,
-)
+from products.warehouse_sources.sources.sevdesk.settings import BASE_URL, ENDPOINTS, PAGE_SIZE, REQUEST_TIMEOUT_SECONDS
 
 
 @frozen

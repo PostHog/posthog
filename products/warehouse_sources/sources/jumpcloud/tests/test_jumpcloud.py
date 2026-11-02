@@ -7,7 +7,18 @@ from unittest.mock import MagicMock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.jumpcloud._config import JumpcloudSourceConfig
+from products.warehouse_sources.sources.jumpcloud.jumpcloud import (
+    EVENTS_PAGE_SIZE,
+    REST_PAGE_SIZE,
+    JumpcloudResumeConfig,
+    JumpcloudRetryableError,
+    _parse_search_after,
+    validate_credentials,
+)
+from products.warehouse_sources.sources.jumpcloud.settings import ENDPOINTS, JUMPCLOUD_ENDPOINTS
+from products.warehouse_sources.sources.jumpcloud.source import JumpcloudSource
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
     Script,
@@ -16,22 +27,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jumpcloud import (
-    JumpcloudSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.jumpcloud.jumpcloud import (
-    EVENTS_PAGE_SIZE,
-    REST_PAGE_SIZE,
-    JumpcloudResumeConfig,
-    JumpcloudRetryableError,
-    _parse_search_after,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.jumpcloud.settings import (
-    ENDPOINTS,
-    JUMPCLOUD_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.jumpcloud.source import JumpcloudSource
 
 
 def _driver() -> SourceDriver:

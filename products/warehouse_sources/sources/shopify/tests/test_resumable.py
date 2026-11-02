@@ -5,12 +5,8 @@ from unittest.mock import MagicMock, patch
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.constants import (
-    ABANDONED_CHECKOUTS,
-    ORDERS,
-    SHOPIFY_GRAPHQL_OBJECTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify import (
+from products.warehouse_sources.sources.shopify.constants import ABANDONED_CHECKOUTS, ORDERS, SHOPIFY_GRAPHQL_OBJECTS
+from products.warehouse_sources.sources.shopify.shopify import (
     PHASE_ALL,
     PHASE_EARLIEST,
     PHASE_LATEST,
@@ -280,7 +276,7 @@ class TestMakePaginatedShopifyRequest:
 @pytest.fixture(autouse=True)
 def _mock_access_token():
     with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify._get_shopify_access_token",
+        "products.warehouse_sources.sources.shopify.shopify._get_shopify_access_token",
         return_value="test-token",
     ):
         yield
@@ -291,9 +287,7 @@ class TestShopifySourceResume:
         logger = MagicMock()
         manager = _make_manager(can_resume=False)
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify.requests.Session"
-        ) as session_cls:
+        with patch("products.warehouse_sources.sources.shopify.shopify.requests.Session") as session_cls:
             sess = session_cls.return_value
             captured = _record_post_vars(
                 sess,
@@ -330,9 +324,7 @@ class TestShopifySourceResume:
         resume_state = ShopifyResumeConfig(phase=PHASE_ALL, cursor="resume-here")
         manager = _make_manager(can_resume=True, resume_state=resume_state)
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify.requests.Session"
-        ) as session_cls:
+        with patch("products.warehouse_sources.sources.shopify.shopify.requests.Session") as session_cls:
             sess = session_cls.return_value
             captured = _record_post_vars(
                 sess,
@@ -363,9 +355,7 @@ class TestShopifySourceResume:
         resume_state = ShopifyResumeConfig(phase=PHASE_LATEST, cursor="latest-cursor")
         manager = _make_manager(can_resume=True, resume_state=resume_state)
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify.requests.Session"
-        ) as session_cls:
+        with patch("products.warehouse_sources.sources.shopify.shopify.requests.Session") as session_cls:
             sess = session_cls.return_value
             captured = _record_post_vars(
                 sess,
@@ -396,9 +386,7 @@ class TestShopifySourceResume:
         resume_state = ShopifyResumeConfig(phase=PHASE_EARLIEST, cursor="earliest-cursor")
         manager = _make_manager(can_resume=True, resume_state=resume_state)
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify.requests.Session"
-        ) as session_cls:
+        with patch("products.warehouse_sources.sources.shopify.shopify.requests.Session") as session_cls:
             sess = session_cls.return_value
             captured = _record_post_vars(
                 sess,

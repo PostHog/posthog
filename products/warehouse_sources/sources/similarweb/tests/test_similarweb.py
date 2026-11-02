@@ -6,16 +6,9 @@ import time_machine
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    ScriptedResponse,
-    SourceDriver,
-    always,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.similarweb import (
-    SimilarwebSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.similarweb.settings import (
+from products.warehouse_sources.sources.sdk.testing import DriveResult, ScriptedResponse, SourceDriver, always
+from products.warehouse_sources.sources.similarweb._config import SimilarwebSourceConfig
+from products.warehouse_sources.sources.similarweb.settings import (
     API_VERSION_LEGACY,
     API_VERSION_V5,
     BASE_URL,
@@ -28,7 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.similarweb
     V5_WORLDWIDE_COUNTRY,
     VISITS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.similarweb.similarweb import (
+from products.warehouse_sources.sources.similarweb.similarweb import (
     NO_DOMAINS_ERROR,
     SimilarwebResumeConfig,
     coerce_month,
@@ -36,7 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.similarweb
     normalize_country,
     parse_domains,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.similarweb.source import SimilarwebSource
+from products.warehouse_sources.sources.similarweb.source import SimilarwebSource
 
 
 def _response(status: int = 200, json_body: Any = None) -> ScriptedResponse:

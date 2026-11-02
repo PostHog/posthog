@@ -11,7 +11,8 @@ import time_machine
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_selling_partner.amazon_selling_partner import (
+from products.warehouse_sources.sources.amazon_selling_partner._config import AmazonSellingPartnerSourceConfig
+from products.warehouse_sources.sources.amazon_selling_partner.amazon_selling_partner import (
     ACCESS_DENIED_MESSAGE,
     LWA_REJECTED_MESSAGE,
     MISSING_MARKETPLACES_MESSAGE,
@@ -27,20 +28,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_sel
     transaction_windows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_selling_partner.settings import (
+from products.warehouse_sources.sources.amazon_selling_partner.settings import (
     EARLIEST_START,
     ORDERS_INCLUDED_DATA,
     REPORT_DOCUMENTS_PATH as DOCUMENTS_PATH,
     REPORTS_PATH,
     VENDOR_REPORTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_selling_partner.source import (
-    AmazonSellingPartnerSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
-    OAuth2AuthRequestError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.amazon_selling_partner.source import AmazonSellingPartnerSource
+from products.warehouse_sources.sources.sdk import OAuth2AuthRequestError
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
     ScriptedResponse,
@@ -48,9 +45,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     route,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.amazonsellingpartner import (
-    AmazonSellingPartnerSourceConfig,
 )
 
 TOKEN_PATH = "/auth/o2/token"

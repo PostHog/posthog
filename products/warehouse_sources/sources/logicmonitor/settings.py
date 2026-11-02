@@ -1,7 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-)
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField, IncrementalFieldType
 
 API_VERSION = "3"
 API_DOCS_URL = "https://www.logicmonitor.com/support/rest-api-v3-swagger-documentation"

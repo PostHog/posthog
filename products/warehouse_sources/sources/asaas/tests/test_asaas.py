@@ -5,7 +5,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.asaas.asaas import (
+from products.warehouse_sources.sources.asaas._config import AsaasSourceConfig
+from products.warehouse_sources.sources.asaas.asaas import (
     PRODUCTION_BASE_URL,
     SANDBOX_BASE_URL,
     AsaasResumeConfig,
@@ -14,14 +15,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.asaas.asaa
     get_resource,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.asaas.source import AsaasSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.asaas import AsaasSourceConfig
+from products.warehouse_sources.sources.asaas.source import AsaasSource
+from products.warehouse_sources.sources.sdk import Endpoint
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 _INCREMENTAL_ENDPOINTS = [
     ("Payments", "dateCreated[ge]"),
@@ -37,10 +33,8 @@ _FULL_REFRESH_ENDPOINTS = {
     "PixTransactions",
 }
 
-VALIDATE_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.asaas.source.validate_asaas_credentials"
-)
-ASAAS_SOURCE_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.asaas.source.asaas_source"
+VALIDATE_PATCH = "products.warehouse_sources.sources.asaas.source.validate_asaas_credentials"
+ASAAS_SOURCE_PATCH = "products.warehouse_sources.sources.asaas.source.asaas_source"
 
 
 def _driver(environment: Literal["production", "sandbox"] = "production") -> SourceDriver:

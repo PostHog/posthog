@@ -8,8 +8,9 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.automox import automox
-from products.warehouse_sources.backend.temporal.data_imports.sources.automox.automox import (
+from products.warehouse_sources.sources.automox import automox
+from products.warehouse_sources.sources.automox._config import AutomoxSourceConfig
+from products.warehouse_sources.sources.automox.automox import (
     MULTIPLE_ORGS_ERROR,
     ORG_NOT_FOUND_ERROR,
     AutomoxOrganizationError,
@@ -20,20 +21,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.automox.au
     resolve_organization,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.automox.settings import (
-    AUTOMOX_ENDPOINTS,
-    ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.automox.source import AutomoxSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.automox import (
-    AutomoxSourceConfig,
-)
+from products.warehouse_sources.sources.automox.settings import AUTOMOX_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.sources.automox.source import AutomoxSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, route, scripted_network
 
 ORGS_BODY = [
     {"id": 123, "uuid": "uuid-123", "name": "Org A"},

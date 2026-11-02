@@ -2,14 +2,9 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.clockodo.source import ClockodoSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clockodo import (
-    ClockodoSourceConfig,
-)
+from products.warehouse_sources.sources.clockodo._config import ClockodoSourceConfig
+from products.warehouse_sources.sources.clockodo.source import ClockodoSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 def _config() -> ClockodoSourceConfig:
@@ -34,9 +29,7 @@ class TestClockodoSource:
         inputs.logger = MagicMock()
         inputs.api_version = pin
         manager = MagicMock()
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.clockodo.source.clockodo_source"
-        ) as mock_source:
+        with patch("products.warehouse_sources.sources.clockodo.source.clockodo_source") as mock_source:
             ClockodoSource().source_for_pipeline(_config(), manager, inputs)
         mock_source.assert_called_once()
         kwargs = mock_source.call_args.kwargs

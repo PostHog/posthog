@@ -2,15 +2,10 @@ from typing import Any
 
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds.finnworlds import (
-    MAX_COUNTRIES,
-    MAX_TICKERS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds.source import FinnworldsSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.finnworlds import (
-    FinnworldsSourceConfig,
-)
+from products.warehouse_sources.sources.finnworlds import source as source_module
+from products.warehouse_sources.sources.finnworlds._config import FinnworldsSourceConfig
+from products.warehouse_sources.sources.finnworlds.finnworlds import MAX_COUNTRIES, MAX_TICKERS
+from products.warehouse_sources.sources.finnworlds.source import FinnworldsSource
 
 
 def _make_inputs(**overrides: Any) -> mock.MagicMock:

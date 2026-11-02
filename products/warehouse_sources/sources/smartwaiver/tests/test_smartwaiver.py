@@ -5,24 +5,16 @@ import time_machine
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    Script,
-    ScriptedResponse,
-    SourceDriver,
-    always,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.smartwaiver import (
-    SmartwaiverSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.smartwaiver.smartwaiver import (
+from products.warehouse_sources.sources.sdk.testing import DriveResult, Script, ScriptedResponse, SourceDriver, always
+from products.warehouse_sources.sources.smartwaiver._config import SmartwaiverSourceConfig
+from products.warehouse_sources.sources.smartwaiver.smartwaiver import (
     CHECKINS_MAX_OFFSET,
     PAGE_SIZE,
     SmartwaiverResumeConfig,
     _clamp_before_current_hour,
     _format_dts,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.smartwaiver.source import SmartwaiverSource
+from products.warehouse_sources.sources.smartwaiver.source import SmartwaiverSource
 
 _NOW = datetime(2026, 7, 8, 15, 42, 30, tzinfo=UTC)
 # `fromDts` must not be within the current hour, so recent cursors clamp to 14:59:59.

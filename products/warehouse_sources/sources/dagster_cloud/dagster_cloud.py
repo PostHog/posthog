@@ -7,16 +7,8 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
-    make_tracked_session,
-    retry_with_deadline,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.dagster_cloud.queries import VALIDATION_QUERY
-from products.warehouse_sources.backend.temporal.data_imports.sources.dagster_cloud.settings import (
+from products.warehouse_sources.sources.dagster_cloud.queries import VALIDATION_QUERY
+from products.warehouse_sources.sources.dagster_cloud.settings import (
     DAGSTER_CLOUD_ENDPOINTS,
     DAGSTER_CLOUD_INSIGHTS_ENTITY_LIMIT,
     DAGSTER_CLOUD_INSIGHTS_GRANULARITY,
@@ -27,6 +19,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dagster_cl
     DagsterCloudFanOutConfig,
     DagsterCloudInsightsConfig,
     WindowUnit,
+)
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    retry_with_deadline,
 )
 
 # Dagster+'s edge occasionally returns short bursts of 5xx/429; retry in-process long enough to

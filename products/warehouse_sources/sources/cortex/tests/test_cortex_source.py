@@ -1,5 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.cortex.source import CortexSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cortex import CortexSourceConfig
+from products.warehouse_sources.sources.cortex._config import CortexSourceConfig
+from products.warehouse_sources.sources.cortex.source import CortexSource
 
 
 class TestCortexSource:

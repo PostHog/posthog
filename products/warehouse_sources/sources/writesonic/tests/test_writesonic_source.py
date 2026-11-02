@@ -1,9 +1,7 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.writesonic import (
-    WritesonicSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.writesonic.source import WritesonicSource
+from products.warehouse_sources.sources.writesonic._config import WritesonicSourceConfig
+from products.warehouse_sources.sources.writesonic.source import WritesonicSource
 
 
 class TestWritesonicSource:

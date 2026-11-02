@@ -1,40 +1,37 @@
 from typing import Optional, cast
 
-from posthog.cloud_utils import is_cloud
-
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.healthchecks import (
-    HealthchecksSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.healthchecks.healthchecks import (
+from products.warehouse_sources.sources.healthchecks._config import HealthchecksSourceConfig
+from products.warehouse_sources.sources.healthchecks.healthchecks import (
     HealthchecksResumeConfig,
     healthchecks_source,
     hostname_of,
     scheme_of,
     validate_credentials as validate_healthchecks_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.healthchecks.settings import (
+from products.warehouse_sources.sources.healthchecks.settings import (
     ENDPOINTS,
     HEALTHCHECKS_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    ValidateDatabaseHostMixin,
+    detect,
+    is_cloud,
+)
 
 
 @SourceRegistry.register
@@ -97,9 +94,7 @@ Leave the base URL blank for Healthchecks.io Cloud, or set it to your instance U
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.healthchecks.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.healthchecks.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

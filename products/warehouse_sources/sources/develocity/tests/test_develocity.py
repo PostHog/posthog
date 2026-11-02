@@ -12,27 +12,26 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from requests import HTTPError, Response, Session
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
+from products.warehouse_sources.sources.develocity._config import DevelocitySourceConfig
+from products.warehouse_sources.sources.develocity.develocity import (
+    DevelocityResumeConfig,
+    develocity_source,
+    validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.develocity.source import DevelocitySource
+from products.warehouse_sources.sources.sdk import (
+    RESTClientRetryableError,
+    ResumableSourceManager,
+    SourceInputs,
+    SourceResponse,
+    UnknownResourceError,
+)
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.develocity.develocity import (
-    DevelocityResumeConfig,
-    develocity_source,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.develocity.source import DevelocitySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.develocity import (
-    DevelocitySourceConfig,
 )
 
 REST_CLIENT = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client"

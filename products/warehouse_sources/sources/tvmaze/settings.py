@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Literal
 
-from products.warehouse_sources.backend.types import IncrementalField
+from products.warehouse_sources.sources.sdk import IncrementalField
 
 BASE_URL = "https://api.tvmaze.com"
 

@@ -3,22 +3,12 @@ from typing import Any
 from parameterized import parameterized
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    ScriptedResponse,
-    SourceDriver,
-    always,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zenloop import (
-    ZenloopSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.zenloop import zenloop
-from products.warehouse_sources.backend.temporal.data_imports.sources.zenloop.settings import (
-    ENDPOINTS,
-    ZENLOOP_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.zenloop.source import ZenloopSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.zenloop.zenloop import ZenloopResumeConfig
+from products.warehouse_sources.sources.sdk.testing import DriveResult, ScriptedResponse, SourceDriver, always
+from products.warehouse_sources.sources.zenloop import zenloop
+from products.warehouse_sources.sources.zenloop._config import ZenloopSourceConfig
+from products.warehouse_sources.sources.zenloop.settings import ENDPOINTS, ZENLOOP_ENDPOINTS
+from products.warehouse_sources.sources.zenloop.source import ZenloopSource
+from products.warehouse_sources.sources.zenloop.zenloop import ZenloopResumeConfig
 
 
 def _response(

@@ -4,13 +4,8 @@ from urllib.parse import parse_qs
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.dynamics365.dynamics365 import (
+from products.warehouse_sources.sources.dynamics365._config import Dynamics365SourceConfig
+from products.warehouse_sources.sources.dynamics365.dynamics365 import (
     INVALID_ORGANIZATION_URL_ERROR,
     Dynamics365ConfigurationError,
     Dynamics365ResumeConfig,
@@ -22,13 +17,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dynamics36
     strip_odata_annotations,
     token_url,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.dynamics365.settings import (
-    DYNAMICS365_ENDPOINTS,
-    ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.dynamics365.source import Dynamics365Source
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dynamics365 import (
-    Dynamics365SourceConfig,
+from products.warehouse_sources.sources.dynamics365.settings import DYNAMICS365_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.sources.dynamics365.source import Dynamics365Source
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
 )
 
 ORGANIZATION_URL = "https://contoso.crm.dynamics.com"

@@ -2,18 +2,15 @@ import pytest
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.e2b.e2b import (
+from products.warehouse_sources.sources.e2b._config import E2BSourceConfig
+from products.warehouse_sources.sources.e2b.e2b import (
     INVALID_CREDENTIALS_ERROR,
     NO_ACCESS_ERROR,
     E2BConfigurationError,
     _require_team_id,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.e2b.source import E2BSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.e2b import E2BSourceConfig
+from products.warehouse_sources.sources.e2b.source import E2BSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 class TestE2BSource:

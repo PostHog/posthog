@@ -4,9 +4,8 @@ from typing import Any
 
 from requests import HTTPError
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.checkly.settings import (
+from products.warehouse_sources.sources.checkly._config import ChecklySourceConfig
+from products.warehouse_sources.sources.checkly.settings import (
     AUTH_ERRORS,
     BASE_URL,
     ENDPOINTS,
@@ -15,25 +14,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.checkly.se
     RESULT_HISTORY_SECONDS,
     SUPPORTED_API_VERSIONS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resources,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    rename_parent_fields,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from products.warehouse_sources.sources.sdk import (
+    BearerTokenAuth,
+    EndpointResource,
     PageNumberPaginator,
+    RESTAPIConfig,
+    RESTClient,
+    ResumableSourceManager,
     SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.checkly import (
-    ChecklySourceConfig,
+    SourceInputs,
+    SourceResponse,
+    frozen,
+    parse_datetime_value,
+    rename_parent_fields,
+    rest_api_resources,
 )
 
 

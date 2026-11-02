@@ -5,11 +5,8 @@ import requests
 from requests.exceptions import ChunkedEncodingError
 from tenacity import Future, RetryCallState, Retrying
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.constants import (
-    ABANDONED_CHECKOUTS,
-    SHOPIFY_GRAPHQL_OBJECTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify import (
+from products.warehouse_sources.sources.shopify.constants import ABANDONED_CHECKOUTS, SHOPIFY_GRAPHQL_OBJECTS
+from products.warehouse_sources.sources.shopify.shopify import (
     _SHOPIFY_MAX_THROTTLE_WAIT_SECONDS,
     ShopifyRetryableError,
     _get_retryable_error,

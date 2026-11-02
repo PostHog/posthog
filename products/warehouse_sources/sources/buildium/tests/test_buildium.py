@@ -6,22 +6,16 @@ from unittest.mock import patch
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.buildium.buildium import BuildiumResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.buildium.settings import (
-    AUTH_ERROR,
-    CUSTOM_FIELD_ENTITY_TYPES,
-    PERMISSION_ERROR,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.buildium.source import BuildiumSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.buildium._config import BuildiumSourceConfig
+from products.warehouse_sources.sources.buildium.buildium import BuildiumResumeConfig
+from products.warehouse_sources.sources.buildium.settings import AUTH_ERROR, CUSTOM_FIELD_ENTITY_TYPES, PERMISSION_ERROR
+from products.warehouse_sources.sources.buildium.source import BuildiumSource
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     route,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.buildium import (
-    BuildiumSourceConfig,
 )
 
 CONFIG = BuildiumSourceConfig(client_id="example-client", client_secret="example-secret")
@@ -50,7 +44,7 @@ def test_pagination(
         ScriptedResponse(json=page, headers={"X-Total-Count": str(total)} if total is not None else {})
         for page in pages
     ]
-    with patch("products.warehouse_sources.backend.temporal.data_imports.sources.buildium.buildium.PAGE_SIZE", 2):
+    with patch("products.warehouse_sources.sources.buildium.buildium.PAGE_SIZE", 2):
         result = driver().run("leases", script)
 
     assert result.raised is None
@@ -186,7 +180,7 @@ def test_general_ledger_transactions_batches_accounts(
         page = GL_TRANSACTION_PAGES[(batch, request.param("offset") or "0")]
         return ScriptedResponse(json=page, headers={"X-Total-Count": str(total)})
 
-    module = "products.warehouse_sources.backend.temporal.data_imports.sources.buildium.buildium"
+    module = "products.warehouse_sources.sources.buildium.buildium"
     with patch(f"{module}.PAGE_SIZE", 2), patch(f"{module}.GL_ACCOUNT_BATCH_SIZE", 2):
         result = driver().run(
             "general_ledger_transactions",
@@ -267,7 +261,7 @@ def test_top_level_row_shaping_and_order(
 )
 def test_unpaginated_lists_read_one_response(endpoint: str, path: str) -> None:
     rows = [{"Id": index, "Name": f"Item {index}"} for index in range(3)]
-    with patch("products.warehouse_sources.backend.temporal.data_imports.sources.buildium.buildium.PAGE_SIZE", 2):
+    with patch("products.warehouse_sources.sources.buildium.buildium.PAGE_SIZE", 2):
         result = driver().run(endpoint, always(ScriptedResponse(json=rows)))
 
     assert result.raised is None

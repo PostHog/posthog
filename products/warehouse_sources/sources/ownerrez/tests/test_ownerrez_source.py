@@ -2,15 +2,9 @@ import base64
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ownerrez import (
-    OwnerrezSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.ownerrez.source import OwnerrezSource
+from products.warehouse_sources.sources.ownerrez._config import OwnerrezSourceConfig
+from products.warehouse_sources.sources.ownerrez.source import OwnerrezSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, always, scripted_network
 
 
 class TestOwnerrezSource:

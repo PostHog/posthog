@@ -10,21 +10,9 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    Script,
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-    source_inputs,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.qualtrics import (
-    QualtricsAuthMethodConfig,
-    QualtricsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.qualtrics import qualtrics as qualtrics_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.qualtrics.qualtrics import (
+from products.warehouse_sources.sources.qualtrics import qualtrics as qualtrics_module
+from products.warehouse_sources.sources.qualtrics._config import QualtricsAuthMethodConfig, QualtricsSourceConfig
+from products.warehouse_sources.sources.qualtrics.qualtrics import (
     EXPORT_FAILED_ERROR,
     QualtricsAuthManager,
     QualtricsClient,
@@ -43,7 +31,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.qualtrics.
     validate_credentials,
     validate_host,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.qualtrics.source import QualtricsSource
+from products.warehouse_sources.sources.qualtrics.source import QualtricsSource
+from products.warehouse_sources.sources.sdk.testing import (
+    DriveResult,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+    source_inputs,
+)
 
 HOST = "iad1.qualtrics.com"
 BASE = f"https://{HOST}/API/v3"

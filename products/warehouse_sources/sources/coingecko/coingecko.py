@@ -6,7 +6,7 @@ from typing import Any, Optional
 from requests import Response
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.settings import (
+from products.warehouse_sources.sources.coingecko.settings import (
     CHART_WINDOW_DAYS,
     COINGECKO_ENDPOINTS,
     DEFAULT_HISTORY_DAYS,
@@ -20,27 +20,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.
     OHLC_ENDPOINT,
     CoinGeckoEndpointConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from products.warehouse_sources.sources.sdk import (
+    ClientConfig,
+    PageNumberPaginator,
+    ResponseAction,
     RESTAPIConfig,
     RESTClient,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import (
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceResponse,
     create_auth,
     create_response_hooks,
+    make_tracked_session,
+    rest_api_resource,
+    validate_via_probe,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    PageNumberPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-    ClientConfig,
-    ResponseAction,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 # Two distinct hosts: the free Demo plan (and keyless public access) live on api.coingecko.com,
 # paid Pro plans on pro-api.coingecko.com. The plan also selects which API-key header to send.

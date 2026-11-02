@@ -1,27 +1,15 @@
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlewebfonts import (
-    GoogleWebfontsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.google_webfonts.google_webfonts import (
+from products.warehouse_sources.sources.google_webfonts._config import GoogleWebfontsSourceConfig
+from products.warehouse_sources.sources.google_webfonts.google_webfonts import (
     GOOGLE_WEBFONTS_API_KEY_HEADER,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.google_webfonts.settings import (
-    ENDPOINTS,
-    GOOGLE_WEBFONTS_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.google_webfonts.source import GoogleWebfontsSource
+from products.warehouse_sources.sources.google_webfonts.settings import ENDPOINTS, GOOGLE_WEBFONTS_ENDPOINTS
+from products.warehouse_sources.sources.google_webfonts.source import GoogleWebfontsSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver(api_key: str = "AIza-key") -> SourceDriver:

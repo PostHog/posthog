@@ -7,31 +7,27 @@ from urllib.parse import quote
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.cloudinary.settings import (
+from products.warehouse_sources.sources.cloudinary.settings import (
     CLOUDINARY_ENDPOINTS,
     LAST_ACCESS_REPORTS_PATH,
     MAX_RESULTS,
     USAGE_HISTORY_DAYS,
     USAGE_RESTATEMENT_DAYS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from products.warehouse_sources.sources.sdk import (
+    EndpointResource,
+    HttpBasicAuth,
+    JSONResponseCursorPaginator,
+    ResponseAction,
     RESTAPIConfig,
+    RESTClient,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceResponse,
     create_response_hooks,
+    make_tracked_session,
     rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import HttpBasicAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponseCursorPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-    EndpointResource,
-    ResponseAction,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 CLOUDINARY_API_HOSTS = {
     "global": "https://api.cloudinary.com",

@@ -1,9 +1,9 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.expo.source import ExpoSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.expo import ExpoSourceConfig
+from products.warehouse_sources.sources.expo._config import ExpoSourceConfig
+from products.warehouse_sources.sources.expo.source import ExpoSource
 
-_SOURCE = "products.warehouse_sources.backend.temporal.data_imports.sources.expo.source"
+_SOURCE = "products.warehouse_sources.sources.expo.source"
 
 
 class TestExpoSourceClass:

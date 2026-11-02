@@ -3,21 +3,15 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.payments import (
+from products.warehouse_sources.sources.checkout_com._config import CheckoutComSourceConfig
+from products.warehouse_sources.sources.checkout_com.payments import (
     SYNC_BUDGET_EXCEEDED_MARKER,
     UNRESOLVED_REFERENCES_MARKER,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.source import CheckoutComSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
-    OAUTH2_PERMANENT_ERROR_MARKER,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.checkoutcom import (
-    CheckoutComSourceConfig,
-)
+from products.warehouse_sources.sources.checkout_com.source import CheckoutComSource
+from products.warehouse_sources.sources.sdk import OAUTH2_PERMANENT_ERROR_MARKER
 
-DISCOVER_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.source.discover_report_types"
-)
+DISCOVER_PATCH = "products.warehouse_sources.sources.checkout_com.source.discover_report_types"
 _STATIC_SCHEMAS = [
     "disputes",
     "reports",
@@ -203,9 +197,7 @@ class TestCheckoutComSource:
             (False, False, "Invalid Checkout.com access keys"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.source.validate_checkout_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.checkout_com.source.validate_checkout_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
         mock_validate.return_value = mock_return
 
@@ -215,9 +207,7 @@ class TestCheckoutComSource:
         assert error_message == expected_message
         mock_validate.assert_called_once_with("production", "ack_id", "secret")
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.source.checkout_com_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.checkout_com.source.checkout_com_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_co_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "disputes"
@@ -239,9 +229,7 @@ class TestCheckoutComSource:
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2024-01-02T03:04:05Z"
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.source.checkout_com_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.checkout_com.source.checkout_com_source")
     def test_source_for_pipeline_omits_last_value_on_full_refresh(self, mock_co_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "disputes"
@@ -253,9 +241,7 @@ class TestCheckoutComSource:
         assert mock_co_source.call_args.kwargs["db_incremental_field_last_value"] is None
 
     @pytest.mark.parametrize("schema_name", ["reports", "financial_actions_report"])
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.source.checkout_com_reports_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.checkout_com.source.checkout_com_reports_source")
     def test_source_for_pipeline_routes_report_schemas(self, mock_reports_source, schema_name):
         inputs = mock.MagicMock()
         inputs.schema_name = schema_name
@@ -279,9 +265,7 @@ class TestCheckoutComSource:
     @pytest.mark.parametrize(
         "schema_name", ["payments", "payment_actions", "financial_actions", "customers", "instruments"]
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.source.checkout_com_payments_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.checkout_com.source.checkout_com_payments_source")
     def test_source_for_pipeline_routes_payments_schemas(self, mock_payments_source, schema_name):
         config = CheckoutComSourceConfig(
             environment="production", client_id="ack_id", client_secret="secret", start_date="2024-01-01"

@@ -13,7 +13,7 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.amplitude.settings import (
+from products.warehouse_sources.sources.amplitude.settings import (
     AMPLITUDE_ENDPOINTS,
     AMPLITUDE_HOSTS,
     EVENTS_DEFAULT_LOOKBACK_DAYS,
@@ -21,12 +21,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.amplitude.
     EVENTS_EXPORT_WINDOW_HOURS,
     AmplitudeEndpointConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
     make_tracked_session,
     retry_with_deadline,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 REQUEST_TIMEOUT_SECONDS = 600
 RETRY_MAX_ATTEMPTS = 5

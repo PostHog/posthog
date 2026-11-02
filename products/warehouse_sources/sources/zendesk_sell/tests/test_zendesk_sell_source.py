@@ -4,10 +4,10 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sell import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sell.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sell.source import ZendeskSellSource
+from products.warehouse_sources.sources.sdk import SourceResponse
+from products.warehouse_sources.sources.zendesk_sell import source as source_module
+from products.warehouse_sources.sources.zendesk_sell.settings import ENDPOINTS
+from products.warehouse_sources.sources.zendesk_sell.source import ZendeskSellSource
 
 
 class TestValidateCredentials:

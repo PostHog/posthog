@@ -2,8 +2,8 @@ import pytest
 from unittest import mock
 from unittest.mock import MagicMock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.close.source import CloseSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.close import CloseSourceConfig
+from products.warehouse_sources.sources.close._config import CloseSourceConfig
+from products.warehouse_sources.sources.close.source import CloseSource
 
 
 class TestCloseSource:
@@ -19,9 +19,7 @@ class TestCloseSource:
             (False, False, "Invalid Close API key"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.close.source.validate_close_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.close.source.validate_close_credentials")
     def test_validate_credentials(
         self, mock_validate: MagicMock, mock_return: bool, expected_valid: bool, expected_message: str | None
     ) -> None:

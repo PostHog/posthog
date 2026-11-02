@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from pymongo import MongoClient
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_documentdb.source import AwsDocumentDBSource
+from products.warehouse_sources.sources.aws_documentdb.source import AwsDocumentDBSource
 
 _MONGO_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo"
 

@@ -1,8 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.quo import QuoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.quo.source import QuoSource
+from products.warehouse_sources.sources.quo._config import QuoSourceConfig
+from products.warehouse_sources.sources.quo.source import QuoSource
 
 
 class TestQuoSource:
@@ -19,7 +19,7 @@ class TestQuoSource:
             (False, None, False, "Invalid Quo API key", "2026-03-30"),
         ],
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.quo.source.validate_quo_credentials")
+    @mock.patch("products.warehouse_sources.sources.quo.source.validate_quo_credentials")
     def test_validate_credentials(
         self, mock_validate, mock_return, api_version, expected_valid, expected_message, expected_version
     ):
@@ -39,7 +39,7 @@ class TestQuoSource:
             ("2026-03-30", "2026-03-30"),
         ],
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.quo.source.quo_source")
+    @mock.patch("products.warehouse_sources.sources.quo.source.quo_source")
     def test_source_for_pipeline_passes_resolved_version(self, mock_quo_source, pinned_version, expected_version):
         inputs = mock.MagicMock(api_version=pinned_version)
 

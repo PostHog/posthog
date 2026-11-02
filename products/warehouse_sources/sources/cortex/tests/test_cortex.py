@@ -6,17 +6,8 @@ from unittest.mock import Mock, patch
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    PageNumberPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.cortex.cortex import (
+from products.warehouse_sources.sources.cortex._config import CortexSourceConfig
+from products.warehouse_sources.sources.cortex.cortex import (
     _encode_entity_tag,
     _format_cortex_datetime,
     _normalize_dependency,
@@ -24,9 +15,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cortex.cor
     get_resource,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.cortex.settings import CORTEX_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.cortex.source import CortexSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cortex import CortexSourceConfig
+from products.warehouse_sources.sources.cortex.settings import CORTEX_ENDPOINTS
+from products.warehouse_sources.sources.cortex.source import CortexSource
+from products.warehouse_sources.sources.sdk import PageNumberPaginator, SinglePagePaginator
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 class _FakeDltResource:
@@ -96,7 +88,7 @@ class TestCortexTransport:
         assert resource["name"] == name
         assert resource["endpoint"]["path"] == config.path
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cortex.cortex.rest_api_resource")
+    @patch("products.warehouse_sources.sources.cortex.cortex.rest_api_resource")
     def test_cortex_source_entities_top_level(self, mock_rest_api_resource: Mock) -> None:
         mock_rest_api_resource.return_value = Mock()
         response = cortex_source(api_key="cx_key", endpoint="entities", team_id=1, job_id="job-1")
@@ -106,7 +98,7 @@ class TestCortexTransport:
         assert response.sort_mode == "asc"
         assert response.partition_keys is None
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cortex.cortex.build_dependent_resource")
+    @patch("products.warehouse_sources.sources.cortex.cortex.build_dependent_resource")
     def test_cortex_source_scorecard_scores_fanout_flattens_and_injects_parent_tag(
         self, mock_build_dependent_resource: Mock
     ) -> None:
@@ -140,7 +132,7 @@ class TestCortexTransport:
         assert kwargs["child_endpoint_extra"]["data_selector"] == "serviceScores"
         assert isinstance(kwargs["parent_endpoint_extra"]["paginator"], PageNumberPaginator)
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cortex.cortex.build_dependent_resource")
+    @patch("products.warehouse_sources.sources.cortex.cortex.build_dependent_resource")
     def test_cortex_source_relationships_fanout_flattens_entities(self, mock_build_dependent_resource: Mock) -> None:
         mock_build_dependent_resource.return_value = _FakeDltResource(
             "relationships",
@@ -214,7 +206,7 @@ class TestCortexTransport:
         assert formatted <= datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S")
 
     @parameterized.expand(["custom_events", "deploys", "dependencies", "entity_groups"])
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cortex.cortex.build_dependent_resource")
+    @patch("products.warehouse_sources.sources.cortex.cortex.build_dependent_resource")
     def test_entity_fanouts_bind_the_encoded_tag(
         self, endpoint: str, mock_build_dependent_resource: Mock, *_: Any
     ) -> None:
@@ -228,7 +220,7 @@ class TestCortexTransport:
         # Without the parent map the derived resolve field never exists on a parent row.
         assert kwargs["parent_data_map"] is _encode_entity_tag
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cortex.cortex.build_dependent_resource")
+    @patch("products.warehouse_sources.sources.cortex.cortex.build_dependent_resource")
     def test_cortex_source_custom_events_incremental_passes_the_watermark(
         self, mock_build_dependent_resource: Mock
     ) -> None:
@@ -256,7 +248,7 @@ class TestCortexTransport:
         # it has not reached yet.
         assert response.sort_mode == "desc"
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cortex.cortex.build_dependent_resource")
+    @patch("products.warehouse_sources.sources.cortex.cortex.build_dependent_resource")
     def test_entity_groups_keys_membership_on_a_column_the_fanout_injects(
         self, mock_build_dependent_resource: Mock
     ) -> None:

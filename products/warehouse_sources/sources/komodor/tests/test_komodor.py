@@ -10,30 +10,23 @@ from unittest.mock import MagicMock, patch
 from requests import Response, Session
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.komodor import (
-    KomodorSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.komodor.komodor import (
-    KomodorResumeConfig,
-    komodor_source,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.komodor.settings import (
+from products.warehouse_sources.sources.komodor._config import KomodorSourceConfig
+from products.warehouse_sources.sources.komodor.komodor import KomodorResumeConfig, komodor_source, validate_credentials
+from products.warehouse_sources.sources.komodor.settings import (
     SEARCH_INCREMENTAL_OVERLAP_SECONDS,
     SEARCH_RETENTION_MARGIN_SECONDS,
     SEARCH_RETENTION_SECONDS,
     SEARCH_WINDOW_SECONDS,
     WINDOWED_SEARCHES,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.komodor.source import KomodorSource
+from products.warehouse_sources.sources.komodor.source import KomodorSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceResponse
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 
 
 def response(body: dict[str, Any], status: int = 200) -> Response:

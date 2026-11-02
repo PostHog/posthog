@@ -5,16 +5,11 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.trello import TrelloSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.trello.settings import TRELLO_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.trello.source import TrelloSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.trello.trello import (
+from products.warehouse_sources.sources.sdk.testing import DriveResult, ScriptedResponse, SourceDriver, scripted_network
+from products.warehouse_sources.sources.trello._config import TrelloSourceConfig
+from products.warehouse_sources.sources.trello.settings import TRELLO_ENDPOINTS
+from products.warehouse_sources.sources.trello.source import TrelloSource
+from products.warehouse_sources.sources.trello.trello import (
     TrelloResumeConfig,
     _add_created_at,
     _format_incremental_value,

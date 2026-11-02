@@ -3,17 +3,11 @@ from datetime import UTC, datetime
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.promptingcompany import (
-    PromptingCompanySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.prompting_company.prompting_company import (
-    PromptingCompanyResumeConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.prompting_company.source import (
-    PromptingCompanySource,
-)
+from products.warehouse_sources.sources.prompting_company._config import PromptingCompanySourceConfig
+from products.warehouse_sources.sources.prompting_company.prompting_company import PromptingCompanyResumeConfig
+from products.warehouse_sources.sources.prompting_company.source import PromptingCompanySource
 
-SOURCE = "products.warehouse_sources.backend.temporal.data_imports.sources.prompting_company.source"
+SOURCE = "products.warehouse_sources.sources.prompting_company.source"
 
 
 @pytest.mark.parametrize(

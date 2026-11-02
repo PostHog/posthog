@@ -1,10 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.e_conomic.source import EConomicSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.economic import (
-    EConomicSourceConfig,
-)
+from products.warehouse_sources.sources.e_conomic._config import EConomicSourceConfig
+from products.warehouse_sources.sources.e_conomic.source import EConomicSource
 
 INCREMENTAL_ENDPOINTS = {"customers", "products", "invoices_booked"}
 
@@ -19,9 +17,7 @@ class TestECONomicSource:
         "is_valid, expected_valid, expected_has_message",
         [(True, True, False), (False, False, True)],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.e_conomic.source.validate_e_conomic_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.e_conomic.source.validate_e_conomic_credentials")
     def test_validate_credentials(
         self,
         mock_validate: mock.MagicMock,

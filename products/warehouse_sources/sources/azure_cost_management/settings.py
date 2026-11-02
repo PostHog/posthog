@@ -1,13 +1,13 @@
 from dataclasses import field
 from typing import Literal, Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
+from products.warehouse_sources.sources.sdk import (
+    IncrementalField,
+    IncrementalFieldType,
     PartitionFormat,
     PartitionMode,
+    frozen,
 )
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 # Azure restates cost for several days after usage lands (late meters, credits, reservations), so
 # every incremental run re-reads a trailing week and merge dedupes the overlap on the primary key.

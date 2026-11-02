@@ -8,12 +8,9 @@ from unittest.mock import Mock
 import requests_mock
 from requests.exceptions import ConnectionError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.poplar.poplar import (
-    poplar_source,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.poplar.settings import BASE_URL
+from products.warehouse_sources.sources.poplar.poplar import poplar_source, validate_credentials
+from products.warehouse_sources.sources.poplar.settings import BASE_URL
+from products.warehouse_sources.sources.sdk import SourceInputs, SourceResponse
 
 CAMPAIGNS = [{"id": "camp-1", "name": "Welcome postcards"}, {"id": "camp-2", "name": "Winback letters"}]
 

@@ -2,26 +2,19 @@ from typing import Any
 
 from requests import HTTPError
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import rest_api_resources
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    rename_parent_fields,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+from products.warehouse_sources.sources.mezmo._config import MezmoSourceConfig
+from products.warehouse_sources.sources.mezmo.settings import ENDPOINTS, INVALID_KEY_MESSAGE, PERMISSION_MESSAGE
+from products.warehouse_sources.sources.sdk import (
     ClientConfig,
     Endpoint,
     EndpointResource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mezmo import MezmoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.mezmo.settings import (
-    ENDPOINTS,
-    INVALID_KEY_MESSAGE,
-    PERMISSION_MESSAGE,
+    Resource,
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
+    rename_parent_fields,
+    rest_api_resources,
+    schema_for_resource,
 )
 
 

@@ -10,7 +10,8 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.cisco_duo.cisco_duo import (
+from products.warehouse_sources.sources.cisco_duo._config import CiscoDuoSourceConfig
+from products.warehouse_sources.sources.cisco_duo.cisco_duo import (
     CiscoDuoHostNotAllowedError,
     CiscoDuoLogSaturationError,
     CiscoDuoResumeConfig,
@@ -22,22 +23,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cisco_duo.
     sign_request,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.cisco_duo.settings import CISCO_DUO_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.cisco_duo.source import CiscoDuoSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ciscoduo import (
-    CiscoDuoSourceConfig,
-)
+from products.warehouse_sources.sources.cisco_duo.settings import CISCO_DUO_ENDPOINTS
+from products.warehouse_sources.sources.cisco_duo.source import CiscoDuoSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 HOST = "api-xxxxxxxx.duosecurity.com"
 IKEY = "DIWJ8X6AEYOR5OMC6TQ1"
 SKEY = "Zh5eGmUq9zpfQnyUIu5OL9iWoMMv5ZNmk3zLJ4Ep"
 
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.cisco_duo.cisco_duo"
+MODULE = "products.warehouse_sources.sources.cisco_duo.cisco_duo"
 
 
 def _response(*, status_code: int = 200, json_data: Any = None, headers: Optional[dict] = None) -> mock.MagicMock:

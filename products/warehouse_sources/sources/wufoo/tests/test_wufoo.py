@@ -3,20 +3,11 @@ from typing import Any
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.wufoo import WufooSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.wufoo.settings import FORMS_PAGE_LIMIT
-from products.warehouse_sources.backend.temporal.data_imports.sources.wufoo.source import WufooSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.wufoo.wufoo import (
-    PAGE_SIZE,
-    WufooResumeConfig,
-    validate_credentials,
-)
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, route, scripted_network
+from products.warehouse_sources.sources.wufoo._config import WufooSourceConfig
+from products.warehouse_sources.sources.wufoo.settings import FORMS_PAGE_LIMIT
+from products.warehouse_sources.sources.wufoo.source import WufooSource
+from products.warehouse_sources.sources.wufoo.wufoo import PAGE_SIZE, WufooResumeConfig, validate_credentials
 
 
 def _response(count: int, *, data_key: str = "Forms", status: int = 200, drop_key: bool = False) -> ScriptedResponse:

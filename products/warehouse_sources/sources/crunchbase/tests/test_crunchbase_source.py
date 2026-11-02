@@ -1,13 +1,8 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.crunchbase.source import CrunchbaseSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.crunchbase import (
-    CrunchbaseSourceConfig,
-)
+from products.warehouse_sources.sources.crunchbase._config import CrunchbaseSourceConfig
+from products.warehouse_sources.sources.crunchbase.source import CrunchbaseSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 class TestCrunchbaseSource:

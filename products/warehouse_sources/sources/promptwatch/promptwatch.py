@@ -6,28 +6,8 @@ import structlog
 from requests import Response, Session
 from urllib3.util.retry import Retry
 
-from posthog.dataclasses import frozen
-from posthog.temporal.common.errors import NonReportableError
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    PageNumberPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-    Endpoint,
-    EndpointResource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.promptwatch import (
-    PromptWatchSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.promptwatch.settings import (
+from products.warehouse_sources.sources.promptwatch._config import PromptWatchSourceConfig
+from products.warehouse_sources.sources.promptwatch.settings import (
     AUTH_ERROR,
     BASE_URL,
     CAPPED_ENDPOINTS,
@@ -42,6 +22,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.promptwatc
     PROJECT_ERROR,
     QUOTA_ERROR,
     VISITOR_WINDOW_DAYS,
+)
+from products.warehouse_sources.sources.sdk import (
+    APIKeyAuth,
+    Endpoint,
+    EndpointResource,
+    NonReportableError,
+    PageNumberPaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceInputs,
+    frozen,
+    make_tracked_session,
+    rest_api_resource,
 )
 
 logger = structlog.get_logger(__name__)

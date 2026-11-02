@@ -7,7 +7,8 @@ from unittest.mock import MagicMock
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.close.close import (
+from products.warehouse_sources.sources.close._config import CloseSourceConfig
+from products.warehouse_sources.sources.close.close import (
     INITIAL_INCREMENTAL_VALUE,
     CloseEventCursorPaginator,
     CloseOffsetPaginator,
@@ -17,14 +18,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.close.clos
     get_resource,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.close.source import CloseSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.close import CloseSourceConfig
+from products.warehouse_sources.sources.close.source import CloseSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 class TestCloseOffsetPaginator:

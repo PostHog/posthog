@@ -8,16 +8,9 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    RecordedRequest,
-    ScriptedResponse,
-    SourceDriver,
-    UnexpectedRequest,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.fastly import fastly
-from products.warehouse_sources.backend.temporal.data_imports.sources.fastly.fastly import (
+from products.warehouse_sources.sources.fastly import fastly
+from products.warehouse_sources.sources.fastly._config import FastlySourceConfig
+from products.warehouse_sources.sources.fastly.fastly import (
     FASTLY_BASE_URL,
     ORIGIN_INSPECTOR_PAGE_LIMIT,
     PLATFORM_METRICS_METRIC_SETS,
@@ -37,9 +30,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fastly.fas
     _usage_metrics_window,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.fastly.settings import ENDPOINTS, FASTLY_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.fastly.source import FastlySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fastly import FastlySourceConfig
+from products.warehouse_sources.sources.fastly.settings import ENDPOINTS, FASTLY_ENDPOINTS
+from products.warehouse_sources.sources.fastly.source import FastlySource
+from products.warehouse_sources.sources.sdk.testing import (
+    DriveResult,
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    UnexpectedRequest,
+    scripted_network,
+)
 
 
 def _driver() -> SourceDriver:

@@ -1,13 +1,8 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.babelforce.source import BabelforceSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.babelforce import (
-    BabelforceSourceConfig,
-)
+from products.warehouse_sources.sources.babelforce._config import BabelforceSourceConfig
+from products.warehouse_sources.sources.babelforce.source import BabelforceSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
 
 class TestBabelforceSource:

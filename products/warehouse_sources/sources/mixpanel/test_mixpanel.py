@@ -10,16 +10,9 @@ import requests
 import structlog
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mixpanel import (
-    MixpanelSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel import mixpanel as mp
-from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.mixpanel import (
+from products.warehouse_sources.sources.mixpanel import mixpanel as mp
+from products.warehouse_sources.sources.mixpanel._config import MixpanelSourceConfig
+from products.warehouse_sources.sources.mixpanel.mixpanel import (
     MAX_RETRY_AFTER_SECONDS,
     MixpanelResumeConfig,
     MixpanelRetryableError,
@@ -32,11 +25,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.m
     _to_date,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.settings import (
-    MIXPANEL_API_VERSION_2_0,
-    MIXPANEL_API_VERSION_V1,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.source import MixpanelSource
+from products.warehouse_sources.sources.mixpanel.settings import MIXPANEL_API_VERSION_2_0, MIXPANEL_API_VERSION_V1
+from products.warehouse_sources.sources.mixpanel.source import MixpanelSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 LOGGER = structlog.get_logger()
 

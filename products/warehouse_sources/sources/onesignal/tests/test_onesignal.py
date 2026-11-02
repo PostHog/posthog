@@ -2,16 +2,10 @@ import pytest
 
 from requests.exceptions import HTTPError, Timeout
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.onesignal import (
-    OneSignalSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.onesignal.onesignal import OneSignalResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.onesignal.source import OneSignalSource
+from products.warehouse_sources.sources.onesignal._config import OneSignalSourceConfig
+from products.warehouse_sources.sources.onesignal.onesignal import OneSignalResumeConfig
+from products.warehouse_sources.sources.onesignal.source import OneSignalSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 APP_ID = "11111111-2222-4333-8444-555555555555"
 API_KEY = "test_onesignal_key"

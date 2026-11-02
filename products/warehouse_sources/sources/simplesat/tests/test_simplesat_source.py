@@ -1,9 +1,7 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.simplesat import (
-    SimplesatSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.simplesat.source import SimplesatSource
+from products.warehouse_sources.sources.simplesat._config import SimplesatSourceConfig
+from products.warehouse_sources.sources.simplesat.source import SimplesatSource
 
 
 class TestSimplesatSource:
@@ -12,9 +10,7 @@ class TestSimplesatSource:
         self.team_id = 123
         self.config = SimplesatSourceConfig(api_key="ss-key")
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.simplesat.source.validate_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.simplesat.source.validate_credentials")
     def test_validate_credentials_delegates_to_transport(self, mock_validate: mock.MagicMock) -> None:
         # The status → message mapping is covered in test_simplesat.py; here we only lock in that the
         # source passes the api key through and returns the transport helper's verdict unchanged.
@@ -23,7 +19,7 @@ class TestSimplesatSource:
         mock_validate.assert_called_once_with(self.config.api_key)
         assert result == (False, "Invalid Simplesat API key")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.simplesat.source.simplesat_source")
+    @mock.patch("products.warehouse_sources.sources.simplesat.source.simplesat_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "surveys"

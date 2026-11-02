@@ -1,12 +1,6 @@
 from dataclasses import field
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import PartitionMode
-from products.warehouse_sources.backend.types import IncrementalField
+from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField, PartitionMode, frozen
 
 CLOUD_BILLING_URL = "https://cloudbilling.googleapis.com/"
 BUDGETS_URL = "https://billingbudgets.googleapis.com/"

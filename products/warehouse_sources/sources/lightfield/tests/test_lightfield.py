@@ -3,20 +3,11 @@ from typing import Any
 from parameterized import parameterized
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lightfield import (
-    LightfieldSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.lightfield.lightfield import check_token
-from products.warehouse_sources.backend.temporal.data_imports.sources.lightfield.settings import (
-    STANDARD_DEFINITION_RESOURCES,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.lightfield.source import LightfieldSource
+from products.warehouse_sources.sources.lightfield._config import LightfieldSourceConfig
+from products.warehouse_sources.sources.lightfield.lightfield import check_token
+from products.warehouse_sources.sources.lightfield.settings import STANDARD_DEFINITION_RESOURCES
+from products.warehouse_sources.sources.lightfield.source import LightfieldSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:

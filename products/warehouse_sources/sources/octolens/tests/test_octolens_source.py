@@ -1,17 +1,11 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.octolens import (
-    OctolensSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.octolens.source import OctolensSource
+from products.warehouse_sources.sources.octolens._config import OctolensSourceConfig
+from products.warehouse_sources.sources.octolens.source import OctolensSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, always, scripted_network
 
-SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.octolens.source"
+SOURCE_MODULE = "products.warehouse_sources.sources.octolens.source"
 
 
 class TestOctolensSource:

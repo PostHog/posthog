@@ -6,17 +6,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-    source_inputs,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.platformsh import (
-    PlatformShSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.platform_sh.platform_sh import (
+from products.warehouse_sources.sources.platform_sh._config import PlatformShSourceConfig
+from products.warehouse_sources.sources.platform_sh.platform_sh import (
     AUTH_FAILED_MESSAGE,
     PlatformShAuthenticationError,
     PlatformShClient,
@@ -27,8 +18,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.platform_s
     platform_sh_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.platform_sh.settings import PLATFORM_SH_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.platform_sh.source import PlatformShSource
+from products.warehouse_sources.sources.platform_sh.settings import PLATFORM_SH_ENDPOINTS
+from products.warehouse_sources.sources.platform_sh.source import PlatformShSource
+from products.warehouse_sources.sources.sdk.testing import (
+    DriveResult,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+    source_inputs,
+)
 
 API = "https://api.platform.sh"
 

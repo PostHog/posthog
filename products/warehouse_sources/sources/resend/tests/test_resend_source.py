@@ -2,17 +2,10 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.resend import (
-    ResendAuthMethodConfig,
-    ResendSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.resend.source import ResendSource
+from products.warehouse_sources.sources.resend._config import ResendAuthMethodConfig, ResendSourceConfig
+from products.warehouse_sources.sources.resend.source import ResendSource
+from products.warehouse_sources.sources.sdk import BearerTokenAuth
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _api_key_config(api_key: str = "re_test_key") -> ResendSourceConfig:
@@ -66,9 +59,7 @@ class TestResendSource:
         assert is_valid is False
         assert error_message is not None and "Missing Resend API key" in error_message
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.resend.source.resolve_resend_oauth_token"
-    )
+    @mock.patch("products.warehouse_sources.sources.resend.source.resolve_resend_oauth_token")
     @mock.patch.object(ResendSource, "get_oauth_integration")
     def test_validate_credentials_oauth_failure(self, mock_get_integration, mock_resolve):
         mock_resolve.return_value = "oauth_access_token"
@@ -109,9 +100,7 @@ class TestResendSource:
         assert result.paths == ["/audiences"]
         assert result.requests[0].headers["authorization"] == "Bearer re_test_key"
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.resend.source.resolve_resend_oauth_token"
-    )
+    @mock.patch("products.warehouse_sources.sources.resend.source.resolve_resend_oauth_token")
     @mock.patch.object(ResendSource, "get_oauth_integration")
     def test_source_for_pipeline_oauth_passes_integration_auth(self, mock_get_integration, mock_resolve):
         mock_resolve.return_value = "oauth_access_token"
@@ -132,7 +121,7 @@ class TestResendSourceForwarding:
         self.source = ResendSource()
         self.config = _api_key_config()
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.resend.source.resend_source")
+    @mock.patch("products.warehouse_sources.sources.resend.source.resend_source")
     def test_source_for_pipeline_api_key_passes_bearer_auth(self, mock_resend_source):
         mock_resend_source.return_value = mock.MagicMock()
 

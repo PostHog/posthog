@@ -2,20 +2,15 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.getdx._config import GetdxSourceConfig
+from products.warehouse_sources.sources.getdx.getdx import API_ERROR, AUTH_ERROR, PERMISSION_ERROR, GetdxResumeConfig
+from products.warehouse_sources.sources.getdx.source import GetdxSource
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.getdx import GetdxSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.getdx.getdx import (
-    API_ERROR,
-    AUTH_ERROR,
-    PERMISSION_ERROR,
-    GetdxResumeConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.getdx.source import GetdxSource
 
 
 def driver() -> SourceDriver:

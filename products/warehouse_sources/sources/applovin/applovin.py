@@ -10,9 +10,7 @@ from urllib.parse import urlencode
 import requests
 from structlog.types import FilteringBoundLogger
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.applovin.settings import (
+from products.warehouse_sources.sources.applovin.settings import (
     APPLOVIN_API_BASE_URL,
     APPLOVIN_ENDPOINTS,
     APPLOVIN_MANAGEMENT_API_BASE_URL,
@@ -33,11 +31,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.applovin.s
     AppLovinEndpointConfig,
     AppLovinManagementEndpointConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.observer import redact_request_urls
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.url_utils import redact_literal_values
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    redact_literal_values,
+    redact_request_urls,
+)
 
 REQUEST_TIMEOUT_SECONDS = 120
 VALIDATION_TIMEOUT_SECONDS = 30

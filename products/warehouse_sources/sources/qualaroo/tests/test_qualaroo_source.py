@@ -1,9 +1,7 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.qualaroo import (
-    QualarooSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.qualaroo.source import QualarooSource
+from products.warehouse_sources.sources.qualaroo._config import QualarooSourceConfig
+from products.warehouse_sources.sources.qualaroo.source import QualarooSource
 
 
 class TestQualarooSource:
@@ -12,9 +10,7 @@ class TestQualarooSource:
         self.team_id = 123
         self.config = QualarooSourceConfig(api_key="q-key", api_secret="q-secret")
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.qualaroo.source._validate_qualaroo_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.qualaroo.source._validate_qualaroo_credentials")
     def test_validate_credentials_delegates_to_qualaroo(self, mock_validate: mock.MagicMock) -> None:
         # The status-to-result mapping lives in qualaroo.validate_credentials; the source only forwards
         # the account-wide key/secret and returns the result unchanged.
@@ -23,7 +19,7 @@ class TestQualarooSource:
         mock_validate.assert_called_once_with("q-key", "q-secret")
         assert result == (False, "Invalid Qualaroo API key or secret")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.qualaroo.source.qualaroo_source")
+    @mock.patch("products.warehouse_sources.sources.qualaroo.source.qualaroo_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "nudges"

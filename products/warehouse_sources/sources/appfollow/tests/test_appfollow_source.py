@@ -1,19 +1,9 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.appfollow.settings import (
-    APPFOLLOW_V2,
-    APPFOLLOW_V3,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.appfollow.source import AppfollowSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appfollow import (
-    AppfollowSourceConfig,
-)
+from products.warehouse_sources.sources.appfollow._config import AppfollowSourceConfig
+from products.warehouse_sources.sources.appfollow.settings import APPFOLLOW_V2, APPFOLLOW_V3
+from products.warehouse_sources.sources.appfollow.source import AppfollowSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 class TestAppfollowSource:

@@ -1,16 +1,9 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rentcast import (
-    RentCastSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.rentcast.rentcast import RentCastResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.rentcast.source import RentCastSource
+from products.warehouse_sources.sources.rentcast._config import RentCastSourceConfig
+from products.warehouse_sources.sources.rentcast.rentcast import RentCastResumeConfig
+from products.warehouse_sources.sources.rentcast.source import RentCastSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 class TestRentCastSource:

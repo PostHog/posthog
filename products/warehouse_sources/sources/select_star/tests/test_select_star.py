@@ -3,24 +3,11 @@ from typing import Any, Optional
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.selectstar import (
-    SelectStarSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.select_star.select_star import (
-    SelectStarResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.select_star.settings import (
-    ENDPOINTS,
-    SELECTSTAR_BASE_URL,
-    SELECTSTAR_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.select_star.source import SelectStarSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
+from products.warehouse_sources.sources.select_star._config import SelectStarSourceConfig
+from products.warehouse_sources.sources.select_star.select_star import SelectStarResumeConfig, validate_credentials
+from products.warehouse_sources.sources.select_star.settings import ENDPOINTS, SELECTSTAR_BASE_URL, SELECTSTAR_ENDPOINTS
+from products.warehouse_sources.sources.select_star.source import SelectStarSource
 
 TABLES_URL = f"{SELECTSTAR_BASE_URL}/v1/tables/"
 TAGS_URL = f"{SELECTSTAR_BASE_URL}/v1/tags/"

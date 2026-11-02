@@ -2,23 +2,14 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.harvest import (
-    HarvestSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.harvest.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.harvest.settings import (
-    ENDPOINTS,
-    HARVEST_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.harvest.source import HarvestSource
+from products.warehouse_sources.sources.harvest._config import HarvestSourceConfig
+from products.warehouse_sources.sources.harvest.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.harvest.settings import ENDPOINTS, HARVEST_ENDPOINTS
+from products.warehouse_sources.sources.harvest.source import HarvestSource
+from products.warehouse_sources.sources.sdk import SourceFieldInputConfig
 
-VALIDATE_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.harvest.source.validate_harvest_credentials"
-)
-SOURCE_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.harvest.source.harvest_source"
+VALIDATE_PATCH = "products.warehouse_sources.sources.harvest.source.validate_harvest_credentials"
+SOURCE_PATCH = "products.warehouse_sources.sources.harvest.source.harvest_source"
 
 
 def _config() -> HarvestSourceConfig:

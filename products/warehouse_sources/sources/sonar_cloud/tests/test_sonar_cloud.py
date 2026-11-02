@@ -4,26 +4,24 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sonarcloud import (
-    SonarCloudSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.sonar_cloud.settings import MAX_PAGE_SIZE
-from products.warehouse_sources.backend.temporal.data_imports.sources.sonar_cloud.sonar_cloud import (
+from products.warehouse_sources.sources.sonar_cloud._config import SonarCloudSourceConfig
+from products.warehouse_sources.sources.sonar_cloud.settings import MAX_PAGE_SIZE
+from products.warehouse_sources.sources.sonar_cloud.sonar_cloud import (
     SonarCloudResumeConfig,
     _base_url,
     _total,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.sonar_cloud.source import SonarCloudSource
+from products.warehouse_sources.sources.sonar_cloud.source import SonarCloudSource
 
-LOGGER_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.sonar_cloud.sonar_cloud.logger"
+LOGGER_PATCH = "products.warehouse_sources.sources.sonar_cloud.sonar_cloud.logger"
 
 
 def _response(

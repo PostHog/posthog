@@ -4,14 +4,9 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openfda import (
-    OpenFDASourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.openfda.source import OpenFDASource
+from products.warehouse_sources.sources.openfda._config import OpenFDASourceConfig
+from products.warehouse_sources.sources.openfda.source import OpenFDASource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 
 
 def _config(api_key: str | None = "key") -> Any:
@@ -63,14 +58,14 @@ class TestGetSchemas:
 class TestValidateCredentials:
     def test_success(self, monkeypatch: Any) -> None:
         monkeypatch.setattr(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.openfda.source.validate_openfda_credentials",
+            "products.warehouse_sources.sources.openfda.source.validate_openfda_credentials",
             lambda _key: True,
         )
         assert OpenFDASource().validate_credentials(_config(), team_id=1) == (True, None)
 
     def test_failure_returns_message(self, monkeypatch: Any) -> None:
         monkeypatch.setattr(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.openfda.source.validate_openfda_credentials",
+            "products.warehouse_sources.sources.openfda.source.validate_openfda_credentials",
             lambda _key: False,
         )
         ok, message = OpenFDASource().validate_credentials(_config(), team_id=1)
@@ -95,7 +90,7 @@ class TestResumableWiring:
     def test_source_for_pipeline_drops_watermark_when_not_incremental(self, monkeypatch: Any) -> None:
         captured: dict[str, Any] = {}
         monkeypatch.setattr(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.openfda.source.openfda_source",
+            "products.warehouse_sources.sources.openfda.source.openfda_source",
             lambda **kwargs: captured.update(kwargs),
         )
         inputs = MagicMock()

@@ -3,20 +3,15 @@ from typing import Any
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.firecrawl._config import FirecrawlSourceConfig
+from products.warehouse_sources.sources.firecrawl.firecrawl import FirecrawlResumeConfig, validate_credentials
+from products.warehouse_sources.sources.firecrawl.source import FirecrawlSource
+from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
     route,
     scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.firecrawl.firecrawl import (
-    FirecrawlResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.firecrawl.source import FirecrawlSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.firecrawl import (
-    FirecrawlSourceConfig,
 )
 
 

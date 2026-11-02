@@ -5,11 +5,8 @@ from typing import Any, Optional
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientNonRetryableError,
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.sdk import RESTClientNonRetryableError, RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
     ScriptedResponse,
@@ -18,11 +15,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     scripted_network,
     source_inputs,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zohocrm import (
-    ZohoCRMSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.source import ZohoCRMSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.zoho_crm import (
+from products.warehouse_sources.sources.zoho_crm._config import ZohoCRMSourceConfig
+from products.warehouse_sources.sources.zoho_crm.source import ZohoCRMSource
+from products.warehouse_sources.sources.zoho_crm.zoho_crm import (
     CLIENT_REJECTED_MESSAGE,
     CLIENT_SECRET_REJECTED_MESSAGE,
     MAX_FIELDS_PER_REQUEST,

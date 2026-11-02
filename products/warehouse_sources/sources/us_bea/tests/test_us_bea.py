@@ -5,15 +5,11 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.usbea import UsBeaSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.us_bea.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.us_bea.source import UsBeaSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.us_bea.us_bea import (
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
+from products.warehouse_sources.sources.us_bea._config import UsBeaSourceConfig
+from products.warehouse_sources.sources.us_bea.settings import ENDPOINTS
+from products.warehouse_sources.sources.us_bea.source import UsBeaSource
+from products.warehouse_sources.sources.us_bea.us_bea import (
     UsBeaAuthenticationError,
     UsBeaRequestError,
     UsBeaResponseTooLargeError,
@@ -24,7 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.us_bea.us_
     validate_custom_query,
 )
 
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.us_bea.us_bea"
+_MODULE = "products.warehouse_sources.sources.us_bea.us_bea"
 
 
 def _mock_response(status_code: int = 200, json_data: Any = None) -> MagicMock:

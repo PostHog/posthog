@@ -5,14 +5,8 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    UnexpectedRequest,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.coveralls.coveralls import (
+from products.warehouse_sources.sources.coveralls._config import CoverallsSourceConfig
+from products.warehouse_sources.sources.coveralls.coveralls import (
     MAX_REPOSITORIES,
     CoverallsResumeConfig,
     CoverallsRetryableError,
@@ -21,10 +15,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coveralls.
     parse_repositories,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.coveralls.settings import COVERALLS_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.coveralls.source import CoverallsSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coveralls import (
-    CoverallsSourceConfig,
+from products.warehouse_sources.sources.coveralls.settings import COVERALLS_ENDPOINTS
+from products.warehouse_sources.sources.coveralls.source import CoverallsSource
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    UnexpectedRequest,
+    always,
+    scripted_network,
 )
 
 

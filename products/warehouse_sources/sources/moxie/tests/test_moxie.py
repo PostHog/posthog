@@ -1,19 +1,15 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.moxie import MoxieSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.moxie import moxie as moxie_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.moxie.moxie import (
+from products.warehouse_sources.sources.moxie import moxie as moxie_module
+from products.warehouse_sources.sources.moxie._config import MoxieSourceConfig
+from products.warehouse_sources.sources.moxie.moxie import (
     MoxieHostNotAllowedError,
     normalize_base_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.moxie.source import MoxieSource
+from products.warehouse_sources.sources.moxie.source import MoxieSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 BASE_URL = "https://pod00.withmoxie.dev/api/public"
 

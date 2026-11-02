@@ -4,27 +4,18 @@ from typing import Any
 import pytest
 import time_machine
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import validate_incremental_sync
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.pingdom._config import PingdomSourceConfig
+from products.warehouse_sources.sources.pingdom.pingdom import PingdomResumeConfig, _to_epoch, validate_credentials
+from products.warehouse_sources.sources.pingdom.settings import DAY_SECONDS, PINGDOM_ENDPOINTS
+from products.warehouse_sources.sources.pingdom.source import PingdomSource
+from products.warehouse_sources.sources.sdk.internals import validate_incremental_sync
+from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
     route,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pingdom import (
-    PingdomSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.pingdom.pingdom import (
-    PingdomResumeConfig,
-    _to_epoch,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.pingdom.settings import (
-    DAY_SECONDS,
-    PINGDOM_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.pingdom.source import PingdomSource
 
 
 def _nest(data_key: str, items: Any) -> dict[str, Any]:

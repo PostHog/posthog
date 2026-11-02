@@ -6,14 +6,8 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.plain import PlainSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.plain.plain import (
+from products.warehouse_sources.sources.plain._config import PlainSourceConfig
+from products.warehouse_sources.sources.plain.plain import (
     _datetime_to_plain_iso8601,
     _fetch_paginated_endpoint,
     _fetch_thread_timeline_entries,
@@ -24,8 +18,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.plain.plai
     plain_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.plain.queries import VIEWER_QUERY
-from products.warehouse_sources.backend.temporal.data_imports.sources.plain.source import PlainSource
+from products.warehouse_sources.sources.plain.queries import VIEWER_QUERY
+from products.warehouse_sources.sources.plain.source import PlainSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 class TestFlattenNode:

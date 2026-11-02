@@ -1,12 +1,6 @@
 from dataclasses import field
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ResponseAction
-from products.warehouse_sources.backend.types import IncrementalField
+from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField, ResponseAction, frozen
 
 # Nuntly caps every list endpoint at 30 rows per page (no larger tier is documented).
 MAX_PAGE_SIZE = 30

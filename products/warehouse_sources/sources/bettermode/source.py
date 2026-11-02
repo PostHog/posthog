@@ -1,39 +1,32 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.bettermode._config import BettermodeSourceConfig
+from products.warehouse_sources.sources.bettermode.bettermode import (
+    BettermodeResumeConfig,
+    bettermode_source,
+    validate_credentials as validate_bettermode_credentials,
+)
+from products.warehouse_sources.sources.bettermode.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.bettermode.bettermode import (
-    BettermodeResumeConfig,
-    bettermode_source,
-    validate_credentials as validate_bettermode_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.bettermode.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bettermode import (
-    BettermodeSourceConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # Fan-out endpoints cost one request per parent, so the schema picker says what a sync scales with.
 _SCHEMA_DESCRIPTIONS: dict[str, str] = {
@@ -132,9 +125,7 @@ If your community is hosted in the EU (eu-central-1), select the EU region so re
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.bettermode.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.bettermode.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 

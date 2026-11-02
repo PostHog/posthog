@@ -1,23 +1,18 @@
 from collections.abc import Callable
 from typing import Any
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aiven.settings import (
-    AIVEN_ENDPOINTS,
-    AivenEndpointConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from products.warehouse_sources.sources.aiven.settings import AIVEN_ENDPOINTS, AivenEndpointConfig
+from products.warehouse_sources.sources.sdk import (
+    ClientConfig,
+    Resource,
     RESTAPIConfig,
+    SinglePagePaginator,
+    SourceResponse,
+    make_tracked_session,
     rest_api_resource,
     rest_api_resources,
+    validate_via_probe,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 AIVEN_BASE_URL = "https://api.aiven.io/v1"
 

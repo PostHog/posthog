@@ -3,26 +3,16 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    route,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.harvest import (
-    HarvestSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.harvest.harvest import (
+from products.warehouse_sources.sources.harvest._config import HarvestSourceConfig
+from products.warehouse_sources.sources.harvest.harvest import (
     HARVEST_API_HOST,
     HarvestResumeConfig,
     _to_iso8601,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.harvest.settings import (
-    ENDPOINTS,
-    HARVEST_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.harvest.source import HarvestSource
+from products.warehouse_sources.sources.harvest.settings import ENDPOINTS, HARVEST_ENDPOINTS
+from products.warehouse_sources.sources.harvest.source import HarvestSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, route, scripted_network
 
 
 def _page(

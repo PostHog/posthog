@@ -1,10 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-)
-from products.warehouse_sources.backend.types import IncrementalField
+from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField
 
 # List endpoints accept `top` up to 1000 (default 25); the largest page minimises round trips
 # against Reply's 100 requests/minute rate limit.

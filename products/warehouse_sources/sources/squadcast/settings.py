@@ -1,9 +1,7 @@
 from dataclasses import field
 from typing import Literal, Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 # How each endpoint is iterated. Squadcast mixes several pagination styles across its API
 # versions, so the transport dispatches on this instead of hardcoding per-endpoint branches:

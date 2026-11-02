@@ -1,14 +1,9 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.watchmode import (
-    WatchmodeSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.watchmode.source import WatchmodeSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.watchmode.watchmode import WatchmodeResumeConfig
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
+from products.warehouse_sources.sources.watchmode._config import WatchmodeSourceConfig
+from products.warehouse_sources.sources.watchmode.source import WatchmodeSource
+from products.warehouse_sources.sources.watchmode.watchmode import WatchmodeResumeConfig
 
 
 class TestWatchmodeSourceResumeBehavior:

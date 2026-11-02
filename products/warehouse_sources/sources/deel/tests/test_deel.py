@@ -2,24 +2,17 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.deel.deel import (
-    DeelResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.deel.settings import (
+from products.warehouse_sources.sources.deel._config import DeelSourceConfig
+from products.warehouse_sources.sources.deel.deel import DeelResumeConfig, validate_credentials
+from products.warehouse_sources.sources.deel.settings import (
     DEEL_API_VERSION_2026_01_01,
     DEEL_API_VERSION_V2,
     DEEL_ENDPOINTS,
     ENDPOINTS,
     PAGE_SIZE,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.deel.source import DeelSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.deel import DeelSourceConfig
+from products.warehouse_sources.sources.deel.source import DeelSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 # (pin, base URL, version headers): the legacy pin sends no selector, the dated pin sends X-Version.
 VERSION_WIRES = [

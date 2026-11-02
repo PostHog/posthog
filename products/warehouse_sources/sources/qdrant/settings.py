@@ -1,8 +1,6 @@
 from datetime import timedelta
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 BASE_URL = "https://api.cloud.qdrant.io"
 API_VERSION = "v1"

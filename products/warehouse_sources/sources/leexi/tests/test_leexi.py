@@ -3,20 +3,16 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.leexi import LeexiSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.leexi.leexi import (
+from products.warehouse_sources.sources.leexi._config import LeexiSourceConfig
+from products.warehouse_sources.sources.leexi.leexi import (
     LeexiResumeConfig,
     _make_session,
     _to_leexi_timestamp,
     probe_endpoint,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.leexi.settings import ENDPOINTS, LEEXI_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.leexi.source import LeexiSource
+from products.warehouse_sources.sources.leexi.settings import ENDPOINTS, LEEXI_ENDPOINTS
+from products.warehouse_sources.sources.leexi.source import LeexiSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 # The source builds its own capture-disabled session and hands it to RESTClient via the client config.

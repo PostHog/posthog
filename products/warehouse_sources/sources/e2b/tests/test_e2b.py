@@ -4,19 +4,15 @@ import pytest
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.e2b.e2b import (
+from products.warehouse_sources.sources.e2b._config import E2BSourceConfig
+from products.warehouse_sources.sources.e2b.e2b import (
     E2BConfigurationError,
     E2BResumeConfig,
     E2BRetryableError,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.e2b.source import E2BSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.e2b import E2BSourceConfig
+from products.warehouse_sources.sources.e2b.source import E2BSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
 def _driver(api_key: str = "e2b_test", team_id: str | None = None) -> SourceDriver:

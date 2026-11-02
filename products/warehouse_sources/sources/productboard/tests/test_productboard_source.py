@@ -1,13 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.productboard import (
-    ProductboardSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.productboard.source import (
-    ProductboardSource,
-    _probe_path,
-)
+from products.warehouse_sources.sources.productboard._config import ProductboardSourceConfig
+from products.warehouse_sources.sources.productboard.source import ProductboardSource, _probe_path
 
 
 class TestProductboardSource:
@@ -28,9 +23,7 @@ class TestProductboardSource:
             ((False, 500), None, False, "Failed to validate Productboard credentials"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.productboard.source.validate_productboard_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.productboard.source.validate_productboard_credentials")
     def test_validate_credentials(self, mock_validate, probe_return, schema_name, expected_valid, expected_message):
         mock_validate.return_value = probe_return
 

@@ -1,9 +1,7 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pipeliner import (
-    PipelinerSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.pipeliner.source import PipelinerSource
+from products.warehouse_sources.sources.pipeliner._config import PipelinerSourceConfig
+from products.warehouse_sources.sources.pipeliner.source import PipelinerSource
 
 
 class TestPipelinerSource:
@@ -22,7 +20,7 @@ class TestPipelinerSource:
         # editor could point the stored credentials at a server they control and exfiltrate them.
         assert "service_url" in self.source.connection_host_fields
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.pipeliner.source.pipeliner_source")
+    @mock.patch("products.warehouse_sources.sources.pipeliner.source.pipeliner_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_pipeliner_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "opportunities"
@@ -46,7 +44,7 @@ class TestPipelinerSource:
         assert kwargs["db_incremental_field_last_value"] == "2026-01-01 00:00:00"
         assert kwargs["incremental_field"] == "modified"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.pipeliner.source.pipeliner_source")
+    @mock.patch("products.warehouse_sources.sources.pipeliner.source.pipeliner_source")
     def test_source_for_pipeline_omits_last_value_when_not_incremental(self, mock_pipeliner_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "accounts"

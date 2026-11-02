@@ -1,7 +1,7 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress.source import WordpressSource
+from products.warehouse_sources.sources.wordpress.source import WordpressSource
 
 
 class TestWordpressSource:

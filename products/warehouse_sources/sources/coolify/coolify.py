@@ -6,43 +6,32 @@ from urllib.parse import urlparse
 import requests
 from requests import Response
 
-from posthog.cloud_utils import is_cloud
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import (
-    make_parent_key_name,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    build_chained_resource,
-    build_dependent_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.jsonpath_utils import (
-    find_values,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    BasePaginator,
-    OffsetPaginator,
-    PageNumberPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-    ClientConfig,
-    Endpoint,
-    EndpointResource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.coolify.settings import (
+from products.warehouse_sources.sources.coolify.settings import (
     COOLIFY_ENDPOINTS,
     COOLIFY_FANOUT_PARENTS,
     DEPLOYMENTS_PAGE_SIZE,
     MAX_AUDIT_EVENTS_PAGES,
     MAX_DEPLOYMENTS_OFFSET,
     CoolifyEndpointConfig,
+)
+from products.warehouse_sources.sources.sdk import (
+    BasePaginator,
+    ClientConfig,
+    Endpoint,
+    EndpointResource,
+    OffsetPaginator,
+    PageNumberPaginator,
+    Resource,
+    RESTAPIConfig,
+    SinglePagePaginator,
+    _is_host_safe,
+    build_chained_resource,
+    build_dependent_resource,
+    find_values,
+    is_cloud,
+    make_parent_key_name,
+    make_tracked_session,
+    rest_api_resource,
 )
 
 # Every Coolify endpoint lives under this prefix, on the customer's own instance

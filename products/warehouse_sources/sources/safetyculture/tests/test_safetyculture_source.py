@@ -2,10 +2,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.safetyculture import (
-    SafetyCultureSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.safetyculture.source import SafetyCultureSource
+from products.warehouse_sources.sources.safetyculture._config import SafetyCultureSourceConfig
+from products.warehouse_sources.sources.safetyculture.source import SafetyCultureSource
 
 
 class TestSafetyCultureSource:
@@ -25,7 +23,7 @@ class TestSafetyCultureSource:
             (0, False, "Could not connect to SafetyCulture: boom"),
         ]
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.safetyculture.source.check_access")
+    @mock.patch("products.warehouse_sources.sources.safetyculture.source.check_access")
     def test_validate_credentials_at_source_create(
         self,
         status: int,
@@ -51,7 +49,7 @@ class TestSafetyCultureSource:
             ("structures", 200, True, "/structures/v1/structures/search", "SYSTEM_STRUCTURE_TYPE_SITE"),
         ]
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.safetyculture.source.check_access")
+    @mock.patch("products.warehouse_sources.sources.safetyculture.source.check_access")
     def test_validate_credentials_for_schema_probes_that_feed(
         self,
         schema_name: str,
@@ -66,9 +64,7 @@ class TestSafetyCultureSource:
         assert is_valid is expected_valid
         mock_check.assert_called_once_with(self.config.api_token, expected_path, expected_structure_type)
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.safetyculture.source.safetyculture_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.safetyculture.source.safetyculture_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "inspections"
@@ -86,9 +82,7 @@ class TestSafetyCultureSource:
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2024-03-01T00:00:00.000Z"
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.safetyculture.source.safetyculture_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.safetyculture.source.safetyculture_source")
     def test_source_for_pipeline_drops_cursor_on_full_refresh(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "inspections"

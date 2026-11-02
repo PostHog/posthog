@@ -2,14 +2,9 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.watchmode import (
-    WatchmodeSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.watchmode.source import WatchmodeSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
+from products.warehouse_sources.sources.watchmode._config import WatchmodeSourceConfig
+from products.warehouse_sources.sources.watchmode.source import WatchmodeSource
 
 
 class TestWatchmodeSource:

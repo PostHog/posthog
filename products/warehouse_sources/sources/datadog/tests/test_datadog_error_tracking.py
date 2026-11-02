@@ -4,21 +4,15 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    DriveResult,
-    ScriptedResponse,
-    SourceDriver,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.error_tracking import (
+from products.warehouse_sources.sources.datadog._config import DatadogSourceConfig
+from products.warehouse_sources.sources.datadog.error_tracking import (
     DatadogIssueSearchConfig,
     _epoch_ms_to_iso,
     _join_included,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.settings import DATADOG_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.source import DatadogSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.datadog import (
-    DatadogSourceConfig,
-)
+from products.warehouse_sources.sources.datadog.settings import DATADOG_ENDPOINTS
+from products.warehouse_sources.sources.datadog.source import DatadogSource
+from products.warehouse_sources.sources.sdk.testing import DriveResult, ScriptedResponse, SourceDriver
 
 
 def _driver() -> SourceDriver:

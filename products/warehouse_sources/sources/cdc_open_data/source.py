@@ -1,19 +1,12 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.cdc_open_data.cdc_open_data import (
+from products.warehouse_sources.sources.cdc_open_data._config import CdcOpenDataSourceConfig
+from products.warehouse_sources.sources.cdc_open_data.cdc_open_data import (
     CdcOpenDataResumeConfig,
     cdc_open_data_source,
     validate_cdc_open_data_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.cdc_open_data.settings import (
+from products.warehouse_sources.sources.cdc_open_data.settings import (
     DATASET_ID_PATTERN,
     INCREMENTAL_FIELDS,
     MAX_DATASET_IDS,
@@ -22,15 +15,22 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cdc_open_d
     SODA3_API_VERSION,
     parse_dataset_ids,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cdcopendata import (
-    CdcOpenDataSourceConfig,
+from products.warehouse_sources.sources.sdk import (
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    detect,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register

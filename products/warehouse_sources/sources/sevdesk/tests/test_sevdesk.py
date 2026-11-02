@@ -8,15 +8,16 @@ from unittest.mock import MagicMock, patch
 from requests import Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import RESTClientRetryableError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sevdesk import (
-    SevdeskSourceConfig,
+from products.warehouse_sources.sources.sdk import (
+    RESTClientRetryableError,
+    SourceInputs,
+    SourceResponse,
+    UnknownResourceError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.sevdesk.settings import PAGE_SIZE
-from products.warehouse_sources.backend.temporal.data_imports.sources.sevdesk.sevdesk import SevdeskResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.sevdesk.source import SevdeskSource
+from products.warehouse_sources.sources.sevdesk._config import SevdeskSourceConfig
+from products.warehouse_sources.sources.sevdesk.settings import PAGE_SIZE
+from products.warehouse_sources.sources.sevdesk.sevdesk import SevdeskResumeConfig
+from products.warehouse_sources.sources.sevdesk.source import SevdeskSource
 
 
 def sync_items(response: SourceResponse) -> Iterable[Any]:

@@ -8,8 +8,9 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.auth0 import auth0 as auth0_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.auth0.auth0 import (
+from products.warehouse_sources.sources.auth0 import auth0 as auth0_module
+from products.warehouse_sources.sources.auth0._config import Auth0SourceConfig
+from products.warehouse_sources.sources.auth0.auth0 import (
     Auth0HostNotAllowedError,
     Auth0PaginationLimitError,
     Auth0PaginationStalledError,
@@ -24,16 +25,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.auth0.auth
     resolve_window_field,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.auth0.settings import AUTH0_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.auth0.source import Auth0Source
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.auth0.settings import AUTH0_ENDPOINTS
+from products.warehouse_sources.sources.auth0.source import Auth0Source
+from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     ScriptedResponse,
     SourceDriver,
     scripted_network,
     source_inputs,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.auth0 import Auth0SourceConfig
 
 DOMAIN = "tenant.us.auth0.com"
 TOKEN_JSON = {"access_token": "tok", "expires_in": 86400, "token_type": "Bearer"}

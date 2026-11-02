@@ -1,8 +1,6 @@
 from typing import Literal, Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 # Blueshift hosts one API per data region; the account's region is fixed at signup.
 BLUESHIFT_REGION_URLS: dict[str, str] = {

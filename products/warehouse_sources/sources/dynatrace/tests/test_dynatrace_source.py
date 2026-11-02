@@ -1,7 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.dynatrace.source import DynatraceSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dynatrace import (
-    DynatraceSourceConfig,
-)
+from products.warehouse_sources.sources.dynatrace._config import DynatraceSourceConfig
+from products.warehouse_sources.sources.dynatrace.source import DynatraceSource
 
 
 class TestDynatraceSource:

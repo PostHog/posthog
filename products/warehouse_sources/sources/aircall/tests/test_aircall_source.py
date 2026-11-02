@@ -1,10 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aircall.source import AircallSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.aircall import (
-    AircallSourceConfig,
-)
+from products.warehouse_sources.sources.aircall._config import AircallSourceConfig
+from products.warehouse_sources.sources.aircall.source import AircallSource
 
 
 class TestAircallSource:
@@ -20,9 +18,7 @@ class TestAircallSource:
             (False, False, "Invalid Aircall API credentials"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.aircall.source.validate_aircall_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.aircall.source.validate_aircall_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
         mock_validate.return_value = mock_return
 

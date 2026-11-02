@@ -1,16 +1,9 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rippling import (
-    RipplingSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.rippling.settings import RIPPLING_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.rippling.source import RipplingSource
+from products.warehouse_sources.sources.rippling._config import RipplingSourceConfig
+from products.warehouse_sources.sources.rippling.settings import RIPPLING_ENDPOINTS
+from products.warehouse_sources.sources.rippling.source import RipplingSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 class TestRipplingSource:

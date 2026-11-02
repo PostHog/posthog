@@ -2,25 +2,15 @@ from typing import Any, Literal
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.firehydrant.firehydrant import (
+from products.warehouse_sources.sources.firehydrant._config import FireHydrantSourceConfig
+from products.warehouse_sources.sources.firehydrant.firehydrant import (
     FireHydrantResumeConfig,
     base_url_for_region,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.firehydrant.settings import (
-    ENDPOINTS,
-    FIREHYDRANT_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.firehydrant.source import FireHydrantSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.firehydrant import (
-    FireHydrantSourceConfig,
-)
+from products.warehouse_sources.sources.firehydrant.settings import ENDPOINTS, FIREHYDRANT_ENDPOINTS
+from products.warehouse_sources.sources.firehydrant.source import FireHydrantSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _response(items: list[dict[str, Any]] | None, *, next_page: int | None = None) -> ScriptedResponse:

@@ -1,10 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.metaplane import (
-    MetaplaneSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.metaplane.source import MetaplaneSource
+from products.warehouse_sources.sources.metaplane._config import MetaplaneSourceConfig
+from products.warehouse_sources.sources.metaplane.source import MetaplaneSource
 
 
 class TestMetaplaneSource:
@@ -20,9 +18,7 @@ class TestMetaplaneSource:
             (False, False, True),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.metaplane.source.validate_metaplane_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.metaplane.source.validate_metaplane_credentials")
     def test_validate_credentials(
         self,
         mock_validate: mock.MagicMock,

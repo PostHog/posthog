@@ -1,14 +1,12 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops import (
+from products.warehouse_sources.sources.azure_devops._config import AzureDevOpsSourceConfig
+from products.warehouse_sources.sources.azure_devops.azure_devops import (
     AZURE_DEVOPS_VERSION_7_2,
     AZURE_DEVOPS_VERSION_LEGACY,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.source import AzureDevOpsSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.azuredevops import (
-    AzureDevOpsSourceConfig,
-)
+from products.warehouse_sources.sources.azure_devops.source import AzureDevOpsSource
 
 
 class TestAzureDevOpsSource:
@@ -32,9 +30,7 @@ class TestAzureDevOpsSource:
             ),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.source.validate_azure_devops_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.azure_devops.source.validate_azure_devops_credentials")
     def test_validate_credentials_passes_probe_result_through(self, mock_validate, probe_result):
         mock_validate.return_value = probe_result
 
@@ -44,9 +40,7 @@ class TestAzureDevOpsSource:
         # No pin at creation time resolves to default_version.
         mock_validate.assert_called_once_with("myorg", "pat", AZURE_DEVOPS_VERSION_7_2)
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.source.azure_devops_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.azure_devops.source.azure_devops_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_ado_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "work_item_revisions"
@@ -72,9 +66,7 @@ class TestAzureDevOpsSource:
         assert self.source.default_version == AZURE_DEVOPS_VERSION_7_2
         assert set(self.source.supported_versions) == {AZURE_DEVOPS_VERSION_LEGACY, AZURE_DEVOPS_VERSION_7_2}
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.source.azure_devops_source"
-    )
+    @mock.patch("products.warehouse_sources.sources.azure_devops.source.azure_devops_source")
     def test_source_for_pipeline_omits_last_value_on_full_refresh(self, mock_ado_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "projects"

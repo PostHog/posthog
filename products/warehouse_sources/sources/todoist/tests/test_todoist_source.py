@@ -1,11 +1,9 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.todoist import (
-    TodoistSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.todoist import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.todoist.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.todoist.source import TodoistSource
+from products.warehouse_sources.sources.todoist import source as source_module
+from products.warehouse_sources.sources.todoist._config import TodoistSourceConfig
+from products.warehouse_sources.sources.todoist.settings import ENDPOINTS
+from products.warehouse_sources.sources.todoist.source import TodoistSource
 
 
 class TestTodoistSource:

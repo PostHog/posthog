@@ -1,10 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.cliniko.source import ClinikoSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cliniko import (
-    ClinikoSourceConfig,
-)
+from products.warehouse_sources.sources.cliniko._config import ClinikoSourceConfig
+from products.warehouse_sources.sources.cliniko.source import ClinikoSource
 
 
 class TestClinikoSource:
@@ -20,9 +18,7 @@ class TestClinikoSource:
             (False, False, "Invalid credentials"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.cliniko.source.validate_cliniko_credentials"
-    )
+    @mock.patch("products.warehouse_sources.sources.cliniko.source.validate_cliniko_credentials")
     def test_validate_credentials(
         self, mock_validate: mock.MagicMock, mock_return: bool, expected_valid: bool, expected_message: str | None
     ) -> None:

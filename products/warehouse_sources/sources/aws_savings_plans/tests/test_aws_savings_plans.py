@@ -11,7 +11,8 @@ from unittest.mock import MagicMock, patch
 import requests
 from botocore.session import get_session
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_savings_plans.aws_savings_plans import (
+from products.warehouse_sources.sources.aws_savings_plans._config import AwsSavingsPlansSourceConfig
+from products.warehouse_sources.sources.aws_savings_plans.aws_savings_plans import (
     AwsSavingsPlansClient,
     AwsSavingsPlansError,
     AwsSavingsPlansResumeConfig,
@@ -19,26 +20,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_saving
     aws_savings_plans_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_savings_plans.settings import (
-    ENDPOINTS,
-    SAVINGS_PLANS_API_VERSION,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_savings_plans.source import (
-    AwsSavingsPlansSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.aws_savings_plans.settings import ENDPOINTS, SAVINGS_PLANS_API_VERSION
+from products.warehouse_sources.sources.aws_savings_plans.source import AwsSavingsPlansSource
+from products.warehouse_sources.sources.sdk import ResumableSourceManager
+from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awssavingsplans import (
-    AwsSavingsPlansSourceConfig,
-)
 
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.aws_savings_plans.aws_savings_plans"
+MODULE = "products.warehouse_sources.sources.aws_savings_plans.aws_savings_plans"
 
 
 def config(start_date: str | None = "2025-01-01") -> AwsSavingsPlansSourceConfig:

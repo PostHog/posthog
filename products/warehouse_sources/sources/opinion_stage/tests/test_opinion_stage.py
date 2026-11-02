@@ -3,25 +3,21 @@ from typing import Any
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
+from products.warehouse_sources.sources.opinion_stage._config import OpinionStageSourceConfig
+from products.warehouse_sources.sources.opinion_stage.opinion_stage import (
+    OpinionStageResumeConfig,
+    validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+from products.warehouse_sources.sources.opinion_stage.settings import ENDPOINTS
+from products.warehouse_sources.sources.opinion_stage.source import OpinionStageSource
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
     route,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.opinionstage import (
-    OpinionStageSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.opinion_stage.opinion_stage import (
-    OpinionStageResumeConfig,
-    validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.opinion_stage.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.opinion_stage.source import OpinionStageSource
 
 
 def _page(items: list[dict[str, Any]], next_link: str | None) -> ScriptedResponse:

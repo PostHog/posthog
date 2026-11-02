@@ -1,10 +1,8 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import scripted_network
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.onesignal import (
-    OneSignalSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.onesignal.source import OneSignalSource
+from products.warehouse_sources.sources.onesignal._config import OneSignalSourceConfig
+from products.warehouse_sources.sources.onesignal.source import OneSignalSource
+from products.warehouse_sources.sources.sdk.testing import scripted_network
 
 
 @pytest.mark.parametrize(

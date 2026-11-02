@@ -6,11 +6,11 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import DEFAULT_RETRY
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.polar import PolarSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.polar import polar as polar_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.polar.source import PolarSource
+from products.warehouse_sources.sources.polar import polar as polar_module
+from products.warehouse_sources.sources.polar._config import PolarSourceConfig
+from products.warehouse_sources.sources.polar.source import PolarSource
+from products.warehouse_sources.sources.sdk import DEFAULT_RETRY
+from products.warehouse_sources.sources.sdk.testing import error_message_matches
 
 _VERSION_CASES = [
     ("legacy_v1_sends_no_header", "v1", None),

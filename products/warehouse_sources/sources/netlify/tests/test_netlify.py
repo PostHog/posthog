@@ -8,17 +8,9 @@ import requests
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-    always,
-    scripted_network,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.netlify import (
-    NetlifySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.netlify import netlify as netlify_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.netlify.netlify import (
+from products.warehouse_sources.sources.netlify import netlify as netlify_module
+from products.warehouse_sources.sources.netlify._config import NetlifySourceConfig
+from products.warehouse_sources.sources.netlify.netlify import (
     NetlifyCappedHeaderLinkPaginator,
     NetlifyHeaderLinkPaginator,
     NetlifyPageCapExceededError,
@@ -26,8 +18,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.netlify.ne
     NetlifyUntrustedURLError,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.netlify.settings import NETLIFY_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.netlify.source import NetlifySource
+from products.warehouse_sources.sources.netlify.settings import NETLIFY_ENDPOINTS
+from products.warehouse_sources.sources.netlify.source import NetlifySource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 BASE = "https://api.netlify.com/api/v1"
 

@@ -2,46 +2,39 @@ import re
 import datetime
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
-    FieldType,
-    ResumableSource,
-    VersionDeprecation,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
+    VersionDeprecation,
     build_endpoint_schemas,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zendesksunshine import (
-    ZendeskSunshineSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sunshine.settings import (
+from products.warehouse_sources.sources.zendesk_sunshine._config import ZendeskSunshineSourceConfig
+from products.warehouse_sources.sources.zendesk_sunshine.settings import (
     ENDPOINTS_BY_VERSION,
     INCREMENTAL_FIELDS_BY_VERSION,
     MERGE_ONLY_BY_VERSION,
     ZENDESK_SUNSHINE_V1,
     ZENDESK_SUNSHINE_V2,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sunshine.zendesk_sunshine import (
+from products.warehouse_sources.sources.zendesk_sunshine.zendesk_sunshine import (
     ZendeskSunshineResumeConfig,
     normalize_subdomain,
     validate_credentials as validate_zendesk_sunshine_credentials,
     zendesk_sunshine_source,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -63,7 +56,7 @@ class ZendeskSunshineSource(ResumableSource[ZendeskSunshineSourceConfig, Zendesk
         return ExternalDataSourceType.ZENDESKSUNSHINE
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sunshine.canonical_descriptions import (  # noqa: PLC0415 — sibling data module, loaded only when descriptions are requested
+        from products.warehouse_sources.sources.zendesk_sunshine.canonical_descriptions import (  # noqa: PLC0415 — sibling data module, loaded only when descriptions are requested
             CANONICAL_DESCRIPTIONS,
         )
 

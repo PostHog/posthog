@@ -1,37 +1,14 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldFileUploadConfig,
-    SourceFieldFileUploadJsonFormatConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
-    SourceSchema,
-    build_endpoint_schemas,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleplayconsole import (
-    GooglePlayConsoleSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.google_play_console.google_play_console import (
+from products.warehouse_sources.sources.google_play_console._config import GooglePlayConsoleSourceConfig
+from products.warehouse_sources.sources.google_play_console.google_play_console import (
     GooglePlayConsoleResumeConfig,
     ServiceAccountKey,
     google_play_console_source,
     parse_package_names,
     validate_credentials as validate_google_play_console_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.google_play_console.settings import (
+from products.warehouse_sources.sources.google_play_console.settings import (
     DESCRIPTIONS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -40,7 +17,26 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_pla
     PRIMARY_KEYS,
     SHOULD_SYNC_DEFAULT,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldFileUploadConfig,
+    SourceFieldFileUploadJsonFormatConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    build_endpoint_schemas,
+    detect,
+)
 
 
 def _service_account_key(config: GooglePlayConsoleSourceConfig) -> ServiceAccountKey:
@@ -163,9 +159,7 @@ Leave the package names blank to sync every app the service account can see.""",
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.google_play_console.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
+        from products.warehouse_sources.sources.google_play_console.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
         return CANONICAL_DESCRIPTIONS
 
