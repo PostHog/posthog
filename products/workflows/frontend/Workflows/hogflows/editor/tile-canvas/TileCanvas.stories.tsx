@@ -18,8 +18,8 @@ import {
     TICKET_TO_SLACK,
     TILE_CANVAS_WORKFLOWS,
     TRIAL_TO_PAID,
-    TRIAL_TO_PAID_METRICS,
 } from './tileCanvasStoryFixtures'
+import { TRIAL_TO_PAID_METRICS } from './tileCanvasStoryMetrics'
 
 const meta: Meta = {
     title: 'Products/Workflows/Editor/Tile canvas',

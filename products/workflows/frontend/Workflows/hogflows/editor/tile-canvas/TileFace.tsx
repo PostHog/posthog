@@ -1,10 +1,8 @@
-import { Tooltip } from '@posthog/lemon-ui'
-
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
 import { TileBadge } from './TileBadge'
 import { TILE_SIZE } from './tileCanvasLayout'
-import type { TileShape, TileStep } from './useTileStep'
+import type { TileShape, TileStep } from './tileStep'
 
 const CORNER = 12
 
@@ -17,7 +15,15 @@ function tileRadius(shape: TileShape): string {
           : `${CORNER}px`
 }
 
-export function TileFace({ tile, count }: { tile: TileStep; count: number | undefined }): JSX.Element {
+export function TileFace({
+    tile,
+    count,
+    marker,
+}: {
+    tile: TileStep
+    count: number | undefined
+    marker?: React.ReactNode
+}): JSX.Element {
     return (
         <div className="relative" data-tile-anchor>
             <div
@@ -38,11 +44,7 @@ export function TileFace({ tile, count }: { tile: TileStep; count: number | unde
                     {tile.badge}
                 </TileBadge>
             )}
-            {tile.invalid && (
-                <Tooltip title="This step needs attention. Open it to see what is missing.">
-                    <span className="absolute -left-1 -top-1 size-2.5 rounded-full border-2 border-primary bg-warning" />
-                </Tooltip>
-            )}
+            {marker}
         </div>
     )
 }

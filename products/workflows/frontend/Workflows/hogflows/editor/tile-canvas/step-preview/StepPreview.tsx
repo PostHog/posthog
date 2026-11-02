@@ -1,6 +1,6 @@
 import type { HogFlowAction } from '../../../types'
 import { StepFieldList } from '../StepFieldList'
-import type { TileStep } from '../useTileStep'
+import type { TileStep } from '../tileStep'
 import { AiPreview } from './AiPreview'
 import { BranchPreview } from './BranchPreview'
 import { EmailPreview } from './EmailPreview'
