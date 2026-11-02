@@ -231,6 +231,17 @@ class Command(BaseCommand):
     ) -> None:
         with transaction.atomic():
             report.refresh_from_db()
+            if final_status == SignalReport.Status.PENDING_INPUT:
+                # Only in_progress leads to pending_input, and that step carries the question the user must answer.
+                report.save(
+                    update_fields=report.transition_to(
+                        final_status,
+                        title=result.title,
+                        summary=result.summary,
+                        error="Choose the success metric for this change before an agent implements it.",
+                    )
+                )
+                return
             report.save(
                 update_fields=report.transition_to(
                     SignalReport.Status.READY, title=result.title, summary=result.summary
