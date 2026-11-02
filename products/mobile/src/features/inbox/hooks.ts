@@ -42,7 +42,6 @@ import { applyInboxFilters, DEFAULT_INBOX_FILTERS, type InboxFilters, isDefaultI
 
 /** The inbox list, which loads one page of reports at a time. */
 export interface InboxQueryState extends QueryState<InboxItem[]> {
-    cachedAt?: number
     /** The server has ranked reports after the loaded ones. */
     hasMore: boolean
     isLoadingMore: boolean
@@ -292,7 +291,6 @@ function useLiveInboxItems(
     if (items) {
         return {
             data: items,
-            cachedAt: !reports ? saved.data?.sourceUpdatedAt : undefined,
             isLoading: false,
             isError: false,
             error: null,

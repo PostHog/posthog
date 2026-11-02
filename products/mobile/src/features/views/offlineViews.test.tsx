@@ -88,7 +88,9 @@ describe('cold offline Views navigation', () => {
         const insight = renderHook(() => useInsightScreen(shortId, { from: 'recent' }), { wrapper })
         await waitFor(() => expect(insight.result.current.insight.data?.value).toBe(snapshot.value))
         expect(insight.result.current.insight.data?.restoredFromDevice).toBe(true)
-        expect(insight.result.current.refresh.status.text).toContain('Saved on this device')
+        expect(insight.result.current.refresh.status.text).toMatch(
+            /^(?:Couldn't refresh\. )?Updated \d+ (?:min|h) ago$/
+        )
         await act(async () => {
             insight.unmount()
             list.unmount()

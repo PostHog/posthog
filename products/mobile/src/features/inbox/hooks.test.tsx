@@ -525,7 +525,7 @@ describe('inbox hooks', () => {
         queryClient.clear()
     })
 
-    test('shows a saved inbox offline with its age, then replaces it with a successful live list', async () => {
+    test('shows a saved inbox offline, then replaces it with a successful live list', async () => {
         const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
         const scope = scopeOf()
         const cached = inboxFromReports([reportFixture({ id: 'saved-report', status: 'pending_input' })])
@@ -546,7 +546,6 @@ describe('inbox hooks', () => {
         )
         const hook = renderHook(() => useInboxItems(), { wrapper })
         await waitFor(() => expect(hook.result.current.data?.[0]?.id).toBe('saved-report'))
-        expect(hook.result.current.cachedAt).toBe(sourceUpdatedAt)
         expect(hook.result.current.data?.[0]).toMatchObject({ needsInput: true })
         expect(hook.result.current.data?.[0]?.state).not.toBe('snoozed')
         globalThis.fetch = jest.fn(async (url: string) =>
@@ -558,7 +557,6 @@ describe('inbox hooks', () => {
             await hook.result.current.refetch()
         })
         await waitFor(() => expect(hook.result.current.data?.[0]?.id).toBe('live-report'))
-        expect(hook.result.current.cachedAt).toBeUndefined()
         await waitFor(() =>
             expect(queryClient.getQueryData<SavedInbox>(inboxCacheKey(scope))?.signalCounts).toEqual({
                 'live-report': 12,

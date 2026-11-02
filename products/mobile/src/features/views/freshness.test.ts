@@ -85,11 +85,18 @@ describe('freshness', () => {
             false,
             "Couldn't refresh. Updated 1 min ago",
         ],
+        ['a saved device snapshot', [snap({ restoredFromDevice: true })], false, 'Updated 10 min ago'],
         [
-            'a saved device snapshot',
-            [snap({ restoredFromDevice: true })],
+            'a saved snapshot without a refresh time',
+            [snap({ restoredFromDevice: true, lastRefreshAt: null })],
             false,
-            'Saved on this device. Updated 10 min ago',
+            null,
+        ],
+        [
+            'a failed refresh of a saved snapshot',
+            [snap({ restoredFromDevice: true, refreshFailed: true })],
+            false,
+            "Couldn't refresh. Updated 10 min ago",
         ],
         ['no data items', [undefined, snap({ lastRefreshAt: null })], false, null],
     ])('statusLine for %s', (_name, snapshots, busy, expected) => {
