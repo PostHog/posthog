@@ -72,6 +72,7 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.test.utils import patch_exposure_event_flag
+from products.experiments.backend.timeseries_backfill import backfill_experiment_timeseries
 from products.feature_flags.backend.facade.api import set_flag_active, update_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
@@ -5641,15 +5642,17 @@ class TestExperimentService(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("same_request", False, False),
+            ("same_request", False, False, False),
             # A backfill under the other key version writes the same days, so a second one would race it.
-            ("backfill_requested_under_the_other_key_version", True, False),
+            ("backfill_requested_under_the_other_key_version", True, False, False),
             # A settings edit changes the key, but the running backfill still writes the same days.
-            ("settings_edited_while_the_backfill_runs", False, True),
+            ("settings_edited_while_the_backfill_runs", False, True, False),
+            # A Temporal retry can start a failed backfill again, beside its replacement under the same key.
+            ("backfill_failed_before_the_request", False, False, True),
         ]
     )
     def test_request_timeseries_recalculation_idempotent(
-        self, _name: str, first_under_other_key_version: bool, edit_settings_after_first: bool
+        self, _name: str, first_under_other_key_version: bool, edit_settings_after_first: bool, first_failed: bool
     ) -> None:
         self._create_flag(key=f"ts-idempotent-{_name}")
         service = self._service()
@@ -5672,6 +5675,10 @@ class TestExperimentService(APIBaseTest):
             ).id
         else:
             first_id = service.request_timeseries_recalculation(experiment, metric_uuid="m1")["id"]
+        if first_failed:
+            ExperimentTimeseriesRecalculation.objects.filter(id=first_id).update(
+                status=ExperimentTimeseriesRecalculation.Status.FAILED
+            )
         if edit_settings_after_first:
             key_before_edit = _calculation_key(experiment, "m1")
             experiment.stats_config = {**(experiment.stats_config or {}), "method": "frequentist"}
@@ -5680,7 +5687,7 @@ class TestExperimentService(APIBaseTest):
 
         second = service.request_timeseries_recalculation(experiment, metric_uuid="m1")
 
-        superseded = first_under_other_key_version or edit_settings_after_first
+        superseded = first_under_other_key_version or edit_settings_after_first or first_failed
         assert second["is_existing"] is not superseded
         assert (second["id"] == first_id) is not superseded
         assert second["fingerprint"] == _calculation_key(experiment, "m1")
@@ -5688,6 +5695,9 @@ class TestExperimentService(APIBaseTest):
             2 if superseded else 1
         )
         if superseded:
+            assert ExperimentTimeseriesRecalculation.objects.get(id=first_id).status == "canceled"
+            retried = backfill_experiment_timeseries(str(first_id))
+            assert (retried["status"], retried["days_processed"]) == ("canceled", 0)
             assert ExperimentTimeseriesRecalculation.objects.get(id=first_id).status == "canceled"
         chart = service.get_timeseries_results(experiment, metric_uuid="m1")
         assert chart["recalculation_status"] is not None
