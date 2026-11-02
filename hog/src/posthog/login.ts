@@ -1,8 +1,9 @@
 import { HogError } from '@/core/errors'
 import type { Runtime } from '@/core/runtime'
 
+import { PersonalApiKey, type Credential } from './credential'
 import { FileStore, openStore, probeKeychain, type StoreChoice } from './credential-store'
-import { posthogFile, type Credentials } from './credentials'
+import { posthogFile } from './credentials'
 import { startDeviceLogin, waitForApproval, type PendingLogin } from './device-auth'
 import { writeLogin } from './logins'
 import { loginFor, readSettings } from './settings'
@@ -58,27 +59,27 @@ export async function completeLogin(runtime: Runtime, pending: PendingLogin): Pr
         }
         throw error
     }
-    const loggedIn = await saveLogin(runtime, { ...approval, host: pending.host })
+    const loggedIn = await saveLogin(runtime, new PersonalApiKey(pending.host, approval.projectId, approval.apiKey))
     return { ...loggedIn, scopes: approval.scopes }
 }
 
 // Each login probes the keychain again, so a login at the desk moves credentials out of the file a
 // login over SSH had to use. Clears any pending login too, so a later `--wait` can't replace these
 // credentials with an older approval.
-export async function saveLogin(runtime: Runtime, credentials: Credentials): Promise<LoggedIn> {
+export async function saveLogin(runtime: Runtime, credential: Credential): Promise<LoggedIn> {
     const probe = await probeKeychain(runtime)
     const store = openStore(runtime, probe.usable ? 'keychain' : 'file')
     const previous = await readSettings(runtime)
-    const { host, projectId, apiKey } = credentials
-    await writeLogin(runtime, store, { type: 'personal_api_key', host, projectId, apiKey }, { lastLogin: true })
+    const { host, projectId } = credential
+    await writeLogin(runtime, store, credential, { lastLogin: true })
     // Only an old file login is removed. Removing a keychain login after a failed probe would wait for the keychain again.
     if (loginFor(previous, host)?.store === 'file' && store.kind === 'keychain') {
         await new FileStore(runtime).remove(host)
     }
     await clearPendingLogin(runtime)
     return {
-        host: credentials.host,
-        projectId: credentials.projectId,
+        host,
+        projectId,
         store: store.kind,
         credentialsPath: store instanceof FileStore ? store.path : null,
         keychainProblem: probe.usable ? null : probe.reason,
