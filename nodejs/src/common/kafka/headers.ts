@@ -1,9 +1,10 @@
 /**
  * Kafka header names that a producer and a consumer in different trees have to agree on.
  *
- * A consumer that reads one of these falls back to the message body when the header is absent, so a
- * name that drifts costs performance and never correctness. Nothing fails, which is why the name is
- * a shared constant rather than a literal on each side.
+ * The name is a shared constant rather than a literal on each side because a drifted name fails
+ * open: the consumer finds no header and falls back to the message body, so it costs performance
+ * and nothing reports it. A drifted name is not the same as a wrong value, which each header
+ * documents below.
  */
 
 /**
