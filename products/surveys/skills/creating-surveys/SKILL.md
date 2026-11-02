@@ -25,11 +25,37 @@ information that changes who receives the survey or how it is delivered.
 | A shareable hosted form                 | `external_survey` | A hosted survey link; no in-app targeting            |
 | A custom form built in application code | `api`             | The app renders questions and captures survey events |
 
-Prefer one to three questions unless the user requests more. Use a rating plus
-an optional open question for NPS/CSAT, or choice questions with at least two
-choices. Inspect the current tool schema for question types, scales, branching,
+Inspect the current tool schema for question types, scales, branching,
 and translations instead of guessing their JSON shapes. Minimal starting points
 are in [examples](references/examples.md).
+
+### Design for responses
+
+These choices go with higher response rates in in-app surveys. Apply the
+question advice by default. Recommend the trigger and audience advice, and ask
+before adding a trigger or audience the user did not request, since both change
+who receives the survey. The evidence and its limits are in
+[response rates](references/response-rates.md).
+
+- **Trigger on the moment you are asking about.** Recommend showing the survey
+  after the event that marks it, such as a completed checkout or a used feature,
+  through `conditions.events`. Event-triggered surveys get about twice the
+  responses of page-based ones. A URL condition alone does about as well as
+  showing the survey on every page. Confirm the event exists in the project
+  before using it.
+- **Make the first question one click.** Start with a single choice or a short
+  rating. Surveys that open with an open-text question get about a fifth of the
+  responses. Ask "why" in an optional open question after it.
+- **Keep it short.** About 4 in 10 people who start a two- or three-question
+  survey stop before the end. Prefer one to three questions unless the user
+  requests more.
+- **Turn partial responses on** with `enable_partial_responses: true`, so the
+  first answer is kept when someone stops. It defaults to off when a survey is
+  created through the API.
+- **Recommend a targeted audience.** Surveys shown to a person or cohort
+  audience get more responses than surveys shown to everyone.
+- **Keep any popup delay under 15 seconds.** Longer delays go with fewer
+  responses.
 
 Survey names, questions, and appearance text are public content. Do not copy
 private customer details into them without making that visibility clear first.

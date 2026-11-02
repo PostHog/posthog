@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class InsightlySource(ResumableSource[InsightlySourceConfig, InsightlyResumeConfig]):
+    codebase_detection = detect(env=("^INSIGHTLY_",))
+
     supported_versions = ("v3.1",)
     default_version = "v3.1"
     api_docs_url = "https://api.insightly.com/v3.1/Help"
@@ -55,7 +58,7 @@ class InsightlySource(ResumableSource[InsightlySourceConfig, InsightlyResumeConf
             name=ExternalDataSourceType.INSIGHTLY,
             category=DataWarehouseSourceCategory.CRM,
             label="Insightly",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Insightly API key to sync your Insightly CRM data into the PostHog Data warehouse.
 
 Find your **API key** and your **API URL** in Insightly under **User Settings** (top-right profile menu). The API URL looks like `https://api.na1.insightly.com/v3.1` — the **pod** is the region token in the middle (`na1`, `eu1`, ...). Enter just that token, or paste the full API URL.

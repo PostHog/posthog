@@ -15,13 +15,17 @@ class ElevenLabsEndpointConfig:
     # Top-level array key in the JSON response body (differs per endpoint: history/conversations/...).
     # A JSONPath such as "$.*" selects the values of a body keyed by id; None takes a bare-array body.
     items_key: Optional[str]
-    primary_keys: list[str]
+    # None for single-row snapshot tables that are replaced wholesale, so there is nothing to merge on.
+    primary_keys: Optional[list[str]]
     # Query param used to request the next page, and the response field that carries the next cursor.
     # ElevenLabs uses three different cursor styles across endpoint families. Both None for
     # unpaginated endpoints that return the whole collection in one body.
     cursor_param: Optional[str] = None
     cursor_response_key: Optional[str] = None
     page_size: Optional[int] = None
+    page_size_param: str = "page_size"
+    # Set for endpoints paged by a 1-based page number instead of a cursor.
+    page_number_param: Optional[str] = None
     # None for tables without a stable creation timestamp; those small tables stay unpartitioned.
     partition_key: Optional[str] = None
     # Stable, monotonic incremental column and the server-side filter param that bounds it. Both None
@@ -195,6 +199,91 @@ ELEVENLABS_ENDPOINTS: dict[str, ElevenLabsEndpointConfig] = {
             include_from_parent=[],
             parent_params={"sort_by": "created_at", "sort_direction": "asc"},
         ),
+    ),
+    # Phone numbers that Conversational AI agents take and place calls on. Returned as one bare array.
+    "phone_numbers": ElevenLabsEndpointConfig(
+        name="phone_numbers",
+        path="/v1/convai/phone-numbers",
+        items_key=None,
+        primary_keys=["phone_number_id"],
+    ),
+    # Outbound batch calling jobs. Mutable (status and call counters change while the job runs) with no
+    # updated-since filter, so full refresh only.
+    "batch_calls": ElevenLabsEndpointConfig(
+        name="batch_calls",
+        path="/v1/convai/batch-calling/workspace",
+        items_key="batch_calls",
+        cursor_param="last_doc",
+        cursor_response_key="next_doc",
+        primary_keys=["id"],
+        page_size=100,
+        page_size_param="limit",
+        partition_key="created_at_unix",
+    ),
+    # Traffic split history per agent, fanned out over `agents` and returned newest first. Rows carry no
+    # agent id, so the parent id is copied in. No updated-since filter, so full refresh only.
+    "agent_deployments": ElevenLabsEndpointConfig(
+        name="agent_deployments",
+        path="/v1/convai/agents/{agent_id}/deployments",
+        items_key="results",
+        page_number_param="page",
+        primary_keys=["agent_id", "id"],
+        page_size=100,
+        partition_key="deployed_at_unix_secs",
+        sort_mode="desc",
+        fanout=DependentEndpointConfig(
+            parent_name="agents",
+            resolve_param="agent_id",
+            resolve_field="agent_id",
+            include_from_parent=["agent_id"],
+            parent_field_renames={"agent_id": "agent_id"},
+            parent_params={"sort_by": "created_at", "sort_direction": "asc"},
+        ),
+    ),
+    # Published Flows templates. The API caps the page size at 25 because each row expands its versions'
+    # input and output schemas. No creation timestamp, so the table stays unpartitioned.
+    "flow_templates": ElevenLabsEndpointConfig(
+        name="flow_templates",
+        path="/v1/flows/templates",
+        items_key="templates",
+        cursor_param="cursor",
+        cursor_response_key="next_cursor",
+        primary_keys=["id"],
+        page_size=25,
+    ),
+    # Runs of each Flows template, fanned out over `flow_templates`. The API lists only runs created
+    # through the API, newest first, with no timestamp or time filter, so full refresh and unpartitioned.
+    "flow_template_runs": ElevenLabsEndpointConfig(
+        name="flow_template_runs",
+        path="/v1/flows/templates/{template_id}/runs",
+        items_key="runs",
+        cursor_param="cursor",
+        cursor_response_key="next_cursor",
+        primary_keys=["template_id", "id"],
+        page_size=100,
+        sort_mode="desc",
+        fanout=DependentEndpointConfig(
+            parent_name="flow_templates",
+            resolve_param="template_id",
+            resolve_field="id",
+            include_from_parent=[],
+            # The fan-out needs only template ids, so skip the extra version schemas.
+            parent_params={"versions_per_template": 1},
+        ),
+    ),
+    # Voice collections the key can access. Returned in one body sorted by title.
+    "voice_collections": ElevenLabsEndpointConfig(
+        name="voice_collections",
+        path="/v1/voices/collections",
+        items_key="collections",
+        primary_keys=["collection_id"],
+    ),
+    # Plan quota and current-period usage, returned as one object that becomes a single row.
+    "subscription": ElevenLabsEndpointConfig(
+        name="subscription",
+        path="/v1/user/subscription",
+        items_key=None,
+        primary_keys=None,
     ),
 }
 

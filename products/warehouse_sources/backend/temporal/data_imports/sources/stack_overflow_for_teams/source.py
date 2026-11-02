@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class StackOverflowForTeamsSource(
     ResumableSource[StackOverflowForTeamsSourceConfig, StackOverflowForTeamsResumeConfig]
 ):
+    codebase_detection = detect(env=("^(STACK_OVERFLOW_FOR_TEAMS|STACKOVERFLOWFORTEAMS)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     supported_versions = ("v3",)
@@ -59,7 +62,7 @@ class StackOverflowForTeamsSource(
             name=ExternalDataSourceType.STACKOVERFLOWFORTEAMS,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Stack Overflow (Prosus/Stack Exchange)",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Stack Overflow for Teams team name and a Personal access token to pull your internal Q&A knowledge base — questions, answers, articles, tags, users, and collections — into the PostHog Data warehouse.
 
 Create a token under **Account Settings → Personal access tokens**, scoped to this team. Read-only (Basic) access is sufficient — you don't need to grant write access.""",

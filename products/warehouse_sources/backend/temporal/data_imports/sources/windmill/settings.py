@@ -5,7 +5,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=True)
 class WindmillEndpointConfig:
     name: str
     # Path relative to the workspace root (``{base}/api/w/{workspace}``).
@@ -16,6 +16,14 @@ class WindmillEndpointConfig:
     # ignores pagination params and returns every member in a single array, so paging it would
     # re-request the same full list forever. Those endpoints set ``paginated=False``.
     paginated: bool = True
+    # ``listFolders`` drops folders the token's scope can't read after applying LIMIT/OFFSET, so a
+    # short page there doesn't mean the scan is done. Those endpoints stop on an empty page instead.
+    stop_on_short_page: bool = True
+    # ``listWorkspaces`` lives at the API root rather than under ``/w/{workspace}``.
+    workspace_scoped: bool = True
+    # Detail path fetched once per listed row, with ``{name}`` bound to the row's ``name``. Used
+    # where the list endpoint omits fields the detail carries (group members).
+    detail_path: Optional[str] = None
     # Whether the endpoint accepts the ``order_desc`` param. When it does we request ascending
     # order (``order_desc=false``) so newly inserted rows land at the end of the result set and
     # don't shift the offsets of pages we've already walked mid-sync.
@@ -109,6 +117,36 @@ WINDMILL_ENDPOINTS: dict[str, WindmillEndpointConfig] = {
         paginated=False,
         partition_key="created_at",
         description="Workspace members. Returned in a single unpaginated response.",
+    ),
+    "user_usage": WindmillEndpointConfig(
+        name="user_usage",
+        path="/users/list_usage",
+        primary_keys=["email"],
+        paginated=False,
+        description="Per-member execution usage over the last 7 days. A rolling snapshot, so each sync replaces the table.",
+    ),
+    "folders": WindmillEndpointConfig(
+        name="folders",
+        path="/folders/list",
+        primary_keys=["name"],
+        stop_on_short_page=False,
+        description="Folders that group scripts, flows, apps and resources under an f/<folder>/ path, with owners and permissions.",
+    ),
+    "groups": WindmillEndpointConfig(
+        name="groups",
+        path="/groups/list",
+        primary_keys=["name"],
+        detail_path="/groups/get/{name}",
+        description="Workspace groups with their members and permissions. Fetches each group once to read its members.",
+    ),
+    # Every workspace the token's user can see, not only the one this source syncs.
+    "workspaces": WindmillEndpointConfig(
+        name="workspaces",
+        path="/workspaces/list",
+        primary_keys=["id"],
+        paginated=False,
+        workspace_scoped=False,
+        description="Workspaces visible to the token's user, with name, owner and domain.",
     ),
     # Audit logs are a Windmill Enterprise Edition feature and require a workspace-admin token; the
     # endpoint returns an empty list on Community Edition. Ordering is not part of the public API,

@@ -34,7 +34,6 @@ use crate::event::{
     SOURCE_INPUT, SOURCE_MUTATION, SOURCE_STYLESHEET_RULE, SOURCE_STYLE_DECLARATION, TYPE_CUSTOM,
     TYPE_FULL_SNAPSHOT, TYPE_INCREMENTAL, TYPE_META, TYPE_PLUGIN,
 };
-use crate::images::ImagePolicy;
 use crate::json::{
     as_array, as_f64, as_object, as_small_uint, as_str, parse_untrusted,
     parse_untrusted_with_buffers, reject_if_too_deep,
@@ -59,6 +58,8 @@ pub enum FailKind {
     NoValidEvents,
     /// An event could not be scrubbed — fail closed (drop `anonymize_failed`).
     AnonymizeFailed,
+    /// A mobile replay under [`AnonymizeOpts::web_only`] (drop `ml_mirror_non_web_replay`).
+    NonWebReplay,
 }
 
 impl FailKind {
@@ -70,6 +71,7 @@ impl FailKind {
             FailKind::NonSnapshotMessage => "received_non_snapshot_message",
             FailKind::NoValidEvents => "message_contained_no_valid_rrweb_events",
             FailKind::AnonymizeFailed => "anonymize_failed",
+            FailKind::NonWebReplay => "ml_mirror_non_web_replay",
         }
     }
 }
@@ -193,6 +195,15 @@ pub struct SnapshotMeta {
     /// with nothing to say why.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub url_declines: Vec<UrlDecline>,
+    /// Content the scrub removed outright rather than replaced, by reason.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub scrub_drops: Vec<ScrubDrop>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct ScrubDrop {
+    pub reason: &'static str,
+    pub count: u32,
 }
 
 /// One reason the collector refused a URL, and how many times it did.
@@ -227,18 +238,27 @@ pub struct AnonymizeOpts {
     /// ([`crate::bytewalk`]) instead of a simd-json tree; anything the walk can't prove safe falls
     /// back to the parse per event. The differential tests pin both engines by toggling this.
     pub byte_walk: bool,
-    /// How images are scrubbed: inline on the walk thread, or deferred onto the shared worker
-    /// pool with a token-patch pass over the serialized output. The differential tests pin both.
-    pub image_policy: ImagePolicy,
+    /// Refuse a replay whose `$snapshot_source` is not `web`. Mobile SDKs send wireframes and
+    /// screenshots, which none of the scrubbers read.
+    pub web_only: bool,
 }
 
 impl Default for AnonymizeOpts {
     fn default() -> Self {
         Self {
             byte_walk: true,
-            image_policy: ImagePolicy::Inline,
+            web_only: false,
         }
     }
+}
+
+/// Capture writes `web` when a client sends no source, so a missing source never comes from capture.
+pub fn is_web_replay(snapshot_source: Option<&str>) -> bool {
+    snapshot_source == Some("web")
+}
+
+fn non_web_replay() -> Failure {
+    Failure::new(FailKind::NonWebReplay, "replay is not from a web SDK")
 }
 
 #[derive(Debug)]
@@ -540,14 +560,21 @@ fn anonymize_snapshot_data_inner(
     // No whole-message depth pre-pass here: the byte walk bounds its own recursion and declines
     // past its limit, and every recursive parse below is preceded by a span-local
     // reject_if_too_deep — so the common all-walked path never pays a depth scan at all.
-    let mut ctx = Ctx::with_options(allow, timings, opts.image_policy, image_collection)
-        .collecting_urls(url_collection);
+    let mut ctx =
+        Ctx::with_options(allow, timings, image_collection).collecting_urls(url_collection);
+    let counts = ctx.count_checkpoint();
     let mut msg = match stream_message(&ctx, distinct_id, inner, opts)? {
         Some(msg) => msg,
         // Escaped/duplicate envelope keys: only a real parse resolves them, and nothing was
         // consumed before the signal, so the tree path re-reads the intact buffer.
-        None => anonymize_via_tree_mut(&ctx, distinct_id, inner)?,
+        None => {
+            ctx.restore_counts(counts);
+            anonymize_via_tree_mut(&ctx, distinct_id, inner)?
+        }
     };
+    if opts.web_only && !is_web_replay(msg.meta.snapshot_source.as_deref()) {
+        return Err(non_web_replay());
+    }
     msg.meta.url_declines = ctx
         .take_url_declines()
         .into_iter()
@@ -975,16 +1002,6 @@ fn finish(
         lines.extend_from_slice(&sink.lines[sink.line_starts[i]..body_end]);
         lines.extend_from_slice(b"]\n");
     }
-    // Deferred image jobs resolve here: the block lines are the last surface tokens can be on.
-    let lines = ctx.patch_pending_images(lines);
-    // Nothing downstream can fix a token that gets past this point, and a shipped one is an image
-    // no reader can ever recover (the marker is random per process). Fail closed instead.
-    if crate::images::contains_token(&lines) {
-        return Err(Failure::new(
-            FailKind::AnonymizeFailed,
-            "internal: unresolved image token in anonymized output",
-        ));
-    }
     Ok(AnonymizedMessage {
         lines,
         route,
@@ -1006,6 +1023,11 @@ fn finish(
             urls: Vec::new(),
             image_sources: Vec::new(),
             url_declines: Vec::new(),
+            scrub_drops: ctx
+                .take_scrub_drops()
+                .into_iter()
+                .map(|(reason, count)| ScrubDrop { reason, count })
+                .collect(),
         },
         image_bytes: Vec::new(),
     })
@@ -1240,6 +1262,7 @@ fn process_event_at(
         let mark = sink.lines.len();
         sink.lines.extend_from_slice(&inner[span.0..data.0]);
         let data_mark = sink.lines.len();
+        let counts = ctx.count_checkpoint();
         match crate::bytewalk::scrub_data_bytes(
             ctx,
             ty,
@@ -1271,7 +1294,10 @@ fn process_event_at(
                 });
                 return Ok(end);
             }
-            None => sink.lines.truncate(mark),
+            None => {
+                sink.lines.truncate(mark);
+                ctx.restore_counts(counts);
+            }
         }
     }
 

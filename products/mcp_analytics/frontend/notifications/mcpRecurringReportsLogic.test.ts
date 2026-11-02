@@ -1,8 +1,11 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
+import { IntegrationType, UserType } from '~/types'
 
 import { toggleSubscriptionEnabled } from 'products/subscriptions/frontend/components/Subscriptions/toggleSubscriptionEnabled'
 import { subscriptionsList } from 'products/subscriptions/frontend/generated/api'
@@ -85,6 +88,40 @@ describe('mcpRecurringReportsLogic', () => {
         expect(logic.values.reportsByTemplateTitle[MCP_RECURRING_REPORTS[0].title].map((r) => r.id)).toEqual([1])
         expect(logic.values.reportsByTemplateTitle[MCP_RECURRING_REPORTS[1].title]).toEqual([])
         expect(logic.values.otherReports.map((r) => r.id)).toEqual([2, 3])
+    })
+
+    const ME = 'user-me'
+    const createdBy = (id: number, target_type: string, uuid: string | null): SubscriptionApi =>
+        makeReport(id, { target_type, created_by: uuid ? { uuid } : null } as Partial<SubscriptionApi>)
+
+    async function loadDefaultInputs(slackConnected: boolean): Promise<void> {
+        userLogic.actions.loadUserSuccess({ uuid: ME } as UserType)
+        await expectLogic(integrationsLogic).toFinishAllListeners()
+        integrationsLogic.actions.loadIntegrationsSuccess(
+            slackConnected ? [{ id: 1, kind: 'slack' } as IntegrationType] : []
+        )
+    }
+
+    // Reports arrive newest first, as the API orders them.
+    it.each([
+        ['my most recent report wins', [createdBy(2, 'teams', ME), createdBy(1, 'email', ME)], true, 'teams'],
+        ['a teammate report is not my choice', [createdBy(1, 'teams', 'someone-else')], false, 'email'],
+        ['a report with a deleted creator is not my choice', [createdBy(1, 'teams', null)], false, 'email'],
+        ['no report of mine, Slack connected', [createdBy(1, 'email', 'someone-else')], true, 'slack'],
+        ['no report and no Slack', [], false, 'email'],
+    ])('defaults the destination when %s', async (_name, reports, slackConnected, expected) => {
+        await loadDefaultInputs(slackConnected)
+        listReturns(reports)
+
+        await expectLogic(logic, () => logic.actions.loadReports()).toFinishAllListeners()
+
+        expect(logic.values.defaultTargetType).toBe(expected)
+    })
+
+    it('has no default destination until the reports load', async () => {
+        await loadDefaultInputs(true)
+
+        expect(logic.values.defaultTargetType).toBeNull()
     })
 
     it('lists only the MCP reports among the project AI reports', async () => {

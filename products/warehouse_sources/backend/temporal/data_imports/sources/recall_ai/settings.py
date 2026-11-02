@@ -13,8 +13,11 @@ class RecallAIEndpointConfig:
     incremental_param: str | None = None
     incremental_field: str | None = None
     # Response fields dropped before rows reach the warehouse (credentials the API echoes back).
+    # A dotted path drops a key inside a nested object.
     scrub_fields: tuple[str, ...] = ()
     extra_params: tuple[tuple[str, str], ...] = ()
+    # False for endpoints that return a bare JSON array instead of a cursor-paginated envelope.
+    paginated: bool = True
 
 
 RECALL_AI_ENDPOINTS: dict[str, RecallAIEndpointConfig] = {
@@ -66,6 +69,21 @@ RECALL_AI_ENDPOINTS: dict[str, RecallAIEndpointConfig] = {
         partition_key="created_at",
         incremental_param="updated_at__gte",
         incremental_field="updated_at",
+    ),
+    # The list takes only a cursor, and upload status changes after creation, so full refresh.
+    # upload_token authorizes uploads into the workspace and never reaches the warehouse.
+    "desktop_sdk_uploads": RecallAIEndpointConfig(
+        path="/api/v1/sdk_upload/",
+        partition_key="created_at",
+        scrub_fields=("upload_token",),
+    ),
+    # Unpaginated and unfiltered, and status changes after creation, so full refresh. The
+    # nested platform credentials (Zoom RTMS signature, Google Meet access token) are dropped.
+    "meeting_direct_connects": RecallAIEndpointConfig(
+        path="/api/v1/meeting_direct_connect/",
+        partition_key="created_at",
+        scrub_fields=("zoom_rtms.signature", "google_meet_media_api.access_token"),
+        paginated=False,
     ),
 }
 

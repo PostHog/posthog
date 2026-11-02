@@ -176,8 +176,9 @@ def _make_source_response(config: LightdashEndpointConfig, items_fn: Callable[[]
         items=items_fn,
         primary_keys=config.primary_key if isinstance(config.primary_key, list) else [config.primary_key],
         # Lightdash exposes no server-side updated-since filter on any endpoint; rows arrive in the
-        # endpoint's natural order or the ascending sort set in its params.
-        sort_mode="asc",
+        # endpoint's natural order or the ascending sort set in its params. A fan-out sorts each
+        # parent's rows on their own, so the rows of the whole run have no order.
+        sort_mode=None if config.fanout is not None else "asc",
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LeexiSource(ResumableSource[LeexiSourceConfig, LeexiResumeConfig]):
+    codebase_detection = detect(env=("^LEEXI_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v1",)
     default_version = "v1"
@@ -50,7 +53,7 @@ class LeexiSource(ResumableSource[LeexiSourceConfig, LeexiResumeConfig]):
             name=ExternalDataSourceType.LEEXI,
             category=DataWarehouseSourceCategory.SALES,
             label="Leexi",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["notetaker", "call recording", "conversation intelligence", "transcription"],
             caption="""Enter a Leexi API key pair to pull your Leexi calls, notes, meeting events, users, and teams into the PostHog Data warehouse.
 

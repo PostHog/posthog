@@ -47,7 +47,7 @@ A scanner can also carry its own optional `credit_limit` for the same period, so
 | Scouts       | `scouts`       | The scanner's signals scouts, including its daily digest.                                                                                                 |
 | Alerts       | `alerts`       | The scanner's alerts on the shared alerts platform.                                                                                                       |
 
-**Scanner editor** (`/replay-vision/<scanner-id>/<step>`) is a stepper rather than tabs: Template, Configure, Scan conditions (`triggers`), Self-driving.
+**Scanner editor** (`/replay-vision/<scanner-id>/<step>`) opens a new scanner on a goal step (`goal`), where the agent drafts the whole scanner from a goal and a monthly budget for review on `overview`. Building by hand, or editing a saved scanner, uses a stepper rather than tabs: Details, Configure, Recordings (`triggers`), Budget.
 Observations have their own scene under `/replay-vision/observations/…`.
 An observation link carries the player's `?t=<seconds>` param, so a shared observation opens with its recording expanded and playing from the shared moment.
 
@@ -55,23 +55,26 @@ Outside these scenes, the product also renders inside the session replay player:
 
 ## Experiment-created scanners
 
-The experiment creation wizard offers an opt-in Replay Vision scanner when the `replay-vision` feature flag is enabled. The scanner is a **disabled** classifier — enabling it, and the credit spend that follows, stays a human decision on the scanner itself. Its population lives in `experiment_targeting`, never in its `RecordingsQuery`: the API derives the person-scoped exposure filter from that field at scan time, the same resolution the experiment's Recordings tab uses, so the scanner watches the sessions that tab lists, including an exposure event that fires server-side or in an earlier session. The `RecordingsQuery` carries only the experiment's test-account setting, and the API rejects an `experiment_exposure` set there directly. Scanners the wizard created before that field existed keep their original exposure-event filters; recreating one from the experiment's Recordings tab is the fix for a scanner watching nothing. Scanner creation runs after the experiment has been persisted and cannot roll back a successfully created experiment.
+The experiment creation wizard offers an opt-in experiment scanner when the `experiment-scanner` feature flag is on, and offers no scanner without it. The scanner is the `experiment` type, saved off with `start_on_launch`, and the backend turns it on when the experiment launches. Its population comes from the experiment, never from its `RecordingsQuery`: the API derives the person-scoped exposure filter at scan time, the same resolution the experiment's Recordings tab uses, so the scanner watches the sessions that tab lists, including an exposure event that fires server-side or in an earlier session. The `RecordingsQuery` carries only the experiment's test-account setting, and the API rejects an `experiment_exposure` set there directly. Older wizard scanners are classifiers with `experiment_targeting` and keep working. Scanner creation runs after the experiment has been persisted and cannot roll back a successfully created experiment.
 
-The template lives in `frontend/src/scenes/experiments/replayVisionScanner.ts` and mirrors the one in the `scanning-experiments-with-replay-vision` skill: a fixed tag set (so variants stay comparable), an escape tag for sessions that never reached the changed surface, and no variant names in the prompt.
+The `experiment` scanner type is the way agents (Max, MCP, the `scanning-experiments-with-replay-vision` skill) scan an experiment: its experiment lives in `scanner_config`, each session's variant comes from the exposure data, variants are sampled evenly, and `GET scanners/{id}/variants/` reads the results per variant.
 
 ## Layout
 
-- `backend/models/` — `ReplayScanner`, `ReplayObservation`, `ReplayScannerBackfill`, `ReplayObservationRequest` (one handle over a programmatic batch of scans, served at `vision/requests/` and open to project secret API keys), observation labels (ratings), usage receipts, and `TeamReplayVisionConfig` (the team's cross-scanner search suggestions).
+- `backend/models/` — `ReplayScanner`, `ReplayObservation`, `ReplayScannerBackfill`, `ReplayObservationRequest` (one handle over a programmatic batch of scans, served at `vision/requests/` and open to project secret API keys), observation labels (ratings), usage receipts, and `TeamReplayVisionConfig` (the team's learned rules state).
 - `backend/api/` — DRF viewsets and serializers (scanners, observations, backfills, quota, stats, live progress over SSE).
 - `backend/queries/` — ClickHouse candidate selection (watermark + settle window + eligibility + sampling), the backfill's bounded descending walk and its exact count, and volume estimates.
 - `backend/temporal/` — the apply workflow and its activities, per-scanner sweep, per-backfill tick, schedule reconciler (+ observation and backfill-schedule reapers), estimate refresher, vision alerts, and the Gemini file cleanup sweep.
 - `backend/quota.py` + `backend/billing.py` — credit accounting: the per-model price table, the receipt ledger, the quota snapshot the meter reads, and the per-org credit-limit override described below.
+- `backend/gemini_client.py` — every Gemini call goes through the Go AI gateway (`AI_GATEWAY_URL` and `AI_GATEWAY_API_KEY`). There is no direct route to Google, so local development needs a running gateway (`bin/start-ai-gateway`, credential from `bin/setup-gateway-e2e`).
 - `backend/enqueue_claims.py` — atomic slot claims that keep on-demand scans inside the in-flight caps.
 - `backend/embeddings.py` — the embedding identity shared by the write and search sides.
 - `backend/search.py` + `backend/search_rerank.py` — observation search: embedding rank, access-scoped hydration, and the decision-model rerank of the head.
 - `backend/impact.py` — affected sessions and users per scanner, exportable as a static cohort.
-- `backend/search_suggestions.py` — example searches for the Search tab's empty state, per scanner and per team. A scheduled workflow generates them for every active scanner and team before anyone opens the tab, from an outcome-labeled sample of new observations and each scanner's instructions.
-- `backend/tags.py` + `backend/tag_suggestions.py` — tag slug normalization and data-grounded vocabulary suggestions for classifiers.
+- `backend/watch_themes.py`: example searches for the Search tab's empty state.
+  The embedding consumer clusters each scanner's issue observations into themes.
+  A small model names a theme when it reaches 5 members and again each time it doubles, and the Search tab shows the largest active themes.
+- `backend/tags.py` — tag slug normalization for classifiers.
 - `backend/max_tools.py` — Max AI tools (draft a scanner prompt, digest summaries, semantic search over observations).
 - `backend/scanner_access.py` — scanner-level RBAC shared by the API and the alert engine.
 - `backend/facade/` — the cross-product entry point (session observations, formatted for Max reports).

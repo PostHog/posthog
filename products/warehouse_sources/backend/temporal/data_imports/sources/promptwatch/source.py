@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -31,16 +32,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.promptwatc
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.promptwatch.settings import (
+    CREATED_AT_SORTED_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    MERGE_ONLY_ENDPOINTS,
     NON_RETRYABLE_ERRORS,
     PAGINATED_ENDPOINTS,
+    PRIMARY_KEYS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class PromptWatchSource(ResumableSource[PromptWatchSourceConfig, PromptWatchResumeConfig]):
+    codebase_detection = detect(env=("^(PROMPT_WATCH|PROMPTWATCH)_",), script_hosts=("ingest.promptwatch.com",))
+
     lists_tables_without_credentials = True
     supported_versions = ("v2",)
     default_version = "v2"
@@ -65,7 +71,7 @@ class PromptWatchSource(ResumableSource[PromptWatchSourceConfig, PromptWatchResu
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only={"responses"})
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=MERGE_ONLY_ENDPOINTS)
 
     def validate_credentials(
         self,
@@ -91,8 +97,8 @@ class PromptWatchSource(ResumableSource[PromptWatchSourceConfig, PromptWatchResu
             items=lambda: promptwatch_source(
                 config, inputs, resumable_source_manager, self.resolve_api_version(inputs.api_version)
             ),
-            primary_keys=["id"],
-            sort_mode="asc" if inputs.schema_name in PAGINATED_ENDPOINTS else None,
+            primary_keys=PRIMARY_KEYS.get(inputs.schema_name, ["id"]),
+            sort_mode="asc" if inputs.schema_name in CREATED_AT_SORTED_ENDPOINTS else None,
             supports_resume=inputs.schema_name in PAGINATED_ENDPOINTS,
         )
 
@@ -103,7 +109,7 @@ class PromptWatchSource(ResumableSource[PromptWatchSourceConfig, PromptWatchResu
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Promptwatch",
             iconPath="/static/services/promptwatch.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Create a read-only API key in Promptwatch under Settings > API Keys. "
                 "Requires the Explore plan or higher. Syncs use your account's API units (hourly request quota). "
@@ -130,6 +136,7 @@ class PromptWatchSource(ResumableSource[PromptWatchSourceConfig, PromptWatchResu
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         secret=False,
                         label="Response start date",
                         type=SourceFieldInputConfigType.TEXT,

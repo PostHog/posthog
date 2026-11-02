@@ -32,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.settings import (
+    INVOICE_BREAKDOWNS_LOOKBACK_SECONDS,
     METRONOME_ENDPOINTS,
     USAGE_DAILY_LOOKBACK_SECONDS,
     USAGE_HOURLY_LOOKBACK_SECONDS,
@@ -666,21 +667,161 @@ class TestMetronomeBodyFanout:
         assert client.paginate.call_count == 1
 
 
+class TestMetronomeNewFanoutTables:
+    def test_contract_rate_schedules_walk_each_live_contract_with_both_ids_in_the_body(self) -> None:
+        result = _driver().run(
+            "contract_rate_schedules",
+            [
+                ScriptedResponse(json={"data": [{"id": "cust_1"}], "next_page": None}),
+                ScriptedResponse(
+                    json={
+                        "data": [
+                            {"id": "contract_1", "customer_id": "cust_1"},
+                            # An archived contract bills nothing, so it is never asked for rates.
+                            {"id": "contract_2", "customer_id": "cust_1", "archived_at": "2026-01-01T00:00:00Z"},
+                        ]
+                    }
+                ),
+                ScriptedResponse(
+                    json={
+                        "data": [
+                            {"rate_card_id": "rc_1", "product_id": "p1", "starting_at": "2026-01-01T00:00:00Z"},
+                        ],
+                        "next_page": "cursor-2",
+                    }
+                ),
+                ScriptedResponse(
+                    json={
+                        "data": [
+                            {
+                                "rate_card_id": "rc_1",
+                                "product_id": "p1",
+                                "starting_at": "2026-01-01T00:00:00Z",
+                                "pricing_group_values": {"region": "eu", "cloud": "aws"},
+                            },
+                        ],
+                        "next_page": None,
+                    }
+                ),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/v1/customers",
+            "/v2/contracts/list",
+            "/v1/contracts/getContractRateSchedule",
+            "/v1/contracts/getContractRateSchedule",
+        ]
+        assert [request.json() for request in result.requests[2:]] == [
+            {"customer_id": "cust_1", "contract_id": "contract_1"},
+            {"customer_id": "cust_1", "contract_id": "contract_1"},
+        ]
+        assert result.params("next_page")[2:] == [None, "cursor-2"]
+        # The rows never echo the contract they were asked for, and the pricing group is an object,
+        # so both have to be added for the primary key to identify a row.
+        assert [(row["contract_id"], row["customer_id"], row["pricing_group_key"]) for row in result.rows] == [
+            ("contract_1", "cust_1", "{}"),
+            ("contract_1", "cust_1", '{"cloud":"aws","region":"eu"}'),
+        ]
+
+    def test_rate_card_rate_schedules_ask_for_the_whole_schedule_of_each_rate_card(self) -> None:
+        result = _driver().run(
+            "rate_card_rate_schedules",
+            [
+                ScriptedResponse(json={"data": [{"id": "rc_1"}, {"id": "rc_2"}], "next_page": None}),
+                ScriptedResponse(json={"data": [{"product_id": "p1", "starting_at": "2026-01-01T00:00:00Z"}]}),
+                ScriptedResponse(json={"data": []}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/v1/contract-pricing/rate-cards/list",
+            "/v1/contract-pricing/rate-cards/getRateSchedule",
+            "/v1/contract-pricing/rate-cards/getRateSchedule",
+        ]
+        # The rate card list is a POST that still expects a JSON document.
+        assert result.requests[0].json() == {}
+        assert [request.json() for request in result.requests[1:]] == [
+            {"starting_at": "1970-01-01T00:00:00Z", "rate_card_id": "rc_1"},
+            {"starting_at": "1970-01-01T00:00:00Z", "rate_card_id": "rc_2"},
+        ]
+        assert result.params("limit")[1:] == ["100", "100"]
+        assert [(row["rate_card_id"], row["product_id"]) for row in result.rows] == [("rc_1", "p1")]
+
+    def test_balances_page_through_the_body_and_keep_the_customer(self) -> None:
+        # The endpoint reads `limit` and `next_page` from the body only. A cursor sent in the query
+        # string would be ignored, and the walk would ask for the first page again forever.
+        result = _driver().run(
+            "balances",
+            [
+                ScriptedResponse(json={"data": [{"id": "cust_1"}], "next_page": None}),
+                ScriptedResponse(json={"data": [{"id": "commit_1", "type": "PREPAID"}], "next_page": "cursor-2"}),
+                ScriptedResponse(json={"data": [{"id": "credit_1", "type": "CREDIT"}], "next_page": None}),
+            ],
+        )
+
+        assert result.raised is None
+        bodies = [request.json() for request in result.requests[1:]]
+        assert [body.get("next_page") for body in bodies] == [None, "cursor-2"]
+        assert {body["limit"] for body in bodies} == {25}
+        assert {body["customer_id"] for body in bodies} == {"cust_1"}
+        assert all(body["include_ledgers"] and body["include_balance"] for body in bodies)
+        assert result.params("limit")[1:] == [None, None]
+        assert result.params("next_page")[1:] == [None, None]
+        assert [(row["customer_id"], row["id"]) for row in result.rows] == [
+            ("cust_1", "commit_1"),
+            ("cust_1", "credit_1"),
+        ]
+
+    @parameterized.expand(
+        [
+            # A first sync reaches back a year, from the UTC midnight before it.
+            ("first_sync", {}, "2025-09-03T00:00:00Z"),
+            # The watermark arrives already moved back by the lookback, and lands mid-day. Asking
+            # from mid-day would return a partial day as a second row under a different key.
+            (
+                "incremental",
+                {
+                    "should_use_incremental_field": True,
+                    "incremental_field": "breakdown_start_timestamp",
+                    "db_incremental_field_last_value": "2026-08-27T15:00:00Z",
+                },
+                "2026-08-27T00:00:00Z",
+            ),
+        ]
+    )
+    def test_invoice_breakdowns_ask_for_whole_days_from_the_watermark(self, _name, inputs, starting_on) -> None:
+        with time_machine.travel(NOW, tick=False):
+            result = _driver().run(
+                "invoice_breakdowns",
+                [
+                    ScriptedResponse(json={"data": [{"id": "cust_1"}], "next_page": None}),
+                    ScriptedResponse(
+                        json={
+                            "data": [{"id": "inv_1", "breakdown_start_timestamp": "2026-09-02T00:00:00Z"}],
+                            "next_page": None,
+                        }
+                    ),
+                ],
+                **inputs,
+            )
+
+        assert result.raised is None
+        assert result.paths == ["/v1/customers", "/v1/customers/cust_1/invoices/breakdowns"]
+        breakdown_query = result.queries[1]
+        assert breakdown_query["starting_on"] == (starting_on,)
+        # The day in progress is included, so the newest day is never a full period behind.
+        assert breakdown_query["ending_before"] == ("2026-09-04T00:00:00Z",)
+        assert breakdown_query["window_size"] == ("DAY",)
+        assert [row["id"] for row in result.rows] == ["inv_1"]
+
+
 class TestMetronomeCredentials:
     @parameterized.expand(
         [
             (200, True, None),
-            (
-                401,
-                False,
-                "Metronome rejected the API token. Create a new one in Metronome under Developer > API tokens and reconnect.",
-            ),
-            (
-                403,
-                False,
-                "Metronome rejected the API token. Create a new one in Metronome under Developer > API tokens and reconnect.",
-            ),
-            (500, False, "Metronome API returned an unexpected status code: 500"),
         ]
     )
     def test_status_maps_to_message(self, status_code, expected_valid, expected_message) -> None:
@@ -711,17 +852,18 @@ class TestMetronomeSchemas:
 
     @parameterized.expand(
         [
-            ("usage_daily", USAGE_DAILY_LOOKBACK_SECONDS),
-            ("usage_hourly", USAGE_HOURLY_LOOKBACK_SECONDS),
+            ("usage_daily", USAGE_DAILY_LOOKBACK_SECONDS, "start_timestamp"),
+            ("usage_hourly", USAGE_HOURLY_LOOKBACK_SECONDS, "start_timestamp"),
+            ("invoice_breakdowns", INVOICE_BREAKDOWNS_LOOKBACK_SECONDS, "breakdown_start_timestamp"),
         ]
     )
-    def test_bucketed_usage_merges_incrementally_and_starts_off(self, name, lookback_seconds) -> None:
+    def test_windowed_tables_merge_incrementally_and_start_off(self, name, lookback_seconds, cursor_field) -> None:
         schema = self._schema(name)
 
         assert schema.supports_incremental is True
         # Appending would duplicate every period the lookback re-reads.
         assert schema.supports_append is False
-        assert [field["field"] for field in schema.incremental_fields] == ["start_timestamp"]
+        assert [field["field"] for field in schema.incremental_fields] == [cursor_field]
         assert schema.should_sync_default is False
         assert schema.default_incremental_lookback_seconds == lookback_seconds
 

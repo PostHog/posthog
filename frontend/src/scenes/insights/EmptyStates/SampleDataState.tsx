@@ -17,11 +17,12 @@ import type {
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
-import { Link } from 'lib/lemon-ui/Link'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { setupWizardStatusLogic } from 'scenes/onboarding/shared/setupWizardStatusLogic'
 import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
+
+import { SampleDataTag } from './SampleDataTag'
 
 export type SampleDataVariant = 'line' | 'bar' | 'pie' | 'proportionBar' | 'funnel' | 'number' | 'table'
 
@@ -139,47 +140,6 @@ function SampleChart({ variant }: { variant: Exclude<SampleDataVariant, 'number'
     )
 }
 
-function SampleDataTooltipContent(): JSX.Element {
-    const { setupStatus } = useValues(setupWizardStatusLogic)
-
-    return (
-        <div className="max-w-72 space-y-1.5 p-0.5">
-            <div className="font-semibold">This is sample data</div>
-            <p className="m-0">
-                This project hasn't received any events yet - you'll see your real data here as soon as events start
-                coming in.
-            </p>
-            {setupStatus?.kind === 'installing' &&
-                (setupStatus.mode === 'cloud' ? (
-                    <p className="m-0">
-                        The setup wizard is installing PostHog in your codebase. Once it's done, it will open a pull
-                        request for you to merge.
-                    </p>
-                ) : (
-                    <p className="m-0">
-                        The setup wizard is installing PostHog in your codebase. You'll see real data here soon after
-                        it's done.
-                    </p>
-                ))}
-            {setupStatus?.kind === 'pull_request' &&
-                (setupStatus.pullRequest.merged ? (
-                    <p className="m-0">
-                        Your setup pull request is merged. Once the updated code is live and sending events, this chart
-                        will fill in automatically.
-                    </p>
-                ) : (
-                    <p className="m-0">
-                        Your setup pull request hasn't been merged yet -{' '}
-                        <Link to={setupStatus.pullRequest.url} target="_blank" targetBlankIcon>
-                            merge it
-                        </Link>{' '}
-                        to start sending events.
-                    </p>
-                ))}
-        </div>
-    )
-}
-
 /** Obviously-fake placeholder chart shown instead of an empty state before a project has ingested any events. */
 export function SampleDataState({
     variant = 'line',
@@ -262,11 +222,7 @@ export function SampleDataState({
                         </span>
                     </Tooltip>
                 )}
-                <Tooltip title={<SampleDataTooltipContent />} interactive delayMs={100} placement="bottom">
-                    <LemonTag className="cursor-help" type="muted">
-                        Sample data
-                    </LemonTag>
-                </Tooltip>
+                <SampleDataTag />
             </div>
             <div className={clsx('SampleDataState__viz', children && 'SampleDataState__viz--custom')}>
                 {children ??

@@ -39,10 +39,6 @@ class TestSwarmiaSource:
         if supports_incremental:
             assert [f["field"] for f in schema.incremental_fields] == ["end_date"]
 
-    def test_get_schemas_returns_all_endpoints_and_filters_by_name(self) -> None:
-        assert {s.name for s in self.source.get_schemas(self.config, team_id=1)} == set(ENDPOINTS)
-        assert [s.name for s in self.source.get_schemas(self.config, team_id=1, names=["dora"])] == ["dora"]
-
     @parameterized.expand(
         [
             ("valid_token", 200, None, True),

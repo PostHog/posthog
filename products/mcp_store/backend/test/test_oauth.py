@@ -1,11 +1,12 @@
 from urllib.parse import urlparse
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
-import requests
+import httpx
 from parameterized import parameterized
 
 from posthog.models.instance_setting import override_instance_config
@@ -29,6 +30,8 @@ from products.mcp_store.backend.oauth import (
     resolve_installation_oauth_context,
     select_token_endpoint_auth_method,
 )
+
+pytestmark = pytest.mark.usefixtures("pin_oauth_urls")
 
 
 class TestRefreshOauthToken(SimpleTestCase):
@@ -54,7 +57,7 @@ class TestRefreshOauthToken(SimpleTestCase):
 
         with (
             patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None)),
-            patch("products.mcp_store.backend.oauth.requests.post", return_value=mock_resp) as mock_post,
+            patch("products.mcp_store.backend.oauth.httpx.Client.post", return_value=mock_resp) as mock_post,
         ):
             result = refresh_oauth_token(
                 token_url="https://example.com/token",
@@ -73,11 +76,11 @@ class TestRefreshOauthToken(SimpleTestCase):
         else:
             self.assertEqual(call_data["client_id"], "my-client")
             self.assertNotIn("client_secret", call_data)
-        self.assertEqual(call_kwargs["auth"], expected_auth)
+        self.assertEqual(call_kwargs["auth"], expected_auth or httpx.USE_CLIENT_DEFAULT)
         self.assertEqual(result["access_token"], "new-token")
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.post")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.post")
     def test_refresh_sends_resource_and_disables_redirects(self, mock_post, _allow):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
@@ -93,7 +96,7 @@ class TestRefreshOauthToken(SimpleTestCase):
         )
 
         call_kwargs = mock_post.call_args.kwargs
-        assert call_kwargs["allow_redirects"] is False
+        assert call_kwargs["follow_redirects"] is False
         assert call_kwargs["data"]["resource"] == "https://mcp.example.com/"
 
     @parameterized.expand(
@@ -113,9 +116,11 @@ class TestRefreshOauthToken(SimpleTestCase):
         mock_resp = MagicMock()
         mock_resp.status_code = status_code
         mock_resp.json.return_value = response_data
-        mock_resp.raise_for_status.side_effect = requests.HTTPError(str(status_code), response=mock_resp)
+        mock_resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+            str(status_code), request=httpx.Request("POST", "https://example.com"), response=mock_resp
+        )
 
-        with patch("products.mcp_store.backend.oauth.requests.post", return_value=mock_resp):
+        with patch("products.mcp_store.backend.oauth.httpx.Client.post", return_value=mock_resp):
             with self.assertRaises(TokenRefreshError) as ctx:
                 refresh_oauth_token(
                     token_url="https://example.com/token",
@@ -131,7 +136,7 @@ class TestRefreshOauthToken(SimpleTestCase):
         mock_resp.json.return_value = {"error": "invalid_grant"}
         mock_resp.raise_for_status = MagicMock()
 
-        with patch("products.mcp_store.backend.oauth.requests.post", return_value=mock_resp):
+        with patch("products.mcp_store.backend.oauth.httpx.Client.post", return_value=mock_resp):
             with self.assertRaises(TokenRefreshError) as ctx:
                 refresh_oauth_token(
                     token_url="https://example.com/token",
@@ -154,12 +159,14 @@ class TestRefreshOauthToken(SimpleTestCase):
 class TestIssuerValidation(SimpleTestCase):
     def _make_response(self, *, ok=True, status_code=200, json_data=None):
         resp = MagicMock()
-        resp.ok = ok
+        resp.is_success = ok
         resp.status_code = status_code
         resp.json.return_value = json_data or {}
         resp.raise_for_status = MagicMock()
         if status_code >= 400:
-            resp.raise_for_status.side_effect = requests.HTTPError(response=resp)
+            resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+                "Upstream error", request=httpx.Request("GET", "https://example.com"), response=resp
+            )
         return resp
 
     def _origin(self, url: str) -> str:
@@ -265,7 +272,7 @@ class TestIssuerValidation(SimpleTestCase):
         ]
     )
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.get")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.get")
     def test_step2_fallback_issuer_validation(
         self, _name, auth_metadata, server_url, should_raise, cross_val_metadata, mock_get, _allow
     ):
@@ -386,7 +393,7 @@ class TestIssuerValidation(SimpleTestCase):
         ]
     )
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.get")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.get")
     def test_step1_protected_resource_issuer_validation(
         self, _name, auth_server_url, auth_metadata, should_raise, cross_val_metadata, mock_get, _allow
     ):
@@ -427,7 +434,7 @@ class TestIssuerValidation(SimpleTestCase):
             assert mock_get.call_args_list[index].kwargs["timeout"] == TIMEOUT
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.get")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.get")
     def test_step1_preserves_same_origin_resource(self, mock_get, _allow):
         auth_server_url = "https://auth.example.com"
         resource_resp = self._make_response(
@@ -451,7 +458,7 @@ class TestIssuerValidation(SimpleTestCase):
         assert mock_get.call_count == 2
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.get")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.get")
     def test_step1_rejects_resource_on_unrelated_origin(self, mock_get, _allow):
         resource_resp = self._make_response(
             json_data={
@@ -489,7 +496,7 @@ class TestIssuerValidation(SimpleTestCase):
         ]
     )
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.get")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.get")
     def test_rejects_metadata_with_endpoints_off_issuer_origin(self, _name, auth_metadata, mock_get, _allow):
         """A malicious MCP server cannot mix a legitimate issuer with an attacker-controlled endpoint.
 
@@ -531,7 +538,7 @@ class TestRegisterDCRClient(SimpleTestCase):
     def test_omitted_supported_methods_default_to_basic_for_confidential_clients(self):
         assert select_token_endpoint_auth_method({}, has_client_secret=True) == "client_secret_basic"
 
-    @patch("products.mcp_store.backend.oauth.requests.post")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.post")
     def test_rejects_dcr_when_provider_only_lists_unsupported_auth_methods(self, mock_post):
         with self.assertRaisesMessage(ValueError, "private_key_jwt"):
             register_dcr_client(
@@ -588,12 +595,12 @@ class TestRegisterDCRClient(SimpleTestCase):
         ]
     )
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, ""))
-    @patch("products.mcp_store.backend.oauth.requests.post")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.post")
     def test_returns_client_secret_only_when_server_requires_it(
         self, _name, response_body, expected, mock_post, _allow
     ):
         mock_response = MagicMock()
-        mock_response.ok = True
+        mock_response.is_success = True
         mock_response.status_code = 201
         mock_response.json.return_value = response_body
         mock_post.return_value = mock_response
@@ -606,10 +613,10 @@ class TestRegisterDCRClient(SimpleTestCase):
         assert result == expected
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, ""))
-    @patch("products.mcp_store.backend.oauth.requests.post")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.post")
     def test_registers_refresh_grant_without_refresh_scope(self, mock_post, _allow):
         mock_response = MagicMock()
-        mock_response.ok = True
+        mock_response.is_success = True
         mock_response.status_code = 201
         mock_response.json.return_value = {
             "client_id": "abc",
@@ -637,13 +644,13 @@ class TestRegisterDCRClient(SimpleTestCase):
         assert payload["token_endpoint_auth_method"] == "client_secret_post"
         assert payload["scope"] == "read"
         assert "refresh_token" not in payload["scope"]
-        assert mock_post.call_args.kwargs["allow_redirects"] is False
+        assert mock_post.call_args.kwargs["follow_redirects"] is False
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, ""))
-    @patch("products.mcp_store.backend.oauth.requests.post")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.post")
     def test_keeps_requested_basic_auth_when_dcr_response_omits_auth_method(self, mock_post, _allow):
         mock_response = MagicMock()
-        mock_response.ok = True
+        mock_response.is_success = True
         mock_response.status_code = 201
         mock_response.json.return_value = {
             "client_id": "abc",
@@ -665,10 +672,10 @@ class TestRegisterDCRClient(SimpleTestCase):
         assert mock_post.call_args.kwargs["json"]["token_endpoint_auth_method"] == "client_secret_basic"
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, ""))
-    @patch("products.mcp_store.backend.oauth.requests.post")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.post")
     def test_client_name_has_no_parentheses(self, mock_post, _allow):
         mock_response = MagicMock()
-        mock_response.ok = True
+        mock_response.is_success = True
         mock_response.status_code = 201
         mock_response.json.return_value = {"client_id": "abc", "token_endpoint_auth_method": "none"}
         mock_post.return_value = mock_response
@@ -682,10 +689,10 @@ class TestRegisterDCRClient(SimpleTestCase):
         assert "(" not in client_name and ")" not in client_name
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, ""))
-    @patch("products.mcp_store.backend.oauth.requests.post")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.post")
     def test_surfaces_provider_rejection_message(self, mock_post, _allow):
         mock_response = MagicMock()
-        mock_response.ok = False
+        mock_response.is_success = False
         mock_response.status_code = 400
         mock_response.json.return_value = {
             "error": "invalid_client_metadata",
@@ -909,7 +916,7 @@ class TestSourceBackedOauthMetadataBinding(BaseTest):
         )
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.post")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.post")
     def test_exchange_rejects_modified_token_endpoint_before_sending_secret(self, mock_post, _allow):
         installation = self._installation()
 
@@ -931,11 +938,11 @@ class TestSourceBackedOauthMetadataBinding(BaseTest):
     @parameterized.expand(["exchange", "refresh"])
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
     @patch("products.mcp_store.backend.oauth.record_slack_api_response")
-    @patch("products.mcp_store.backend.oauth.requests.post")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.post")
     def test_slack_dev_token_requests_are_recorded(self, operation, mock_post, record_response, _allow):
         response = MagicMock()
         response.status_code = 200
-        response.ok = True
+        response.is_success = True
         response.headers = {}
         response.json.return_value = {"access_token": "access-token", "refresh_token": "refresh-token"}
         mock_post.return_value = response
@@ -970,7 +977,7 @@ class TestSourceBackedOauthMetadataBinding(BaseTest):
         )
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.post")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.post")
     def test_refresh_rejects_modified_token_endpoint_before_sending_secret(self, mock_post, _allow):
         installation = self._installation()
 
@@ -996,11 +1003,11 @@ class TestExchangeOauthToken(BaseTest):
         )
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.post")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.post")
     def test_confidential_custom_install_defaults_to_http_basic(self, mock_post, _allow):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
-        mock_resp.ok = True
+        mock_resp.is_success = True
         mock_resp.json.return_value = {"access_token": "abc", "refresh_token": "def"}
         mock_post.return_value = mock_resp
 
@@ -1026,14 +1033,14 @@ class TestExchangeOauthToken(BaseTest):
         assert sent_form["grant_type"] == "authorization_code"
         assert sent_form["code_verifier"] == "pkce-verifier"
         assert mock_post.call_args.kwargs["auth"] == ("confidential-client", "confidential-secret")
-        assert mock_post.call_args.kwargs["allow_redirects"] is False
+        assert mock_post.call_args.kwargs["follow_redirects"] is False
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.post")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.post")
     def test_client_secret_post_custom_install_sends_secret_in_form(self, mock_post, _allow):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
-        mock_resp.ok = True
+        mock_resp.is_success = True
         mock_resp.json.return_value = {"access_token": "abc", "refresh_token": "def"}
         mock_post.return_value = mock_resp
 
@@ -1059,10 +1066,10 @@ class TestExchangeOauthToken(BaseTest):
         assert sent_form["client_secret"] == "confidential-secret"
         assert sent_form["grant_type"] == "authorization_code"
         assert sent_form["code_verifier"] == "pkce-verifier"
-        assert mock_post.call_args.kwargs["auth"] is None
+        assert mock_post.call_args.kwargs["auth"] is httpx.USE_CLIENT_DEFAULT
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.post")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.post")
     def test_public_custom_install_omits_client_secret(self, mock_post, _allow):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
@@ -1085,11 +1092,11 @@ class TestExchangeOauthToken(BaseTest):
         assert "client_secret" not in sent_form
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.post")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.post")
     def test_client_secret_basic_custom_install_uses_http_basic(self, mock_post, _allow):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
-        mock_resp.ok = True
+        mock_resp.is_success = True
         mock_resp.json.return_value = {"access_token": "abc"}
         mock_post.return_value = mock_resp
 
@@ -1115,11 +1122,11 @@ class TestExchangeOauthToken(BaseTest):
         assert mock_post.call_args.kwargs["auth"] == ("basic-client", "basic-secret")
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.post")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.post")
     def test_token_exchange_includes_resource_indicator(self, mock_post, _allow):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
-        mock_resp.ok = True
+        mock_resp.is_success = True
         mock_resp.json.return_value = {"access_token": "abc"}
         mock_post.return_value = mock_resp
 
@@ -1168,12 +1175,12 @@ class TestExchangeOauthToken(BaseTest):
         ]
     )
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.post")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.post")
     def test_accepts_any_2xx_status(self, _name, status_code, ok, should_raise, mock_post, _allow):
         """Some providers (e.g. Supabase) return 201 on token issue — we must accept it."""
         mock_resp = MagicMock()
         mock_resp.status_code = status_code
-        mock_resp.ok = ok
+        mock_resp.is_success = ok
         mock_resp.json.return_value = {"access_token": "abc", "refresh_token": "def"}
         mock_resp.text = "{}"
         mock_post.return_value = mock_resp
@@ -1236,7 +1243,9 @@ class TestRefreshInstallationToken(BaseTest):
         response = MagicMock()
         response.status_code = status_code
         response.json.return_value = response_data or {}
-        response.raise_for_status.side_effect = requests.HTTPError(str(status_code), response=response)
+        response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            str(status_code), request=httpx.Request("POST", "https://example.com"), response=response
+        )
         return response
 
     @staticmethod
@@ -1251,7 +1260,7 @@ class TestRefreshInstallationToken(BaseTest):
         installation = self._make_installation()
 
         with patch(
-            "products.mcp_store.backend.oauth.requests.post",
+            "products.mcp_store.backend.oauth.httpx.Client.post",
             return_value=self._post_answering(status_code, {"error": oauth_error}),
         ):
             with self.assertRaises(TokenRefreshRejectedError):
@@ -1298,7 +1307,7 @@ class TestRefreshInstallationToken(BaseTest):
         installation = self._make_installation()
 
         with patch(
-            "products.mcp_store.backend.oauth.requests.post",
+            "products.mcp_store.backend.oauth.httpx.Client.post",
             return_value=self._post_answering(status_code, response_data),
         ):
             with self.assertRaises(TokenRefreshError) as ctx:
@@ -1310,14 +1319,14 @@ class TestRefreshInstallationToken(BaseTest):
 
     @parameterized.expand(
         [
-            ("connection_error", requests.ConnectionError("connection reset")),
-            ("timeout", requests.Timeout("timed out")),
+            ("connection_error", httpx.ConnectError("connection reset")),
+            ("timeout", httpx.ReadTimeout("timed out")),
         ]
     )
     def test_network_failure_leaves_the_connection_alone(self, _name: str, error: Exception) -> None:
         installation = self._make_installation()
 
-        with patch("products.mcp_store.backend.oauth.requests.post", return_value=self._post_failing(error)):
+        with patch("products.mcp_store.backend.oauth.httpx.Client.post", return_value=self._post_failing(error)):
             with self.assertRaises(TokenRefreshError) as ctx:
                 refresh_installation_token(installation)
 
@@ -1344,7 +1353,7 @@ class TestRefreshInstallationToken(BaseTest):
         response.raise_for_status = MagicMock()
         response.json.return_value = {"access_token": "fresh", "expires_in": 3600}
 
-        with patch("products.mcp_store.backend.oauth.requests.post", return_value=response):
+        with patch("products.mcp_store.backend.oauth.httpx.Client.post", return_value=response):
             refresh_installation_token(installation)
 
         installation.refresh_from_db()

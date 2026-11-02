@@ -1,10 +1,11 @@
-from dataclasses import dataclass
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField
 
 
-@dataclass
+@frozen
 class SecureframeEndpointConfig:
     name: str
     path: str
@@ -12,6 +13,9 @@ class SecureframeEndpointConfig:
     # Stable creation-time field used for datetime partitioning. Never an updated_at-style
     # field, which would rewrite partitions on every sync.
     partition_key: Optional[str] = None
+    # Parent endpoints that each own a child list at `{parent path}/{parent id}{path}`. The rows of
+    # every parent kind land in this one table.
+    fanout_parents: tuple[str, ...] = ()
 
 
 # Every list endpoint in the Secureframe public API paginates with `page`/`per_page`
@@ -83,6 +87,54 @@ SECUREFRAME_ENDPOINTS: dict[str, SecureframeEndpointConfig] = {
         name="cloud_resources",
         path="/cloud_resources",
         partition_key="created_at",
+    ),
+    "poam_items": SecureframeEndpointConfig(
+        name="poam_items",
+        path="/poam_items",
+        partition_key="created_at",
+    ),
+    "ssp_policies": SecureframeEndpointConfig(
+        name="ssp_policies",
+        path="/ssp_policies",
+        partition_key="created_at",
+    ),
+    "comments": SecureframeEndpointConfig(
+        name="comments",
+        path="/comments",
+        partition_key="created_at",
+    ),
+    "trust_center_requests": SecureframeEndpointConfig(
+        name="trust_center_requests",
+        path="/trust_center_requests",
+        partition_key="created_at",
+    ),
+    "ssp_reports": SecureframeEndpointConfig(
+        name="ssp_reports",
+        path="/ssp_reports",
+        partition_key="created_at",
+    ),
+    "ssp_report_sections": SecureframeEndpointConfig(
+        name="ssp_report_sections",
+        path="/ssp_report_sections",
+        partition_key="created_at",
+    ),
+    # The section block schema has no created_at, so no partitioning.
+    "ssp_report_section_blocks": SecureframeEndpointConfig(
+        name="ssp_report_section_blocks",
+        path="/ssp_report_section_blocks",
+    ),
+    "ssp_report_assessment_objectives": SecureframeEndpointConfig(
+        name="ssp_report_assessment_objectives",
+        path="/ssp_report_assessment_objectives",
+        partition_key="created_at",
+    ),
+    # Secureframe lists framework scopes only per asset, so this fans out over every device, cloud
+    # resource and repository. Each row carries its own asset_type and asset_id.
+    "framework_asset_scopes": SecureframeEndpointConfig(
+        name="framework_asset_scopes",
+        path="/framework_asset_scopes",
+        partition_key="created_at",
+        fanout_parents=("devices", "cloud_resources", "repositories"),
     ),
 }
 

@@ -2,6 +2,7 @@ from typing import cast
 
 from requests.exceptions import HTTPError
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -45,6 +46,27 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CriteoSource(ResumableSource[CriteoSourceConfig, CriteoResumeConfig]):
+    codebase_detection = detect(
+        env=("^CRITEO_",),
+        script_hosts=("dynamic.criteo.com", "static.criteo.net"),
+        pypi=("criteo-api-marketingsolutions-sdk", "criteo-api-retailmedia-sdk"),
+        composer=(
+            "criteo/criteo-api-marketingsolutions-sdk",
+            "criteo/criteo-api-retailmedia-sdk",
+            "criteo/criteo-api-commercegrid-sdk",
+            "criteo/criteo-php-marketing-sdk",
+            "criteo/criteo-php-marketing-transition-sdk",
+        ),
+        maven=(
+            "com.criteo:criteo-api-marketingsolutions-sdk",
+            "com.criteo:criteo-api-retailmedia-sdk",
+            "com.criteo:criteo-api-commercegrid-sdk",
+            "com.criteo:criteo-api-commercegrid-sdk-experimental",
+            "com.criteo:criteo-api-marketingsolutions-sdk-experimental",
+            "com.criteo:criteo-api-retailmedia-sdk-experimental",
+        ),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = (API_VERSION,)
     default_version = API_VERSION
@@ -62,7 +84,7 @@ class CriteoSource(ResumableSource[CriteoSourceConfig, CriteoResumeConfig]):
             label="Criteo",
             iconPath="/static/services/criteo.png",
             docsUrl="https://posthog.com/docs/cdp/sources/criteo",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="Use a Marketing Solutions application with client credentials. "
             "Grant advertiser consent and read access to Campaign, Creative, Audience, and Analytics in the Criteo Partners Portal.",
             fields=cast(
@@ -86,6 +108,7 @@ class CriteoSource(ResumableSource[CriteoSourceConfig, CriteoResumeConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Report start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -95,6 +118,7 @@ class CriteoSource(ResumableSource[CriteoSourceConfig, CriteoResumeConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="currency",
+                        sync_setting=True,
                         label="Report currency",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,

@@ -14,7 +14,7 @@ from products.data_modeling.backend.logic.metric_dag_sync import (
 )
 from products.data_modeling.backend.logic.saved_query_dag_sync import sync_saved_query_to_dag
 from products.data_modeling.backend.models import Edge, Node
-from products.data_modeling.backend.models.dag import DAG, DEFAULT_DAG_NAME
+from products.data_modeling.backend.models.dag import DEFAULT_DAG_NAME
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.node import DEGRADED_SYNC_KEY, UNRESOLVED_DEPENDENCIES_KEY, NodeType
 
@@ -98,21 +98,6 @@ class TestSyncMetricToDag(BaseTest):
         sync_metric_to_dag(self.team, self.metric_id, "weekly_active_accounts", ["events"])
 
         self.assertNotIn("system", self._node().properties)
-
-    def test_a_metric_over_a_managed_view_reaches_it_through_a_proxy_table_node(self):
-        managed_dag = DAG.get_or_create_revenue_analytics(self.team)
-        managed_query = DataWarehouseSavedQuery.objects.create(
-            name="revenue_view", team=self.team, query={"query": "SELECT * FROM events", "kind": "HogQLQuery"}
-        )
-        sync_saved_query_to_dag(managed_query, dag=managed_dag, allow_managed=True)
-
-        sync_metric_to_dag(self.team, self.metric_id, "mrr", ["revenue_view"])
-
-        default_dag = DAG.objects.get(team=self.team, name=DEFAULT_DAG_NAME)
-        proxy = Node.objects.get(team=self.team, dag=default_dag, name="revenue_view")
-        self.assertEqual(proxy.type, NodeType.TABLE)
-        self.assertEqual(proxy.properties["origin"], "cross_dag_view")
-        self.assertTrue(Edge.objects.filter(source=proxy, target=self._node()).exists())
 
     def test_a_metric_can_share_a_name_with_the_table_it_reads(self):
         sync_metric_to_dag(self.team, self.metric_id, "events", ["events"])

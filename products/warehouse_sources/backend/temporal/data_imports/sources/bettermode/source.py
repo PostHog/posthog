@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -57,6 +58,8 @@ _SCHEMA_DESCRIPTIONS: dict[str, str] = {
 
 @SourceRegistry.register
 class BettermodeSource(ResumableSource[BettermodeSourceConfig, BettermodeResumeConfig]):
+    codebase_detection = detect(env=("^BETTERMODE_",), npm=("@tribeplatform/gql-client", "@tribeplatform/react-sdk"))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -86,7 +89,7 @@ Your network ID is your community's unique ID, shown in the developer portal for
 If your community is hosted in the EU (eu-central-1), select the EU region so requests go to Bettermode's EU endpoint.""",
             iconPath="/static/services/bettermode.png",
             docsUrl="https://posthog.com/docs/cdp/sources/bettermode",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

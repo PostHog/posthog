@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,6 +33,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AviationstackSource(ResumableSource[AviationstackSourceConfig, AviationstackResumeConfig]):
+    codebase_detection = detect(env=("^AVIATIONSTACK_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://aviationstack.com/documentation"
 
@@ -131,7 +134,7 @@ class AviationstackSource(ResumableSource[AviationstackSourceConfig, Aviationsta
             name=ExternalDataSourceType.AVIATIONSTACK,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Aviationstack",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your aviationstack access key to pull real-time, scheduled, and historical flight data plus aviation reference tables into the PostHog Data warehouse.
 
 You can find your access key in your [aviationstack dashboard](https://aviationstack.com/dashboard).
@@ -162,6 +165,7 @@ Note: aviationstack pricing is a monthly request quota tied to your plan. Some t
                     ),
                     SourceFieldInputConfig(
                         name="flights_future_days",
+                        sync_setting=True,
                         label="Days of future flights to sync",
                         type=SourceFieldInputConfigType.NUMBER,
                         required=False,

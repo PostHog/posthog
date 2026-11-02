@@ -1,6 +1,11 @@
 from posthog.api.routing import RouterRegistry
 
 import products.signals.backend.views as signals
+from products.signals.backend.presentation.activity_summary import ActivitySummaryViewSet
+from products.signals.backend.presentation.anomalies import AnomalyViewSet
+from products.signals.backend.presentation.inbox_summary import InboxSummaryViewSet
+from products.signals.backend.presentation.onboarding import InboxOnboardingViewSet
+from products.signals.backend.presentation.reviewer_exclusions import SignalReviewerExclusionViewSet
 from products.signals.backend.presentation.scout_rubrics import SignalScoutRubricViewSet
 from products.signals.backend.scout_chat import SignalScoutChatTaskViewSet
 from products.signals.backend.scout_harness.views import (
@@ -18,8 +23,22 @@ from products.signals.backend.views import SignalViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:
+    routers.projects.register(r"signals/onboarding", InboxOnboardingViewSet, "project_signals_onboarding", ["team_id"])
+    routers.projects.register(
+        r"signals/inbox_summary", InboxSummaryViewSet, "project_signals_inbox_summary", ["team_id"]
+    )
+    routers.projects.register(
+        r"signals/activity_summary", ActivitySummaryViewSet, "project_signals_activity_summary", ["team_id"]
+    )
+    routers.projects.register(r"signals/anomalies", AnomalyViewSet, "project_signals_anomalies", ["team_id"])
     routers.projects.register(
         r"signals/scout/rubrics", SignalScoutRubricViewSet, "project_signals_scout_rubrics", ["team_id"]
+    )
+    routers.projects.register(
+        r"signals/reviewer_exclusions",
+        SignalReviewerExclusionViewSet,
+        "project_signals_reviewer_exclusions",
+        ["team_id"],
     )
     routers.projects.register(r"signals", SignalViewSet, "project_signals", ["team_id"])
     signal_reports_router = routers.projects.register(

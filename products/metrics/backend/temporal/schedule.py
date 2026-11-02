@@ -1,7 +1,7 @@
 """The 5-minute schedule of the dashboard discovery, and the way the API starts one analysis now."""
 
 import asyncio
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from django.conf import settings
 
@@ -13,19 +13,25 @@ from temporalio.client import (
     ScheduleOverlapPolicy,
     SchedulePolicy,
     ScheduleSpec,
+    WorkflowExecutionStatus,
 )
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.scheduling.jitter import deterministic_offset
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 
-from products.metrics.backend.suggested_dashboards.timeouts import SUGGEST_TIMEOUT
+from products.metrics.backend.suggested_dashboards.timeouts import GENERATE_TIMEOUT, SUGGEST_TIMEOUT
 from products.metrics.backend.temporal.inputs import (
     DISCOVERY_WORKFLOW_NAME,
+    GENERATE_WORKFLOW_NAME,
     SUGGEST_WORKFLOW_NAME,
     DiscoveryInputs,
+    GenerateInputs,
+    GenerationRequestInputs,
     SuggestInputs,
+    generate_workflow_id,
     suggest_workflow_id,
 )
 
@@ -71,3 +77,36 @@ def start_team_analysis(team_id: int, *, force: bool) -> None:
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
         )
     )
+
+
+def start_regeneration(team_id: int, template_id: str, request: GenerationRequestInputs) -> None:
+    """Generate an existing template again. A finished run of the same template is replaced, a running one is not."""
+    client = sync_connect()
+    asyncio.run(
+        client.start_workflow(
+            GENERATE_WORKFLOW_NAME,
+            GenerateInputs(team_id=team_id, request=request, template_id=template_id),
+            id=generate_workflow_id(request.key),
+            task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+            execution_timeout=GENERATE_TIMEOUT,
+            id_conflict_policy=WorkflowIDConflictPolicy.FAIL,
+            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+        )
+    )
+
+
+def generation_running(key: str, *, started_after: datetime | None = None) -> bool | None:
+    """Whether a generate workflow of the template runs, and started after `started_after` when it is set.
+
+    None when Temporal does not answer.
+    """
+    try:
+        client = sync_connect()
+        description = asyncio.run(client.get_workflow_handle(generate_workflow_id(key)).describe())
+    except RPCError as error:
+        return False if error.status == RPCStatusCode.NOT_FOUND else None
+    except Exception:
+        return None
+    if description.status != WorkflowExecutionStatus.RUNNING:
+        return False
+    return started_after is None or description.start_time >= started_after

@@ -64,6 +64,7 @@ async function fetchBlock(index: number): Promise<string> {
 export interface LoadedSources {
     sources: SessionRecordingSnapshotSource[]
     snapshotsBySource: Record<SourceKey, SessionRecordingSnapshotSourceResponse>
+    windowUuidById: Map<number, string>
 }
 
 export async function loadAllSources(
@@ -73,10 +74,16 @@ export async function loadAllSources(
     const { blockCount } = config
 
     if (blockCount === 0) {
-        return { sources: [], snapshotsBySource: {} }
+        return { sources: [], snapshotsBySource: {}, windowUuidById: new Map() }
     }
 
-    const registerWindowId = createWindowIdRegistry()
+    const registerWindowUuid = createWindowIdRegistry()
+    const windowUuidById = new Map<number, string>()
+    const registerWindowId = (uuid: string): number => {
+        const id = registerWindowUuid(uuid)
+        windowUuidById.set(id, uuid)
+        return id
+    }
     const sources: SessionRecordingSnapshotSource[] = []
     const snapshotsBySource: Record<SourceKey, SessionRecordingSnapshotSourceResponse> = {}
 
@@ -111,5 +118,5 @@ export async function loadAllSources(
         snapshotsBySource[key] = { snapshots, sourceLoaded: true }
     }
 
-    return { sources, snapshotsBySource }
+    return { sources, snapshotsBySource, windowUuidById }
 }

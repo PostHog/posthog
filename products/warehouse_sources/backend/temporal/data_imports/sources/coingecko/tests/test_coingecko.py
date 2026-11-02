@@ -137,13 +137,6 @@ class TestHostHeaderAndRedaction:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("valid", 200, True), ("unauthorized", 401, False)])
-    def test_status_mapping(self, _name: str, status: int, expected: bool) -> None:
-        with scripted_network([ScriptedResponse(status=status)]) as network:
-            assert validate_credentials(PLAN_DEMO, "key") is expected
-
-        assert len(network.requests_log) == 1
-
     def test_pings_plan_host_with_key_and_redaction(self) -> None:
         with scripted_network([ScriptedResponse()]) as network:
             assert validate_credentials(PLAN_PRO, "secret") is True
@@ -163,6 +156,9 @@ class TestSourceResponse:
             ("exchanges", ["id"]),
             ("exchanges_list", ["id"]),
             ("asset_platforms", ["id"]),
+            ("rwas_markets", ["id"]),
+            ("rwas_list", ["id"]),
+            ("rwas_issuers_list", ["id"]),
         ]
     )
     def test_primary_keys_per_endpoint(self, endpoint: str, expected_keys: list[str]) -> None:

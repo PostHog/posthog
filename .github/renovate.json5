@@ -3,7 +3,6 @@
   extends: [
     'config:best-practices',
     ':dependencyDashboardApproval',
-    ':separateMultipleMajorReleases',
   ],
   enabledManagers: [
     'pep621',
@@ -12,6 +11,8 @@
     'gomod',
     'cargo',
     'custom.regex',
+    'nodenv',
+    'nvm',
   ],
   dependencyDashboardTitle: 'Renovate: Dependency Status',
   dependencyDashboardLabels: [
@@ -19,7 +20,11 @@
   ],
   dependencyDashboardOSVVulnerabilitySummary: 'all',
   dependencyDashboardReportAbandonment: false,
-  configMigration: false,
+  prConcurrentLimit: 5,
+  gitIgnoredAuthors: [
+    '206114724+posthog[bot]@users.noreply.github.com',
+    '250237707+tests-posthog[bot]@users.noreply.github.com',
+  ],
   vulnerabilityAlerts: {
     enabled: false,
   },
@@ -46,6 +51,19 @@
       depNameTemplate: 'renovate',
       datasourceTemplate: 'npm',
     },
+    {
+      customType: 'regex',
+      description: 'Update the nodesource nodejs package pinned in the task sandbox images',
+      managerFilePatterns: [
+        '/^products/tasks/backend/sandbox/images/Dockerfile\\.sandbox-(base|notebook|slim)$/',
+        '/^products/tasks/backend/logic/services/modal_sandbox\\.py$/',
+      ],
+      matchStrings: ['(?<currentValue>\\d+\\.\\d+\\.\\d+-\\d+nodesource\\d+)'],
+      depNameTemplate: 'nodejs',
+      datasourceTemplate: 'deb',
+      versioningTemplate: 'deb',
+      registryUrlTemplate: 'https://deb.nodesource.com/node_24.x?suite=nodistro&components=main&binaryArch=amd64',
+    },
   ],
   customDatasources: {
     'chrome-for-testing': {
@@ -56,9 +74,97 @@
     },
   },
   packageRules: [
+    // Matches the cooldowns in pnpm-workspace.yaml and pyproject.toml
+    {
+      matchDatasources: ['npm', 'pypi', 'crate'],
+      matchUpdateTypes: ['major', 'minor', 'patch'],
+      minimumReleaseAge: '7 days',
+    },
+    // Keep in sync with minimumReleaseAgeExclude in pnpm-workspace.yaml
+    {
+      matchDatasources: ['npm'],
+      matchPackageNames: [
+        'posthog-js',
+        'posthog-js-lite',
+        'posthog-node',
+        '@posthog/*',
+        '@earendil-works/*',
+        'typebox',
+        '@oxfmt/*',
+        '@shadcn/react',
+        'kea-typegen',
+        '@typescript/native-preview*',
+        'shiki',
+        'shadcn',
+        '@shikijs/*',
+      ],
+      minimumReleaseAge: null,
+    },
+    // Keep in sync with exclude-newer-package in pyproject.toml
+    {
+      matchDatasources: ['pypi'],
+      matchPackageNames: [
+        'brotli',
+        'certifi',
+        'hogql-parser',
+        'hogql-parser-rs',
+        'deltalite',
+        'posthoganalytics',
+        'pixelhog',
+        'django',
+        'modal',
+        'posthog-hogland',
+        'google-ads',
+        'grpcio',
+      ],
+      minimumReleaseAge: null,
+    },
+    {
+      matchManagers: ['npm', 'pep621', 'cargo'],
+      matchUpdateTypes: ['minor', 'patch'],
+      groupName: '{{manager}} non-major',
+    },
+    // Directories with their own lock file
+    {
+      matchManagers: ['npm', 'pep621', 'cargo', 'gomod'],
+      matchUpdateTypes: ['minor', 'patch'],
+      matchFileNames: [
+        '**/go.mod',
+        'cli/**',
+        'funnel-udf/**',
+        'rust/common/hogvm/node/Cargo.toml',
+        'services/llm-gateway/**',
+        'services/stripe-mock/**',
+        'tools/hedgebox-dummy/**',
+        'frontend/@posthog/lemon-ui/**',
+        'nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/**',
+        '.depot/actions/paths-filter/**',
+        '.github/actions/paths-filter/**',
+        '.github/actions/shared-image-releases/**',
+        'products/canvas/packages/canvas_builder/**',
+        'products/visual_review/cli/**',
+        'rust/batch-import-worker/scripts/**',
+      ],
+      groupName: '{{manager}} non-major in {{packageFileDir}}',
+    },
+    {
+      matchManagers: ['npm', 'pep621', 'cargo', 'gomod'],
+      matchUpdateTypes: ['minor', 'patch'],
+      matchFileNames: ['products/desktop/**', 'packages/agent/**'],
+      groupName: "{{manager}} non-major in {{lookup (split packageFileDir '/') 0}}/{{lookup (split packageFileDir '/') 1}}",
+    },
+    {
+      matchManagers: ['npm', 'pep621', 'cargo', 'gomod'],
+      matchUpdateTypes: ['minor'],
+      matchCurrentVersion: '/^v?0\\./',
+      groupName: null,
+    },
+    {
+      matchDepTypes: ['requires-python', 'packageManager'],
+      groupName: null,
+    },
     {
       matchDepNames: ['chrome-headless-shell'],
-      automerge: true,
       matchUpdateTypes: ['minor', 'patch'],
       schedule: ['every 2 weeks on Monday'],
       commitMessageExtra: '(chrome-headless-shell)',
@@ -69,6 +175,28 @@
     {
       matchManagers: ['github-actions'],
       groupName: 'github-actions',
+    },
+    // Renovate cannot regenerate `.github/workflows/actions.lock`, so a bump in a locked workflow fails Lint workflows.
+    // List each workflow from that file's `workflows` section here
+    {
+      matchManagers: ['github-actions'],
+      matchFileNames: ['.github/workflows/ci-paths-filter.yml'],
+      enabled: false,
+    },
+    // The sandbox images and the Modal slim image rebuild only when this pin changes,
+    // so skip the dashboard approval and open the PR as soon as nodesource ships a release
+    {
+      matchDatasources: ['deb'],
+      matchDepNames: ['nodejs'],
+      dependencyDashboardApproval: false,
+      groupName: 'sandbox nodejs',
+    },
+    // A stale Node pin keeps known vulnerabilities in CI, so skip the dashboard approval
+    // for `.node-version` and `.nvmrc` updates. A major bump still waits for approval
+    {
+      matchManagers: ['nodenv', 'nvm'],
+      matchUpdateTypes: ['minor', 'patch'],
+      dependencyDashboardApproval: false,
     },
   ],
 }

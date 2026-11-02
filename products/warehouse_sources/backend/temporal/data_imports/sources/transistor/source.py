@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TransistorSource(ResumableSource[TransistorSourceConfig, TransistorResumeConfig]):
+    codebase_detection = NOT_DETECTABLE
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # `/v1` is the only path Transistor has ever published and is not a documented version
     # choice, so the source stays on the framework's unversioned default.
@@ -49,7 +52,7 @@ class TransistorSource(ResumableSource[TransistorSourceConfig, TransistorResumeC
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Transistor.fm",
             keywords=["podcast", "transistor fm"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Sync your shows, episodes, private podcast subscribers, and daily download analytics from [Transistor](https://transistor.fm) into the PostHog Data warehouse.
 
 Create an API key in your Transistor account settings, then paste it below. The key has access to every show your Transistor user can see.

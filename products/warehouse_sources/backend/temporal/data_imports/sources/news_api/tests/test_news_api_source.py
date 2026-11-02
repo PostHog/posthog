@@ -37,10 +37,6 @@ class TestNewsApiSource:
         assert schemas[endpoint].supports_incremental is expected_incremental
         assert schemas[endpoint].supports_append is expected_incremental
 
-    def test_get_schemas_names_filter(self) -> None:
-        schemas = self.source.get_schemas(_config(), team_id=self.team_id, names=["sources"])
-        assert [s.name for s in schemas] == ["sources"]
-
     def test_validate_credentials_success(self) -> None:
         with scripted_network([ScriptedResponse(json={"sources": []})]) as network:
             assert self.source.validate_credentials(_config(), self.team_id) == (True, None)

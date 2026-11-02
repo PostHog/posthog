@@ -4,8 +4,8 @@ import { useEffect, useMemo } from 'react'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { useComponentPanelState } from 'lib/components/MarkdownNotebook/componentPanelContext'
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { ScrollableShadows } from 'lib/lemon-ui/ScrollableShadows/ScrollableShadows'
 import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -16,17 +16,16 @@ import { defineNotebookWidgetViews, getNotebookWidgetDefaultView } from 'scenes/
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { DataTableNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema/schema-general'
 import {
     containsHogQLQuery,
     isDataTableNode,
-    isEventsQuery,
     isHogQLQuery,
     isInsightVizNode,
     isNodeWithSource,
-    isSavedInsightNode,
     isActorsQuery,
-} from '~/queries/utils'
+} from '~/queries/schema/node-guards'
+import { DataTableNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema/schema-general'
+import { isEventsQuery, isSavedInsightNode } from '~/queries/utils'
 import { InsightLogicProps, InsightShortId } from '~/types'
 
 import { NotebookInsightDataframe } from 'products/notebooks/frontend/NotebookInsightDataframe'
@@ -166,7 +165,6 @@ const Component = ({
             modifiedQuery.showFilters = false
             modifiedQuery.showHeader = false
             modifiedQuery.showTable = false
-            modifiedQuery.showCorrelationTable = false
             modifiedQuery.embedded = true
         }
 
@@ -476,6 +474,7 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
     minHeight: EMBEDDED_SQL_EDITOR_MIN_HEIGHT,
     resizeable: true,
     startExpanded: true,
+    deferUntilInView: true,
     attributes: {
         query: {
             default: DEFAULT_QUERY,

@@ -12,3 +12,4 @@ class TrunkIoSourceConfig(config.Config):
     repo_owner: str
     repo_name: str
     merge_queue_target_branch: str | None = None
+    trunk_repository_id: str | None = None

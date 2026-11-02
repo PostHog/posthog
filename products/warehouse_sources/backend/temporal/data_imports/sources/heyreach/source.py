@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HeyReachSource(ResumableSource[HeyReachSourceConfig, HeyReachResumeConfig]):
+    codebase_detection = detect(env=("^(HEY_REACH|HEYREACH)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
     api_docs_url = "https://documenter.getpostman.com/view/23808049/2sA2xb5F75"
 
@@ -70,7 +73,12 @@ class HeyReachSource(ResumableSource[HeyReachSourceConfig, HeyReachResumeConfig]
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            should_sync_default={name: config.should_sync_default for name, config in ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,
@@ -105,14 +113,14 @@ class HeyReachSource(ResumableSource[HeyReachSourceConfig, HeyReachResumeConfig]
             category=DataWarehouseSourceCategory.SALES,
             label="HeyReach",
             caption=(
-                "Import campaigns, leads, LinkedIn sender accounts, inbox conversations, and daily "
-                "outreach stats from HeyReach. Create an API key in HeyReach under "
+                "Import campaigns, leads, company lists, LinkedIn sender accounts and their networks, "
+                "inbox conversations, and daily outreach stats from HeyReach. Create an API key in HeyReach under "
                 "Settings > Integrations > HeyReach API."
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/heyreach",
             iconPath="/static/services/heyreach.png",
             keywords=["linkedin outreach", "sales engagement", "heyreach"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

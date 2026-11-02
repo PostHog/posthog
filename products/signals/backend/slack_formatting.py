@@ -100,11 +100,38 @@ def is_safe_slack_http_url(value: object) -> bool:
     return not any(char in value for char in ("<", ">", "|"))
 
 
+def _slack_char_length(char: str) -> int:
+    if char == "&":
+        return 5
+    if char in "<>":
+        return 4
+    return 2 if ord(char) > 0xFFFF else 1
+
+
+def slack_text_length(text: str) -> int:
+    """The length Slack can count for `text` against a block's character budget.
+
+    Slack can measure the text after it escapes `&`, `<`, and `>`, and in UTF-16 code units, where a
+    character outside the Basic Multilingual Plane costs two. The worst case of both keeps a message
+    near the cap from going over."""
+    return sum(_slack_char_length(char) for char in text)
+
+
+def _slack_fit_index(text: str, limit: int) -> int:
+    """The longest prefix of `text`, as an index, whose `slack_text_length` stays within `limit`."""
+    used = 0
+    for index, char in enumerate(text):
+        used += _slack_char_length(char)
+        if used > limit:
+            return index
+    return len(text)
+
+
 def truncate_slack_text(text: str, limit: int) -> str:
     """Keep text below the block's character limit with headroom."""
-    if len(text) <= limit:
+    if slack_text_length(text) <= limit:
         return text
-    return text[: limit - 1].rstrip() + "…"
+    return text[: _slack_fit_index(text, limit - 1)].rstrip() + "…"
 
 
 def prepare_slack_markdown(text: str) -> str:
@@ -272,6 +299,24 @@ _OPEN_MARKDOWN_LINK_RE = re.compile(r"\[[^\[\]]*\]\([^()]*$|\[[^\[\]]*$")
 _MIN_LINE_BREAK_FILL = 0.6
 
 
+# Bounds the sentence scan: each candidate end re-checks the prefix for an open link, so an
+# unclosed `[` followed by many sentence ends would otherwise cost quadratic time on a long line.
+_FIRST_SENTENCE_SCAN_LIMIT = 2000
+
+
+def first_sentence(text: str) -> str:
+    """The text up to its first sentence end, or all of it when no sentence end is found.
+
+    A sentence end inside a Markdown link, such as `[see e.g. this](https://…)`, is skipped, so the
+    link reaches Slack whole."""
+    text = text.strip()
+    window = text[:_FIRST_SENTENCE_SCAN_LIMIT]
+    for match in _SENTENCE_END_RE.finditer(window):
+        if _OPEN_MARKDOWN_LINK_RE.search(window[: match.end()]) is None:
+            return window[: match.end()].strip()
+    return text
+
+
 def _pull_back_before_open_link(window: str, index: int) -> int:
     """Move a cut back before a Markdown link it would otherwise split, or leave it alone."""
     match = _OPEN_MARKDOWN_LINK_RE.search(window[:index])
@@ -307,25 +352,30 @@ def chunk_slack_text(text: str, limit: int) -> list[str]:
     text = text.strip()
     if not text:
         return []
-    if len(text) <= limit:
+    if slack_text_length(text) <= limit:
         return [text]
     chunks: list[str] = []
     current = ""
+    current_length = 0
     for line in text.split("\n"):
-        while len(line) > limit:
+        while slack_text_length(line) > limit:
             if current:
                 chunks.append(current.rstrip())
                 current = ""
-            cut = _line_break_index(line, limit)
+                current_length = 0
+            cut = _line_break_index(line, _slack_fit_index(line, limit))
             chunks.append(line[:cut].rstrip())
             line = line[cut:]
-        candidate = f"{current}\n{line}" if current else line
-        if len(candidate) > limit:
+        line_length = slack_text_length(line)
+        candidate_length = current_length + 1 + line_length if current else line_length
+        if candidate_length > limit:
             if current:
                 chunks.append(current.rstrip())
             current = line
+            current_length = line_length
         else:
-            current = candidate
+            current = f"{current}\n{line}" if current else line
+            current_length = candidate_length
     if current.strip():
         chunks.append(current.rstrip())
     return chunks

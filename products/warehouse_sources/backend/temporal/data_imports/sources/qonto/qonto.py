@@ -75,6 +75,11 @@ def get_resource(name: str, incremental: bool, last_value: str | datetime | None
             if watermark is None:
                 raise ValueError("Invalid Qonto incremental timestamp")
             params["updated_at_from"] = watermark.isoformat()
+    if name == "client_invoices":
+        # Ascending creation order keeps earlier pages stable when new invoices arrive during a sync.
+        params["sort_by"] = "created_at:asc"
+        # Qonto leaves out imported invoices unless the request asks for them.
+        params["exclude_imported"] = "false"
     if name == "transactions":
         # The account belongs in the path because the framework uses paths to identify resume checkpoints.
         path += "?bank_account_id={bank_account_id}"

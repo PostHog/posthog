@@ -18,15 +18,44 @@ class ArcadeEndpoint:
     selector: str
     primary_keys: tuple[str, ...]
     insight_type: str | None = None
+    windowed: bool = False
+    per_flow: bool = False
 
 
 ENDPOINTS = {
     "teams": ArcadeEndpoint(path="teams", selector="teams", primary_keys=("id",)),
     "users": ArcadeEndpoint(path="users", selector="users", primary_keys=("id",)),
     "flow_engagement": ArcadeEndpoint(
-        path="insights", selector="$", primary_keys=("team_id", "flowId"), insight_type="overviewPlays"
+        path="insights", selector="$", primary_keys=("team_id", "flowId"), insight_type="overviewPlays", windowed=True
     ),
     "company_leads": ArcadeEndpoint(
         path="insights", selector="$", primary_keys=("team_id", "id"), insight_type="companiesForLeads"
+    ),
+    "total_plays": ArcadeEndpoint(
+        path="insights", selector="$", primary_keys=("team_id",), insight_type="totalPlays", windowed=True
+    ),
+    "flow_views": ArcadeEndpoint(
+        path="insights",
+        selector="$",
+        primary_keys=("team_id", "flowId"),
+        insight_type="views",
+        windowed=True,
+        per_flow=True,
+    ),
+    "flow_dropoff": ArcadeEndpoint(
+        path="insights",
+        selector="$",
+        primary_keys=("team_id", "flowId", "stepId"),
+        insight_type="dropoff",
+        windowed=True,
+        per_flow=True,
+    ),
+    "authenticated_views": ArcadeEndpoint(
+        path="insights",
+        selector="$",
+        primary_keys=("team_id", "flowId", "email"),
+        insight_type="authenticatedViews",
+        windowed=True,
+        per_flow=True,
     ),
 }

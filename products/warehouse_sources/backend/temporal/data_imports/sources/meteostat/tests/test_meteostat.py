@@ -1,6 +1,7 @@
 from datetime import UTC, date, datetime
 from typing import Literal
 
+import pytest
 import time_machine
 from unittest import mock
 
@@ -17,21 +18,30 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     MeteostatSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.meteostat.meteostat import (
+    INVALID_LOCATIONS_ERROR,
+    NO_LOCATIONS_ERROR,
     NO_STATIONS_ERROR,
+    MeteostatLocation,
     MeteostatResumeConfig,
     _coerce_date,
     _parse_station_ids,
     _parse_timestamp,
+    parse_locations,
     start_date_error,
     validate_station,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.meteostat.settings import (
     DAILY_ENDPOINT,
     HOURLY_ENDPOINT,
+    MAX_LOCATIONS,
     MAX_STATIONS,
     METEOSTAT_ENDPOINTS,
     MINIMUM_START_DATE,
     MONTHLY_ENDPOINT,
+    NORMALS_ENDPOINT,
+    POINT_DAILY_ENDPOINT,
+    POINT_NORMALS_ENDPOINT,
+    STATIONS_ENDPOINT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.meteostat.source import MeteostatSource
 
@@ -40,10 +50,13 @@ def _driver(
     station_ids: str = "10637",
     units: Literal["metric", "imperial", "scientific"] = "metric",
     start_date: str | None = None,
+    locations: str | None = None,
 ) -> SourceDriver:
     return SourceDriver(
         MeteostatSource(),
-        MeteostatSourceConfig(api_key="key-123", station_ids=station_ids, units=units, start_date=start_date),
+        MeteostatSourceConfig(
+            api_key="key-123", station_ids=station_ids, units=units, start_date=start_date, locations=locations
+        ),
     )
 
 
@@ -100,6 +113,48 @@ class TestHelpers:
     def test_parse_timestamp(self, _name, value, expected):
         assert _parse_timestamp(value) == expected
 
+    @parameterized.expand(
+        [
+            ("none", None, []),
+            ("empty", "", []),
+            ("pair", "43.6667,-79.4", [MeteostatLocation(43.6667, -79.4)]),
+            ("triple_with_spaces", " 43.6667 , -79.4 , 113 ", [MeteostatLocation(43.6667, -79.4, 113)]),
+            (
+                "semicolons_new_lines_and_blank_entries",
+                "1,2; 3,4\n\n5,6,7;",
+                [MeteostatLocation(1, 2), MeteostatLocation(3, 4), MeteostatLocation(5, 6, 7)],
+            ),
+            ("dedupes_on_coordinates", "1,2,10;1,2,20", [MeteostatLocation(1, 2, 10)]),
+            ("range_boundaries", "-90,-180;90,180", [MeteostatLocation(-90, -180), MeteostatLocation(90, 180)]),
+            ("rounds_elevation", "1,2,113.6", [MeteostatLocation(1, 2, 114)]),
+            ("empty_elevation", "1,2,", [MeteostatLocation(1, 2)]),
+            (
+                "duplicates_do_not_count_toward_the_cap",
+                ";".join(f"{i},{i}" for i in range(MAX_LOCATIONS)) + ";0,0",
+                [MeteostatLocation(i, i) for i in range(MAX_LOCATIONS)],
+            ),
+        ]
+    )
+    def test_parse_locations(self, _name, value, expected):
+        assert parse_locations(value) == expected
+
+    @parameterized.expand(
+        [
+            ("one_value", "43.6"),
+            ("four_values", "1,2,3,4"),
+            ("not_a_number", "north,west"),
+            ("latitude_out_of_range", "91,0"),
+            ("longitude_out_of_range", "0,-181"),
+            ("nan_latitude", "nan,0"),
+            ("infinite_elevation", "1,2,inf"),
+            ("one_bad_entry_among_good_ones", "1,2;oops;3,4"),
+            ("too_many", ";".join(f"{i},{i}" for i in range(MAX_LOCATIONS + 1))),
+        ]
+    )
+    def test_parse_locations_rejects(self, _name, value):
+        with pytest.raises(ValueError, match=INVALID_LOCATIONS_ERROR):
+            parse_locations(value)
+
 
 class TestGetRows:
     @time_machine.travel("2026-07-21", tick=False)
@@ -144,12 +199,39 @@ class TestGetRows:
         assert result.params("start") == ["2026-07-19"]
         assert result.params("end") == ["2026-07-21"]
 
-    def test_raises_without_configured_stations(self):
-        result = _driver(station_ids="  ,  ").run(DAILY_ENDPOINT, [])
+    @parameterized.expand(
+        [
+            ("station_window", DAILY_ENDPOINT, NO_STATIONS_ERROR),
+            ("station_snapshot", STATIONS_ENDPOINT, NO_STATIONS_ERROR),
+            ("point_window", POINT_DAILY_ENDPOINT, NO_LOCATIONS_ERROR),
+            ("point_snapshot", POINT_NORMALS_ENDPOINT, NO_LOCATIONS_ERROR),
+        ]
+    )
+    def test_raises_without_configured_targets(self, _name, endpoint_name, error):
+        result = _driver(station_ids="  ,  ", locations=" ; ").run(endpoint_name, [])
 
         assert isinstance(result.raised, ValueError)
-        assert NO_STATIONS_ERROR in str(result.raised)
+        assert error in str(result.raised)
         assert result.requests == []
+
+    @time_machine.travel("2026-07-21", tick=False)
+    def test_point_tables_query_each_location_by_coordinates(self):
+        result = _driver(locations="43.6667,-79.4,113; 59.9127,10.7461", start_date="2026-07-18").run(
+            POINT_DAILY_ENDPOINT,
+            [ScriptedResponse(json={"data": [{"date": "2026-07-18", "tavg": 5.0}]})] * 2,
+        )
+
+        assert result.raised is None
+        assert set(result.paths) == {"/point/daily"}
+        assert result.params("lat") == ["43.6667", "59.9127"]
+        assert result.params("lon") == ["-79.4", "10.7461"]
+        assert result.params("alt") == ["113", None]
+        assert result.params("station") == [None, None]
+        assert result.params("start") == ["2026-07-18"] * 2
+        assert result.rows == [
+            {"date": datetime(2026, 7, 18), "tavg": 5.0, "latitude": 43.6667, "longitude": -79.4, "altitude": 113},
+            {"date": datetime(2026, 7, 18), "tavg": 5.0, "latitude": 59.9127, "longitude": 10.7461, "altitude": None},
+        ]
 
     @time_machine.travel("2026-07-21", tick=False)
     def test_station_count_is_capped_at_runtime(self):
@@ -189,6 +271,66 @@ class TestGetRows:
 
         assert isinstance(result.raised, requests.HTTPError)
         assert set(result.paths) == {"/stations/daily"}
+
+
+class TestSnapshotRows:
+    @parameterized.expand(
+        [
+            (
+                "station_meta_object_without_units",
+                STATIONS_ENDPOINT,
+                {"id": "10637", "country": "DE", "location": {"latitude": 50.05}},
+                "/stations/meta",
+                {"id": "10637", "station": None, "units": None},
+                {"id": "10637", "country": "DE", "location": {"latitude": 50.05}, "station_id": "10637"},
+            ),
+            (
+                "station_normals_with_units",
+                NORMALS_ENDPOINT,
+                [{"start": 1961, "end": 1990, "month": 1, "tavg": 33.0}],
+                "/stations/normals",
+                {"station": "10637", "id": None, "units": "imperial"},
+                {"start": 1961, "end": 1990, "month": 1, "tavg": 33.0, "station_id": "10637"},
+            ),
+            (
+                "point_normals_with_units",
+                POINT_NORMALS_ENDPOINT,
+                [{"start": 1991, "end": 2020, "month": 7, "tavg": 64.0}],
+                "/point/normals",
+                {"lat": "59.9127", "lon": "10.7461", "alt": "26", "station": None, "units": "imperial"},
+                {
+                    "start": 1991,
+                    "end": 2020,
+                    "month": 7,
+                    "tavg": 64.0,
+                    "latitude": 59.9127,
+                    "longitude": 10.7461,
+                    "altitude": 26,
+                },
+            ),
+        ]
+    )
+    def test_request_and_row_shape(self, _name, endpoint_name, data, expected_path, expected_params, expected_row):
+        result = _driver(units="imperial", locations="59.9127,10.7461,26").run(
+            endpoint_name, [ScriptedResponse(json={"data": data})]
+        )
+
+        assert result.raised is None
+        assert result.paths == [expected_path]
+        assert {name: result.requests[0].param(name) for name in expected_params} == expected_params
+        assert result.rows == [expected_row]
+
+    def test_resume_skips_fetched_targets_and_tolerates_an_empty_response(self):
+        result = _driver(station_ids="10637,71508,D1234").run(
+            NORMALS_ENDPOINT,
+            [ScriptedResponse(json={"data": []}), ScriptedResponse(json={"data": [{"month": 1}]})],
+            resume_state=MeteostatResumeConfig(station_index=1, next_start=""),
+        )
+
+        assert result.raised is None
+        assert result.params("station") == ["71508", "D1234"]
+        assert result.rows == [{"month": 1, "station_id": "D1234"}]
+        assert result.saved_states[-1] == MeteostatResumeConfig(station_index=3, next_start="")
 
 
 class TestMeteostatSourceResponse:

@@ -16,9 +16,11 @@ from posthog.settings import SITE_URL
 from products.access_control.backend.models.role import Role
 from products.conversations.backend.events import (
     EVENT_SOURCE,
+    _get_customer_properties,
     _resolve_groups_from_analytics,
     capture_message_received,
     capture_message_sent,
+    capture_private_message_sent,
     capture_ticket_assigned,
     capture_ticket_created,
     capture_ticket_priority_changed,
@@ -45,8 +47,11 @@ class TestConversationEvents(BaseTest):
             anonymous_traits={"name": "Test Customer", "email": "test@example.com"},
         )
 
+    @parameterized.expand([("with_session", "session-abc"), ("without_session", None)])
     @patch("products.conversations.backend.events.capture_internal")
-    def test_capture_ticket_created_uses_team_token(self, mock_capture):
+    def test_capture_ticket_created_uses_team_token(self, _name, session_id, mock_capture):
+        self.ticket.session_id = session_id
+        self.ticket.save(update_fields=["session_id"])
         capture_ticket_created(self.ticket)
 
         mock_capture.assert_called_once()
@@ -58,9 +63,12 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["properties"]["ticket_id"] == str(self.ticket.id)
         assert call_kwargs["properties"]["customer_name"] == "Test Customer"
         assert call_kwargs["properties"]["customer_email"] == "test@example.com"
+        assert call_kwargs["properties"].get("$session_id") == session_id
 
     @patch("products.conversations.backend.events.capture_internal")
     def test_capture_ticket_status_changed_uses_team_token(self, mock_capture):
+        self.ticket.session_id = "session-abc"
+        self.ticket.save(update_fields=["session_id"])
         capture_ticket_status_changed(self.ticket, "new", "pending", actor=self.user, actor_type="user")
 
         mock_capture.assert_called_once()
@@ -79,6 +87,7 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["properties"]["customer_name"] == "Test Customer"
         assert call_kwargs["properties"]["customer_email"] == "test@example.com"
         assert call_kwargs["properties"]["customer_distinct_id"] == self.ticket.distinct_id
+        assert "$session_id" not in call_kwargs["properties"]
 
     @patch("products.conversations.backend.events.capture_internal")
     def test_capture_ticket_priority_changed_uses_team_token(self, mock_capture):
@@ -157,8 +166,9 @@ class TestConversationEvents(BaseTest):
             assert properties["assignee_id"] == expected_id
             assert properties["assignee_role_name"] == expected_role_name
 
+    @patch("products.conversations.backend.events.produce_internal_event")
     @patch("products.conversations.backend.events.capture_internal")
-    def test_capture_message_sent_uses_team_token(self, mock_capture):
+    def test_capture_message_sent_uses_team_token(self, mock_capture, mock_produce_internal_event):
         capture_message_sent(self.ticket, "msg-123", "Hello customer", author=self.user)
 
         mock_capture.assert_called_once()
@@ -176,6 +186,22 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["properties"]["customer_name"] == "Test Customer"
         assert call_kwargs["properties"]["customer_email"] == "test@example.com"
         assert call_kwargs["properties"]["customer_distinct_id"] == self.ticket.distinct_id
+
+        mock_produce_internal_event.assert_called_once()
+        team_id, internal_event = mock_produce_internal_event.call_args.args
+        assert team_id == self.team.id
+        assert internal_event.event == "$conversation_message_sent"
+        assert internal_event.properties["message_id"] == "msg-123"
+        assert internal_event.properties["customer_email"] == "test@example.com"
+        assert "message_content" not in internal_event.properties
+
+    @patch("products.conversations.backend.events.produce_internal_event")
+    @patch("products.conversations.backend.events.capture_internal")
+    def test_capture_private_message_sent_emits_no_internal_event(self, mock_capture, mock_produce_internal_event):
+        capture_private_message_sent(self.ticket, "msg-123", author=self.user)
+
+        assert mock_capture.call_args.kwargs["event_name"] == "$conversation_private_message_sent"
+        mock_produce_internal_event.assert_not_called()
 
     @parameterized.expand(
         [
@@ -238,6 +264,77 @@ class TestConversationEvents(BaseTest):
 
         call_kwargs = mock_capture.call_args.kwargs
         assert call_kwargs["properties"]["customer_email"] == "customer@example.com"
+
+    @parameterized.expand(
+        [
+            ("authenticated_email", "email", True, "customer@example.com", "customer@example.com", True),
+            ("outbound_email_verified_by_reply", "email", True, "recipient-analytics-id", "customer@example.com", True),
+            ("non_string_trait_email", "email", True, "customer@example.com", 42, True),
+            ("widget_form_email", "widget", True, "customer-123", "customer@example.com", False),
+            ("unauthenticated_email", "email", False, "customer@example.com", "customer@example.com", False),
+        ]
+    )
+    def test_customer_email_verified_requires_attested_email(
+        self, _name, channel_source, identity_verified, distinct_id, trait_email, expected
+    ):
+        ticket = Ticket(
+            team=self.team,
+            channel_source=channel_source,
+            identity_verified=identity_verified,
+            distinct_id=distinct_id,
+            anonymous_traits={"email": trait_email},
+            email_from="customer@example.com",
+        )
+
+        assert _get_customer_properties(ticket)["customer_email_verified"] is expected
+
+    @parameterized.expand(
+        [
+            (
+                "email_authenticated_customer",
+                "email",
+                {"email_from": "customer@example.com", "email_sender_authenticated": True},
+                True,
+            ),
+            (
+                "email_unauthenticated_customer_address",
+                "email",
+                {"email_from": "customer@example.com", "email_sender_authenticated": False},
+                False,
+            ),
+            (
+                "email_other_participant",
+                "email",
+                {"email_from": "colleague@example.com", "email_sender_authenticated": True},
+                False,
+            ),
+            ("slack_ticket_customer", "slack", {"slack_author_email": "Customer@example.com"}, True),
+            ("slack_other_thread_member", "slack", {"slack_author_email": "other@example.com"}, False),
+            ("teams_other_thread_member", "teams", {"teams_author_email": "other@example.com"}, False),
+            (
+                "widget_signed_customer",
+                "widget",
+                {"distinct_id": "customer@example.com", "distinct_id_verified": True},
+                True,
+            ),
+            ("widget_unsigned_customer_id", "widget", {"distinct_id": "customer@example.com"}, False),
+        ]
+    )
+    @patch("products.conversations.backend.events.capture_internal")
+    def test_message_received_verifies_email_only_for_the_ticket_customer(
+        self, _name, channel_source, item_context, expected, mock_capture
+    ):
+        self.ticket.channel_source = channel_source
+        self.ticket.identity_verified = True
+        self.ticket.distinct_id = "customer@example.com"
+        self.ticket.email_from = "customer@example.com"
+        self.ticket.anonymous_traits = {"email": "customer@example.com"}
+
+        capture_message_received(
+            self.ticket, "msg-id", "content", item_context={"author_type": "customer", **item_context}
+        )
+
+        assert mock_capture.call_args.kwargs["properties"]["customer_email_verified"] is expected
 
     @patch("products.conversations.backend.events.capture_internal")
     def test_capture_message_received_uses_team_token(self, mock_capture):

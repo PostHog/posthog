@@ -259,9 +259,6 @@ function ChannelsSidebarImpl() {
   // while peeked (route without it), a stale peek would greet the remount.
   useEffect(() => () => cancelSidebarPeek(), []);
 
-  // Channels stay behind project-bluebird: the switch only appears where the
-  // canvas backend is wired, and a persisted "on" is ignored when the flag is
-  // off so the sidebar can't strand a user on an unsupported feature.
   const channelsWorld = useChannelsWorld();
   const bodyChannelsWorld = useDeferredValue(channelsWorld);
   // Under the layout the row moves into the account menu (ProjectSwitcher),

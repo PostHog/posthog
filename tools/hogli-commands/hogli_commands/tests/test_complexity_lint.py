@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from unittest.mock import MagicMock, call, patch
 
 from click.testing import CliRunner
 from hogli.cli import cli
+from hogli_commands import ci_preflight, complexity_lint
 from hogli_commands.complexity_lint import TEST_WARN_AT, WARN_AT, Finding, _python_findings, is_test_file
 
 runner = CliRunner()
@@ -13,6 +16,23 @@ runner = CliRunner()
 def _branchy_function(name: str, branches: int) -> str:
     checks = "".join(f"    if n == {i}:\n        return {i}\n" for i in range(branches))
     return f"def {name}(n: int) -> int:\n{checks}    return -1\n"
+
+
+@pytest.fixture
+def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    # lint:complexity and ci:preflight skip a path that is missing under REPO_ROOT.
+    # A refactor can move a real path, so the tests write their own files.
+    for path in (
+        "posthog/tasks/usage_report.py",
+        "posthog/api/test/test_activity_log.py",
+        "manage.py",
+        "frontend/src/scenes/sceneTypes.ts",
+    ):
+        (tmp_path / path).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / path).write_text("")
+    monkeypatch.setattr(complexity_lint, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(ci_preflight, "REPO_ROOT", tmp_path)
+    return tmp_path
 
 
 class TestComplexityLint:
@@ -72,6 +92,7 @@ class TestComplexityLint:
     def test_is_test_file(self, path: str, expected: bool) -> None:
         assert is_test_file(path) is expected
 
+    @pytest.mark.usefixtures("repo")
     def test_cli_reports_warnings_without_failing(self, tmp_path) -> None:
         # The check is advisory: even a high-complexity finding must exit 0 and be
         # written to the --report file the CI report poster reads.
@@ -90,6 +111,7 @@ class TestComplexityLint:
         assert "warn >10" in result.output
         assert finding.name in report_path.read_text()
 
+    @pytest.mark.usefixtures("repo")
     @patch("hogli_commands.complexity_lint._python_findings", return_value=[])
     def test_only_scoped_files_are_checked(self, mock_findings: MagicMock) -> None:
         # Explicit paths outside posthog/ee/products (or deleted ones) must not reach ruff.
@@ -107,6 +129,7 @@ class TestComplexityLint:
         assert result.exit_code == 0
         mock_findings.assert_called_once_with(["posthog/tasks/usage_report.py"], max_complexity=WARN_AT)
 
+    @pytest.mark.usefixtures("repo")
     @patch("hogli_commands.complexity_lint._python_findings", return_value=[])
     def test_test_files_are_linted_at_the_relaxed_threshold(self, mock_findings: MagicMock) -> None:
         # Test and production files go to ruff in separate runs, one per limit.
@@ -122,6 +145,7 @@ class TestComplexityLint:
 
 
 class TestPreflightSoftCheck:
+    @pytest.mark.usefixtures("repo")
     @patch("hogli_commands.ci_preflight._emit_telemetry")
     @patch("hogli_commands.ci_preflight._staleness", return_value=("pass", "even with master", {}))
     @patch("hogli_commands.ci_preflight._fetch_master")

@@ -21,7 +21,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
+    Endpoint,
     EndpointResource,
+    PaginatorConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
@@ -30,7 +32,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.mono.settings import (
     AUTH_ERROR,
     BASE_URL,
+    DATA_SELECTORS,
+    DATE_FILTERS,
     ENDPOINTS,
+    FANOUT_PARENTS,
+    INCREMENTAL_FIELDS,
+    PAGE_SIZE,
+    PAYOUT_STATUS,
     PERMISSION_ERROR,
     PRIMARY_KEYS,
 )
@@ -115,6 +123,31 @@ def validate_credentials(config: MonoSourceConfig, api_version: str, team_id: in
     return True, None
 
 
+def incremental_start(
+    endpoint: str, should_use_incremental_field: bool, db_incremental_field_last_value: object
+) -> date | None:
+    if not should_use_incremental_field or db_incremental_field_last_value is None:
+        return None
+    watermark = parse_datetime_value(db_incremental_field_last_value)
+    if watermark is None:
+        raise ValueError(f"Mono received an invalid {endpoint} watermark. Reset the {endpoint} table and retry.")
+    # A one-day overlap covers the API's date precision and avoids equal start/end dates.
+    return watermark.date() - timedelta(days=1)
+
+
+def endpoint_paginator(endpoint: str) -> PaginatorConfig | None:
+    if endpoint in ("institutions", "mandate_debits"):
+        return "single_page"
+    if endpoint in ("payments", "payouts"):
+        return PageNumberPaginator(base_page=1, total_path="meta.paging.pages")
+    if endpoint in ("disbursements", "disbursement_distributions"):
+        return PageNumberPaginator(base_page=1, total_path="data.pagination.pages")
+    if endpoint == "mandates":
+        # The documented response has no paging metadata, so stop at the first empty page.
+        return PageNumberPaginator(base_page=1)
+    return None
+
+
 def mono_source(
     config: MonoSourceConfig,
     endpoint: str,
@@ -129,49 +162,65 @@ def mono_source(
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     params: dict[str, Any] = {}
     start = end = None
+    start_day = incremental_start(endpoint, should_use_incremental_field, db_incremental_field_last_value)
     if endpoint == "transactions":
-        start_day = parse_start_date(config.start_date)
-        if should_use_incremental_field and db_incremental_field_last_value is not None:
-            watermark = parse_datetime_value(db_incremental_field_last_value)
-            if watermark is None:
-                raise ValueError(
-                    "Mono received an invalid transaction watermark. Reset the transaction table and retry."
-                )
-            # A one-day overlap covers the API's date precision and avoids equal start/end dates.
-            start_day = max(start_day, watermark.date() - timedelta(days=1))
-        start = resume.start if resume else start_day.strftime("%d-%m-%Y")
-        end = resume.end if resume else datetime.now(UTC).strftime("%d-%m-%Y")
+        configured_start = parse_start_date(config.start_date)
+        start_day = max(configured_start, start_day) if start_day else configured_start
+    if resume is not None:
+        start, end = resume.start, resume.end
+    elif endpoint in DATE_FILTERS and start_day is not None:
+        date_format = DATE_FILTERS[endpoint][2]
+        start, end = start_day.strftime(date_format), datetime.now(UTC).strftime(date_format)
+    if start is not None and end is not None and endpoint in DATE_FILTERS:
+        start_param, end_param, _ = DATE_FILTERS[endpoint]
+        params = {start_param: start, end_param: end}
+    if endpoint == "transactions":
         params = {
             "account_id": {"type": "resolve", "resource": "accounts", "field": "id"},
-            "start": start,
-            "end": end,
+            **params,
             "paginate": "true",
-            "limit": 100,
+            "limit": PAGE_SIZE,
         }
+    elif endpoint in FANOUT_PARENTS:
+        parent, placeholder = FANOUT_PARENTS[endpoint]
+        params[placeholder] = {"type": "resolve", "resource": parent, "field": "id"}
+    elif endpoint in ("payments", "mandates"):
+        params["limit"] = PAGE_SIZE
+    elif endpoint == "payouts":
+        params["status"] = PAYOUT_STATUS
+
+    endpoint_config: Endpoint = {
+        "path": path,
+        "params": params,
+        "data_selector": DATA_SELECTORS.get(endpoint, "data"),
+        "data_selector_required": True,
+    }
+    paginator = endpoint_paginator(endpoint)
+    if paginator is not None:
+        endpoint_config["paginator"] = paginator
 
     resource: EndpointResource = {
         "name": endpoint,
         "table_name": endpoint,
         "table_format": "delta",
         "write_disposition": {"disposition": "merge", "strategy": "upsert"}
-        if endpoint == "transactions" and should_use_incremental_field
+        if endpoint in INCREMENTAL_FIELDS and should_use_incremental_field
         else "replace",
-        "endpoint": {
-            "path": path,
-            "params": params,
-            "data_selector": "data",
-            "data_selector_required": True,
-        },
+        "endpoint": endpoint_config,
     }
     resources: list[str | EndpointResource] = []
-    if endpoint == "transactions":
+    if endpoint in FANOUT_PARENTS:
+        parent, _ = FANOUT_PARENTS[endpoint]
+        parent_endpoint: Endpoint = {
+            "path": schema_for_resource(ENDPOINTS, parent),
+            "data_selector": DATA_SELECTORS.get(parent, "data"),
+            "data_selector_required": True,
+        }
+        parent_paginator = endpoint_paginator(parent)
+        if parent_paginator is not None:
+            parent_endpoint["paginator"] = parent_paginator
         resource["include_from_parent"] = ["id"]
-        resources.append(
-            {
-                "name": "accounts",
-                "endpoint": {"path": "accounts", "data_selector": "data", "data_selector_required": True},
-            }
-        )
+        resources.append({"name": parent, "endpoint": parent_endpoint})
     resources.append(resource)
 
     def save_checkpoint(state: dict[str, Any] | None) -> None:
@@ -188,13 +237,15 @@ def mono_source(
         initial_paginator_state=resume.paginator_state if resume else None,
     )
     result = next(item for item in built if item.name == endpoint)
-    if endpoint == "transactions":
-        result.add_map(rename_parent_fields("accounts", {"id": "account_id"}))
+    if endpoint in FANOUT_PARENTS:
+        parent, placeholder = FANOUT_PARENTS[endpoint]
+        result.add_map(rename_parent_fields(parent, {"id": placeholder}))
     return SourceResponse(
         name=endpoint,
         items=lambda: result,
         primary_keys=PRIMARY_KEYS[endpoint],
-        # Each account has its own transaction order, so only checkpoint the watermark after all accounts finish.
+        # Mono lists newest first, and transactions restart that order for each account,
+        # so only checkpoint the watermark after the whole sync finishes.
         sort_mode="desc",
         on_complete=resumable_source_manager.clear_state,
     )

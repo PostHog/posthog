@@ -71,7 +71,16 @@ export class AppServerClient implements AppServerRpc {
         reject,
       });
     });
-    this.send({ id, method, params });
+    this.send({ id, method, params }, (err) => {
+      const call = this.pending.get(id);
+      if (!call) return;
+      this.pending.delete(id);
+      call.reject(
+        new Error(`Failed to send ${method} to codex app-server`, {
+          cause: err,
+        }),
+      );
+    });
     return promise;
   }
 
@@ -99,10 +108,15 @@ export class AppServerClient implements AppServerRpc {
     }
   }
 
-  private send(message: JsonRpcMessage): void {
+  private send(
+    message: JsonRpcMessage,
+    onError?: (err: unknown) => void,
+  ): void {
     const line = `${JSON.stringify(message)}\n`;
     this.writer.write(this.encoder.encode(line)).catch((err) => {
-      if (!this.closed) {
+      if (onError) {
+        onError(err);
+      } else if (!this.closed) {
         this.logger.error("Failed to write app-server message", err);
       }
     });

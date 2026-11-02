@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -27,6 +28,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class WrikeSource(ResumableSource[WrikeSourceConfig, WrikeResumeConfig]):
+    codebase_detection = detect(env=("^WRIKE_",))
+
     supported_versions = ("v4",)
     default_version = "v4"
     api_docs_url = "https://developers.wrike.com"
@@ -43,7 +46,7 @@ class WrikeSource(ResumableSource[WrikeSourceConfig, WrikeResumeConfig]):
             name=ExternalDataSourceType.WRIKE,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Wrike",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter a Wrike permanent access token to pull your Wrike data into the PostHog Data warehouse.
 
 Create a permanent access token under **Apps & Integrations → API** in Wrike. The token needs read access (the default `Default` scope is sufficient) to the resources you want to sync.

@@ -39,6 +39,24 @@ CODA_ENDPOINTS: dict[str, CodaEndpointConfig] = {
     "folders": CodaEndpointConfig(
         name="folders",
     ),
+    "pages": CodaEndpointConfig(
+        name="pages",
+        primary_keys=["_doc_id", "id"],
+    ),
+    "permissions": CodaEndpointConfig(
+        name="permissions",
+        primary_keys=["_doc_id", "id"],
+    ),
+    # Workspace users carry no id; the email is unique within a workspace.
+    "workspace_users": CodaEndpointConfig(
+        name="workspace_users",
+        primary_keys=["_workspace_id", "email"],
+    ),
+    # One row per workspace and month, with active and inactive user counts per role.
+    "workspace_role_activity": CodaEndpointConfig(
+        name="workspace_role_activity",
+        primary_keys=["_workspace_id", "month"],
+    ),
 }
 
 ENDPOINTS = tuple(CODA_ENDPOINTS.keys())

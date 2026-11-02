@@ -9,7 +9,9 @@ import { Chip, ChipClose } from './chip'
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from './input-group'
 import { cn } from './lib/utils'
 import { MenuEmpty } from './menu-empty'
+import { MenuItemBody } from './menu-item-body'
 import { MenuLabel } from './menu-label'
+import { hasTooltipContent, withTooltip } from './with-tooltip'
 
 const ComboboxAnchorContext = React.createContext<React.RefObject<HTMLDivElement> | null>(null)
 
@@ -46,9 +48,13 @@ const ComboboxTrigger = React.forwardRef<HTMLButtonElement, ComboboxPrimitive.Tr
 )
 ComboboxTrigger.displayName = 'ComboboxTrigger'
 
-function ComboboxClear({ className, ...props }: ComboboxPrimitive.Clear.Props): React.ReactElement {
+const ComboboxClear = React.forwardRef<
+    React.ComponentRef<typeof ComboboxPrimitive.Clear>,
+    ComboboxPrimitive.Clear.Props
+>(function ComboboxClear({ className, ...props }, ref) {
     return (
         <ComboboxPrimitive.Clear
+            ref={ref}
             data-slot="combobox-clear"
             render={<InputGroupButton size="icon-xs" />}
             className={cn(className)}
@@ -57,24 +63,23 @@ function ComboboxClear({ className, ...props }: ComboboxPrimitive.Clear.Props): 
             <XIcon className="pointer-events-none" />
         </ComboboxPrimitive.Clear>
     )
-}
+})
 
-function ComboboxInput({
-    className,
-    children,
-    disabled = false,
-    showTrigger = true,
-    showClear = false,
-    ...props
-}: ComboboxPrimitive.Input.Props & {
-    showTrigger?: boolean
-    showClear?: boolean
-}): React.ReactElement {
+const ComboboxInput = React.forwardRef<
+    React.ComponentRef<typeof ComboboxPrimitive.Input>,
+    ComboboxPrimitive.Input.Props & {
+        showTrigger?: boolean
+        showClear?: boolean
+    }
+>(function ComboboxInput(
+    { className, children, disabled = false, showTrigger = true, showClear = false, ...props },
+    ref
+) {
     const anchorRef = React.useContext(ComboboxAnchorContext)
     return (
         <div data-slot="combobox-input-group-wrapper">
             <InputGroup ref={anchorRef} className={cn('w-auto', className)}>
-                <ComboboxPrimitive.Input render={<InputGroupInput disabled={disabled} />} {...props} />
+                <ComboboxPrimitive.Input ref={ref} render={<InputGroupInput disabled={disabled} />} {...props} />
                 <InputGroupAddon align="inline-end">
                     {showTrigger && (
                         <InputGroupButton
@@ -91,21 +96,30 @@ function ComboboxInput({
             </InputGroup>
         </div>
     )
-}
+})
 
-function ComboboxContent({
-    className,
-    side = 'bottom',
-    sideOffset = 6,
-    align = 'start',
-    alignOffset = 0,
-    anchor: anchorProp,
-    ...props
-}: ComboboxPrimitive.Popup.Props &
-    Pick<
-        ComboboxPrimitive.Positioner.Props,
-        'side' | 'align' | 'sideOffset' | 'alignOffset' | 'anchor'
-    >): React.ReactElement {
+const ComboboxContent = React.forwardRef<
+    React.ComponentRef<typeof ComboboxPrimitive.Popup>,
+    ComboboxPrimitive.Popup.Props & {
+        /**
+         * Rendered in the positioner as the popup's sibling, escaping the popup's overflow. Use position: absolute —
+         * in-flow content here resizes the box the positioner measures.
+         */
+        popupSibling?: React.ReactNode
+    } & Pick<ComboboxPrimitive.Positioner.Props, 'side' | 'align' | 'sideOffset' | 'alignOffset' | 'anchor'>
+>(function ComboboxContent(
+    {
+        className,
+        popupSibling,
+        side = 'bottom',
+        sideOffset = 6,
+        align = 'start',
+        alignOffset = 0,
+        anchor: anchorProp,
+        ...props
+    },
+    ref
+) {
     const contextAnchor = React.useContext(ComboboxAnchorContext)
     const anchor = anchorProp ?? contextAnchor
     return (
@@ -120,7 +134,9 @@ function ComboboxContent({
                 anchor={anchor}
                 className="isolate"
             >
+                {popupSibling}
                 <ComboboxPrimitive.Popup
+                    ref={ref}
                     data-slot="combobox-content"
                     data-chips={!!anchor}
                     className={cn('quill-combobox__content group/combobox-content', className)}
@@ -129,38 +145,58 @@ function ComboboxContent({
             </ComboboxPrimitive.Positioner>
         </ComboboxPrimitive.Portal>
     )
-}
+})
 
-function ComboboxList({ className, ...props }: ComboboxPrimitive.List.Props): React.ReactElement {
-    return (
-        <ComboboxPrimitive.List
-            data-slot="combobox-list"
-            // `scroll-mask-t-4` always (top fade for items scrolling out of view).
-            // Bottom fade is conditional: if a `ComboboxListFooter` is rendered,
-            // the footer's own `quill-scroll-fade-top` pseudo handles the bottom
-            // fade (and only when content is actually hidden below, via
-            // container scroll-state). Otherwise, fall back to plugin's
-            // `scroll-mask-b-4` for the same behavior on lists without a footer.
-            className={cn(
-                'quill-combobox__list scroll-mask-t-4 scroll-py-4',
-                'not-has-[[data-slot=combobox-list-footer]]:scroll-mask-b-4',
-                className
-            )}
-            {...props}
-        />
-    )
-}
+const ComboboxList = React.forwardRef<React.ComponentRef<typeof ComboboxPrimitive.List>, ComboboxPrimitive.List.Props>(
+    function ComboboxList({ className, ...props }, ref) {
+        return (
+            <ComboboxPrimitive.List
+                ref={ref}
+                data-slot="combobox-list"
+                // `scroll-mask-t-4` always (top fade for items scrolling out of view).
+                // Bottom fade is conditional: if a `ComboboxListFooter` is rendered,
+                // the footer's own `quill-scroll-fade-top` pseudo handles the bottom
+                // fade (and only when content is actually hidden below, via
+                // container scroll-state). Otherwise, fall back to plugin's
+                // `scroll-mask-b-4` for the same behavior on lists without a footer.
+                className={cn(
+                    'quill-combobox__list scroll-mask-t-4 scroll-py-4',
+                    'not-has-[[data-slot=combobox-list-footer]]:scroll-mask-b-4',
+                    className
+                )}
+                {...props}
+            />
+        )
+    }
+)
 
-function ComboboxItem({
-    className,
-    children,
-    title,
-    ...props
-}: ComboboxPrimitive.Item.Props & { title?: string }): React.ReactElement {
-    return (
+const ComboboxItem = React.forwardRef<
+    React.ComponentRef<typeof ComboboxPrimitive.Item>,
+    ComboboxPrimitive.Item.Props & {
+        title?: string
+        /** Text shown in a tooltip beside the item. */
+        tooltip?: React.ReactNode
+        /** Disables the item and says why in a tooltip beside it. Takes the place of `tooltip` while set. */
+        disabledReason?: React.ReactNode
+        /** An action row, such as "New project". It is never selected, so it leaves out the check mark's gutter. */
+        action?: boolean
+        /** A muted second line under the label. The row grows to fit it, and its text lines up past a leading icon. */
+        description?: React.ReactNode
+    }
+>(function ComboboxItem(
+    { className, children, title, tooltip, disabledReason, disabled, action, description, ...props },
+    ref
+) {
+    const hasReason = hasTooltipContent(disabledReason)
+    const described = hasTooltipContent(description)
+    // A disabled item ignores the pointer, so the tooltip listens on a wrapper and opens beside the row.
+    return withTooltip(
         <ComboboxPrimitive.Item
+            ref={ref}
             data-slot="combobox-item"
-            className={cn('quill-combobox__item', className)}
+            data-action={action ? '' : undefined}
+            disabled={disabled || hasReason}
+            className={cn('quill-combobox__item', described && 'quill-menu-item--described', className)}
             title={title ?? (typeof children === 'string' ? children : undefined)}
             // The default render is a real <button>; only declare nativeButton when the
             // caller hasn't overridden render (their element may not be a button).
@@ -168,82 +204,100 @@ function ComboboxItem({
             render={<Button size="row" left className="min-w-0 aria-selected:bg-fill-selected" />}
             {...props}
         >
-            <span className="flex items-center gap-1.5 min-w-0 truncate">{children}</span>
+            <span className="quill-combobox__item-content flex items-center min-w-0 truncate">
+                {described ? <MenuItemBody description={description}>{children}</MenuItemBody> : children}
+            </span>
             <ComboboxPrimitive.ItemIndicator
                 render={<span className="pointer-events-none absolute start-2 flex items-center justify-center" />}
             >
-                <CheckIcon className="pointer-events-none" />
+                <CheckIcon className="quill-combobox__indicator-icon pointer-events-none size-3.5" />
             </ComboboxPrimitive.ItemIndicator>
-        </ComboboxPrimitive.Item>
+        </ComboboxPrimitive.Item>,
+        hasReason ? disabledReason : tooltip,
+        { target: 'block', side: 'inline-end' }
     )
-}
+})
 
-function ComboboxGroup({ className, ...props }: ComboboxPrimitive.Group.Props): React.ReactElement {
-    return <ComboboxPrimitive.Group data-slot="combobox-group" className={cn(className)} {...props} />
-}
+const ComboboxGroup = React.forwardRef<
+    React.ComponentRef<typeof ComboboxPrimitive.Group>,
+    ComboboxPrimitive.Group.Props
+>(function ComboboxGroup({ className, ...props }, ref) {
+    return <ComboboxPrimitive.Group ref={ref} data-slot="combobox-group" className={cn(className)} {...props} />
+})
 
-function ComboboxLabel({ className, ...props }: ComboboxPrimitive.GroupLabel.Props): React.ReactElement {
+const ComboboxLabel = React.forwardRef<
+    React.ComponentRef<typeof ComboboxPrimitive.GroupLabel>,
+    ComboboxPrimitive.GroupLabel.Props
+>(function ComboboxLabel({ className, ...props }, ref) {
     return (
         <ComboboxPrimitive.GroupLabel
+            ref={ref}
             data-slot="combobox-label"
             className={className}
             render={<MenuLabel />}
             {...props}
         />
     )
-}
+})
 
 function ComboboxCollection({ ...props }: ComboboxPrimitive.Collection.Props): React.ReactElement {
     return <ComboboxPrimitive.Collection data-slot="combobox-collection" {...props} />
 }
 
-function ComboboxEmpty({ className, ...props }: ComboboxPrimitive.Empty.Props): React.ReactElement {
+const ComboboxEmpty = React.forwardRef<
+    React.ComponentRef<typeof ComboboxPrimitive.Empty>,
+    ComboboxPrimitive.Empty.Props
+>(function ComboboxEmpty({ className, ...props }, ref) {
     // Base UI renders the children only when nothing matches, so `empty:hidden` is the whole visibility rule.
     return (
         <ComboboxPrimitive.Empty
+            ref={ref}
             data-slot="combobox-empty"
             className={cn('empty:hidden', className)}
             render={<MenuEmpty />}
             {...props}
         />
     )
-}
+})
 
-function ComboboxSeparator({ className, ...props }: ComboboxPrimitive.Separator.Props): React.ReactElement {
+const ComboboxSeparator = React.forwardRef<
+    React.ComponentRef<typeof ComboboxPrimitive.Separator>,
+    ComboboxPrimitive.Separator.Props
+>(function ComboboxSeparator({ className, ...props }, ref) {
     return (
         <ComboboxPrimitive.Separator
+            ref={ref}
             data-slot="combobox-separator"
             className={cn('quill-combobox__separator', className)}
             {...props}
         />
     )
-}
+})
 
-function ComboboxChips({
-    className,
-    ...props
-}: React.ComponentPropsWithRef<typeof ComboboxPrimitive.Chips> & ComboboxPrimitive.Chips.Props): React.ReactElement {
+const ComboboxChips = React.forwardRef<
+    React.ComponentRef<typeof ComboboxPrimitive.Chips>,
+    React.ComponentPropsWithRef<typeof ComboboxPrimitive.Chips> & ComboboxPrimitive.Chips.Props
+>(function ComboboxChips({ className, ...props }, ref) {
     return (
         <ComboboxPrimitive.Chips
+            ref={ref}
             data-slot="combobox-chips"
             className={cn('quill-combobox__chips flex flex-wrap items-center gap-1 py-1', className)}
             {...props}
         />
     )
-}
+})
 
-function ComboboxChip({
-    className,
-    children,
-    title,
-    showRemove = true,
-    ...props
-}: ComboboxPrimitive.Chip.Props & {
-    showRemove?: boolean
-    title?: string
-}): React.ReactElement {
+const ComboboxChip = React.forwardRef<
+    React.ComponentRef<typeof ComboboxPrimitive.Chip>,
+    ComboboxPrimitive.Chip.Props & {
+        showRemove?: boolean
+        title?: string
+    }
+>(function ComboboxChip({ className, children, title, showRemove = true, ...props }, ref) {
     return (
         <ComboboxPrimitive.Chip
+            ref={ref}
             render={<Chip title={title ?? (typeof children === 'string' ? children : undefined)} />}
             data-slot="combobox-chip"
             className={cn(className)}
@@ -257,19 +311,26 @@ function ComboboxChip({
             )}
         </ComboboxPrimitive.Chip>
     )
-}
+})
 
-function ComboboxChipsInput({ className, ...props }: ComboboxPrimitive.Input.Props): React.ReactElement {
+const ComboboxChipsInput = React.forwardRef<
+    React.ComponentRef<typeof ComboboxPrimitive.Input>,
+    ComboboxPrimitive.Input.Props
+>(function ComboboxChipsInput({ className, ...props }, ref) {
     return (
         <ComboboxPrimitive.Input
+            ref={ref}
             data-slot="combobox-chip-input"
             className={cn('quill-combobox__chips-input', className)}
             {...props}
         />
     )
-}
+})
 
-function ComboboxListFooter({ className, ...props }: React.ComponentProps<'div'>): React.ReactElement {
+const ComboboxListFooter = React.forwardRef<HTMLDivElement, React.ComponentProps<'div'>>(function ComboboxListFooter(
+    { className, ...props },
+    ref
+) {
     return (
         <div
             data-slot="combobox-list-footer"
@@ -279,10 +340,10 @@ function ComboboxListFooter({ className, ...props }: React.ComponentProps<'div'>
             // area, mirroring `scroll-mask-b` without fading the footer itself.
             className={cn('quill-combobox__list-footer quill-scroll-fade-top', className)}
         >
-            <div className="p-1" {...props} />
+            <div ref={ref} className="p-1" {...props} />
         </div>
     )
-}
+})
 
 function useComboboxAnchor(): React.RefObject<HTMLDivElement> {
     const contextRef = React.useContext(ComboboxAnchorContext)

@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     SourceConfig,
@@ -26,6 +27,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AttioSource(ResumableSource[AttioSourceConfig, AttioResumeConfig]):
+    codebase_detection = detect(env=("^ATTIO_",), npm=("attio",))
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://developers.attio.com"

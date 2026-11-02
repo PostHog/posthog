@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,6 +42,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MercurySource(ResumableSource[MercurySourceConfig, MercuryResumeConfig]):
+    codebase_detection = NOT_DETECTABLE
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.mercury.com/reference"
 
@@ -159,7 +162,7 @@ class MercurySource(ResumableSource[MercurySourceConfig, MercuryResumeConfig]):
             caption="Sync your Mercury business banking data, including accounts, transactions, cards, and invoices.\n\nCreate an API token with Read Only access in Mercury under [Settings > API tokens](https://app.mercury.com/settings/tokens). Read Only tokens do not require an IP allowlist.",
             docsUrl="https://posthog.com/docs/cdp/sources/mercury",
             iconPath="/static/services/mercury.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["banking", "bank"],
             fields=cast(
                 list[FieldType],

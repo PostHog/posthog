@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockIsFeatureEnabled = vi.fn()
-const mockGetAllFlags = vi.fn()
+const mockGetAllFlagsAndPayloads = vi.fn()
 // Mock the client `flags.ts` consumes, not posthog-node directly: `getPostHogClient()`
 // returns a `PostHogMCP` (a posthog-node subclass) from the externalized
 // `@posthog/mcp-analytics`, whose internal posthog-node import a `vi.mock('posthog-node')`
@@ -9,7 +9,7 @@ const mockGetAllFlags = vi.fn()
 vi.mock('@/lib/posthog/client', () => ({
     getPostHogClient: () => ({
         isFeatureEnabled: mockIsFeatureEnabled,
-        getAllFlags: mockGetAllFlags,
+        getAllFlagsAndPayloads: mockGetAllFlagsAndPayloads,
     }),
 }))
 
@@ -74,30 +74,36 @@ describe('evaluateFeatureFlags', () => {
         vi.clearAllMocks()
     })
 
-    it('should evaluate multiple flags via getAllFlags and forward groups', async () => {
-        mockGetAllFlags.mockResolvedValue({ 'flag-on': true, 'flag-off': false, unrelated: true })
+    it('should evaluate multiple flags with their payloads and forward groups', async () => {
+        mockGetAllFlagsAndPayloads.mockResolvedValue({
+            featureFlags: { 'flag-on': true, 'flag-off': false, unrelated: true },
+            featureFlagPayloads: { 'flag-on': { message: 'Example invitation' } },
+        })
 
         const result = await evaluateFeatureFlags(['flag-on', 'flag-off'], 'user-123', { organization: 'org-abc' })
 
-        expect(result).toEqual({ 'flag-on': true, 'flag-off': false })
-        expect(mockGetAllFlags).toHaveBeenCalledWith('user-123', {
+        expect(result).toEqual({
+            flags: { 'flag-on': true, 'flag-off': false },
+            payloads: { 'flag-on': { message: 'Example invitation' } },
+        })
+        expect(mockGetAllFlagsAndPayloads).toHaveBeenCalledWith('user-123', {
             flagKeys: ['flag-on', 'flag-off'],
             groups: { organization: 'org-abc' },
         })
     })
 
     it('should omit groups when not provided', async () => {
-        mockGetAllFlags.mockResolvedValue({ 'flag-a': true })
+        mockGetAllFlagsAndPayloads.mockResolvedValue({ featureFlags: { 'flag-a': true }, featureFlagPayloads: {} })
 
         await evaluateFeatureFlags(['flag-a'], 'user-123')
 
-        expect(mockGetAllFlags).toHaveBeenCalledWith('user-123', { flagKeys: ['flag-a'] })
+        expect(mockGetAllFlagsAndPayloads).toHaveBeenCalledWith('user-123', { flagKeys: ['flag-a'] })
     })
 
     it('should short-circuit when no flag keys are requested', async () => {
         const result = await evaluateFeatureFlags([], 'user-123', { organization: 'org-abc' })
 
-        expect(result).toEqual({})
-        expect(mockGetAllFlags).not.toHaveBeenCalled()
+        expect(result).toEqual({ flags: {}, payloads: {} })
+        expect(mockGetAllFlagsAndPayloads).not.toHaveBeenCalled()
     })
 })

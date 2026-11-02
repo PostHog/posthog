@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,6 +39,18 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class KestraSource(ResumableSource[KestraSourceConfig, KestraResumeState]):
+    codebase_detection = detect(
+        env=("^KESTRA_",),
+        npm=("@kestra-io/kestra-sdk", "@kestra-io/libs", "@kestra-io/ui-libs"),
+        pypi=("kestrapy", "kestra"),
+        go=(
+            "github.com/kestra-io/client-sdk/go-sdk",
+            "github.com/kestra-io/kestra2-flow-migration",
+            "github.com/kestra-io/kestractl",
+        ),
+        maven=("io.kestra:kestra-api-client", "io.kestra:kestra"),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = ("v1",)
     default_version = "v1"
@@ -110,7 +123,7 @@ class KestraSource(ResumableSource[KestraSourceConfig, KestraResumeState]):
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Kestra",
             iconPath="/static/services/kestra.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "For Kestra Cloud or Enterprise, create a token in Settings → API Tokens. "
                 "Grant read access to flows, executions, and triggers in your tenant. "

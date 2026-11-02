@@ -1,8 +1,7 @@
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
-import { uuid } from 'lib/utils/dom'
 
 import { AnyEntityNode, GroupNode, NodeKind } from '~/queries/schema/schema-general'
-import { ActionFilter, Entity, EntityTypes, FilterType } from '~/types'
+import { ActionFilter, EntityTypes, FilterType } from '~/types'
 
 import {
     SeriesNode,
@@ -128,55 +127,6 @@ export function seriesToLegacyFilters(series: SeriesNode[]): FilterType {
         // The first step of a funnel cannot be optional.
         return index === 0 ? { ...filter, optionalInFunnel: undefined } : filter
     })
-
-    return {
-        [EntityTypes.ACTIONS]: filters.filter((filter) => filter.type === EntityTypes.ACTIONS),
-        [EntityTypes.EVENTS]: filters.filter((filter) => filter.type === EntityTypes.EVENTS),
-        [EntityTypes.DATA_WAREHOUSE]: filters.filter((filter) => filter.type === EntityTypes.DATA_WAREHOUSE),
-        [EntityTypes.GROUPS]: filters.filter((filter) => filter.type === EntityTypes.GROUPS),
-    } as FilterType
-}
-
-/**
- * The legacy row shape, still used by `cleanFilters` for the persons-modal URL path and by
- * replay's playlist summary. Both go in the PR that deletes the converter.
- */
-export type LocalFilter = ActionFilter & {
-    order: number
-    uuid: string
-    table_name?: string
-    [key: string]: any
-}
-
-export type BareEntity = Pick<Entity, 'id' | 'name'>
-
-export function toLocalFilters(filters: Partial<FilterType>): LocalFilter[] {
-    const localFilters = [
-        ...(filters[EntityTypes.ACTIONS] || []),
-        ...(filters[EntityTypes.EVENTS] || []),
-        ...(filters[EntityTypes.DATA_WAREHOUSE] || []),
-        ...(filters[EntityTypes.GROUPS] || []),
-    ]
-        .sort((a, b) => a.order - b.order)
-        .map((filter, order) => ({ ...(filter as ActionFilter), order }))
-    return localFilters.map((filter) =>
-        filter.properties && Array.isArray(filter.properties)
-            ? {
-                  ...filter,
-                  uuid: uuid(),
-                  properties: convertPropertyGroupToProperties(filter.properties),
-              }
-            : { ...filter, uuid: uuid() }
-    )
-}
-
-export function toFilters(localFilters: LocalFilter[]): FilterType {
-    const filters = localFilters.map((filter, index) => ({
-        ...filter,
-        order: index,
-        // The first step of a funnel cannot be optional
-        optionalInFunnel: index == 0 ? undefined : filter.optionalInFunnel,
-    }))
 
     return {
         [EntityTypes.ACTIONS]: filters.filter((filter) => filter.type === EntityTypes.ACTIONS),

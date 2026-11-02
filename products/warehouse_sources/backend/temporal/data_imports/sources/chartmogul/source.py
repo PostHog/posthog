@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ChartMogulSource(ResumableSource[ChartMogulSourceConfig, ChartMogulResumeConfig]):
+    codebase_detection = detect(
+        env=("^CHARTMOGUL_",),
+        npm=("chartmogul-node",),
+        pypi=("chartmogul",),
+        composer=("chartmogul/chartmogul-php",),
+        go=("github.com/chartmogul/chartmogul-go",),
+        rubygems=("chartmogul-ruby",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     supported_versions = ("v1",)

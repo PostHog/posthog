@@ -9,6 +9,8 @@ from posthog.event_usage import report_user_action
 from posthog.models import EventDefinition, EventSchema, SchemaPropertyGroupProperty
 from posthog.taxonomy.taxonomy import CORE_EVENTS
 
+from products.event_definitions.backend.models.property_definition import effective_project_id_expr
+
 
 class EventDefinitionGenerator(ABC):
     """
@@ -96,7 +98,8 @@ class EventDefinitionGenerator(ABC):
         has_schema = Exists(EventSchema.objects.filter(event_definition=OuterRef("pk")))
 
         event_definitions = (
-            EventDefinition.objects.filter(team__project_id=project_id)
+            EventDefinition.objects.alias(effective_project_id=effective_project_id_expr())
+            .filter(effective_project_id=project_id)
             .filter(
                 Q(name__in=CORE_EVENTS)  # Core PostHog events from the taxonomy
                 | Q(enterpriseeventdefinition__verified=True)  # Any verified event

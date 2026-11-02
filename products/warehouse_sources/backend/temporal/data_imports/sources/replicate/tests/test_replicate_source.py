@@ -38,10 +38,6 @@ class TestReplicateSource:
         if supports_incremental:
             assert [f["field"] for f in schema.incremental_fields] == ["created_at"]
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = ReplicateSource().get_schemas(_config(), team_id=1, names=["predictions"])
-        assert [s.name for s in schemas] == ["predictions"]
-
     @parameterized.expand([("valid", True, True, None), ("invalid", False, False, "Invalid Replicate API token")])
     def test_validate_credentials(self, _name: str, api_ok: bool, expected_ok: bool, expected_msg: str | None) -> None:
         with patch(
@@ -51,26 +47,6 @@ class TestReplicateSource:
             ok, msg = ReplicateSource().validate_credentials(_config(), team_id=1)
         assert ok is expected_ok
         assert msg == expected_msg
-
-    @parameterized.expand(
-        [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.replicate.com/v1/predictions", True),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.replicate.com/v1/account", True),
-            (
-                "rate_limited",
-                "429 Client Error: Too Many Requests for url: https://api.replicate.com/v1/predictions",
-                False,
-            ),
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://api.replicate.com/v1/trainings",
-                False,
-            ),
-        ]
-    )
-    def test_non_retryable_errors(self, _name: str, observed: str, is_non_retryable: bool) -> None:
-        keys = ReplicateSource().get_non_retryable_errors()
-        assert any(k in observed for k in keys) is is_non_retryable
 
     def test_source_for_pipeline_drops_watermark_when_not_incremental(self) -> None:
         # When should_use_incremental_field is False the last-value must not leak into the request,

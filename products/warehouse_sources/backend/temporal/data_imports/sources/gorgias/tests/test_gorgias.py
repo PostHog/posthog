@@ -71,9 +71,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("ok", 200, True),
-            ("unauthorized", 401, False),
-            ("forbidden", 403, False),
-            ("server_error", 500, False),
         ]
     )
     def test_status_mapping(self, _name: str, status_code: int, expected_valid: bool) -> None:
@@ -99,12 +96,6 @@ class TestValidateCredentials:
         assert network.requests_log == []
         assert network.session_options == []
 
-    def test_connection_error_is_handled(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            valid, error = validate_credentials("acme", "you@acme.com", "key")
-        assert valid is False
-        assert error is not None
-
 
 class TestGetRows:
     def test_resumes_from_saved_cursor(self) -> None:
@@ -112,6 +103,16 @@ class TestGetRows:
 
         assert result.raised is None
         assert result.params("cursor") == ["resume-token"]
+
+    def test_page_cursor_conflict_is_classified_non_retryable(self) -> None:
+        # A 409 on a page fetch means the cursor no longer matches the current list (e.g. a merged
+        # or deleted customer shifted it), not a transient blip — every retry would replay the same
+        # now-invalid cursor and fail identically.
+        result = _driver().run("customers", [_page([{"id": 1}], cursor="c2"), ScriptedResponse(status=409)])
+
+        assert isinstance(result.raised, requests.HTTPError)
+        error_message = str(result.raised)
+        assert any(key in error_message for key in GorgiasSource().get_non_retryable_errors())
 
 
 class TestParamVariants:

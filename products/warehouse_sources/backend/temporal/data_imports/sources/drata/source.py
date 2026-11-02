@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DrataSource(ResumableSource[DrataSourceConfig, DrataResumeConfig]):
+    codebase_detection = detect(env=("^DRATA_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -45,7 +48,7 @@ class DrataSource(ResumableSource[DrataSourceConfig, DrataResumeConfig]):
             name=ExternalDataSourceType.DRATA,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Drata",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Drata API key to pull your compliance data into the PostHog Data warehouse.
 
 You can create an API key under **Settings → API keys** in [Drata](https://app.drata.com/). A key with **read** scopes is sufficient; pick the region that matches your Drata account.

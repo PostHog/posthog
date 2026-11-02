@@ -3,19 +3,24 @@ import time
 import dataclasses
 from collections.abc import Iterator
 from typing import Any, Optional
-from urllib.parse import urlencode, urlparse
+from urllib.parse import quote, urlencode, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.cloud_utils import is_cloud
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonatype_nexus.settings import (
     NEXUS_API_PATH,
+    NEXUS_DEFAULT_USER_SOURCE,
+    NEXUS_USER_SEARCH_LIMIT,
     SONATYPE_NEXUS_ENDPOINTS,
 )
 
@@ -165,7 +170,7 @@ def _build_url(base_url: str, params: dict[str, Any]) -> str:
     return f"{base_url}?{urlencode(params)}"
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type(
         (
             SonatypeNexusRetryableError,
@@ -318,6 +323,52 @@ def _get_repository_fanout_rows(
             )
 
 
+def _get_user_rows(
+    session: requests.Session, endpoint_url: str, logger: FilteringBoundLogger
+) -> Iterator[list[dict[str, Any]]]:
+    local_users = _fetch_page(session, _build_url(endpoint_url, {"source": NEXUS_DEFAULT_USER_SOURCE}), logger)["items"]
+    if local_users:
+        yield local_users
+
+    # The cross-source search is the only way to list external-realm users (LDAP, SAML, Crowd), but it
+    # repeats local users, so keep only the external rows to not duplicate the full local list.
+    all_users = _fetch_page(session, endpoint_url, logger)["items"]
+    if len(all_users) >= NEXUS_USER_SEARCH_LIMIT:
+        logger.warning(
+            f"Sonatype Nexus: the cross-source user search hit the {NEXUS_USER_SEARCH_LIMIT}-user cap, "
+            "so some external-realm users may be missing"
+        )
+    external_users = [user for user in all_users if user.get("source") != NEXUS_DEFAULT_USER_SOURCE]
+    if external_users:
+        yield external_users
+
+
+def _get_blob_store_rows(
+    session: requests.Session, endpoint_url: str, logger: FilteringBoundLogger
+) -> Iterator[list[dict[str, Any]]]:
+    blob_stores = _fetch_page(session, endpoint_url, logger)["items"]
+    for blob_store in blob_stores:
+        quota_status: dict[str, Any] = {}
+        # Without a soft quota the status is a fixed "no quota" reply, and an unavailable blob store
+        # can't report usage, so only ask for the status when it can carry information.
+        if blob_store.get("softQuota") and not blob_store.get("unavailable"):
+            status_url = f"{endpoint_url}/{quote(blob_store['name'], safe='')}/quota-status"
+            try:
+                quota_status = _fetch_page(session, status_url, logger)
+            except requests.HTTPError as exc:
+                if exc.response is not None and exc.response.status_code == 404:
+                    logger.warning(f"Sonatype Nexus: blob store {blob_store['name']} not found, skipping")
+                    continue
+                raise
+        yield [
+            {
+                **blob_store,
+                "quotaViolation": quota_status.get("isViolation"),
+                "quotaMessage": quota_status.get("message"),
+            }
+        ]
+
+
 def get_rows(
     host: str,
     username: str,
@@ -333,6 +384,14 @@ def get_rows(
 
     if config.per_repository:
         yield from _get_repository_fanout_rows(session, base_url, endpoint_url, logger, resumable_source_manager)
+        return
+
+    if endpoint == "users":
+        yield from _get_user_rows(session, endpoint_url, logger)
+        return
+
+    if endpoint == "blob_stores":
+        yield from _get_blob_store_rows(session, endpoint_url, logger)
         return
 
     if not config.paginated:

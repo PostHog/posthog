@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -29,6 +30,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class N8nSource(ResumableSource[N8nSourceConfig, N8nResumeConfig], ValidateDatabaseHostMixin):
+    codebase_detection = detect(env=("^N8N_",), npm=("n8n", "n8n-workflow", "@n8n/chat"))
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://docs.n8n.io/api/api-reference/"
@@ -58,7 +61,7 @@ Works with n8n Cloud and self-hosted instances. Enter your instance URL (e.g. `h
 Some tables (users, projects, project users, folders, variables) require an owner/admin key or an Enterprise plan; deselect them if your key can't access them.""",
             iconPath="/static/services/n8n.png",
             docsUrl="https://posthog.com/docs/cdp/sources/n8n",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

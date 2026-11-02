@@ -11,6 +11,7 @@ import requests
 from parameterized import parameterized
 from requests.adapters import HTTPAdapter
 from urllib3.response import HTTPResponse
+from urllib3.util.timeout import Timeout
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.baserow import (
     baserow,
@@ -39,7 +40,10 @@ class _SilentHost:
         self.timeouts: list[Any] = []
 
     def send(self, _adapter: HTTPAdapter, request: requests.PreparedRequest, **kwargs: Any) -> requests.Response:
-        self.timeouts.append(kwargs.get("timeout"))
+        # The tracked adapter hands urllib3 a `Timeout` whose clone is the timeout of the first try.
+        first_try = cast(Timeout, kwargs["timeout"]).clone()
+        first_try.start_connect()
+        self.timeouts.append((first_try.connect_timeout, first_try.read_timeout))
         response = requests.Response()
         response.status_code = 200
         response.url = request.url or ""
@@ -60,6 +64,10 @@ def _silent_host() -> Iterator[_SilentHost]:
         patch.object(HTTPAdapter, "send", autospec=True, side_effect=host.send),
     ):
         yield host
+
+
+def _pair(timeout: Any) -> tuple[Any, Any]:
+    return timeout if isinstance(timeout, tuple) else (timeout, timeout)
 
 
 def _framework(client: dict[str, Any]) -> None:
@@ -96,7 +104,7 @@ class TestDefaultRequestTimeout:
                 lambda: make_tracked_session().get(f"{BASE_URL}/items", timeout=None),
                 DEFAULT_TIMEOUT,
             ),
-            ("session_override", lambda: make_tracked_session().get(f"{BASE_URL}/items", timeout=5), 5),
+            ("session_override", lambda: make_tracked_session().get(f"{BASE_URL}/items", timeout=5), (5, 5)),
             (
                 "session_opt_out",
                 lambda: make_tracked_session().get(f"{BASE_URL}/items", timeout=NO_REQUEST_TIMEOUT),
@@ -135,4 +143,4 @@ class TestDefaultRequestTimeout:
             list(RESTClient(base_url=BASE_URL, session=make_session()).paginate("/items"))
             make_session().get(f"{BASE_URL}/items")
             make_session().get(f"{BASE_URL}/items", timeout=3)
-        assert host.timeouts == [expected, expected, 3]
+        assert host.timeouts == [_pair(expected), _pair(expected), (3, 3)]

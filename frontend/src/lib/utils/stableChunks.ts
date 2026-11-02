@@ -1,3 +1,5 @@
+import { unmappedStableChunkSpecifier } from './isChunkLoadError'
+
 /** Only the stable chunk build renders an import map (see posthog/stable_chunks.py). */
 export function isStableChunkBuild(): boolean {
     return document.querySelector('script[type="importmap"]') !== null
@@ -8,13 +10,19 @@ export function isStableChunkBuild(): boolean {
  * import map and fails again while a new stable chunk is not reachable, so the reload asks for the
  * default build. The server always serves the default build for ?stable_chunks=fallback and stores
  * no choice for it, so this cannot loop, and the next page load tries the stable build again.
+ * The reload names a specifier that the import map did not hold, so the server can tell a page
+ * whose import map misses a chunk apart from a chunk that failed to load.
  */
-export function reloadAfterChunkLoadError(): void {
+export function reloadAfterChunkLoadError(error: unknown): void {
     if (!isStableChunkBuild()) {
         window.location.reload()
         return
     }
     const url = new URL(window.location.href)
     url.searchParams.set('stable_chunks', 'fallback')
+    const unmapped = unmappedStableChunkSpecifier(error)
+    if (unmapped) {
+        url.searchParams.set('stable_chunks_unmapped', unmapped)
+    }
     window.location.replace(url.toString())
 }

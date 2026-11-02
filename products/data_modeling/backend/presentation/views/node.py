@@ -1,10 +1,6 @@
-import asyncio
-from dataclasses import asdict
-from datetime import timedelta
 from typing import Any, cast
-from uuid import UUID, uuid4
+from uuid import UUID
 
-from django.conf import settings
 from django.db import models
 from django.db.models import Exists, OuterRef, Subquery
 
@@ -12,22 +8,20 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from rest_framework import filters, mixins, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.pagination import PageNumberPagination
-from temporalio.common import RetryPolicy
-
-from posthog.hogql.database.database import Database
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
 from posthog.rbac.query_access import assert_user_can_read_query
-from posthog.temporal.common.client import sync_connect
-from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInputs
 
 from products.data_modeling.backend.facade.api import (
+    MaterializationForbiddenError,
+    MaterializationRunDirection,
     delete_node,
     endpoint_link,
     get_declared_target,
+    run_related_node_materializations,
     suspension_state,
     unsuspend_nodes,
 )
@@ -35,7 +29,6 @@ from products.data_modeling.backend.facade.models import (
     SAVED_QUERY_NODE_TYPES,
     DataModelingJob,
     DataModelingJobEngine,
-    DataWarehouseSavedQuery,
     Edge,
     LineageIssueKind,
     Node,
@@ -54,6 +47,20 @@ class NodeSuspensionSerializer(serializers.Serializer):
 
 class NodeResumeSerializer(serializers.Serializer):
     resumed = serializers.BooleanField(help_text="False when the node was not suspended to begin with.")
+
+
+class NodeRunSerializer(serializers.Serializer):
+    direction = serializers.ChoiceField(
+        choices=MaterializationRunDirection.choices,
+        help_text="Run this view with all upstream dependencies or all downstream dependents.",
+    )
+
+
+class NodeRunResponseSerializer(serializers.Serializer):
+    node_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text="The nodes included in the dependency run.",
+    )
 
 
 class NodeEndpointSerializer(serializers.Serializer):
@@ -234,11 +241,11 @@ class NodeSerializer(serializers.ModelSerializer):
             return None
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        # System-managed DAGs (e.g. Revenue Analytics) own their nodes; the internal sync path
+        # Managed viewsets (e.g. Revenue Analytics) own their views' nodes; the internal sync path
         # maintains them directly via the ORM and bypasses this serializer. Block users from
-        # editing managed nodes or moving any node into a managed DAG via the API.
-        if self.instance is not None and self.instance.dag.is_managed:
-            raise serializers.ValidationError("Nodes belonging to a system-managed DAG cannot be modified.")
+        # editing those nodes via the API.
+        if self.instance is not None and self.instance.belongs_to_managed_viewset:
+            raise serializers.ValidationError("Nodes of views PostHog manages cannot be modified.")
         if self.instance is not None and self.instance.type == NodeType.METRIC:
             raise serializers.ValidationError("Metric nodes are maintained by the data catalog.")
         node_type = attrs.get("type")
@@ -284,6 +291,10 @@ def _get_upstream_nodes(
         current = list(qs.values_list("source_id", flat=True))
         nodes.update(str(i) for i in current)
     return nodes
+
+
+def _feeds_a_managed_view(node: Node) -> bool:
+    return node.outgoing_edges.filter(target__saved_query__managed_viewset__isnull=False).exists()
 
 
 def _get_downstream_nodes(node: Node, hidden_types: frozenset[str] = frozenset()) -> set[str]:
@@ -357,8 +368,10 @@ class NodeViewSet(
 
     def perform_destroy(self, instance: Node) -> None:
         self._require_warehouse_access(level="editor", message=DELETE_DENIED)
-        if instance.dag.is_managed:
-            raise serializers.ValidationError("Nodes belonging to a system-managed DAG cannot be deleted.")
+        if instance.belongs_to_managed_viewset:
+            raise serializers.ValidationError("Nodes of views PostHog manages cannot be deleted.")
+        if _feeds_a_managed_view(instance):
+            raise serializers.ValidationError("A view PostHog manages reads from this node, so it can't be deleted.")
         if instance.type == NodeType.METRIC:
             raise serializers.ValidationError("Metric nodes are deleted by deleting their metric.")
         delete_node(instance.team_id, instance.pk)
@@ -432,24 +445,18 @@ class NodeViewSet(
             self.ordering
         )
 
+    @extend_schema(request=NodeRunSerializer, responses={200: NodeRunResponseSerializer})
     @action(methods=["POST"], detail=True)
     def run(self, req: request.Request, *args, **kwargs) -> response.Response:
-        """
-        Run this node and its upstream or downstream dependencies.
-
-        Request body:
-            direction: "upstream" | "downstream" (required)
-                - "upstream": Run all ancestors of this node, plus this node
-                - "downstream": Run this node and all its descendants
-        """
-        node = self.get_object()
-        direction = req.data.get("direction")
-
-        if direction not in ("upstream", "downstream"):
+        """Run this node with its upstream dependencies or downstream dependents."""
+        body = NodeRunSerializer(data=req.data)
+        if not body.is_valid():
             return response.Response(
                 {"error": "direction must be 'upstream' or 'downstream'"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        node = self.get_object()
 
         if node.type not in SAVED_QUERY_NODE_TYPES:
             return response.Response(
@@ -457,49 +464,17 @@ class NodeViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if direction == "upstream":
-            node_ids = _get_upstream_nodes(node)
-        else:
-            node_ids = _get_downstream_nodes(node)
-
-        node_ids.add(str(node.id))
-
-        # A run materializes every node it touches (the workflow sets is_materialized), and the
-        # resulting rows then resolve under each view's own access rules. So this is the same
-        # declassification as enabling materialization directly, and needs the same check.
-        database = Database.create_for(team_id=self.team_id, user=cast(User, req.user))
-        for saved_query in DataWarehouseSavedQuery.objects.filter(
-            team_id=self.team_id, node__id__in=node_ids
-        ).distinct():
-            assert_user_can_read_query(saved_query.query, self.team_id, cast(User, req.user), database=database)
-
-        # ExecuteDAGWorkflow skips suspended nodes, so without this the request is a silent no-op
-        # for exactly the nodes that need it most.
-        unsuspend_nodes(Node.objects.filter(team_id=self.team_id, id__in=node_ids), by="manual_run")
-
-        inputs = ExecuteDAGInputs(
-            team_id=self.team_id,
-            dag_id=str(node.dag_id),
-            node_ids=list(node_ids),
-        )
-
-        temporal = sync_connect()
-        asyncio.run(
-            temporal.start_workflow(
-                "data-modeling-execute-dag",
-                asdict(inputs),
-                id=f"execute-dag-{uuid4()}",
-                task_queue=str(settings.DATA_MODELING_TASK_QUEUE),
-                retry_policy=RetryPolicy(
-                    initial_interval=timedelta(seconds=10),
-                    maximum_interval=timedelta(seconds=60),
-                    maximum_attempts=3,
-                    non_retryable_error_types=["NondeterminismError", "CancelledError"],
-                ),
+        try:
+            node_ids = run_related_node_materializations(
+                node.team_id,
+                node.id,
+                direction=body.validated_data["direction"],
+                user=cast(User, req.user),
+                hidden_types=self._hidden_node_types(),
             )
-        )
-
-        return response.Response({"node_ids": list(node_ids)}, status=status.HTTP_200_OK)
+        except MaterializationForbiddenError as error:
+            raise PermissionDenied(str(error))
+        return response.Response({"node_ids": node_ids}, status=status.HTTP_200_OK)
 
     def _lineage_lookup(self, req: request.Request) -> dict[str, UUID]:
         by_param = {

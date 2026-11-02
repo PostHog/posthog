@@ -17,8 +17,9 @@ from django.utils import timezone as django_timezone
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models import User
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import SlackIntegration
 from posthog.models.team.team import Team
 from posthog.temporal.oauth import PosthogMcpScopes
 
@@ -44,6 +45,8 @@ from products.tasks.backend.metrics import observe_workflow_task_create
 from products.tasks.backend.models import Channel, Task, TaskRun
 from products.tasks.backend.temporal.constants import WORKFLOW_RUN_IDLE_TIMEOUT_SECONDS
 
+from ee.billing.quota_limiting import QuotaResource, is_team_over_credit_budget
+
 logger = structlog.get_logger(__name__)
 
 ACTIVE_RUN_STATUSES = [TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS]
@@ -53,7 +56,7 @@ ACTIVE_RUN_STATUSES = [TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED, TaskRu
 EVENT_PROMPT_MAX_CHARS = 16_000
 
 # Matches the in-progress marker the task's own Slack updates use, so the later swap to
-# `hedgehog` (or `x`) replaces this rather than stacking a second reaction beside it.
+# `x` replaces this rather than stacking a second reaction beside it.
 TRIGGER_ACK_EMOJI = "eyes"
 
 # Daily ceilings on created tasks (trailing 24h) on top of the in-flight cap: a workflow
@@ -142,6 +145,10 @@ class WorkflowTaskUsageLimited(Exception):
     pass
 
 
+class WorkflowTaskAICreditsExhausted(Exception):
+    pass
+
+
 def create_workflow_task(
     *,
     team: Team,
@@ -150,7 +157,7 @@ def create_workflow_task(
     prompt: str,
     title: str | None = None,
     channel_ref: str | None = None,
-    repository: str | None = None,
+    repositories: list[str] | None = None,
     model: str | None = None,
     reasoning_effort: str | None = None,
     connector_ids: list[str] | None = None,
@@ -172,7 +179,7 @@ def create_workflow_task(
     with the whole project, `WorkflowTaskOwnerIneligible` when the owner lost access to the project,
     and `WorkflowTaskLimitExceeded` when the workflow already has `max_parallel_tasks`
     runs in flight. Also raises `WorkflowTaskUsageLimited` when the owner is over the
-    AI usage limit, and `WorkflowTaskRateCapped` / `WorkflowTaskTeamRateCapped` when
+    AI usage limit, `WorkflowTaskAICreditsExhausted` when the team has used its AI credits, and `WorkflowTaskRateCapped` / `WorkflowTaskTeamRateCapped` when
     the workflow or its team reached the daily created-task cap. A replayed
     `origin_key` bypasses the gate and every cap. `rate_limits` can override either
     product default for this project; a missing value keeps the default.
@@ -240,6 +247,12 @@ def create_workflow_task(
     if usage_limit_response(gate_owner, team.id) is not None:
         observe_workflow_task_create(reason="gate_blocked")
         raise WorkflowTaskUsageLimited()
+    # Workflow runs bill to the AI credits bucket, which the gate above does not read. Both
+    # gateways refuse an exhausted bucket, and the legacy gateway answers with a retryable 429,
+    # so a run created here would retry until the idle timeout instead of failing.
+    if _team_out_of_ai_credits(team):
+        observe_workflow_task_create(reason="ai_credits_exhausted")
+        raise WorkflowTaskAICreditsExhausted()
 
     # Resolved after the gate so a capped or blocked fire never pays for the query, and outside
     # the transaction below so the skills store read never happens while holding the team lock.
@@ -365,10 +378,10 @@ def create_workflow_task(
                 origin_product=Task.OriginProduct.WORKFLOW,
                 user_id=owner_id,
                 channel=channel,
-                repository=repository,
+                repositories=repositories,
                 mode="background",
                 # A task with no repository has nothing to open a PR from.
-                create_pr=bool(repository),
+                create_pr=bool(repositories),
                 posthog_mcp_scopes=posthog_mcp_scopes,
                 hog_flow_id=hog_flow_id,
                 origin_key=origin_key,
@@ -408,6 +421,15 @@ def create_workflow_task(
     # replay path above, which counts as replayed instead.
     observe_workflow_task_create(reason="created")
     return _task_dto(task, created=True)
+
+
+def _team_out_of_ai_credits(team: Team) -> bool:
+    """False (fail open) when the bucket can't be read, so a Redis error never blocks every fire."""
+    try:
+        return is_team_over_credit_budget(team.api_token, QuotaResource.AI_CREDITS)
+    except Exception:
+        logger.warning("workflow_task_ai_credits_check_failed", team_id=team.id, exc_info=True)
+        return False
 
 
 def _resolve_channel(team_id: int, owner_id: int, channel_ref: str | None) -> Channel | None:
@@ -581,7 +603,7 @@ def _trimmed_event(event: dict[str, Any]) -> dict[str, Any]:
 class _SlackBinding:
     """A slack_context resolved against the team's Slack integrations, ready to bind."""
 
-    integration: Integration
+    integration: IntegrationRecord
     thread_context: SlackThreadContext
 
 
@@ -589,11 +611,9 @@ def _resolve_slack_binding(team_id: int, ctx: contracts.WorkflowTaskSlackContext
     """Team-scoped on purpose: the team filter is what stops a token binding another team's threads."""
     if ctx is None:
         return None
-    integration = Integration.objects.filter(id=ctx.integration_id, team_id=team_id, kind="slack").first()
+    integration = IntegrationManager.slack.oauth.get_many(team_id, [ctx.integration_id]).get(ctx.integration_id)
     if integration is None and ctx.slack_team_id:
-        integration = Integration.objects.filter(
-            team_id=team_id, kind="slack", integration_id=ctx.slack_team_id
-        ).first()
+        integration = IntegrationManager.slack.oauth.find(team_id, external_id=ctx.slack_team_id)
     if integration is None:
         logger.warning(
             "workflow_task_slack_bind_no_integration",
@@ -629,7 +649,7 @@ def _resolve_slack_binding(team_id: int, ctx: contracts.WorkflowTaskSlackContext
     )
 
 
-def _may_speak_in_channel(integration: Integration, ctx: contracts.WorkflowTaskSlackContext) -> bool:
+def _may_speak_in_channel(integration: IntegrationRecord, ctx: contracts.WorkflowTaskSlackContext) -> bool:
     """Whether the task is allowed to reply in this channel at all.
 
     An externally shared channel has members from another Slack workspace, so PostHog stays
@@ -678,7 +698,7 @@ def _acknowledge_trigger_message(binding: _SlackBinding) -> None:
     transaction.on_commit(_react)
 
 
-def _thread_has_a_live_run(integration: Integration, ctx: contracts.WorkflowTaskSlackContext) -> bool:
+def _thread_has_a_live_run(integration: IntegrationRecord, ctx: contracts.WorkflowTaskSlackContext) -> bool:
     """Whether another agent already owns this thread's reply channel.
 
     Checked before the binding is built, not just before the row is written: the same
@@ -687,7 +707,7 @@ def _thread_has_a_live_run(integration: Integration, ctx: contracts.WorkflowTask
     """
     existing = (
         SlackThreadTaskMapping.objects.select_related("task_run")
-        .filter(integration=integration, channel=ctx.channel, thread_ts=ctx.thread_ts)
+        .filter(integration_id=integration.id, channel=ctx.channel, thread_ts=ctx.thread_ts)
         .first()
     )
     return existing is not None and existing.task_run is not None and existing.task_run.status in ACTIVE_RUN_STATUSES
@@ -703,7 +723,7 @@ def _bind_slack_thread(*, team: Team, task: Task, binding: _SlackBinding) -> Non
         if run is None:
             return
         SlackThreadTaskMapping.objects.update_or_create(
-            integration=binding.integration,
+            integration_id=binding.integration.id,
             channel=thread.channel,
             thread_ts=thread.thread_ts,
             defaults={

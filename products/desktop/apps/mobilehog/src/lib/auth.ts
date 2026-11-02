@@ -5,6 +5,7 @@ import { POSTHOG_HOST } from "@/config";
 import {
   CLOUD_HOSTS,
   type CloudRegion,
+  OAUTH_SCOPE_VERSION,
   refreshOAuth,
   type SignInOptions,
   signInWithOAuth,
@@ -23,6 +24,7 @@ export interface Session {
   expiresAt?: number;
   // The projects an OAuth token may reach; empty or missing means no limit.
   scopedTeams?: number[];
+  scopeVersion?: number;
   projectId: number;
   projectName: string;
   userId: number;
@@ -218,10 +220,19 @@ export const useAuth = create<AuthState>((set, get) => {
       try {
         const raw = await SecureStore.getItemAsync(SESSION_KEY);
         if (get().generation !== generation || get().session) return;
-        set({
-          session: raw ? (JSON.parse(raw) as Session) : null,
-          hydrated: true,
-        });
+        const session = raw ? (JSON.parse(raw) as Session) : null;
+        if (
+          session &&
+          session.region !== "local" &&
+          session.scopeVersion !== OAUTH_SCOPE_VERSION
+        ) {
+          await SecureStore.deleteItemAsync(SESSION_KEY);
+          if (get().generation === generation && !get().session) {
+            set({ session: null, hydrated: true });
+          }
+          return;
+        }
+        set({ session, hydrated: true });
       } catch {
         if (get().generation === generation) set({ hydrated: true });
       }
@@ -240,7 +251,11 @@ export const useAuth = create<AuthState>((set, get) => {
           expiresAt: Date.now() + tokens.expires_in * 1000,
           projectId: tokens.scoped_teams?.[0],
         });
-        return { ...session, scopedTeams: tokens.scoped_teams };
+        return {
+          ...session,
+          scopedTeams: tokens.scoped_teams,
+          scopeVersion: OAUTH_SCOPE_VERSION,
+        };
       }),
 
     refresh: async () => {

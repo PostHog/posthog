@@ -25,6 +25,10 @@ For example, "which active users will open a report in the next 7 days?".
    Each scored person gets an `autoresearch_prediction` event with their probability.
    When the model's `write_person_property` is on, a person who resolves to a current distinct ID also gets the model's output person property, for example `predicted_p_adopt_insights_14d`. It is off by default for new models. Turn it on with `autoresearch-partial-update` before you target people by score in a flag, cohort, workflow or insight. Turning it off removes the property from the people the model scored. Changing the setting needs the `person:write` scope.
 5. When a prediction date's horizon has passed, online validation checks the scores against what really happened and records **realized AUC**.
+6. Training keeps going on a schedule. On each scoring day the model starts a research run (**explore**) until a run does not promote a better model, or until 5 research runs have run.
+   After that it starts one research run every `research_interval_days` (**maintain**, default 7) after the latest training run, so a run started by hand resets the clock.
+   With `research_interval_days` null the model trains only when someone asks. A champion that cannot score still gets a short rescue run.
+   `training_phase` and `next_research_at` on `posthog:autoresearch-retrieve` say where the model is.
 
 In the PostHog UI the entity is a **model**. The API and tools call it a **pipeline**. Use "model" when you talk to people.
 
@@ -85,6 +89,7 @@ A healthy run can show 0 iterations while its experiments are already recorded, 
 - **Autoresearch trains on identified users only.** Anonymous traffic does not count toward training data, so raw event volume can overstate what is available. Trust the validation counts.
 - **Scores are keyed on the person.** A model whose scores are almost all the same value usually has an identifier problem, not a weak signal. See [troubleshooting-and-steering.md](references/troubleshooting-and-steering.md).
 - **Read the output property name, do not guess it.** Take `output_person_property` from `posthog:autoresearch-retrieve`. A derived name includes the target and the horizon (`predicted_p_<target>_<horizon>d`), and templates use their own prefix, so two models on one target do not overwrite each other.
+- **The research model sets most of the training cost.** A training run uses the model's `agent_model` and `agent_reasoning_effort`. Null uses the default, Claude Opus 5.5 at medium effort, which costs about twice what Claude Sonnet 5.5 costs per run. `effective_agent_model` on `posthog:autoresearch-retrieve` shows what the next run uses, and `posthog:autoresearch-partial-update` changes it. An unknown model or an effort the model does not support returns 400 with the valid choices. `posthog:autoresearch-training-runs-list` shows the model each run used.
 - **A model costs money to train and query to score.** A very large population scores in rolling batches (about 45,000 people per run), so not everyone gets a fresh score every day. Validation tells you how many runs a full rescore takes.
 
 ## Bring your own agent

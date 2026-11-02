@@ -8,7 +8,7 @@ from products.warehouse_sources.backend.types import IncrementalField
 FRED_EARLIEST_REALTIME_DATE = "1776-07-04"
 
 
-@dataclass
+@dataclass(frozen=True)
 class FredEndpointConfig:
     name: str
     path: str
@@ -18,10 +18,22 @@ class FredEndpointConfig:
     primary_keys: list[str]
     # Endpoints taking a `series_id`: fetched once per series in the source's series list.
     per_series: bool = False
+    # Endpoints taking a `release_id`: fetched once per release FRED lists.
+    per_release: bool = False
+    # Release table trees: FRED answers the release root with its top elements, and a
+    # non-series element listed without children needs its own `element_id` request.
+    drill_down_elements: bool = False
+    # Walk the whole category tree from the root, one children request per category.
+    category_tree: bool = False
     # Stamp the requested series id onto each row. Observations and the per-series lookups
     # return no series identifier of their own, so without it their rows can't be told
     # apart once several series land in the same table.
     stamp_series_id: bool = False
+    # Release sources carry no release id of their own either.
+    stamp_release_id: bool = False
+    # Set when the collection is a list of scalars (vintage dates): each value becomes a row
+    # under this column name.
+    value_key: str | None = None
     # Only the collection endpoints accept limit/offset. The per-series lookups return
     # their whole (small) result in a single response.
     paginated: bool = False
@@ -76,6 +88,18 @@ FRED_ENDPOINTS: dict[str, FredEndpointConfig] = {
         per_series=True,
         stamp_series_id=True,
     ),
+    "series_vintage_dates": FredEndpointConfig(
+        name="series_vintage_dates",
+        path="/series/vintagedates",
+        data_key="vintage_dates",
+        primary_keys=["series_id", "vintage_date"],
+        per_series=True,
+        stamp_series_id=True,
+        value_key="vintage_date",
+        paginated=True,
+        page_size=10000,
+        params={"sort_order": "asc", "realtime_start": FRED_EARLIEST_REALTIME_DATE},
+    ),
     "releases": FredEndpointConfig(
         name="releases",
         path="/releases",
@@ -96,6 +120,31 @@ FRED_ENDPOINTS: dict[str, FredEndpointConfig] = {
             "include_release_dates_with_no_data": "true",
             "realtime_start": FRED_EARLIEST_REALTIME_DATE,
         },
+    ),
+    "release_sources": FredEndpointConfig(
+        name="release_sources",
+        path="/release/sources",
+        data_key="sources",
+        primary_keys=["release_id", "id"],
+        per_release=True,
+        stamp_release_id=True,
+    ),
+    # `elements` is keyed by element id and holds every element of the release's table tree,
+    # each also nesting its children. Rows carry their own `release_id` and `parent_id`.
+    "release_tables": FredEndpointConfig(
+        name="release_tables",
+        path="/release/tables",
+        data_key="elements",
+        primary_keys=["release_id", "element_id"],
+        per_release=True,
+        drill_down_elements=True,
+    ),
+    "categories": FredEndpointConfig(
+        name="categories",
+        path="/category/children",
+        data_key="categories",
+        primary_keys=["id"],
+        category_tree=True,
     ),
     "sources": FredEndpointConfig(
         name="sources",

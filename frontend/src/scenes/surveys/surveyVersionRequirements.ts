@@ -219,6 +219,24 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
             !!s.conditions?.events?.values?.some((e) => Object.keys(e.propertyFilters ?? {}).length > 0),
     },
     {
+        // No SDK survey matcher implements gte or lte, so a stored filter with either operator never matches.
+        feature: 'Event filters using ≥ or ≤',
+        sdkVersions: {},
+        unsupportedSdks: [
+            { sdk: 'posthog-js', issue: false },
+            { sdk: 'posthog-react-native', issue: false },
+            { sdk: 'posthog-ios', issue: false },
+            { sdk: 'posthog-android', issue: false },
+            { sdk: 'posthog_flutter', issue: false },
+        ],
+        check: (s) =>
+            [...(s.conditions?.events?.values ?? []), ...(s.conditions?.cancelEvents?.values ?? [])].some((e) =>
+                Object.values(e.propertyFilters ?? {}).some((filter) =>
+                    (['gte', 'lte'] as string[]).includes(filter.operator)
+                )
+            ),
+    },
+    {
         feature: 'Cancellation events',
         sdkVersions: { 'posthog-js': '1.299.0' },
         unsupportedSdks: [
@@ -310,11 +328,12 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
         feature: 'Survey wait period',
         sdkVersions: {
             'posthog-js': '1.105.7',
+            'posthog-react-native': '4.81.5',
             'posthog-ios': '3.44.0',
             'posthog-android': '3.35.0',
             posthog_flutter: '5.18.0',
         },
-        unsupportedSdks: [{ sdk: 'posthog-react-native', issue: 'https://github.com/PostHog/posthog-js/issues/3192' }],
+        unsupportedSdks: [],
         check: (s) => (s.conditions?.seenSurveyWaitPeriodInDays ?? 0) > 0,
     },
     {

@@ -9,12 +9,22 @@ import type { TodayMarkedFigure } from './todayFigureSources'
 import { TodayKeyClauseMark } from './TodayKeyClauseMark'
 import { TodayMarkedPiece, markedRuns } from './todayMarkedRuns'
 
-function MarkedPiece({ piece, reportId }: { piece: TodayMarkedPiece; reportId: string }): JSX.Element {
+function MarkedPiece({
+    piece,
+    reportId,
+    plainLinks,
+}: {
+    piece: TodayMarkedPiece
+    reportId: string
+    plainLinks?: boolean
+}): JSX.Element {
     switch (piece.kind) {
         case 'code':
             return <code className="text-[0.9em]">{piece.text}</code>
         case 'link':
-            return (
+            return plainLinks ? (
+                <span>{piece.text}</span>
+            ) : (
                 <LinkPrimitive to={piece.href} target="_blank" className="underline underline-offset-2">
                     {piece.text}
                 </LinkPrimitive>
@@ -41,17 +51,21 @@ export function TodayMarkedText({
     marked,
     keyClauses,
     reportId,
+    plainLinks,
 }: {
     markdown: string
     marked: TodayMarkedFigure[]
     keyClauses: KeyClauseApi[]
     reportId: string
+    plainLinks?: boolean
 }): JSX.Element {
     const runs = markedRuns(markdown, marked, keyClauses)
     return (
         <>
             {runs.map(({ keyClause, pieces }) => {
-                const content = pieces.map((piece) => <MarkedPiece key={piece.key} piece={piece} reportId={reportId} />)
+                const content = pieces.map((piece) => (
+                    <MarkedPiece key={piece.key} piece={piece} reportId={reportId} plainLinks={plainLinks} />
+                ))
                 return keyClause ? (
                     <TodayKeyClauseMark key={pieces[0].key} keyClause={keyClause} reportId={reportId}>
                         {content}

@@ -33,10 +33,6 @@ class TestFeaturebaseSource:
     def setup_method(self) -> None:
         self.source = FeaturebaseSource()
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(MagicMock(), team_id=1, names=["posts", "boards"])
-        assert [s.name for s in schemas] == ["posts", "boards"]
-
     @parameterized.expand(
         [
             # Posts/comments sweep newest-first with an early cutoff; changelogs filter

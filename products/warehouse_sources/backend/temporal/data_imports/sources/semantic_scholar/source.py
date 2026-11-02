@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SemanticScholarSource(ResumableSource[SemanticScholarSourceConfig, SemanticScholarResumeConfig]):
+    codebase_detection = detect(env=("^(SEMANTIC_SCHOLAR|SEMANTICSCHOLAR)_", "^S2_API_KEY$"), pypi=("semanticscholar",))
+
     lists_tables_without_credentials = True
     supported_versions = ("v1",)
     default_version = "v1"
@@ -54,7 +57,7 @@ class SemanticScholarSource(ResumableSource[SemanticScholarSourceConfig, Semanti
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Semantic Scholar (Allen Institute for AI)",
             iconPath="/static/services/semantic_scholar.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Request an API key from the [Semantic Scholar API page]"
                 "(https://www.semanticscholar.org/product/api#api-key-form). "
@@ -74,6 +77,7 @@ class SemanticScholarSource(ResumableSource[SemanticScholarSourceConfig, Semanti
                     ),
                     SourceFieldInputConfig(
                         name="query",
+                        sync_setting=True,
                         label="Paper search query",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,

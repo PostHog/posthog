@@ -8,11 +8,14 @@ from urllib.parse import urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.security.url_validation import is_url_allowed
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.weights_and_biases.settings import WANDB_ENDPOINTS
@@ -550,7 +553,7 @@ def get_rows(
     session = _get_session(api_key)
     url = _graphql_url(host)
 
-    @retry(
+    @retry_with_deadline(
         retry=retry_if_exception_type((WeightsAndBiasesRetryableError, requests.ReadTimeout, requests.ConnectionError)),
         stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
         # Rate limits are 50-200 req/min per key depending on plan, so back off generously.

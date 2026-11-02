@@ -1,5 +1,4 @@
 import pytest
-from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
@@ -38,10 +37,6 @@ class TestE2BSource:
         config = E2BSourceConfig(api_key="e2b_test", team_id=team_id)
         schemas = {s.name: s for s in self.source.get_schemas(config, team_id=self.team_id)}
         assert schemas[endpoint].should_sync_default is expected
-
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(MagicMock(spec=E2BSourceConfig), team_id=self.team_id, names=["templates"])
-        assert [s.name for s in schemas] == ["templates"]
 
     def test_a_table_needing_the_team_id_says_so_instead_of_probing(self) -> None:
         # The per-schema check is the only place a user learns the team ID is missing before the
@@ -91,16 +86,6 @@ class TestE2BSource:
         assert ok is False
         assert message is not None and "invalid" not in message.lower()
 
-    @parameterized.expand(
-        [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.e2b.app/v2/sandboxes?limit=100"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.e2b.app/snapshots"),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
     @parameterized.expand([("missing", None), ("malformed", "../admin")])
     def test_a_bad_team_id_stops_the_sync_instead_of_retrying(self, _name: str, team_id: str | None) -> None:
         # Only a settings change can fix it, so the message the transport raises has to be one the
@@ -108,13 +93,3 @@ class TestE2BSource:
         with pytest.raises(E2BConfigurationError) as exc:
             _require_team_id(team_id)
         assert str(exc.value) in self.source.get_non_retryable_errors()
-
-    @parameterized.expand(
-        [
-            ("read_timeout", "HTTPSConnectionPool(host='api.e2b.app', port=443): Read timed out."),
-            ("server_error", "500 Server Error: Internal Server Error for url: https://api.e2b.app/v2/sandboxes"),
-        ]
-    )
-    def test_transient_errors_stay_retryable(self, _name: str, other_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable)

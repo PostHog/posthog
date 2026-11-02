@@ -44,6 +44,12 @@ ENDPOINTS: dict[str, AlegraEndpoint] = {
     "inventory_adjustments": AlegraEndpoint(
         path="inventory-adjustments", params={"order_field": "id", "order_direction": "ASC"}
     ),
+    # Warehouse transfers and taxes accept no sort parameters.
+    "warehouse_transfers": AlegraEndpoint(path="warehouse-transfers"),
+    "purchase_orders": AlegraEndpoint(path="purchase-orders", params={"order_field": "id", "order_direction": "ASC"}),
+    # Recurring invoices only sort by editable schedule fields, so keep the API default order.
+    "recurring_invoices": AlegraEndpoint(path="recurring-invoices"),
+    "taxes": AlegraEndpoint(path="taxes"),
 }
 
 # Document dates can be edited, and server-side date filters have not been verified against a live account.

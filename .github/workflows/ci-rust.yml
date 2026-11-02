@@ -32,7 +32,7 @@ jobs:
         steps:
             - name: Ask Trunk which jobs this diff needs
               continue-on-error: true
-              uses: trunk-io/dynamic-ci@7e3af9331e8ebdfe0c71ba7d0ff6b7424dde8c57 # v1
+              uses: trunk-io/dynamic-ci@5bfe63e878e3ec8bf14c0fa3b7e250685e668d75 # v0.1.6
               with:
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
@@ -50,6 +50,7 @@ jobs:
         outputs:
             rust: ${{ steps.filter.outputs.rust || 'true' }}
             all_crates: ${{ steps.filter.outputs.all_crates || 'false' }}
+            flags_db: ${{ steps.filter.outputs.flags_db || 'true' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -60,7 +61,7 @@ jobs:
                   sparse-checkout-cone-mode: false
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
-              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              if: github.repository == 'PostHog/posthog' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
@@ -75,25 +76,42 @@ jobs:
                         - 'rust/**'
                         - 'proto/**'
                         - '.github/workflows/ci-rust.yml'
+                        - '.github/scripts/rust_test_shards.py'
                         - '.github/actions/setup-uv/**'
                         - '.github/workflows/rust.yml'
                         - '.github/workflows/rust-docker-build.yml'
                         - '.github/actions/setup-protoc/**'
+                        - '.github/actions/setup-rust/**'
                         - '.github/actions/setup-sccache/**'
                         - 'posthog/management/commands/setup_test_environment.py'
                         - 'posthog/migrations/**'
                         - 'ee/migrations/**'
                         - 'docker-compose.dev.yml'
                         - 'docker-compose.base.yml'
+                        # The rust mirror of the out-of-band domain list has a parity test
+                        # against the shared json.
+                        - 'posthog/security/crosslang/**'
                         # Hypercache contract: Python serializer changes may break Rust deserialization
                         - 'posthog/api/feature_flag.py'
                         - 'posthog/models/feature_flag/flags_cache.py'
                         - 'posthog/models/feature_flag/feature_flag.py'
                         - 'rust/feature-flags/tests/fixtures/hypercache_contract.json'
+                        # replay-core-v4's tests read the encryption vectors the Node writers pin
+                        - 'nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/keys/encryption-vector*.json'
+                        - 'nodejs/src/ingestion/pipelines/sessionreplay/ai-research/v4-keys/encryption-vector*.json'
                       all_crates:
+                        - '.github/scripts/rust_test_shards.py'
                         # Pins the service images that every crate's tests run against.
                         # A determinator rule would also rebuild and deploy every Rust image.
                         - 'docker-compose.base.yml'
+                      # What the feature-flags stall recovery tests exercise: the whole request path.
+                      flags_db:
+                        - 'rust/feature-flags/**'
+                        - 'rust/common/database/**'
+                        # An sqlx bump can change how a pool recovers.
+                        - 'rust/Cargo.lock'
+                        - 'rust/.config/nextest.toml'
+                        - '.github/workflows/ci-rust.yml'
 
     # Compute affected crates and test shards. Only runs when Rust changes
     # are detected, keeping the lightweight `changes` job fast for non-Rust PRs.
@@ -117,12 +135,14 @@ jobs:
                       rust/
                       proto/
                       .github/rust-images.yml
+                      .github/scripts/rust_test_shards.py
                       .github/actions/rust-compute-affected/
+                      .github/actions/setup-rust/
                   sparse-checkout-cone-mode: false
                   clean: false
 
             - name: Install rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              uses: ./.github/actions/setup-rust
               with:
                   toolchain: 1.91.1
 
@@ -140,140 +160,7 @@ jobs:
               id: shards
               env:
                   AFFECTED_CRATES: ${{ steps.affected.outputs.crates }}
-              shell: python3 {0}
-              run: |
-                  import json, math, os
-
-                  affected = set(json.loads(os.environ.get("AFFECTED_CRATES", "[]")))
-
-                  packages = {
-                      "affected-services": 37,
-                      "assignment-coordination": 5,
-                      "batch-import-worker": 69,
-                      "capture": 102,
-                      "capture-load-gen": 38,
-                      "capture-logs": 87,
-                      "capture-apm-metrics": 5,
-                      "cohort-core": 22,
-                      "cohort-event-shuffler": 25,
-                      "cohort-seeder": 77,
-                      "cohort-stream-processor": 146,
-                      "common-alloc": 5,
-                      "common-cache": 6,
-                      "common-compression": 5,
-                      "common-continuous-profiling": 9,
-                      "common-cookieless": 103,
-                      "common-database": 35,
-                      "common-dns": 18,
-                      "common-geoip": 5,
-                      "common-hypercache": 36,
-                      "common-ingestion-warnings": 59,
-                      "common-kafka": 5,
-                      "common-liveness": 5,
-                      "common-metrics": 5,
-                      "common-posthog": 18,
-                      "common-profiler": 59,
-                      "common-redis": 12,
-                      "common-s3": 5,
-                      "common-temporal": 12,
-                      "common-types": 16,
-                      "cymbal": 236,
-                      "cymbal-proto": 5,
-                      "deltalite-core": 5,
-                      "deltalite-python": 5,
-                      "embedding-worker": 90,
-                      "feature-flags": 241,
-                      "flags-consumer": 23,
-                      "health": 5,
-                      "hogql_parser_rs": 7,
-                      "hogvm": 5,
-                      "hypercache-server": 40,
-                      "ingestion-consumer": 20,
-                      "ingestion-control-plane": 41,
-                      "pgcollector": 45,
-                      "pgapi": 40,
-                      "k8s-awareness": 116,
-                      "kafka-assigner": 175,
-                      "kafka-assigner-proto": 5,
-                      "kafka-deduplicator": 129,
-                      "keyed-stash": 5,
-                      "lifecycle": 5,
-                      "limiters": 5,
-                      "personhog-common": 7,
-                      "personhog-coordination": 230,
-                      "personhog-identity": 80,
-                      "personhog-leader": 113,
-                      "personhog-proto": 9,
-                      "personhog-replica": 37,
-                      "personhog-router": 114,
-                      "personhog-stateright": 173,
-                      "personhog-test-harness": 33,
-                      "personhog-writer": 63,
-                      "posthog-replay-anonymizer": 147,
-                      "posthog-symbol-data": 15,
-                      "property-defs-rs": 74,
-                      "property-vals-rs": 70,
-                      "replay-anonymizer-node": 5,
-                      "serve-metrics": 5,
-                      "usage-ingestion": 70,
-                      "usage-ingestion-proto": 5,
-                  }
-
-                  # Filter to only affected crates when selective builds are active.
-                  # Unknown crates (not in packages dict) get a default weight so new
-                  # services are never silently dropped from CI.
-                  DEFAULT_WEIGHT = 60
-                  if affected:
-                      unknown = affected - packages.keys()
-                      if unknown:
-                          print(f"WARNING: affected crates missing from weight table (using {DEFAULT_WEIGHT}s default): {', '.join(sorted(unknown))}")
-                          print("Add them to the packages dict in ci-rust.yml with measured weights.")
-                          for crate in unknown:
-                              packages[crate] = DEFAULT_WEIGHT
-                      packages = {k: v for k, v in packages.items() if k in affected}
-                      print(f"Selective build: testing {len(packages)} of affected crates")
-                  else:
-                      print("Full build: testing all crates")
-
-                  if not packages:
-                      with open(os.environ["GITHUB_OUTPUT"], "a") as f:
-                          f.write('matrix={"include":[]}\n')
-                      raise SystemExit(0)
-
-                  # Weights are approximate marginal durations (compile + test) in seconds,
-                  # fitted by non-negative least squares over 2 weeks of shard job
-                  # durations (job time = fixed overhead + sum of member weights;
-                  # last updated: 2026-08-18).
-                  # TARGET_MINUTES controls max wall-clock per shard; shard count is derived.
-                  TARGET_MINUTES = 8
-                  target_seconds = TARGET_MINUTES * 60
-                  total = sum(packages.values())
-                  num_shards = max(1, math.ceil(total / target_seconds))
-
-                  # Greedy bin-packing: largest first into lightest bucket
-                  buckets = [[] for _ in range(num_shards)]
-                  times = [0] * num_shards
-
-                  for pkg, t in sorted(packages.items(), key=lambda x: -x[1]):
-                      lightest = min(range(num_shards), key=lambda i: times[i])
-                      buckets[lightest].append(pkg)
-                      times[lightest] += t
-
-                  matrix = {
-                      "include": [
-                          {"packages": " ".join(sorted(b))}
-                          for b in buckets
-                          if b
-                      ]
-                  }
-
-                  for i, b in enumerate(buckets):
-                      if b:
-                          print(f"Shard {i + 1} ({times[i]}s): {', '.join(sorted(b))}")
-                  print(f"\nTotal: {total}s across {num_shards} shards (target ≤{target_seconds}s/shard)")
-
-                  with open(os.environ["GITHUB_OUTPUT"], "a") as f:
-                      f.write(f"matrix={json.dumps(matrix)}\n")
+              run: python3 .github/scripts/rust_test_shards.py
 
     build:
         name: Build Rust (${{ matrix.packages }})
@@ -300,6 +187,7 @@ jobs:
                       rust/
                       proto/
                       .github/actions/setup-protoc/
+                      .github/actions/setup-rust/
                       .github/actions/setup-sccache/
                   sparse-checkout-cone-mode: false
                   clean: false
@@ -318,7 +206,7 @@ jobs:
               uses: ./.github/actions/setup-protoc
 
             - name: Install rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              uses: ./.github/actions/setup-rust
               with:
                   toolchain: 1.91.1
 
@@ -403,7 +291,9 @@ jobs:
                   WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 10
               run: |
                   ../bin/ci-wait-for-docker launch --down
-                  ../bin/ci-wait-for-docker wait seaweedfs
+                  # objectstorage reports healthy only once its `posthog` bucket and
+                  # `object_storage_root_user` identity exist; the cohort processor's S3 tests use both.
+                  ../bin/ci-wait-for-docker wait seaweedfs objectstorage
 
                   echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
@@ -416,7 +306,7 @@ jobs:
 
             # please keep the tag version here in sync with rust-version in rust/*/Cargo.toml
             - name: Install rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              uses: ./.github/actions/setup-rust
               with:
                   toolchain: 1.91.1
 
@@ -501,6 +391,7 @@ jobs:
                   # Set up dual database environment for feature-flags service
                   PERSONS_READ_DATABASE_URL: ${{ contains(format(' {0} ', matrix.packages), ' feature-flags ') && 'postgres://posthog:posthog@localhost:5432/posthog_persons' || '' }}
                   PERSONS_WRITE_DATABASE_URL: ${{ contains(format(' {0} ', matrix.packages), ' feature-flags ') && 'postgres://posthog:posthog@localhost:5432/posthog_persons' || '' }}
+                  FLAGS_DB_CHANGED: ${{ needs.changes.outputs.flags_db }}
               run: |
                   # nextest (instead of plain `cargo test`) emits JUnit XML for the Trunk quarantine
                   # gate below. It does not run doctests; those run in their own step, outside the
@@ -560,6 +451,25 @@ jobs:
                           USAGE_INGESTION_E2E_TOPIC=clickhouse_billing_usage_records_test \
                           USAGE_INGESTION_E2E_LOAD_REQUESTS=2000 \
                               run_nextest usage-ingestion-ignored -p usage-ingestion --run-ignored only --test-threads=1 || overall_rc=1
+                      fi
+                      # cohort-stream-processor's broker and S3 tests are #[ignore]'d. This job runs Kafka
+                      # and SeaweedFS (objectstorage, :19000). `kind(test)` selects the tests/ binaries,
+                      # whose ignored tests all need this stack. One at a time: each joins its own
+                      # consumer group and most create several 64-partition topics.
+                      if [ "$pkg" = "cohort-stream-processor" ]; then
+                          KAFKA_HOSTS=localhost:9092 \
+                          CHECKPOINT_S3_ENDPOINT=http://localhost:19000 \
+                          CHECKPOINT_S3_REGION=us-east-1 \
+                          CHECKPOINT_S3_BUCKET=posthog \
+                          CHECKPOINT_S3_ACCESS_KEY_ID=object_storage_root_user \
+                          CHECKPOINT_S3_SECRET_ACCESS_KEY=object_storage_root_password \
+                              run_nextest cohort-stream-processor-ignored -p cohort-stream-processor -E 'kind(test)' --run-ignored only --test-threads=1 || overall_rc=1
+                      fi
+                      # feature-flags' persons DB stall tests are #[ignore]'d: they lock posthog_person,
+                      # so they run one at a time, and only on master or when flags_db matches. The file
+                      # guard keeps this a no-op on branches that predate them.
+                      if [ "$pkg" = "feature-flags" ] && [ "$FLAGS_DB_CHANGED" = "true" ] && [ -f feature-flags/tests/stall_recovery.rs ]; then
+                          run_nextest feature-flags-stall -p feature-flags -E 'binary(stall_recovery)' --run-ignored only --test-threads=1 || overall_rc=1
                       fi
                       echo "::endgroup::"
                   done
@@ -668,7 +578,7 @@ jobs:
 
             # please keep the tag version here in sync with rust-version in rust/*/Cargo.toml
             - name: Install rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              uses: ./.github/actions/setup-rust
               with:
                   toolchain: 1.91.1
 
@@ -745,6 +655,24 @@ jobs:
                     --merge-wide-persons 3 --merge-wide-distinct-ids 1000 --merge-wide-role source \
                     --kill-after 5s --scale-up-after 8s
 
+            # The publish plane: the identity service writes an outbox row for
+            # every create, attach, merge and delete, two publisher replicas
+            # drain it to per-run topics, and the gate reads the topics back
+            # once the outbox is empty. The latest row per distinct id must
+            # equal the Postgres mapping, the merge event pairs must equal the
+            # merged sources, and every mapping must carry a tombstone after
+            # the delete leg, through a leader kill, an identity crash and a
+            # publisher crash. Small wide merges keep the pointer cursor busy.
+            - name: Run the e2e gate publishing to Kafka under chaos (kill + identity crash + publisher crash)
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --publish --pg-target-table posthog_person \
+                    --leaders 3 --partitions 8 --persons 200 \
+                    --concurrency 10 --duration 15s --merge-concurrency 4 --merge-rate 5 \
+                    --merge-sources 2 \
+                    --merge-wide-persons 2 --merge-wide-distinct-ids 500 --merge-wide-role source \
+                    --kill-after 5s --identity-crash-after 7s --publisher-crash-after 9s
+
             # Regression gate for eviction under writer lag: the cache is
             # sized far below the person count so dirty entries evict while
             # the paused writer guarantees their PG rows are stale. Before
@@ -813,6 +741,28 @@ jobs:
                     --routers 3 --leaders 3 --partitions 8 --persons 100 --concurrency 10 \
                     --duration 18s --router-kill-after 4s --router-kill-fast false --shutdown-after 8s
 
+            # A changelog migration grows 4 to 8 partitions while the
+            # writer is paused, so a restarted partition must warm the old
+            # topic's tail itself. Write-once persons are what expose a
+            # warm that skips that tail: with a small person set every key
+            # is rewritten after the flip and the loss is masked.
+            - name: Run the e2e gate growing the changelog with the writer paused
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --leaders 2 --partitions 4 --persons 5000 --concurrency 10 --duration 30s \
+                    --migrate-after 8s --migrate-to-partitions 8 \
+                    --migrate-pause-writer --writer-pause-duration 8s
+
+            # A shrink dissolves the partitions past the new count, and a
+            # holder killed at Sealing leaves its partitions for its peers to
+            # seal. The slow coordinator keeps Sealing long enough to hit.
+            - name: Run the e2e gate shrinking the changelog with a leader killed at Sealing
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --leaders 3 --partitions 8 --persons 100 --concurrency 10 --duration 30s \
+                    --migrate-after 8s --migrate-to-partitions 4 \
+                    --migrate-kill-leader-at-sealing --migrate-slow-coordinator-ms 500
+
             - name: Dump service logs on failure
               if: failure()
               run: |
@@ -856,11 +806,15 @@ jobs:
             # Turning off cone mode ensures that files in the project root are not included during checkout
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
+                  # clippy --all-targets compiles replay-core-v4's tests, which read the encryption vectors the Node writers pin.
                   sparse-checkout: |
                       rust/
                       proto/
                       .github/actions/setup-protoc/
+                      .github/actions/setup-rust/
                       .github/actions/setup-sccache/
+                      nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/keys/encryption-vector*.json
+                      nodejs/src/ingestion/pipelines/sessionreplay/ai-research/v4-keys/encryption-vector*.json
                   sparse-checkout-cone-mode: false
                   clean: false
 
@@ -878,7 +832,7 @@ jobs:
               uses: ./.github/actions/setup-protoc
 
             - name: Install rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              uses: ./.github/actions/setup-rust
               with:
                   toolchain: 1.91.1
                   components: clippy,rustfmt

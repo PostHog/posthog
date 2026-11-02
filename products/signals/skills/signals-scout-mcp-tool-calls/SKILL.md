@@ -80,7 +80,7 @@ The full SQL cookbook is in [`references/queries.md`](references/queries.md) —
 
 A scheduled run can start with a `<precheck_result>` block. Its row counts the `$mcp_tool_call` events of the last 7 days, so MCP is in use. When the block is present, skip this check.
 
-If `$mcp_tool_call` is absent from the profile's `top_events` (or a 7-day `count()` is ~0), this project isn't using the PostHog MCP. Write one scratchpad entry and stop:
+If the profile's `surfaces["signals-scout-mcp-tool-calls"]` entry reads `in_use: false` (or, when it reads `in_use: null`, a 7-day `count()` is ~0), this project isn't using the PostHog MCP. Absence from `top_events` does not prove that, because it keeps only the top events by volume. Write one scratchpad entry and stop:
 
 - key: `not-in-use:mcp_analytics` (the scratchpad is already team-scoped — no id in the key)
 - content: brief note ("checked at {timestamp}, no $mcp_tool_call events in 7d")
@@ -90,7 +90,7 @@ If `$mcp_tool_call` is absent from the profile's `top_events` (or a 7-day `count
 - Governed baseline: when your run prompt has a _Governed metrics_ section and `metric-list` shows an approved metric for the project-wide MCP tool-call failure rate, run it via `data-catalog-metric-run` as the baseline and refresh `pattern:mcp_analytics:baseline` from its output. Per-tool, per-category, struggle, and latency numbers stay cookbook SQL.
 - `scout-scratchpad-search` (`text=mcp`) — durable steering from past runs. `pattern:` entries hold the baseline rates and the captured **regime** (hono vs external-SDK) so you don't re-probe it cold; `noise:` / `addressed:` / `dedupe:` say what's benign, fixed, or already filed; `report:` / `reviewer:` entries point at the open report for a category and who owns it.
 - `scout-runs-list` (last 7d) — what prior MCP runs found and ruled out.
-- `scout-project-profile-get` — confirm `$mcp_tool_call` reach off `top_events`.
+- `scout-project-profile-get` — `surfaces["signals-scout-mcp-tool-calls"]` for whether MCP is in use, and `$mcp_tool_call` reach off `top_events` when it ranks there.
 - `inbox-reports-list` (`search`=a category or tool name, `ordering=-updated_at`) — the reports already in the inbox. A category you've reported before is an **edit**, not a fresh report; pull the closest matches with `inbox-reports-retrieve` before authoring. Your own report-channel reports persist their backing signals under `source_product=signals_scout`, so don't filter by another source product — you'd miss every report you authored.
 
 ## Field-coverage probe
@@ -162,9 +162,13 @@ For a category with candidates clearing the bar, the call is **edit an existing 
 ## Fix loop metric — the autoresearch handoff
 
 Every report filed `immediately_actionable` with a repository must end its summary with a **`Fix loop metric`** section.
-Its presence is what turns the auto-started implementation task from a one-shot patch into a measure → fix → re-measure loop, so it must stand alone for an agent that has never seen this scout or its cookbook:
+Autostart looks for that heading: it is what turns the auto-started implementation task from a one-shot patch into a measure → fix → re-measure loop.
+The run prompt's metric and follow-up contracts own the measurement mechanics.
+When a supported Trends query can carry the number, attach it as the report's `primary` metric, and put the goal on a `metric_threshold` report check so the coordinator re-measures it after the soak.
+When it cannot (struggle share and session share need HogQL a Trends query cannot express), write an `agent` check that carries the inlined query and the baseline.
+The section holds only the MCP acceptance criteria an implementation agent cannot find elsewhere, so it must stand alone for an agent that has never seen this scout or its cookbook:
 
-- **Metric** — one number matching the finding's primary lens, scoped to the category's problem tools over a trailing 7d window: failure rate for a failure finding, share of sessions with struggle (hammering / fail-then-retry) for a struggle/discoverability finding, p95 `$mcp_duration_ms` for latency, and for a session-share finding the share of the source's sessions that called the tool (query 10), with the prior-window share as the reference point.
+- **Metric** — one number matching the finding's primary lens, scoped to the category's problem tools over a trailing 7d window: failure rate for a failure finding, share of sessions with struggle (hammering / fail-then-retry) for a struggle/discoverability finding, p95 `$mcp_duration_ms` for latency, and for a session-share finding the share of the source's sessions that called the tool (query 10), with the prior-window share as the reference point. It is the same number as the report's `primary` metric and check, when those exist.
 - **Measurement** — the exact HogQL to re-run (the cookbook query you used, inlined with the category/tool filters baked in — never a reference to "query 1"), plus the fastest local proxy: reproducing the cited failing calls against a dev MCP server, or the affected handler's unit tests.
 - **Baseline** — the value measured this run, with volume and reach ("41% of 2,013 calls across 34 users, 7d").
 - **Goal** — the direction and a concrete bar, e.g. decrease to at or below the project-wide error rate from `pattern:mcp_analytics:baseline`.
@@ -213,6 +217,7 @@ Harness-level:
 - `scout-scratchpad-search` / `-remember` / `-forget` — durable steering (regime, baselines, dedupe, report pointers).
 - `scout-runs-list` / `-runs-retrieve` — what prior runs found.
 - `scout-emit-report` / `scout-edit-report` — author a report / edit an existing one (the report-channel contract is in the harness prompt).
+- `scout-report-check-list` / `scout-report-check-create` — the follow-up checks on a report, and the check that carries a fix-loop goal (the check contract is in the harness prompt).
 - `scout-record-output` — submit this run's `category_rollup` and `tool_session_share` records (the schema rides in the harness prompt).
 
 Deep-dive skills baked into the sandbox: `posthog:exploring-mcp-tool-quality`, `posthog:exploring-mcp-tool-usage`, `posthog:querying-posthog-data`.

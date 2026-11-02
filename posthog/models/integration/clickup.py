@@ -5,6 +5,7 @@ import structlog
 from rest_framework.exceptions import ValidationError
 
 from posthog.exceptions_capture import capture_exception
+from posthog.integrations.contracts import IntegrationRecord
 
 from . import common, model
 
@@ -14,11 +15,11 @@ logger = structlog.get_logger(__name__)
 class ClickUpIntegration:
     integration: model.Integration
 
-    def __init__(self, integration: model.Integration) -> None:
+    def __init__(self, integration: IntegrationRecord) -> None:
         if integration.kind != "clickup":
             raise Exception("ClickUpIntegration init called with Integration with wrong 'kind'")
 
-        self.integration = integration
+        self.integration = model.integration_model(integration)
 
     def _check_auth_error(self, response: requests.Response, context: str) -> None:
         if response.status_code == 401:

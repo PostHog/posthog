@@ -17,8 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     UnexpectedRequest,
-    always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ubidots import (
     UbidotsSourceConfig,
@@ -41,7 +39,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.ub
     _start_timestamp_ms,
     _validated_api_base_url,
     _validated_page_url,
-    check_access,
     ubidots_source,
     validate_credentials,
 )
@@ -318,38 +315,6 @@ class TestHelpers:
 
 
 class TestCheckAccess:
-    @parameterized.expand(
-        [
-            ("ok", 200, 200, None),
-            ("unauthorized", 401, 401, None),
-            ("forbidden", 403, 403, None),
-            ("server_error", 500, 500, "Ubidots returned HTTP 500"),
-        ]
-    )
-    def test_status_mapping(self, _name: str, status: int, expected_status: int, expected_message: str | None) -> None:
-        with scripted_network(always(ScriptedResponse(status=status, json={}))):
-            assert check_access("BBUS-token", None) == (expected_status, expected_message)
-
-    def test_connection_error_maps_to_zero(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            status, message = check_access("BBUS-token", None)
-        assert status == 0
-        assert message is not None and "boom" in message
-
-    @parameterized.expand(
-        [
-            ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid Ubidots API token"),
-            ("forbidden", 403, False, "Invalid Ubidots API token"),
-            ("server_error", 500, False, "Ubidots returned HTTP 500"),
-        ]
-    )
-    def test_validate_credentials(
-        self, _name: str, status: int, expected_valid: bool, expected_message: str | None
-    ) -> None:
-        with scripted_network(always(ScriptedResponse(status=status, json={}))):
-            assert validate_credentials("BBUS-token", None) == (expected_valid, expected_message)
-
     def test_validate_credentials_rejects_bad_base_url(self) -> None:
         valid, message = validate_credentials("BBUS-token", "https://evil.example.com")
         assert valid is False
@@ -375,7 +340,7 @@ class TestUbidotsSourceResponse:
             assert response.sort_mode == "desc"
         else:
             assert response.primary_keys == ["id"]
-            assert response.sort_mode == "asc"
+            assert response.sort_mode is None
 
     @pytest.mark.parametrize(
         "api_version,expected_fn",

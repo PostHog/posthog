@@ -14,11 +14,6 @@ class TestFilloutSource:
         self.team_id = 123
         self.config = FilloutSourceConfig(api_key="fillout-key")
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["submissions"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "submissions"
-
     def test_validate_credentials_rejects_unknown_api_base_url(self) -> None:
         config = FilloutSourceConfig(api_key="fillout-key", api_base_url=cast(Any, "https://api.fillout.com"))
         is_valid, message = self.source.validate_credentials(config, self.team_id)

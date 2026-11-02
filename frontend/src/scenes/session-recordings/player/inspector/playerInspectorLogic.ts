@@ -15,6 +15,7 @@ import {
     selectors,
 } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 import {
     EventType as RRWebEventType,
     customEvent,
@@ -24,6 +25,7 @@ import {
 } from 'posthog-js/rrweb-types'
 
 import api from 'lib/api'
+import { shouldReportApiFailure } from 'lib/api-error'
 import { getCommentText } from 'lib/components/Comments/commentUtils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
@@ -408,6 +410,7 @@ export interface playerInspectorLogicValues {
     showOnlyMatching: boolean // miniFiltersLogic
     allPerformanceEvents: PerformanceEvent[] // performanceEventDataLogic
     logs: LogMessage[] // playerInspectorLogsLogic
+    logsAccessDenied: boolean // playerInspectorLogsLogic
     logsHasMore: boolean // playerInspectorLogsLogic
     logsInitialLoadRequested: boolean // playerInspectorLogsLogic
     logsLoadError: boolean // playerInspectorLogsLogic
@@ -903,6 +906,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 'logsNextCursor',
                 'logsLoadError',
                 'logsInitialLoadRequested',
+                'logsAccessDenied',
                 'readyToLoadLogs',
             ],
         ],
@@ -987,12 +991,24 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         session_ids: [props.sessionRecordingId],
                     }
 
-                    const response = await api.recordings.getMatchingEvents(toParams(params))
+                    let results: MatchedRecordingEvent[] = []
+                    let failure: unknown = null
+                    try {
+                        // nosemgrep: prefer-codegen-api-namespaced-replay
+                        results = (await api.recordings.getMatchingEvents(toParams(params))).results
+                    } catch (error) {
+                        // Highlights are optional, so the recording plays on without them.
+                        // Also clear the previous filters' highlights instead of keeping them.
+                        failure = error
+                    }
                     // kea-loaders still dispatches success for a superseded call. Drop this response
                     // when a newer load started while it was in flight, so that it cannot overwrite
                     // the newer events or settle the skip on the previous filters' events.
                     breakpoint()
-                    return response.results
+                    if (failure && shouldReportApiFailure(failure)) {
+                        posthog.captureException(failure)
+                    }
+                    return results
                 },
             },
         ],
@@ -1707,6 +1723,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 }
 
                 let errorCount = 0
+                const matchingEventUuids = new Set(matchingEvents?.map((event) => event.uuid))
                 for (const event of eventsData || []) {
                     // A malformed or missing event row must not crash the whole inspector list.
                     if (!event) {
@@ -1719,10 +1736,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         errorCount += 1
                     }
 
-                    if (matchingEvents?.length) {
-                        isMatchingEvent = !!matchingEvents.find(
-                            (x: MatchedRecordingEvent) => x.uuid === String(event.id)
-                        )
+                    if (matchingEventUuids.size) {
+                        isMatchingEvent = matchingEventUuids.has(String(event.id))
                     } else if (props.matchingEventsMatchType?.matchType === 'name') {
                         isMatchingEvent = props.matchingEventsMatchType?.eventNames?.includes(event.event)
                     }
@@ -1796,6 +1811,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                                 : level === 'warn'
                                   ? 'warning'
                                   : undefined,
+                        windowNumber: windowNumberForID(undefined),
                         key: `log-${logEntry.uuid}`,
                     } satisfies InspectorListItemLog)
                 }

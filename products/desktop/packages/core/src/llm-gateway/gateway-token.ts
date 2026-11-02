@@ -1,5 +1,8 @@
 import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
-import { validateAiGatewayUrl } from "@posthog/shared";
+import {
+  GATEWAY_TRANSIENT_DETAIL,
+  validateAiGatewayUrl,
+} from "@posthog/shared";
 import { inject, injectable } from "inversify";
 import type { AuthService } from "../auth/auth";
 import { AUTH_SERVICE } from "../auth/auth.module";
@@ -19,6 +22,7 @@ import {
 } from "./schemas";
 
 type GoRoute = Extract<GatewayRoute, { mode: "go" }>;
+type BlockedRoute = Extract<GatewayRoute, { mode: "blocked" }>;
 
 /**
  * Refresh a tenth of the lifetime before expiry, clamped to these bounds, so
@@ -26,18 +30,162 @@ type GoRoute = Extract<GatewayRoute, { mode: "go" }>;
  */
 export const GATEWAY_TOKEN_REFRESH_SKEW_MS = 2 * 60_000;
 export const GATEWAY_TOKEN_MIN_REFRESH_SKEW_MS = 30_000;
-export const GATEWAY_LEGACY_RECHECK_MS = 10 * 60_000;
-/** `not_rolled_out` changes only with the flag, so it is re-checked less often. */
-export const GATEWAY_NOT_ROLLED_OUT_RECHECK_MS = 30 * 60_000;
+/** A refusal the user can clear (verify email, sign in again). */
+export const GATEWAY_ACTION_RECHECK_MS = 10 * 60_000;
 export const GATEWAY_BLOCKED_RECHECK_MS = 30 * 60_000;
+export const GATEWAY_THROTTLED_RECHECK_MS = 5 * 60_000;
+export const GATEWAY_TRANSIENT_RECHECK_MS = 30_000;
+export const GATEWAY_TRANSIENT_MAX_RECHECK_MS = 10 * 60_000;
 export const GATEWAY_REMINT_MIN_INTERVAL_MS = 5_000;
-export const GATEWAY_REFRESH_RETRY_MS = 30_000;
 
 export const GATEWAY_MINT_TIMEOUT_MS = 15_000;
+
+const SIGN_IN_DETAIL = "Sign in to PostHog again to use PostHog AI.";
+
+interface RefusalPolicy {
+  status: BlockedRoute["status"];
+  recheckMs: number;
+  /** Used when the server sends no detail; transient refusals always use it. */
+  detail: string;
+  serverDetail: boolean;
+}
+
+const TRANSIENT: RefusalPolicy = {
+  status: 503,
+  recheckMs: GATEWAY_TRANSIENT_RECHECK_MS,
+  detail: GATEWAY_TRANSIENT_DETAIL,
+  serverDetail: false,
+};
+
+const UNAVAILABLE: RefusalPolicy = {
+  status: 403,
+  recheckMs: GATEWAY_ACTION_RECHECK_MS,
+  detail: "PostHog AI isn't available for this project right now.",
+  serverDetail: true,
+};
+
+const REFUSALS: Record<string, RefusalPolicy> = {
+  credit_bucket_exhausted: {
+    status: 402,
+    recheckMs: GATEWAY_BLOCKED_RECHECK_MS,
+    detail: "Your organization has reached its PostHog Desktop usage limit",
+    serverDetail: true,
+  },
+  throttled: {
+    status: 429,
+    recheckMs: GATEWAY_THROTTLED_RECHECK_MS,
+    detail: "Too many PostHog AI sign-in attempts. Try again in a few minutes.",
+    serverDetail: false,
+  },
+  email_unverified: {
+    status: 403,
+    recheckMs: GATEWAY_ACTION_RECHECK_MS,
+    detail: "Verify your email to use PostHog AI.",
+    serverDetail: true,
+  },
+  oauth_required: {
+    status: 401,
+    recheckMs: GATEWAY_ACTION_RECHECK_MS,
+    detail: SIGN_IN_DETAIL,
+    serverDetail: true,
+  },
+  unauthorized: {
+    status: 401,
+    recheckMs: GATEWAY_ACTION_RECHECK_MS,
+    detail: SIGN_IN_DETAIL,
+    serverDetail: true,
+  },
+  signed_out: {
+    status: 401,
+    recheckMs: GATEWAY_ACTION_RECHECK_MS,
+    detail: SIGN_IN_DETAIL,
+    serverDetail: false,
+  },
+  blocked: {
+    status: 403,
+    recheckMs: GATEWAY_BLOCKED_RECHECK_MS,
+    detail: "This account can't use PostHog AI.",
+    serverDetail: true,
+  },
+  desktop_access_blocked: {
+    status: 403,
+    recheckMs: GATEWAY_BLOCKED_RECHECK_MS,
+    detail: "PostHog Desktop access is required.",
+    serverDetail: true,
+  },
+  no_project: {
+    status: 403,
+    recheckMs: GATEWAY_ACTION_RECHECK_MS,
+    detail: "Select a project to use PostHog AI.",
+    serverDetail: false,
+  },
+  // Go sends no CORS headers, so the web host cannot reach it.
+  host_unsupported: {
+    status: 403,
+    recheckMs: GATEWAY_BLOCKED_RECHECK_MS,
+    detail: "PostHog AI helpers aren't available in the web app yet.",
+    serverDetail: false,
+  },
+  unconfigured: UNAVAILABLE,
+  not_rolled_out: UNAVAILABLE,
+  org_deactivated: UNAVAILABLE,
+  organization_deactivated: UNAVAILABLE,
+};
+
+/**
+ * An unlisted reason falls back on the HTTP status: a 4xx keeps the server's
+ * detail, anything else is transient.
+ */
+function policyFor(reason: string, httpStatus?: number): RefusalPolicy {
+  // Own keys only: the reason comes from the response body.
+  if (Object.hasOwn(REFUSALS, reason)) {
+    return REFUSALS[reason];
+  }
+  if (httpStatus === 429) return REFUSALS.throttled;
+  if (httpStatus !== undefined && httpStatus >= 400 && httpStatus < 500) {
+    return {
+      ...UNAVAILABLE,
+      status: httpStatus === 401 || httpStatus === 402 ? httpStatus : 403,
+    };
+  }
+  return TRANSIENT;
+}
+
+export function blockedRoute(
+  reason: string,
+  serverDetail?: string,
+  httpStatus?: number,
+): { route: BlockedRoute; recheckMs: number } {
+  const policy = policyFor(reason, httpStatus);
+  const detail =
+    policy.serverDetail && serverDetail ? serverDetail : policy.detail;
+  return {
+    route: { mode: "blocked", reason, detail, status: policy.status },
+    recheckMs: policy.recheckMs,
+  };
+}
+
+/**
+ * The re-check after the `failures`th transient refusal in a row: doubles from
+ * 30s up to the cap, and jitter only shortens it so clients spread out.
+ */
+export function transientRecheckMs(failures: number, random: number): number {
+  const ceiling = Math.min(
+    GATEWAY_TRANSIENT_RECHECK_MS * 2 ** Math.max(0, failures - 1),
+    GATEWAY_TRANSIENT_MAX_RECHECK_MS,
+  );
+  return Math.round(ceiling * (0.5 + random * 0.5));
+}
+
+function isTransient(route: GatewayRoute): boolean {
+  return route.mode === "blocked" && route.status === 503;
+}
 
 interface CacheEntry {
   route: GatewayRoute;
   recheckAt: number;
+  /** Consecutive transient refusals, reset by any other outcome. */
+  transientFailures: number;
   mintedAt: number;
   refreshAt: number;
   inFlight: Promise<GatewayRoute> | null;
@@ -46,8 +194,8 @@ interface CacheEntry {
 
 /**
  * Holds the app's `phe_` Go gateway token per project, minted through Django
- * and never handed to a subprocess. A refusal routes to the legacy gateway,
- * except an exhausted credit bucket, which is final.
+ * and never handed to a subprocess. A refusal blocks the project with a reason
+ * until its re-check.
  */
 @injectable()
 export class GatewayTokenService {
@@ -62,6 +210,7 @@ export class GatewayTokenService {
   private routesKey = "";
   private readonly log: LlmGatewayLogger;
   private readonly now: () => number = () => Date.now();
+  private readonly random: () => number = () => Math.random();
 
   constructor(
     @inject(LLM_GATEWAY_HOST)
@@ -81,8 +230,8 @@ export class GatewayTokenService {
   }
 
   /**
-   * A due legacy re-check runs in the background unless `awaitRecheck` asks
-   * to wait (a session start picks its target once).
+   * A due re-check of a blocked route is awaited unless `awaitRecheck` is
+   * false, which serves the blocked route and re-checks in the background.
    */
   async getRoute(
     projectId?: number | null,
@@ -91,12 +240,12 @@ export class GatewayTokenService {
     const resolvedProject =
       projectId ?? this.authService.getState().currentProjectId;
     if (resolvedProject === null || resolvedProject === undefined) {
-      return { mode: "legacy", reason: "no_project" };
+      return blockedRoute("no_project").route;
     }
     if (!this.config.goEnabled) {
-      return { mode: "legacy", reason: "host_unsupported" };
+      return blockedRoute("host_unsupported").route;
     }
-    if (!this.signedIn) return { mode: "legacy", reason: "signed_out" };
+    if (!this.signedIn) return blockedRoute("signed_out").route;
     return this.routeFor(resolvedProject, options);
   }
 
@@ -135,7 +284,7 @@ export class GatewayTokenService {
 
   /**
    * Go refused `token` with a 401 and no re-mint can replace it: the project
-   * uses the legacy gateway until the re-check.
+   * is blocked until a short re-check mints again.
    */
   fallBack(token: string, projectId: number | null | undefined): void {
     const resolvedProject =
@@ -143,14 +292,26 @@ export class GatewayTokenService {
     if (resolvedProject === null || resolvedProject === undefined) return;
     const entry = this.cache.get(resolvedProject);
     if (entry?.route.mode !== "go" || entry.route.token !== token) return;
-    this.log.warn("Go refused the gateway token; using the legacy gateway");
-    entry.route = { mode: "legacy", reason: "gateway_unauthorized" };
-    entry.recheckAt = this.now() + GATEWAY_LEGACY_RECHECK_MS;
+    this.log.warn("Go refused the gateway token; blocking until a re-mint");
+    // 503, not 401: the block clears on a re-mint, and agent SDKs retry a 5xx
+    // but give up on a 401.
+    entry.route = {
+      mode: "blocked",
+      reason: "gateway_unauthorized",
+      detail: "PostHog AI couldn't verify this session. Retrying shortly.",
+      status: 503,
+    };
+    this.scheduleRecheck(entry, entry.route, GATEWAY_TRANSIENT_RECHECK_MS);
   }
 
+  /** Usage reports credit left, which disproves only an exhausted bucket. */
   clearBlocked(): void {
     for (const [projectId, entry] of this.cache) {
-      if (entry.route.mode === "blocked" && !entry.inFlight) {
+      if (
+        entry.route.mode === "blocked" &&
+        entry.route.reason === "credit_bucket_exhausted" &&
+        !entry.inFlight
+      ) {
         this.cache.delete(projectId);
       }
     }
@@ -165,13 +326,12 @@ export class GatewayTokenService {
 
     const entry = this.cache.get(projectId);
     const now = this.now();
-    // A known legacy refusal is served while it re-checks; a first mint or a
-    // blocked route (a hard 402 once its window passes) waits.
+    // A known refusal is served while it re-checks only for a caller that
+    // opts out of waiting; a first mint always waits.
     const settled =
       entry !== undefined &&
-      entry.route.mode === "legacy" &&
       !isPending(entry.route) &&
-      !options.awaitRecheck;
+      options.awaitRecheck === false;
     if (entry?.inFlight && entry.route.mode !== "go") {
       return settled ? entry.route : entry.inFlight;
     }
@@ -202,8 +362,9 @@ export class GatewayTokenService {
     if (existing?.inFlight) return existing.inFlight;
     const current = keepValidToken ? existing?.route : undefined;
     const entry: CacheEntry = existing ?? {
-      route: { mode: "legacy", reason: "pending" },
+      route: blockedRoute("pending").route,
       recheckAt: 0,
+      transientFailures: 0,
       mintedAt: 0,
       refreshAt: 0,
       inFlight: null,
@@ -214,22 +375,26 @@ export class GatewayTokenService {
     const inFlight = this.requestMint(projectId, generation)
       .then(({ route, recheckMs }): GatewayRoute => {
         if (generation !== this.generation) {
-          return { mode: "legacy", reason: "identity_changed" };
+          return blockedRoute("identity_changed").route;
         }
+        // An exhausted bucket is final; any other refusal keeps a live token.
         if (
           current?.mode === "go" &&
-          route.mode === "legacy" &&
+          route.mode === "blocked" &&
+          route.reason !== "credit_bucket_exhausted" &&
           this.now() < current.expiresAt
         ) {
           this.log.warn(
             "Gateway token refresh failed; keeping the current token",
             { reason: route.reason },
           );
-          entry.recheckAt = this.now() + GATEWAY_REFRESH_RETRY_MS;
+          // Past expiry `routeFor` mints regardless, so a long window only
+          // stops early refresh attempts.
+          this.scheduleRecheck(entry, route, recheckMs);
           return current;
         }
         entry.route = route;
-        entry.recheckAt = this.now() + recheckMs;
+        this.scheduleRecheck(entry, route, recheckMs);
         if (route.mode === "go") {
           const lifetime = route.expiresAt - this.now();
           entry.refreshAt =
@@ -262,7 +427,7 @@ export class GatewayTokenService {
       ({ apiHost } = await this.host.getValidAccessToken());
       // The OAuth token read above may already belong to the next identity.
       if (generation !== this.generation)
-        return this.legacy("identity_changed");
+        return blockedRoute("identity_changed");
       timer = setTimeout(() => timeout.abort(), GATEWAY_MINT_TIMEOUT_MS);
       response = await this.host.authenticatedFetch(
         `${apiHost}/api/projects/${projectId}/desktop/gateway_token/`,
@@ -280,7 +445,7 @@ export class GatewayTokenService {
         timedOut: timeout.signal.aborted,
       });
       clearTimeout(timer);
-      return this.legacy("mint_failed");
+      return blockedRoute("mint_failed");
     }
 
     const body: unknown = await response.json().catch(() => null);
@@ -289,37 +454,23 @@ export class GatewayTokenService {
       const refusal = gatewayTokenRefusalSchema.safeParse(body);
       const data = refusal.success ? refusal.data : {};
       const reason = data.reason ?? data.code ?? `http_${response.status}`;
-      // Final: the legacy gateway refuses the same user, so no fallback.
-      if (response.status === 402 && reason === "credit_bucket_exhausted") {
-        this.log.info("Gateway token refused: credit bucket exhausted");
-        return {
-          route: {
-            mode: "blocked",
-            reason: "credit_bucket_exhausted",
-            detail:
-              data.detail ??
-              "Your organization has reached its PostHog Desktop usage limit",
-          },
-          recheckMs: GATEWAY_BLOCKED_RECHECK_MS,
-        };
-      }
       if (
         reason === "desktop_access_blocked" &&
         generation === this.generation
       ) {
         this.authService.reportDesktopAccessBlocked?.(projectId, data.access);
       }
-      this.log.info("Gateway token not issued; using the legacy gateway", {
+      this.log.info("Gateway token not issued", {
         status: response.status,
         reason,
       });
-      return this.legacy(reason);
+      return blockedRoute(reason, data.detail, response.status);
     }
 
     const minted = gatewayTokenMintedSchema.safeParse(body);
     if (!minted.success) {
       this.log.warn("Gateway token response did not match the contract");
-      return this.legacy("invalid_mint_response");
+      return blockedRoute("invalid_mint_response");
     }
     const gatewayUrl = validateAiGatewayUrl(minted.data.gateway_url, {
       apiHost,
@@ -333,11 +484,11 @@ export class GatewayTokenService {
       this.now();
     if (!gatewayUrl) {
       this.log.warn("Gateway token response named an untrusted gateway");
-      return this.legacy("invalid_gateway_url");
+      return blockedRoute("invalid_gateway_url");
     }
     if (!Number.isFinite(expiresAt)) {
       this.log.warn("Gateway token response had an unreadable expiry");
-      return this.legacy("invalid_expiry");
+      return blockedRoute("invalid_expiry");
     }
     return {
       route: {
@@ -357,17 +508,19 @@ export class GatewayTokenService {
     };
   }
 
-  private legacy(reason: string): {
-    route: GatewayRoute;
-    recheckMs: number;
-  } {
-    return {
-      route: { mode: "legacy", reason },
-      recheckMs:
-        reason === "not_rolled_out"
-          ? GATEWAY_NOT_ROLLED_OUT_RECHECK_MS
-          : GATEWAY_LEGACY_RECHECK_MS,
-    };
+  private scheduleRecheck(
+    entry: CacheEntry,
+    route: GatewayRoute,
+    recheckMs: number,
+  ): void {
+    if (isTransient(route)) {
+      entry.transientFailures += 1;
+      entry.recheckAt =
+        this.now() + transientRecheckMs(entry.transientFailures, this.random());
+      return;
+    }
+    entry.transientFailures = 0;
+    entry.recheckAt = this.now() + recheckMs;
   }
 
   private overrideRoute(projectId: number): GoRoute | null {
@@ -425,5 +578,5 @@ export class GatewayTokenService {
 }
 
 function isPending(route: GatewayRoute): boolean {
-  return route.mode === "legacy" && route.reason === "pending";
+  return route.mode === "blocked" && route.reason === "pending";
 }

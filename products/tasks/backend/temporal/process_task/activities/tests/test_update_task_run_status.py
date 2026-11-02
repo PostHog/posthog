@@ -1,9 +1,11 @@
 from datetime import timedelta
 
 import pytest
+import time_machine
 from unittest.mock import MagicMock, patch
 
 from django.db import OperationalError
+from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 from temporalio.exceptions import ApplicationError
@@ -117,11 +119,13 @@ class TestUpdateTaskRunStatusActivity:
             run_id=str(test_task_run.id),
             status=TaskRun.Status.FAILED,
             error_message=error_msg,
+            error_type="RepositoryAccessError",
         )
         async_to_sync(activity_environment.run)(update_task_run_status, input_data)
 
         test_task_run.refresh_from_db()
         assert test_task_run.error_message == error_msg
+        assert test_task_run.state["failure_error_type"] == "RepositoryAccessError"
 
     @pytest.mark.django_db(transaction=True)
     def test_timed_out_inactivity_sets_state_marker_without_error_message(self, activity_environment, test_task_run):
@@ -458,6 +462,8 @@ class TestUpdateTaskRunStatusActivity:
         assert len(props["error_message"]) == 500
         assert props["error_message"].endswith("TypeError: cannot read boot manifest")
         assert props.get("sandbox_backend") == expected_backend
+        test_task_run.refresh_from_db()
+        assert test_task_run.state.get("failure_error_type") == (expected_error_type if error_type else None)
 
     @pytest.mark.django_db(transaction=True)
     @patch("products.tasks.backend.models.posthoganalytics.capture")
@@ -619,6 +625,33 @@ class TestUpdateTaskRunStatusActivity:
         after = REGISTRY.get_sample_value("posthog_tasks_wizard_run_unbound_total", labels) or 0.0
         assert after == before + expected_delta
 
+    @pytest.mark.django_db(transaction=True)
+    def test_terminal_transition_is_counted_once_with_its_failure_reason(self, activity_environment, test_task_run):
+        from prometheus_client import REGISTRY
+
+        test_task_run.task.origin_product = Task.OriginProduct.WORKFLOW
+        test_task_run.task.save(update_fields=["origin_product"])
+        labels = {
+            "origin_product": "workflow",
+            "run_environment": test_task_run.environment,
+            "status": "failed",
+            "error_type": "unknown",
+            "termination_reason": "timed_out_inactivity",
+        }
+        before = REGISTRY.get_sample_value("posthog_tasks_task_run_terminal_total", labels) or 0.0
+
+        input_data = UpdateTaskRunStatusInput(
+            run_id=str(test_task_run.id),
+            status=TaskRun.Status.FAILED,
+            error_message="The agent stopped before finishing its turn",
+            timed_out_inactivity=True,
+        )
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        after = REGISTRY.get_sample_value("posthog_tasks_task_run_terminal_total", labels) or 0.0
+        assert after == before + 1
+
 
 class TestRecordRunTokenUsageMetrics:
     def _record(self, activity_environment, **overrides):
@@ -721,21 +754,34 @@ def test_terminal_transition_wakes_the_workflow_step_that_started_the_run(
 
 
 @pytest.mark.django_db(transaction=True)
-def test_terminal_retry_reschedules_a_wake_after_broker_failure(activity_environment, test_task_run):
+@pytest.mark.parametrize(
+    "status,wake_target",
+    [
+        (TaskRun.Status.COMPLETED, "current_app.send_task"),
+        (TaskRun.Status.FAILED, "emit_workflow_step_resume"),
+    ],
+)
+def test_terminal_retry_after_wake_failure_wakes_again_and_keeps_finish_time(
+    activity_environment, test_task_run, status, wake_target
+):
     task = test_task_run.task
     task.origin_product = Task.OriginProduct.WORKFLOW
     task.origin_key = "job:step:1"
     task.save(update_fields=["origin_product", "origin_key"])
-    input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.COMPLETED)
+    input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=status)
+    first_attempt_at = timezone.now()
 
     with patch(
-        "products.tasks.backend.logic.services.workflow_step_resume.current_app.send_task",
+        f"products.tasks.backend.logic.services.workflow_step_resume.{wake_target}",
         side_effect=[RuntimeError("broker down"), None],
-    ) as send_task:
-        with pytest.raises(RuntimeError, match="broker down"):
+    ) as wake:
+        with time_machine.travel(first_attempt_at, tick=False), pytest.raises(RuntimeError, match="broker down"):
             async_to_sync(activity_environment.run)(update_task_run_status, input_data)
         test_task_run.refresh_from_db()
-        assert test_task_run.status == TaskRun.Status.COMPLETED
-        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+        assert test_task_run.status == status
+        with time_machine.travel(first_attempt_at + timedelta(minutes=5), tick=False):
+            async_to_sync(activity_environment.run)(update_task_run_status, input_data)
 
-    assert send_task.call_count == 2
+    assert wake.call_count == 2
+    test_task_run.refresh_from_db()
+    assert test_task_run.completed_at == first_attempt_at

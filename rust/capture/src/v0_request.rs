@@ -174,6 +174,7 @@ pub fn path_is_legacy_endpoint(path: &str) -> bool {
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(test, derive(strum::EnumIter))]
 pub enum DataType {
     AnalyticsMain,
     AnalyticsHistorical,

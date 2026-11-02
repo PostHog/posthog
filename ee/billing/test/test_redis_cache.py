@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, patch
 
 from ee.billing.salesforce_enrichment.redis_cache import (
     OrgMappingsCacheMissingError,
-    _compress_redis_data,
     get_cached_org_mappings_count,
     get_org_mappings_from_redis,
     get_org_mappings_page,
@@ -14,25 +13,6 @@ from ee.billing.salesforce_enrichment.redis_cache import (
     set_stripe_enrichment_watermark,
     store_org_mappings_in_redis,
 )
-
-
-class TestCompressionHelpers:
-    def test_compression_produces_bytes(self):
-        original_data = '{"test": "data"}'
-
-        compressed = _compress_redis_data(original_data)
-
-        assert isinstance(compressed, bytes)
-
-    def test_compression_round_trip(self):
-        import gzip
-
-        original_data = '{"key": "value", "list": [1, 2, 3]}'
-
-        compressed = _compress_redis_data(original_data)
-        decompressed = gzip.decompress(compressed).decode("utf-8")
-
-        assert decompressed == original_data
 
 
 class TestStoreOrgMappingsInRedis:

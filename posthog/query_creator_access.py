@@ -24,12 +24,15 @@ def report_creator_access_revoked(
     source: str,
     error: BaseException,
     properties: Optional[dict[str, Any]] = None,
+    reason: Optional[str] = None,
 ) -> None:
     """Record an analytics event for a background query that failed because its creator lost access
     (see `creator_access_revoked`). Attributed to the team — the creator may be gone or anonymous.
-    `source` names the caller ("export", "alert", "cache_warming").
+    `source` names the caller ("export", "alert", "cache_warming"). Pass `reason` when the creator is
+    still a member but has no access to a resource the query needs.
     """
-    reason = "deleted" if user is None else "deactivated" if not user.is_active else "left_org"
+    if reason is None:
+        reason = "deleted" if user is None else "deactivated" if not user.is_active else "left_org"
     # Attributed to the team — the creator may be deleted or anonymous.
     with ph_scoped_capture() as capture:
         capture(

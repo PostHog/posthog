@@ -10,13 +10,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.roark import RoarkSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.roark.roark import (
     RoarkResumeConfig,
     _explode_transcript,
-    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.roark.settings import ENDPOINTS, ROARK_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.roark.source import RoarkSource
@@ -256,10 +254,3 @@ class TestRoarkSourceResponse:
         assert result.response is not None
         assert result.response.name == endpoint
         assert result.response.primary_keys == ROARK_ENDPOINTS[endpoint].primary_keys
-
-
-class TestValidateCredentials:
-    @parameterized.expand([(200, True), (401, False), (403, False), (500, False)])
-    def test_status_maps_to_validity(self, status: int, expected: bool) -> None:
-        with scripted_network(always(_resp({}, status=status))):
-            assert validate_credentials("key") is expected

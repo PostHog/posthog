@@ -113,7 +113,7 @@ All flag routes accept trailing slashes.
 The POST handler follows this pipeline:
 
 1. **Rate limiting**: IP-based check (DDoS defense), then token-based check (per-project limits)
-2. **Body decoding**: JSON, base64, or gzip-compressed bodies
+2. **Body decoding**: JSON, base64, or gzip-compressed bodies. A body with arrays or objects nested more than 128 levels deep gets a 400.
 3. **Authentication**: Extracts API token from body, query params, or headers
 4. **Team lookup**: HyperCache (Redis -> S3) with PostgreSQL fallback (configurable via `SKIP_PG_TEAM_FALLBACK`)
 5. **Flag definitions fetch**: HyperCache (Redis -> S3) with PostgreSQL fallback
@@ -176,7 +176,7 @@ pub struct FlagRequest {
 
 Unless `geoip_disable: true` is set in the body, `handler::properties::get_person_property_overrides` looks up the request IP in MaxMind and merges the resulting `$geoip_*` properties into `person_properties` before evaluation.
 
-The lookup also fills `$geoip_subdivision_1_code`, `$geoip_subdivision_1_name`, `$geoip_subdivision_2_code` and `$geoip_subdivision_2_name`. A team listed in `GEOIP_SUBDIVISIONS_EXCLUDED_TEAM_IDS` gets no subdivision values from the lookup.
+The lookup also fills `$geoip_subdivision_1_code`, `$geoip_subdivision_1_name`, `$geoip_subdivision_2_code` and `$geoip_subdivision_2_name`.
 
 GeoIP only fills gaps. A `$geoip_*` key present in the request body is left alone, and a JSON null counts as absent, since callers clear a property with `$unset`, so a null is a gap to fill.
 This matters for server-side evaluation: the IP we geolocate is whoever made the HTTP request, so a call from a backend or an SSR render resolves the server's own location, not the end user's.
@@ -292,21 +292,23 @@ Cache and query health are observable via the `flags_cohort_membership_cache_*` 
 
 ### S3 / HyperCache
 
-| Variable                             | Default     | Purpose                                                                                                                                                                                    |
-| ------------------------------------ | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `OBJECT_STORAGE_BUCKET`              | `posthog`   | S3 bucket name                                                                                                                                                                             |
-| `OBJECT_STORAGE_REGION`              | `us-east-1` | AWS region                                                                                                                                                                                 |
-| `OBJECT_STORAGE_ENDPOINT`            | (empty)     | Custom S3 endpoint for local dev                                                                                                                                                           |
-| `HYPERCACHE_READ_REPAIR_TTL_SECONDS` | `600`       | TTL for writing an S3 hit back into Redis after a confirmed miss. `0` disables, as does `SKIP_WRITES`. Also read by hypercache-server. See [read repair](hypercache-system.md#read-repair) |
+| Variable                             | Default     | Purpose                                                                                                                                                                                             |
+| ------------------------------------ | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OBJECT_STORAGE_BUCKET`              | `posthog`   | S3 bucket name                                                                                                                                                                                      |
+| `OBJECT_STORAGE_REGION`              | `us-east-1` | AWS region                                                                                                                                                                                          |
+| `OBJECT_STORAGE_ENDPOINT`            | (empty)     | Custom S3 endpoint for local dev                                                                                                                                                                    |
+| `HYPERCACHE_READ_REPAIR_TTL_SECONDS` | `600`       | TTL for writing an S3 hit back into Redis after a confirmed miss. `0` disables, as does `SKIP_WRITES`. Also read by hypercache-server. See [read repair](hypercache-system.md#read-repair)          |
+| `HYPERCACHE_S3_TIMEOUT_MS`           | `3000`      | Upper bound on one S3 read, for every HyperCache reader. Keep it below `REQUEST_TIMEOUT_MS`, so a slow read leaves time for the fallback. Startup replaces `0` or a value above `10000` with `3000` |
 
 ### Team lookup
 
-| Variable                          | Default | Purpose                                                                                                                                                                                                                                                                                                                         |
-| --------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SKIP_PG_TEAM_FALLBACK`           | `false` | When enabled, skip PostgreSQL fallback for team token lookups. HyperCache (Redis/S3) is treated as the source of truth — a cache miss means the token is invalid                                                                                                                                                                |
-| `ACCEPT_TEAM_SECRET_TOKENS`       | `true`  | When `false`, `phs_` bearer tokens authenticate only through `ProjectSecretAPIKey` rows — the legacy `Team.secret_api_token` lookup is skipped (PostHog/posthog#66179). A token already in the auth cache keeps authenticating the way it did before a flip until its entry expires, up to `AUTH_TOKEN_CACHE_TTL_SECONDS` later |
-| `TEAM_NEGATIVE_CACHE_TTL_SECONDS` | `30`    | TTL (seconds) for negative cache entries for invalid team tokens                                                                                                                                                                                                                                                                |
-| `TEAM_NEGATIVE_CACHE_CAPACITY`    | `10000` | Max entries in the negative cache for invalid team tokens                                                                                                                                                                                                                                                                       |
+| Variable                          | Default | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| --------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SKIP_PG_TEAM_FALLBACK`           | `false` | When enabled, skip PostgreSQL fallback for team token lookups. HyperCache (Redis/S3) is treated as the source of truth — a cache miss means the token is invalid                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `ACCEPT_TEAM_SECRET_TOKENS`       | `true`  | When `false`, `phs_` bearer tokens authenticate only through `ProjectSecretAPIKey` rows — the legacy `Team.secret_api_token` lookup is skipped (PostHog/posthog#66179). A token already in the auth cache keeps authenticating the way it did before a flip until its entry expires, up to `AUTH_TOKEN_CACHE_TTL_SECONDS` later                                                                                                                                                                                                                                                        |
+| `LEGACY_TOKEN_MIRROR_SHADOW`      | `true`  | Transitional (PostHog/posthog#66179): after a successful legacy-token auth, a background query checks that the token's PSAK mirror row resolves to the same team, and emits `flags_legacy_token_mirror_shadow_total{result}`. A sustained zero `missing`/`team_mismatch` rate, with `match` nonzero, gates flipping `ACCEPT_TEAM_SECRET_TOKENS` off; `revoked` means leak revocation removed the row on purpose, so that token must not be backfilled. Runs only while legacy auth is on and only on auth-cache misses, with a hard concurrency cap (excess checks count as `skipped`) |
+| `TEAM_NEGATIVE_CACHE_TTL_SECONDS` | `30`    | TTL (seconds) for negative cache entries for invalid team tokens                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `TEAM_NEGATIVE_CACHE_CAPACITY`    | `10000` | Max entries in the negative cache for invalid team tokens                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 
 When `SKIP_PG_TEAM_FALLBACK` is enabled, HyperCache misses return a token validation error instead of querying PostgreSQL. This eliminates database pressure from requests with invalid tokens. Transient errors (Redis/S3 timeouts) bypass the fallback entirely and are not negative-cached.
 
@@ -335,12 +337,11 @@ See [Behavioral cohorts](#behavioral-cohorts) for cohort membership cache settin
 
 ### Other
 
-| Variable                                 | Default                    | Purpose                                                            |
-| ---------------------------------------- | -------------------------- | ------------------------------------------------------------------ |
-| `MAXMIND_DB_PATH`                        | `share/GeoLite2-City.mmdb` | GeoIP database path                                                |
-| `GEOIP_SUBDIVISIONS_EXCLUDED_TEAM_IDS`   | `none`                     | Teams that get no `$geoip_subdivision_*` values from the IP lookup |
-| `OPTIMIZE_EXPERIENCE_CONTINUITY_LOOKUPS` | `true`                     | Skip DB lookups for 100%-rollout flags                             |
-| `FLAGS_SESSION_REPLAY_QUOTA_CHECK`       | `false`                    | Check session replay quota                                         |
+| Variable                                 | Default                    | Purpose                                |
+| ---------------------------------------- | -------------------------- | -------------------------------------- |
+| `MAXMIND_DB_PATH`                        | `share/GeoLite2-City.mmdb` | GeoIP database path                    |
+| `OPTIMIZE_EXPERIENCE_CONTINUITY_LOOKUPS` | `true`                     | Skip DB lookups for 100%-rollout flags |
+| `FLAGS_SESSION_REPLAY_QUOTA_CHECK`       | `false`                    | Check session replay quota             |
 
 ## Cache invalidation
 

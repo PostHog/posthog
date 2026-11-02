@@ -25,6 +25,8 @@ Call this tool when you have enough information to create or update the dashboar
 
 Use `add_insights` when the user wants to keep the current dashboard and include new insights. This includes requests to add, include, expand, or put a metric on a dashboard. Send only the new insight IDs. This action never removes existing insight tiles.
 
+Use `duplicate` when the user wants a copy of an existing dashboard, for example the same dashboard for another customer, subscription, or date range. It keeps the dashboard variables, filters, tiles, layouts, and the chart settings of each insight (number formatting, prefixes, and suffixes). Do not rebuild the insights with SQL for a copy. Use `variable_values` to change only the variable values that differ, keyed by the variable code name. Never hardcode a value in SQL when the source dashboard has a variable for it.
+
 Use `update` only when the user defines the complete intended set of dashboard insights, asks to remove or replace insights, or asks to change dashboard metadata.
 
 # Understanding full dashboard update with insight_ids
@@ -44,7 +46,7 @@ Example: Dashboard has [A, B, C] (in layout order). Use `insight_ids=[A, C]` (sa
 Result: A and C keep their existing tile layouts, B's tile is soft-deleted, and no new tiles are created.
 
 # When to use this tool
-- The user asks to create or update a dashboard.
+- The user asks to create, copy, or update a dashboard.
 - The user asks for multiple metrics or dimensions, so it might be better to visualize them in a dashboard.
 - The user wants to modify insights on an existing dashboard (add, remove, or replace).
 
@@ -130,4 +132,9 @@ PERMISSION_REQUEST_PROMPT = """
 
 MISSING_INSIGHT_IDS_PROMPT = """
 Some insights were not found in the conversation artifacts: {{{missing_ids}}}. You should check if the provided insight_ids are correct.
+""".strip()
+
+
+UNKNOWN_VARIABLES_PROMPT = """
+These variables do not exist in this project: {{{unknown_variables}}}. Use the code names of existing variables: {{{available_variables}}}.
 """.strip()

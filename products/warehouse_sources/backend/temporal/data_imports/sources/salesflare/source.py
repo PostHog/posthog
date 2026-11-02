@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SalesflareSource(ResumableSource[SalesflareSourceConfig, SalesflareResumeConfig]):
+    codebase_detection = detect(env=("^SALESFLARE_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://api.salesflare.com/docs"
 
@@ -49,10 +52,10 @@ class SalesflareSource(ResumableSource[SalesflareSourceConfig, SalesflareResumeC
             name=ExternalDataSourceType.SALESFLARE,
             category=DataWarehouseSourceCategory.CRM,
             label="Salesflare",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Salesflare API key to pull your CRM data into the PostHog Data warehouse.
 
-You can create an API key under **Settings → API keys** in [Salesflare](https://app.salesflare.com/#/settings/apikeys). The key grants read access to your contacts, accounts, opportunities, pipelines, tasks, tags, and workflows.
+You can create an API key under **Settings → API keys** in [Salesflare](https://app.salesflare.com/#/settings/apikeys). The key grants read access to your contacts, accounts, opportunities, pipelines, stages, tasks, tags, users, and workflows.
 """,
             iconPath="/static/services/salesflare.png",
             docsUrl="https://posthog.com/docs/cdp/sources/salesflare",

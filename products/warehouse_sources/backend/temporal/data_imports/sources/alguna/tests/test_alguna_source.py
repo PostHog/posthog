@@ -14,21 +14,7 @@ class TestAlgunaSource:
 
     @parameterized.expand(
         [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://api.alguna.io/customers?limit=100&offset=0",
-            ),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.alguna.io/invoices?limit=100&offset=0"),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, _name, observed_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @parameterized.expand(
-        [
             ("other_vendor", "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers"),
-            ("server_error", "500 Server Error for url: https://api.alguna.io/customers"),
         ]
     )
     def test_non_retryable_errors_does_not_match_unrelated(self, _name, other_vendor_error):

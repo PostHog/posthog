@@ -1,8 +1,9 @@
-"""Temporary owner overrides of ranking serving and promotion, read from one feature flag payload.
+"""Temporary owner overrides of ranking serving, read from one feature flag payload.
 
 An owner sets the `inbox-ranking-overrides` payload only to intervene, and every payload expires on
-its own. The scoring sweep reads `served`, and the training dag reads `pin` and `promotion`. Both
-parse the payload here, so the two cannot disagree about what a payload means.
+its own. The scoring sweep reads `served`, and the training dag reads `pin`. Both parse the payload
+here, so the two cannot disagree about what a payload means. Promotion is not an override: the
+`inbox_ranking_promote_job` writes the served pointer.
 
 The parser is fail-safe. An absent, expired or invalid payload, or a failed flag lookup, gives
 `NO_OVERRIDES`, and the sweep and the dag then run as they do with no flag. An invalid payload is
@@ -13,8 +14,7 @@ import re
 import json
 import datetime
 from collections.abc import Mapping
-from dataclasses import field
-from typing import Any, Literal
+from typing import Any
 
 import pydantic
 import structlog
@@ -28,25 +28,15 @@ RANKING_OVERRIDES_FLAG = "inbox-ranking-overrides"
 # The flag is evaluated once per pass or run for this id, so an override applies to every report.
 RANKING_OVERRIDES_DISTINCT_ID = "internal_inbox_ranking_overrides"
 
-# A forgotten override must not change serving or promotion for longer than this.
+# A forgotten override must not change serving for longer than this.
 MAX_OVERRIDE_LIFETIME = datetime.timedelta(days=14)
 
-PromotionGate = Literal["min_days", "ece", "min_holdout_positives"]
-
 # A model key is also a path segment in the dataset bucket, so the format is strict.
-_MODEL_KEY_PATTERN = re.compile(r"^[a-z0-9_]+@\d{4}-\d{2}-\d{2}$")
+MODEL_KEY_PATTERN = re.compile(r"^[a-z0-9_]+@\d{4}-\d{2}-\d{2}$")
 
 
 class InvalidOverrides(ValueError):
     pass
-
-
-class _PromotionPayload(pydantic.BaseModel):
-    model_config = pydantic.ConfigDict(extra="forbid")
-
-    freeze: list[str] = []
-    force: list[str] = []
-    skip_gates: dict[str, list[PromotionGate]] = {}
 
 
 class _OverridesPayload(pydantic.BaseModel):
@@ -55,12 +45,11 @@ class _OverridesPayload(pydantic.BaseModel):
     expires_at: pydantic.AwareDatetime
     served: str | None = None
     pin: list[str] = []
-    promotion: _PromotionPayload = _PromotionPayload()
 
     @pydantic.field_validator("served")
     @classmethod
     def served_is_a_model_key(cls, v: str | None) -> str | None:
-        if v is not None and not _MODEL_KEY_PATTERN.match(v):
+        if v is not None and not MODEL_KEY_PATTERN.match(v):
             raise ValueError(f"{v!r} is not a `<model_name>@<YYYY-MM-DD>` model key")
         return v
 
@@ -68,18 +57,9 @@ class _OverridesPayload(pydantic.BaseModel):
     @classmethod
     def pins_are_model_keys(cls, v: list[str]) -> list[str]:
         for key in v:
-            if not _MODEL_KEY_PATTERN.match(key):
+            if not MODEL_KEY_PATTERN.match(key):
                 raise ValueError(f"{key!r} is not a `<model_name>@<YYYY-MM-DD>` model key")
         return v
-
-
-@frozen
-class PromotionOverride:
-    """One family's promotion override. `freeze` wins, so a frozen family has no force and no waived gate."""
-
-    freeze: bool = False
-    force: bool = False
-    skip_gates: frozenset[str] = frozenset()
 
 
 @frozen
@@ -88,14 +68,6 @@ class RankingOverrides:
     expires_at: datetime.datetime | None = None
     served: str | None = None
     pin: tuple[str, ...] = ()
-    freeze: frozenset[str] = frozenset()
-    force: frozenset[str] = frozenset()
-    skip_gates: Mapping[str, frozenset[str]] = field(default_factory=dict)
-
-    def promotion_for(self, family: str) -> PromotionOverride:
-        if family in self.freeze:
-            return PromotionOverride(freeze=True)
-        return PromotionOverride(force=family in self.force, skip_gates=self.skip_gates.get(family, frozenset()))
 
 
 NO_OVERRIDES = RankingOverrides()
@@ -112,9 +84,6 @@ def _validated(payload: Mapping[str, Any], now: datetime.datetime) -> RankingOve
         expires_at=parsed.expires_at,
         served=parsed.served,
         pin=tuple(dict.fromkeys(parsed.pin)),
-        freeze=frozenset(parsed.promotion.freeze),
-        force=frozenset(parsed.promotion.force),
-        skip_gates={family: frozenset(gates) for family, gates in parsed.promotion.skip_gates.items()},
     )
 
 

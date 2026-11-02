@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CoupaSource(ResumableSource[CoupaSourceConfig, CoupaResumeConfig], ValidateDatabaseHostMixin):
+    codebase_detection = detect(env=("^COUPA_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     api_docs_url = "https://docs.coupa.com/en/developer-documentation/the-coupa-core-api/coupa-core-api-overview"
@@ -73,7 +76,7 @@ class CoupaSource(ResumableSource[CoupaSourceConfig, CoupaResumeConfig], Validat
 A Coupa admin can create an OIDC client under Setup > Integrations > OAuth2/OpenID Connect Clients with the client credentials grant. Grant it the read scopes for the objects you want to sync (e.g. `core.invoice.read`, `core.purchase_order.read`). The instance URL is your Coupa host, e.g. `https://myorg.coupahost.com`.""",
             iconPath="/static/services/coupa.png",
             docsUrl="https://posthog.com/docs/cdp/sources/coupa",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -40,6 +41,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HumanitecSource(ResumableSource[HumanitecSourceConfig, HumanitecResumeConfig]):
+    codebase_detection = detect(
+        env=("^HUMANITEC_",), npm=("@humanitec/autogen",), go=("github.com/humanitec/humanitec-go-autogen",)
+    )
+
     lists_tables_without_credentials = True
     api_docs_url = API_DOCS_URL
 
@@ -91,7 +96,7 @@ class HumanitecSource(ResumableSource[HumanitecSourceConfig, HumanitecResumeConf
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Humanitec",
             iconPath="/static/services/humanitec.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "In Humanitec, open Service users. Select a user. Select Add new API token. "
                 "Use a service user with read access to the applications and environments you want to sync. "

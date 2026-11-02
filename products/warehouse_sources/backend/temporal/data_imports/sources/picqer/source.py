@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PicqerSource(ResumableSource[PicqerSourceConfig, PicqerResumeConfig]):
+    codebase_detection = detect(env=("^PICQER_",), composer=("picqer/api-client",))
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://picqer.com/en/api"
@@ -120,7 +123,7 @@ class PicqerSource(ResumableSource[PicqerSourceConfig, PicqerResumeConfig]):
             name=ExternalDataSourceType.PICQER,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Picqer",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Picqer account name and API key to pull your Picqer warehouse and fulfilment data into the PostHog Data warehouse.
 
 Create an API key under **Settings → API keys** in your Picqer account. The key inherits its permissions from its scope, so it can read the records that scope allows.""",

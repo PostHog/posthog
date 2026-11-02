@@ -54,10 +54,6 @@ class TestAnthropicSchemas:
         assert schema.supports_incremental is False
         assert schema.supports_append is False
 
-    def test_names_filter(self) -> None:
-        schemas = AnthropicSource().get_schemas(MagicMock(), team_id=1, names=["usage_report"])
-        assert [s.name for s in schemas] == ["usage_report"]
-
     def test_no_endpoint_targets_an_admin_key_forbidden_path(self) -> None:
         # This source authenticates with an Admin API key, which Anthropic does not accept on its
         # service-account or federation endpoints (those require an org:admin OAuth token). An

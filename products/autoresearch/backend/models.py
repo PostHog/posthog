@@ -16,16 +16,29 @@ UNIT_INTERVAL_VALIDATORS = [MinValueValidator(0.0), MaxValueValidator(1.0)]
 
 def unit_interval_constraint(field: str, name: str) -> models.CheckConstraint:
     return models.CheckConstraint(
-        check=models.Q(**{f"{field}__isnull": True}) | models.Q(**{f"{field}__gte": 0.0, f"{field}__lte": 1.0}),
+        condition=models.Q(**{f"{field}__isnull": True}) | models.Q(**{f"{field}__gte": 0.0, f"{field}__lte": 1.0}),
         name=name,
     )
+
+
+class ResearchIntervalDays(models.IntegerChoices):
+    """The research intervals a user can pick, in days."""
+
+    DAYS_7 = 7, "7 days"
+    DAYS_14 = 14, "14 days"
+    DAYS_30 = 30, "30 days"
+    DAYS_60 = 60, "60 days"
+    DAYS_90 = 90, "90 days"
+
+
+RESEARCH_INTERVAL_DAYS_CHOICES = tuple(ResearchIntervalDays.values)
 
 
 def min_value_constraint(field: str, minimum: int, name: str, *, nullable: bool = False) -> models.CheckConstraint:
     at_least = models.Q(**{f"{field}__gte": minimum})
     if nullable:
         at_least = models.Q(**{f"{field}__isnull": True}) | at_least
-    return models.CheckConstraint(check=at_least, name=name)
+    return models.CheckConstraint(condition=at_least, name=name)
 
 
 class AutoresearchPipeline(TeamScopedRootMixin, UUIDModel):
@@ -93,6 +106,35 @@ class AutoresearchPipeline(TeamScopedRootMixin, UUIDModel):
     # iteration_budget on first save.
     iteration_budget_remaining = models.IntegerField(
         null=True, blank=True, default=None, validators=[MinValueValidator(0)]
+    )
+    iterations_per_run = models.IntegerField(
+        default=5,
+        db_default=5,
+        validators=[MinValueValidator(1), MaxValueValidator(50)],
+        help_text="Experiments the agent may try in each training run",
+    )
+    # Null means no scheduled research: training starts only when someone asks for it.
+    research_interval_days = models.IntegerField(
+        null=True,
+        blank=True,
+        default=7,
+        db_default=7,
+        choices=ResearchIntervalDays.choices,
+        help_text="Days between scheduled research runs once the first burst of daily runs ends",
+    )
+    # Null means the autoresearch default (training/agent_model.py), so the default can change
+    # without rewriting stored rows.
+    agent_model = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        help_text="Tasks model id the training agent runs on. Null uses the autoresearch default",
+    )
+    agent_reasoning_effort = models.CharField(
+        max_length=20,
+        null=True,
+        blank=True,
+        help_text="Reasoning effort for the training agent. Null uses the autoresearch default",
     )
 
     # Stop criteria
@@ -282,7 +324,7 @@ class AutoresearchModel(PipelineScopedModel):
             unit_interval_constraint("holdout_score", "autoresearch_model_holdout_score_in_unit_range"),
             unit_interval_constraint("realized_score", "autoresearch_model_realized_score_in_unit_range"),
             models.CheckConstraint(
-                check=models.Q(trained_on_start__isnull=True)
+                condition=models.Q(trained_on_start__isnull=True)
                 | models.Q(trained_on_end__isnull=True)
                 | models.Q(trained_on_start__lte=models.F("trained_on_end")),
                 name="autoresearch_model_trained_on_range_ordered",
@@ -302,6 +344,12 @@ class AutoresearchTrainingRun(PipelineScopedModel):
         COMPLETED = "completed", "Completed"
         FAILED = "failed", "Failed"
 
+    class KickoffReason(models.TextChoices):
+        EXPLORE = "explore", "Explore"
+        SCHEDULED = "scheduled", "Scheduled"
+        RESCUE = "rescue", "Rescue"
+        MANUAL = "manual", "Manual"
+
     pipeline = models.ForeignKey(AutoresearchPipeline, on_delete=models.CASCADE, related_name="training_runs")
 
     # Link to the Task/TaskRun sandbox (nullable for stubs).
@@ -311,6 +359,12 @@ class AutoresearchTrainingRun(PipelineScopedModel):
     task_run_id = models.UUIDField(null=True, blank=True, help_text="TaskRun ID in the tasks product sandbox")
 
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    # Null on runs started before the field existed.
+    kickoff_reason = models.CharField(max_length=20, choices=KickoffReason.choices, null=True, blank=True)
+    # What the run was dispatched with. Null on older runs and on runs with no task (stubs, external agents).
+    agent_runtime_adapter = models.CharField(max_length=20, null=True, blank=True)
+    agent_model = models.CharField(max_length=100, null=True, blank=True)
+    agent_reasoning_effort = models.CharField(max_length=20, null=True, blank=True)
     iteration_budget = models.IntegerField(default=50, validators=[MinValueValidator(1)])
     iteration_count = models.IntegerField(default=0, validators=[MinValueValidator(0)])
     best_holdout_score = models.FloatField(null=True, blank=True, validators=UNIT_INTERVAL_VALIDATORS)
@@ -322,6 +376,7 @@ class AutoresearchTrainingRun(PipelineScopedModel):
     summary = models.JSONField(default=dict, blank=True)
     # Written for people who read the Agent research tab. The agent's own notes stay in `summary`.
     reader_summary = models.TextField(null=True, blank=True)
+    headline = models.TextField(null=True, blank=True)
     next_steps = models.JSONField(null=True, blank=True)
 
     started_at = models.DateTimeField(null=True, blank=True)
@@ -368,6 +423,7 @@ class AutoresearchIteration(PipelineScopedModel):
     status = models.CharField(max_length=20, choices=Status.choices)
     agent_description = models.TextField(blank=True, default="")
     summary = models.TextField(null=True, blank=True)
+    headline = models.TextField(null=True, blank=True)
     agent_confidence = models.FloatField(
         null=True, blank=True, validators=UNIT_INTERVAL_VALIDATORS, help_text="Agent's self-assessed confidence 0–1"
     )

@@ -51,7 +51,9 @@
             "search",
             "status"
         ],
-        "canvas_app": ["canvasId"]
+        "canvas_app": ["canvasId"],
+        "metrics_table": ["columns", "dateRange", "groupBy", "interval", "limit", "orderByColumn", "orderDirection"],
+        "metrics": ["query"]
     },
     "configPropertyTrees": {
         "notebook_widget": {
@@ -94,6 +96,7 @@
                             "icontains_multi",
                             "in",
                             "is_cleaned_path_exact",
+                            "is_cleaned_path_not_exact",
                             "is_date_after",
                             "is_date_before",
                             "is_date_exact",
@@ -155,6 +158,7 @@
                             "icontains_multi",
                             "in",
                             "is_cleaned_path_exact",
+                            "is_cleaned_path_not_exact",
                             "is_date_after",
                             "is_date_before",
                             "is_date_exact",
@@ -226,6 +230,7 @@
                             "icontains_multi",
                             "in",
                             "is_cleaned_path_exact",
+                            "is_cleaned_path_not_exact",
                             "is_date_after",
                             "is_date_before",
                             "is_date_exact",
@@ -265,7 +270,7 @@
                 "$type": "integer"
             },
             "orderBy": {
-                "$enum": ["first_seen", "last_seen", "occurrences", "sessions", "users"]
+                "$enum": ["first_seen", "last_seen", "occurrences", "sessions", "severity", "users"]
             },
             "orderDirection": {
                 "$enum": ["ASC", "DESC"]
@@ -314,6 +319,7 @@
                             "icontains_multi",
                             "in",
                             "is_cleaned_path_exact",
+                            "is_cleaned_path_not_exact",
                             "is_date_after",
                             "is_date_before",
                             "is_date_exact",
@@ -474,6 +480,233 @@
         "canvas_app": {
             "canvasId": {
                 "$type": "string"
+            }
+        },
+        "metrics_table": {
+            "dateRange": {
+                "date_from": {
+                    "$enum": ["-14d", "-1M", "-1h", "-24h", "-30M", "-30d", "-3h", "-7d", "-90d"]
+                }
+            },
+            "groupBy": {
+                "$type": "string"
+            },
+            "columns": {
+                "$array": {
+                    "label": {
+                        "$type": "string"
+                    },
+                    "metricName": {
+                        "$type": "string"
+                    },
+                    "aggregation": {
+                        "$enum": ["avg", "histogram_quantile", "increase", "max", "min", "rate", "sum"]
+                    },
+                    "quantile": {
+                        "$type": "number"
+                    },
+                    "filters": {
+                        "$array": {
+                            "key": {
+                                "$type": "string"
+                            },
+                            "op": {
+                                "$enum": ["eq", "neq", "not_regex", "regex"]
+                            },
+                            "value": {
+                                "$type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "interval": {
+                "$enum": ["day", "hour", "minute", "minute_15", "minute_5"]
+            },
+            "orderByColumn": {
+                "$type": "integer"
+            },
+            "orderDirection": {
+                "$enum": ["ASC", "DESC"]
+            },
+            "limit": {
+                "$type": "integer"
+            }
+        },
+        "metrics": {
+            "query": {
+                "clauses": {
+                    "$array": {
+                        "aggregation": {
+                            "$enum": [
+                                "avg",
+                                "count",
+                                "histogram_quantile",
+                                "increase",
+                                "max",
+                                "min",
+                                "quantile",
+                                "rate",
+                                "sum"
+                            ]
+                        },
+                        "filters": {
+                            "$array": {
+                                "key": {
+                                    "$type": "string"
+                                },
+                                "op": {
+                                    "$enum": ["eq", "neq", "not_regex", "regex"]
+                                },
+                                "scope": {
+                                    "$enum": ["attribute", "auto", "resource"]
+                                },
+                                "value": {
+                                    "$type": "string"
+                                }
+                            }
+                        },
+                        "groupBy": {
+                            "$array": {
+                                "key": {
+                                    "$type": "string"
+                                },
+                                "scope": {
+                                    "$enum": ["attribute", "auto", "resource"]
+                                }
+                            }
+                        },
+                        "metricName": {
+                            "$type": "string"
+                        },
+                        "metricType": {
+                            "$enum": ["exponential_histogram", "gauge", "histogram", "sum", "summary"]
+                        },
+                        "name": {
+                            "$type": "string"
+                        },
+                        "quantile": {
+                            "$type": "number"
+                        },
+                        "rangeFunction": {
+                            "$enum": ["increase", "rate"]
+                        }
+                    }
+                },
+                "dateRange": {
+                    "date_from": {
+                        "$type": "string"
+                    },
+                    "date_to": {
+                        "$type": "string"
+                    },
+                    "daysOfWeek": {
+                        "$array": {
+                            "$enum": [1, 2, 3, 4, 5, 6, 7]
+                        }
+                    },
+                    "excludeIncompletePeriods": {
+                        "$type": "boolean"
+                    },
+                    "explicitDate": {
+                        "$type": "boolean"
+                    }
+                },
+                "display": {
+                    "goalLines": {
+                        "$array": {
+                            "borderColor": {
+                                "$type": "string"
+                            },
+                            "calculation": {
+                                "$enum": ["fixed", "max", "mean", "median", "min"]
+                            },
+                            "displayIfCrossed": {
+                                "$type": "boolean"
+                            },
+                            "displayLabel": {
+                                "$type": "boolean"
+                            },
+                            "label": {
+                                "$type": "string"
+                            },
+                            "position": {
+                                "$enum": ["end", "start"]
+                            },
+                            "scope": {
+                                "$enum": ["all", "series"]
+                            },
+                            "value": {
+                                "$type": "number"
+                            }
+                        }
+                    },
+                    "legendCalcs": {
+                        "$array": {
+                            "$enum": ["delta", "last", "max", "mean", "min", "sum"]
+                        }
+                    },
+                    "nullMode": {
+                        "$enum": ["connect", "gap", "zero"]
+                    },
+                    "reduce": {
+                        "$enum": ["delta", "last", "max", "mean", "min", "sum"]
+                    },
+                    "statSummary": {
+                        "$enum": ["average", "latest", "total"]
+                    },
+                    "thresholds": {
+                        "$array": {
+                            "color": {
+                                "$type": "string"
+                            },
+                            "value": {
+                                "$type": "number"
+                            }
+                        }
+                    },
+                    "type": {
+                        "$enum": ["area", "bar", "bargauge", "gauge", "heatmap", "line", "stat", "table"]
+                    },
+                    "unit": {
+                        "$type": "string"
+                    },
+                    "yAxis": {
+                        "max": {
+                            "$type": "number"
+                        },
+                        "min": {
+                            "$type": "number"
+                        },
+                        "scale": {
+                            "$enum": ["linear", "log"]
+                        },
+                        "startAtZero": {
+                            "$type": "boolean"
+                        }
+                    }
+                },
+                "formula": {
+                    "$type": "string"
+                },
+                "interval": {
+                    "$type": "string"
+                },
+                "kind": {
+                    "$type": "string"
+                },
+                "language": {
+                    "$enum": ["builder", "promql", "sql"]
+                },
+                "promql": {
+                    "$type": "string"
+                },
+                "sql": {
+                    "$type": "string"
+                },
+                "version": {
+                    "$type": "number"
+                }
             }
         }
     }

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -31,6 +32,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RunPodSource(ResumableSource[RunPodSourceConfig, RunPodResumeConfig]):
+    codebase_detection = detect(
+        env=("^RUNPOD_",),
+        npm=("runpod-sdk",),
+        pypi=("runpod",),
+        go=("github.com/runpod/go-sdk", "github.com/runpod/pulumi-runpod", "github.com/runpod/runpodctl"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.runpod.io/api-reference/overview"
 
@@ -44,7 +52,7 @@ class RunPodSource(ResumableSource[RunPodSourceConfig, RunPodResumeConfig]):
             name=ExternalDataSourceType.RUNPOD,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="RunPod",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your RunPod API key to pull your GPU cloud infrastructure and billing history into the PostHog Data warehouse.
 
 Create an API key in your [RunPod console settings](https://console.runpod.io/user/settings). A key with read permission is sufficient.""",

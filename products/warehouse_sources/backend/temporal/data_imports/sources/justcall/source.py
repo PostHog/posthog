@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class JustCallSource(ResumableSource[JustCallSourceConfig, JustCallResumeConfig]):
+    codebase_detection = detect(env=("^JUSTCALL_",))
+
     supported_versions = ("v2.1",)
     default_version = "v2.1"
     api_docs_url = "https://developer.justcall.io/reference"
@@ -62,7 +65,7 @@ class JustCallSource(ResumableSource[JustCallSourceConfig, JustCallResumeConfig]
 Generate an API key and secret under **Account Settings → Developers (APIs and Webhooks)** in your [JustCall dashboard](https://app.justcall.io/). The credentials have read access to your account's calls, texts, contacts, and phone numbers.""",
             iconPath="/static/services/justcall.png",
             docsUrl="https://posthog.com/docs/cdp/sources/justcall",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

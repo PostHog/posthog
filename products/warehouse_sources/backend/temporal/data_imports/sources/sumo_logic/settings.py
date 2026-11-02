@@ -6,8 +6,11 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 # "token": Sumo Logic management APIs paginated with `limit` + `token` params; the response body
 #     carries the record list under `data_key` plus a `next` continuation token.
 # "offset": `limit` + `offset` params; a short page signals the end.
+# "single": one unpaginated GET that returns every record.
 # "search_job": the async Search Job API (submit / poll / fetch) — bespoke path in sumo_logic.py.
-PaginationStyle = Literal["token", "offset", "search_job"]
+# "slo_sli": walks the SLO search pages and bulk-fetches the SLI status of each page's SLOs.
+# "content_tree": walks the content library folder tree from the personal folder down.
+PaginationStyle = Literal["token", "offset", "single", "search_job", "slo_sli", "content_tree"]
 
 # First sync of the logs table reaches back this far. Log volume through the Search Job API is
 # expensive (one async job per time window), so this is deliberately shorter than typical retention.
@@ -120,6 +123,38 @@ SUMO_LOGIC_ENDPOINTS: dict[str, SumoLogicEndpointConfig] = {
         name="field_extraction_rules", path="/v1/extractionRules", data_key="data"
     ),
     "scheduled_views": SumoLogicEndpointConfig(name="scheduled_views", path="/v1/scheduledViews", data_key="data"),
+    "slos": SumoLogicEndpointConfig(
+        name="slos",
+        path="/v1/slos/search",
+        pagination="offset",
+        nest_key="item",
+        extra_params={"query": "type:slo"},
+    ),
+    "slo_sli_statuses": SumoLogicEndpointConfig(
+        name="slo_sli_statuses",
+        path="/v1/slos/sli",
+        pagination="slo_sli",
+        primary_keys=["slo_id"],
+    ),
+    "fields": SumoLogicEndpointConfig(
+        name="fields",
+        path="/v1/fields",
+        data_key="data",
+        pagination="single",
+        primary_keys=["fieldId"],
+    ),
+    "muting_schedules": SumoLogicEndpointConfig(
+        name="muting_schedules",
+        path="/v1/mutingSchedules/search",
+        pagination="offset",
+        nest_key="item",
+        extra_params={"query": "type:mutingschedule"},
+    ),
+    "content_folders": SumoLogicEndpointConfig(
+        name="content_folders",
+        path="/v2/content/folders/{folder_id}",
+        pagination="content_tree",
+    ),
     "health_events": SumoLogicEndpointConfig(
         name="health_events",
         path="/v1/healthEvents",

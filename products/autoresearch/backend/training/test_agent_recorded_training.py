@@ -20,6 +20,7 @@ from products.autoresearch.backend.models import (
 )
 from products.autoresearch.backend.presentation.views.serializers import (
     AGENT_DESCRIPTION_MAX_LENGTH,
+    HEADLINE_MAX_LENGTH,
     ITERATION_SUMMARY_MAX_LENGTH,
     MODEL_SPEC_MAX_BYTES,
     NEXT_STEP_MAX_LENGTH,
@@ -80,6 +81,7 @@ class TestAgentRecordedTraining(TeamScopedTestMixin, APIBaseTest):
         recipe: dict[str, Any] | None = None,
         runs_url: str | None = None,
         summary: str | None = None,
+        headline: str | None = None,
     ) -> Any:
         return self.client.post(
             f"{runs_url or self.runs_url}/{run_id}/iterations/",
@@ -91,6 +93,7 @@ class TestAgentRecordedTraining(TeamScopedTestMixin, APIBaseTest):
                 "holdout_score": holdout,
                 "agent_description": "test iteration",
                 **({"summary": summary} if summary is not None else {}),
+                **({"headline": headline} if headline is not None else {}),
             },
             format="json",
         )
@@ -101,6 +104,7 @@ class TestAgentRecordedTraining(TeamScopedTestMixin, APIBaseTest):
         data = resp.json()
         assert data["status"] == "running"
         assert data["iteration_budget"] == 7
+        assert data["kickoff_reason"] == "manual"
         run = AutoresearchTrainingRun.objects.get(pk=data["id"], team_id=self.team.pk)
         assert run.pipeline.pk == self.pipeline.pk
         assert run.started_at is not None
@@ -340,6 +344,35 @@ class TestAgentRecordedTraining(TeamScopedTestMixin, APIBaseTest):
         listed_run = next(r for r in listed.json()["results"] if r["id"] == run_id)
         assert listed_run["reader_summary"] == data["reader_summary"]
         assert listed_run["iterations"][0]["summary"] == "Recent visits helped."
+
+    @parameterized.expand(
+        [
+            ("stored", "Moved training cutoffs to midnight", "Moved training cutoffs to midnight"),
+            (
+                "trimmed_and_capped",
+                "  Coding-task activity\nbecame the strongest signal " + "x" * HEADLINE_MAX_LENGTH,
+                ("Coding-task activity became the strongest signal " + "x" * HEADLINE_MAX_LENGTH)[:HEADLINE_MAX_LENGTH],
+            ),
+            ("missing", None, None),
+        ]
+    )
+    def test_headline_round_trips_on_iteration_and_run(
+        self, _name: str, headline: str | None, expected: str | None
+    ) -> None:
+        run_id = self._open_run()
+        recorded = self._record(run_id, number=0, status_value="kept", holdout=0.8, headline=headline)
+        assert recorded.status_code == status.HTTP_201_CREATED, recorded.json()
+        assert recorded.json()["headline"] == expected
+        resp = self.client.post(
+            f"{self.runs_url}/{run_id}/complete/",
+            {"headline": headline} if headline is not None else {},
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_200_OK, resp.json()
+        assert resp.json()["headline"] == expected
+        listed_run = next(r for r in self.client.get(f"{self.runs_url}/").json()["results"] if r["id"] == run_id)
+        assert listed_run["headline"] == expected
+        assert listed_run["iterations"][0]["headline"] == expected
 
     def test_complete_that_loses_the_race_to_failure_is_refused(self):
         run_id = self._open_run()

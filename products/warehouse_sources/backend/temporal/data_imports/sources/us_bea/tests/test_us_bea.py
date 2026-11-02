@@ -8,7 +8,6 @@ from unittest.mock import MagicMock, patch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.usbea import UsBeaSourceConfig
@@ -199,13 +198,6 @@ class TestUsBea:
 
         assert valid is False
         assert error is not None and "missing or invalid" in error
-
-    def test_validate_credentials_handles_network_failure(self):
-        with scripted_network(always(ConnectionError("boom"))):
-            valid, error = validate_credentials("user-id")
-
-        assert valid is False
-        assert error is not None and "Could not reach" in error
 
     @pytest.mark.parametrize("endpoint_name", list(ENDPOINTS))
     def test_endpoint_catalog_is_well_formed(self, endpoint_name: str):

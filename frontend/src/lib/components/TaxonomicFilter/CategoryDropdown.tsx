@@ -25,7 +25,7 @@ export function CategoryDropdown({
     joinedToInput?: boolean
 }): JSX.Element | null {
     const [menuVisible, setMenuVisible] = useState(false)
-    const { activeTab, taxonomicGroups, taxonomicGroupTypes } = useValues(taxonomicFilterLogic)
+    const { activeTab, taxonomicGroups, taxonomicGroupTypes, categoryGroupTypes } = useValues(taxonomicFilterLogic)
     const { markUserInteraction, setActiveTab } = useActions(taxonomicFilterLogic)
     const { categoryRailPinned } = useValues(taxonomicFilterCategoryLayoutLogic)
     const { setCategoryRailPinned } = useActions(taxonomicFilterCategoryLayoutLogic)
@@ -49,7 +49,7 @@ export function CategoryDropdown({
     const activeGroup = taxonomicGroups.find((g) => g.type === openTab)
     const activeLabel = activeGroup?.name ?? openTab
 
-    const categoryItems: LemonMenuItem[] = taxonomicGroupTypes.map((groupType) => {
+    const categoryItems: LemonMenuItem[] = categoryGroupTypes.map((groupType) => {
         const group = taxonomicGroups.find((g) => g.type === groupType)
         return {
             key: groupType,
@@ -84,7 +84,7 @@ export function CategoryDropdown({
         },
     ]
 
-    const activeItemIndex = taxonomicGroupTypes.findIndex((g) => g === openTab)
+    const activeItemIndex = categoryGroupTypes.findIndex((g) => g === openTab)
 
     return (
         <LemonMenu

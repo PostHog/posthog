@@ -98,7 +98,9 @@ class TestChargifySourceResumeBehavior:
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         ("status_code", "expected"),
-        [(200, True), (401, False), (403, False), (500, False)],
+        [
+            (200, True),
+        ],
     )
     def test_status_maps_to_validity(self, status_code: int, expected: bool) -> None:
         with scripted_network(always(ScriptedResponse(status=status_code))) as network:

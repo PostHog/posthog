@@ -272,6 +272,18 @@ class TestHogEvalExamplesBehavior:
 
         assert result["verdict"] is True
 
+    @parameterized.expand(
+        [("under_limit", "search,search,fetch", True), ("over_limit", ",".join(["search"] * 6), False)]
+    )
+    def test_repeated_tool_calls_limit(self, _name: str, tools_called: str, expected: bool) -> None:
+        bytecode = compile_hog(_get_source("Repeated tool calls"), "destination")
+        event = _make_event()
+        event["properties"]["$ai_tools_called"] = tools_called
+
+        result = run_hog_eval(bytecode, event)
+
+        assert result["verdict"] is expected
+
     def test_refusal_detection_handles_openai_refusal_field(self):
         bytecode = compile_hog(_get_source("Refusal detection"), "destination")
         event = _make_event(

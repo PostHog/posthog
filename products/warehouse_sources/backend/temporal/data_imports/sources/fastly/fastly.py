@@ -6,11 +6,14 @@ from urllib.parse import urlencode, urljoin, urlsplit
 import requests
 from dateutil import parser as date_parser
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.dataclasses import frozen
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.fastly.settings import (
@@ -54,6 +57,9 @@ BUCKET_SECONDS: dict[str, int] = {"minute": 60, "hour": 60 * 60, "day": 24 * 60 
 # than failing every other service's rows with it.
 ORIGIN_INSPECTOR_UNAVAILABLE_STATUSES = frozenset({403, 404})
 
+# AI Runtime Control aggregates usage by `daily` or `hourly`; a day matches the other metrics tables.
+AI_USAGE_METRICS_GRANULARITY = "daily"
+
 
 class FastlyRetryableError(Exception):
     pass
@@ -94,7 +100,7 @@ def _build_url(base_url: str, params: dict[str, Any], safe: str = "") -> str:
     return f"{base_url}?{urlencode(params, safe=safe)}"
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type(
         (
             FastlyRetryableError,
@@ -255,6 +261,20 @@ def _as_epoch_seconds(value: Any) -> int | None:
     if isinstance(value, int | float):
         return int(value)
     return None
+
+
+def _date_to_epoch_seconds(value: Any) -> int | None:
+    """Parse an AI Runtime Control `date` into Unix seconds. The docs give `YYYY-MM-DD` while live
+    responses carry a full UTC timestamp, so accept any ISO form and read a zoneless one as UTC."""
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = date_parser.isoparse(value)
+    except (ValueError, OverflowError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return int(parsed.timestamp())
 
 
 def _flatten_json_api(item: dict[str, Any]) -> dict[str, Any]:
@@ -510,6 +530,40 @@ def _get_origin_inspector_rows(
             cursor = next_cursor
 
 
+def _get_ai_usage_metrics_rows(
+    session: requests.Session,
+    config: FastlyEndpointConfig,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    incremental_start: int | None,
+) -> Iterator[list[dict[str, Any]]]:
+    """Read the AI Runtime Control usage report, which answers in one unpaginated response.
+
+    With no `from`, Fastly applies its own default window, so a full refresh takes that and an
+    incremental run takes everything since its watermark."""
+    params: dict[str, Any] = {"granularity": AI_USAGE_METRICS_GRANULARITY, "sort": "date"}
+    if incremental_start is not None:
+        params["from"] = datetime.fromtimestamp(incremental_start, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    response = _fetch(session, _build_url(f"{FASTLY_BASE_URL}{config.path}", params), headers, logger)
+    payload = response.json()
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, list):
+        return
+
+    rows: list[dict[str, Any]] = []
+    for row in data:
+        if not isinstance(row, dict):
+            continue
+        start_time = _date_to_epoch_seconds(row.get("date"))
+        if start_time is None:
+            logger.warning(f"Fastly: skipping AI usage metric with an unreadable date: {row.get('date')!r}")
+            continue
+        rows.append({**row, "start_time": start_time})
+    if rows:
+        yield rows
+
+
 def _get_service_list_rows(
     session: requests.Session,
     headers: dict[str, str],
@@ -730,6 +784,8 @@ def get_rows(
         yield from _get_origin_inspector_rows(
             session, config, headers, logger, resumable_source_manager, incremental_start
         )
+    elif config.kind == "ai_usage_metrics":
+        yield from _get_ai_usage_metrics_rows(session, config, headers, logger, incremental_start)
     elif config.kind == "service_list":
         yield from _get_service_list_rows(session, headers, logger, resumable_source_manager)
     elif config.kind == "version_resource_child":

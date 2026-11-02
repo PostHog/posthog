@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -40,6 +41,110 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TwilioSource(ResumableSource[TwilioSourceConfig, TwilioResumeConfig]):
+    codebase_detection = detect(
+        env=("^TWILIO_", "^ACCOUNT_SID$", "^AUTHY_API_KEY$"),
+        script_hosts=("sdk.twilio.com", "media.twiliocdn.com", "assets.flex.twilio.com", "static.twilio.com"),
+        npm=(
+            "twilio",
+            "twilio-video",
+            "@twilio/video-processors",
+            "@twilio/krisp-audio-plugin",
+            "@twilio/video-room-monitor",
+            "@twilio/video-node-sdk",
+            "@twilio/rtc-diagnostics",
+            "@twilio/video-react-native-sdk",
+            "react-native-twilio-video-webrtc",
+            "@twilio/voice-sdk",
+            "twilio-client",
+            "@twilio/voice-react-native-sdk",
+            "@twilio/conversations",
+            "twilio-chat",
+            "twilio-ip-messaging",
+            "twilio-sync",
+            "twilio-taskrouter",
+            "@twilio/flex-ui",
+            "@twilio/flex-plugin",
+            "@twilio/flex-plugin-scripts",
+            "@twilio/flex-sdk",
+            "@twilio/flex-webchat-ui",
+            "twilio-flex-token-validator",
+            "twilio-cli",
+            "twilio-run",
+            "create-twilio-function",
+            "@twilio/runtime-handler",
+            "@twilio-labs/serverless-runtime-types",
+            "@twilio-labs/serverless-api",
+            "@twilio-labs/runtime-helpers",
+            "@twilio/twilio-compliance-embed",
+            "@twilio/twilio-compliance-embed-js",
+            "@twilio/twilio-compliance-embed-react",
+            "@twilio/live-player-sdk",
+            "@twilio/twilio-verify-passkeys-web",
+            "@twilio-alpha/assistants",
+            "@twilio-alpha/assistants-react",
+            "@twilio-alpha/mcp",
+            "twilio-agent-connect",
+        ),
+        pypi=("twilio", "twilio-agent-connect", "authy", "django-twilio"),
+        cargo=("twilio",),
+        cocoapods=(
+            "TwilioVideo",
+            "TwilioVoice",
+            "TwilioConversationsClient",
+            "TwilioChatClient",
+            "TwilioSyncClient",
+            "TwilioVerify",
+            "TwilioLivePlayer",
+            "TwilioAudioProcessors",
+            "TwilioVirtualBackgroundProcessors",
+            "TwilioAuth",
+            "TwilioSDK",
+        ),
+        composer=("twilio/sdk", "authy/php", "laravel-notification-channels/twilio", "aloha/twilio"),
+        go=("github.com/twilio/twilio-go", "github.com/kevinburke/twilio-go", "github.com/sfreiberg/gotwilio"),
+        hex=("ex_twilio",),
+        maven=(
+            "com.twilio.sdk:twilio",
+            "com.twilio:video-android",
+            "com.twilio:video-android-ktx",
+            "com.twilio:video-audio-processors",
+            "com.twilio:video-virtual-background-processor",
+            "com.twilio:voice-android",
+            "com.twilio:client-android",
+            "com.twilio:audioswitch",
+            "com.twilio:conversations-android",
+            "com.twilio:conversations-android-with-symbols",
+            "com.twilio:chat-android",
+            "com.twilio:chat-android-with-symbols",
+            "com.twilio:sync-android",
+            "com.twilio:sync-android-with-symbols",
+            "com.twilio:sync-android-java",
+            "com.twilio:sync-android-kt",
+            "com.twilio:twilio-verify-android",
+            "com.twilio:twilio-verify-passkeys-android",
+            "com.twilio:twilio-verify-passkeys-common",
+            "com.twilio:twilio-verify-sna-android",
+            "com.twilio:live-player-android",
+            "com.twilio:authenticator",
+            "com.twilio.sdk:twilio-java-sdk",
+        ),
+        pub=("twilio_voice", "twilio_programmable_video"),
+        rubygems=("twilio-ruby", "authy", "devise-authy"),
+        swiftpm=(
+            "github.com/twilio/twilio-video-ios",
+            "github.com/twilio/twilio-voice-ios",
+            "github.com/twilio/conversations-ios",
+            "github.com/twilio/twilio-chat-ios",
+            "github.com/twilio/twilio-sync-ios",
+            "github.com/twilio/twilio-verify-ios",
+            "github.com/twilio/twilio-verify-sna-ios",
+            "github.com/twilio/twilio-verify-passkeys-ios",
+            "github.com/twilio/twilio-live-player-ios",
+            "github.com/twilio/twilio-audio-processors-ios",
+            "github.com/twilio/twilio-virtual-background-processors-ios",
+        ),
+    )
+
     supported_versions = ("2010-04-01",)
     default_version = "2010-04-01"
     api_docs_url = "https://www.twilio.com/docs/usage/api"
@@ -61,7 +166,7 @@ class TwilioSource(ResumableSource[TwilioSourceConfig, TwilioResumeConfig]):
 
 Your **Account SID** is on the [Twilio Console dashboard](https://console.twilio.com). For credentials we recommend creating a [Standard API key](https://console.twilio.com/us1/account/keys-credentials/api-keys) (SID + Secret) since it can be revoked independently. You can also use your Account SID and Auth Token.
 
-Create the key in the same Twilio account as the Account SID above, in Twilio's default us1 region. A Standard key can read every table except `keys`, which needs your Auth Token or a Main API key.""",
+Create the key in the same Twilio account as the Account SID above, in Twilio's default us1 region. A Standard key can read every table except `keys` and `accounts`, which need your Auth Token or a Main API key.""",
             iconPath="/static/services/twilio.png",
             docsUrl="https://posthog.com/docs/cdp/sources/twilio",
             fields=cast(
@@ -145,8 +250,8 @@ Create the key in the same Twilio account as the Account SID above, in Twilio's 
             # so this message has to cover both rather than asserting the credentials are invalid.
             "Twilio rejected these credentials for this table. Either the Account SID and secret are wrong, "
             "or the credential can't read this resource. A Restricted API key needs read access granted for "
-            "it, and the keys table needs your Auth token or a Main API key. Fix the credential, then "
-            "reconnect the source."
+            "it, and the keys and accounts tables need your Auth token or a Main API key. Fix the credential, "
+            "then reconnect the source."
         )
         forbidden = (
             "Your Twilio credentials lack permission for this resource. Please check the credential's "

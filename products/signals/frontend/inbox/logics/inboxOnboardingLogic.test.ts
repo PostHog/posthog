@@ -25,7 +25,6 @@ describe('inboxOnboardingLogic', () => {
             isWizardRunning: false,
             isWizardStateResolved: true,
             isRefetching: false,
-            manualSetupRequested: false,
         }
 
         it.each<[string, Partial<OnboardingModeInputs>, InboxOnboardingDecision]>([
@@ -128,26 +127,6 @@ describe('inboxOnboardingLogic', () => {
                 { isRefetching: true, hasExistingWork: true },
                 { mode: 'banner', reason: null },
             ],
-            // "Set up manually" opens the Configuration and Scouts tabs the takeover was covering,
-            // so the whole prompt stands down for the session.
-            [
-                'manual setup requested, would otherwise take over',
-                { manualSetupRequested: true },
-                { mode: 'none', reason: 'manual_setup' },
-            ],
-            // Enabling a source or scout from there is the real end state, so `already_set_up` wins
-            // and the takeover can never come back, session flag or not.
-            [
-                'manual setup requested, now set up',
-                { manualSetupRequested: true, isSelfDrivingSetUp: true },
-                { mode: 'none', reason: 'already_set_up' },
-            ],
-            // A run in flight still outranks it: the progress widget is the more accurate story.
-            [
-                'manual setup requested, wizard running',
-                { manualSetupRequested: true, isWizardRunning: true },
-                { mode: 'none', reason: 'wizard_running' },
-            ],
         ])('%s', (_label, overrides, expected) => {
             expect(computeOnboardingDecision({ ...base, ...overrides })).toEqual(expected)
         })
@@ -193,7 +172,6 @@ describe('inboxOnboardingLogic', () => {
         const base: WizardStateInputs = {
             hasResolvedSessionState: false,
             watchedWorkflows: [SELF_DRIVING_WORKFLOW_ID],
-            receivedFeatureFlags: true,
             verdictWaitExpired: false,
         }
 
@@ -203,15 +181,10 @@ describe('inboxOnboardingLogic', () => {
             // Not watching the self-driving program: the detector's verdict could never flip
             // `isWizardRunning`, so waiting on it would cost every inbox user a hold for nothing.
             ['not watching the self-driving program', { watchedWorkflows: [] }, true],
-            // The shortcut above needs flags in hand — without them every user reads as the control
-            // arm, which would show the takeover to someone mid-run and then snatch it back.
-            ['not watching, but flags not in yet', { watchedWorkflows: [], receivedFeatureFlags: false }, false],
             // Watching and unsettled is the one case that genuinely has no answer yet.
             ['watching, detector still pending', {}, false],
-            // The backstop. Without it, a flag payload an ad blocker drops or a detector whose polls
-            // keep erroring hides the only prompt to set self-driving up, for the whole session.
+            // The backstop. Without it, a detector whose polls keep erroring hides the only prompt to set self-driving up, for the whole session.
             ['deadline elapsed with no verdict', { verdictWaitExpired: true }, true],
-            ['deadline elapsed with no flags either', { receivedFeatureFlags: false, verdictWaitExpired: true }, true],
         ])('%s', (_label, overrides, expected) => {
             expect(resolveWizardState({ ...base, ...overrides })).toBe(expected)
         })

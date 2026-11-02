@@ -6,11 +6,53 @@ import { dayjs } from 'lib/dayjs'
 
 import type { AgentSearch } from '../agentSearch'
 
+/** A ring around one point with a label above it, or below it near the top where the run band labels sit. */
+function PointMarker({
+    x,
+    y,
+    label,
+    plotTop,
+    plotRight,
+    color,
+}: {
+    x: number
+    y: number
+    label: string
+    plotTop: number
+    plotRight: number
+    color: string
+}): JSX.Element {
+    return (
+        <g>
+            <circle cx={x} cy={y} r={8} fill="none" stroke={color} strokeWidth={2} />
+            <text
+                x={x}
+                y={y - 12 < plotTop + 14 ? y + 20 : y - 12}
+                fontSize={11}
+                fontWeight={600}
+                textAnchor={x > plotRight - 60 ? 'end' : 'middle'}
+                fill="var(--color-text-primary)"
+                stroke="var(--color-bg-surface-primary)"
+                strokeWidth={3}
+                paintOrder="stroke"
+            >
+                {label}
+            </text>
+        </g>
+    )
+}
+
 /**
- * Run bands, the best-so-far step line and the live model marker, drawn over the scatter.
+ * Run bands, the best-so-far step line, the live model's realized AUC, and the live and scored-alongside markers, drawn over the scatter.
  * The parent pins the x domain to [0.5, N + 0.5], so x maps linearly from `seq`.
  */
-export function AgentSearchOverlay({ search }: { search: AgentSearch }): JSX.Element {
+export function AgentSearchOverlay({
+    search,
+    liveRealized,
+}: {
+    search: AgentSearch
+    liveRealized: number | null
+}): JSX.Element {
     const clipId = useId()
     const { dimensions, scales } = useChartLayout()
     const { plotLeft, plotTop, plotWidth, plotHeight } = dimensions
@@ -32,8 +74,9 @@ export function AgentSearchOverlay({ search }: { search: AgentSearch }): JSX.Ele
     const stepPath = segments.join(' ')
 
     const live = search.points.find((p) => p.isLiveModel && p.holdoutScore != null)
-    const liveX = live ? xOf(live.seq) : null
-    const liveY = live?.holdoutScore != null ? scales.y(live.holdoutScore) : null
+    const alongside = search.points.find((p) => p.isScoredAlongside && p.holdoutScore != null)
+    const realizedY = liveRealized != null ? scales.y(liveRealized) : null
+    const plotRight = plotLeft + plotWidth
 
     return (
         <svg
@@ -80,24 +123,50 @@ export function AgentSearchOverlay({ search }: { search: AgentSearch }): JSX.Ele
                     )
                 })}
                 <path d={stepPath} fill="none" stroke="var(--success)" strokeWidth={1.5} strokeOpacity={0.8} />
-                {liveX != null && liveY != null && (
-                    <g>
-                        <circle cx={liveX} cy={liveY} r={8} fill="none" stroke="var(--success)" strokeWidth={2} />
+                {realizedY != null && (
+                    <g data-attr="autoresearch-search-overlay-realized">
+                        <line
+                            x1={plotLeft}
+                            x2={plotRight}
+                            y1={realizedY}
+                            y2={realizedY}
+                            stroke="var(--color-text-secondary)"
+                            strokeWidth={1.5}
+                            strokeDasharray="6 4"
+                        />
                         <text
-                            x={liveX}
-                            // Near the top, the run band labels take the space above the marker.
-                            y={liveY - 12 < plotTop + 14 ? liveY + 20 : liveY - 12}
-                            fontSize={11}
-                            fontWeight={600}
-                            textAnchor={liveX > plotLeft + plotWidth - 40 ? 'end' : 'middle'}
-                            fill="var(--color-text-primary)"
+                            x={plotLeft + 4}
+                            y={realizedY + 12}
+                            fontSize={10}
+                            textAnchor="start"
+                            fill="var(--color-text-secondary)"
                             stroke="var(--color-bg-surface-primary)"
                             strokeWidth={3}
                             paintOrder="stroke"
                         >
-                            Live model
+                            {`Live model on real outcomes · ${liveRealized?.toFixed(3)}`}
                         </text>
                     </g>
+                )}
+                {alongside?.holdoutScore != null && (
+                    <PointMarker
+                        x={xOf(alongside.seq)}
+                        y={scales.y(alongside.holdoutScore)}
+                        label="Scored alongside"
+                        plotTop={plotTop}
+                        plotRight={plotRight}
+                        color="var(--color-text-secondary)"
+                    />
+                )}
+                {live?.holdoutScore != null && (
+                    <PointMarker
+                        x={xOf(live.seq)}
+                        y={scales.y(live.holdoutScore)}
+                        label="Live model"
+                        plotTop={plotTop}
+                        plotRight={plotRight}
+                        color="var(--success)"
+                    />
                 )}
             </g>
         </svg>

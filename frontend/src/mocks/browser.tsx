@@ -1,12 +1,28 @@
 import type { Decorator } from '@storybook/react'
 import { setupWorker } from 'msw/browser'
 
-import { handlers } from '~/mocks/handlers'
+import { handlers, toPaginatedResponse } from '~/mocks/handlers'
 import { HTTP_METHODS, MockSignature, Mocks, mocksToHandlers } from '~/mocks/utils'
 import type { AppContext } from '~/types'
 
-// Default handlers ensure no request is unhandled by msw
-export const worker: ReturnType<typeof setupWorker> = setupWorker(...handlers)
+// Stories start with the products new users get starred, so the sidebar shows those instead of the
+// whole product catalog. A story that mocks shortcuts itself still wins.
+const storybookDefaultMocks: Mocks = {
+    get: {
+        '/api/environments/:team_id/file_system_shortcut/': toPaginatedResponse([
+            { id: 'starred-dashboards', path: 'Dashboards', type: 'dashboard', order: 1 },
+            { id: 'starred-product-analytics', path: 'Product analytics', type: 'product_analytics', order: 2 },
+            { id: 'starred-web-analytics', path: 'Web analytics', type: 'web_analytics', order: 3 },
+            { id: 'starred-mcp-analytics', path: 'MCP analytics', type: 'mcp_analytics', order: 4 },
+        ]),
+    },
+}
+
+// Default handlers ensure no request is unhandled by msw. Handlers listed first take precedence.
+export const worker: ReturnType<typeof setupWorker> = setupWorker(
+    ...mocksToHandlers(storybookDefaultMocks),
+    ...handlers
+)
 
 export const useStorybookMocks = (mocks: Mocks): void => worker.use(...mocksToHandlers(mocks))
 

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -47,6 +48,13 @@ Free use is licensed CC BY 4.0 and requires attribution to Open-Meteo."""
 
 @SourceRegistry.register
 class OpenMeteoSource(ResumableSource[OpenMeteoSourceConfig, OpenMeteoResumeConfig]):
+    codebase_detection = detect(
+        env=("^(OPEN_METEO|OPENMETEO)_",),
+        npm=("openmeteo",),
+        pypi=("openmeteo-requests", "openmeteo-sdk"),
+        swiftpm=("github.com/open-meteo/sdk", "github.com/open-meteo/open-meteo"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
     # Open-Meteo has only ever served `/v1/` and does not document it as a version users can choose
     # between, so there is nothing meaningful to pin.
@@ -62,7 +70,7 @@ class OpenMeteoSource(ResumableSource[OpenMeteoSourceConfig, OpenMeteoResumeConf
             name=ExternalDataSourceType.OPENMETEO,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Open-Meteo",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["weather", "forecast", "climate", "air quality"],
             caption=CAPTION,
             iconPath="/static/services/open_meteo.png",
@@ -72,6 +80,7 @@ class OpenMeteoSource(ResumableSource[OpenMeteoSourceConfig, OpenMeteoResumeConf
                 [
                     SourceFieldInputConfig(
                         name="locations",
+                        sync_setting=True,
                         label="Locations",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,
@@ -80,6 +89,7 @@ class OpenMeteoSource(ResumableSource[OpenMeteoSourceConfig, OpenMeteoResumeConf
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Historical start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

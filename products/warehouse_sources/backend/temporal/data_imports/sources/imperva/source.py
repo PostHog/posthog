@@ -2,6 +2,7 @@ from typing import cast
 
 from requests import HTTPError
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -45,6 +46,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ImpervaSource(ResumableSource[ImpervaSourceConfig, ImpervaResumeConfig]):
+    codebase_detection = detect(env=("^IMPERVA_", "^INCAPSULA_API_ID$", "^INCAPSULA_API_KEY$"))
+
     lists_tables_without_credentials = True
     supported_versions = ("v3",)
     default_version = "v3"
@@ -140,7 +143,7 @@ class ImpervaSource(ResumableSource[ImpervaSourceConfig, ImpervaResumeConfig]):
                 "Enter its API ID, API key, and your account ID. Grant read access to sites and statistics. "
                 "Statistics contain daily account totals. Each sync reads up to 90 days of available data."
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

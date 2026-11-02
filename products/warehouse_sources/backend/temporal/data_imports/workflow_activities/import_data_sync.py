@@ -1,3 +1,4 @@
+import time
 import uuid
 import socket
 import asyncio
@@ -5,11 +6,13 @@ import datetime as dt
 import functools
 import dataclasses
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any, NoReturn, Optional
 
 from django.conf import settings
 from django.db import InterfaceError, InternalError, OperationalError
-from django.db.models import Prefetch
+from django.db.models import F, Prefetch
+from django.db.models.functions import Greatest
 
 import redis.exceptions as redis_exceptions
 from jsonpath_ng.exceptions import JSONPathError
@@ -25,18 +28,21 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import UndecryptedIntegrationSecretError
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.activity_context import current_activity_attempt
-from posthog.temporal.common.errors import NonReportableError
+from posthog.temporal.common.errors import NonReportableApplicationError, NonReportableError
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
+from posthog.temporal.common.shutdown import DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT, ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.common.utils import is_stale_connection_read_only_error
 
+from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
+    WORKER_RESTART_ERROR_MESSAGE,
     ExternalDataSchema,
     UnsupportedSyncTypeError,
     apply_incremental_lookback,
     get_schema_if_exists,
+    prefix_promotion_rows_synced,
     process_incremental_value,
     resolve_sync_type,
     staged_handoff_resume_point,
@@ -52,20 +58,28 @@ from products.warehouse_sources.backend.temporal.data_imports.import_attempt imp
 )
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     TERMINAL_JOB_STATUSES,
+    get_import_attempt_duration_metric,
     get_progressless_stand_down_metric,
     get_worker_shutdown_handoff_metric,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
+    count_worker_deaths,
     handle_non_retryable_error,
     report_heartbeat_timeout,
     reset_pipeline_requested,
     trim_source_job_inputs,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.preemption import PreemptionConfig
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.ride_out import (
+    IMPORT_RIDE_OUT_FLAG,
+    DurableProgress,
+    RideOutConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     SchemaColumnTypeChangedException,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    is_invalid_version_race,
     is_transient_delta_maintenance_error,
     is_transient_object_store_error,
 )
@@ -80,6 +94,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.retry_limits import PROGRESSLESS_RESUMABLE_ATTEMPTS
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import setup_row_tracking
+from products.warehouse_sources.backend.temporal.data_imports.schema_flags import is_schema_flag_enabled
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     FAST_RETURN_PROBE_TIMEOUT,
@@ -117,9 +132,12 @@ from products.warehouse_sources.backend.temporal.data_imports.util import (
     PostHogInternalDatabaseError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workload_report import aworkload_reporting
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import ExternalDataSchemaSyncType, ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
+
+# The source type is known only after the job row loads. The attempt wrapper reads it on exit.
+_attempt_source_type: ContextVar[str | None] = ContextVar("import_attempt_source_type", default=None)
 
 
 @frozen
@@ -196,6 +214,94 @@ def _has_completed_schema_job(schema_id: uuid.UUID, team_id: int) -> bool:
     ).exists()
 
 
+# The v3 pipeline queues these sync types as `incremental`, and the loader still loads the queued
+# batches of a failed `incremental` run (`_drainable_after_failure` in the v3 consumer). Only these
+# can continue a failed job's cursor without losing the rows that job extracted.
+CONTINUABLE_SYNC_TYPES = frozenset(
+    {
+        ExternalDataSchema.SyncType.INCREMENTAL,
+        ExternalDataSchema.SyncType.WEBHOOK,
+        ExternalDataSchema.SyncType.XMIN,
+    }
+)
+
+
+# Bounds the walk back over a chain of jobs that each continued the one before. The loader only sees
+# batches of the last 14 days anyway, which is a handful of jobs at the hand-off cap.
+MAX_CONTINUED_JOBS = 20
+
+
+def _graceful_shutdown_timeout_seconds() -> float:
+    grace = settings.GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS
+    return float(grace) if grace is not None else DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT.total_seconds()
+
+
+def _import_shutdown_grace_seconds() -> float:
+    # At most half the SDK's graceful shutdown timeout, so the hand-off after the grace always has
+    # time to finish before the SDK cancels the activity.
+    grace = min(settings.DATA_WAREHOUSE_IMPORT_SHUTDOWN_GRACE_SECONDS, _graceful_shutdown_timeout_seconds() / 2)
+    return max(grace, 0.0)
+
+
+@database_sync_to_async_pool
+def _jobs_to_continue(job: ExternalDataJob, schema: ExternalDataSchema) -> list[ExternalDataJob]:
+    """The jobs before this one that worker restarts stopped, newest first, when this job can continue their cursor.
+
+    This job continues the cursor of the first one. Each job of the chain continued the one before
+    it, so the rows before that cursor are in the queued batches of all of them. The job finalizer
+    leaves those batches to the loader (see `update_external_job_status`), and the loader does not
+    complete this job while one of them is unloaded (`continued_job_ids`).
+
+    A reset in the chain is not visible on the job row, so the chain can include jobs before it.
+    Their batches then only make the loader refuse to complete this job once, and the next job
+    reads the source from the start.
+    """
+    if schema.sync_type not in CONTINUABLE_SYNC_TYPES:
+        return []
+    previous_jobs = (
+        ExternalDataJob.objects.filter(team_id=job.team_id, schema_id=schema.id, created_at__lt=job.created_at)
+        .order_by("-created_at")
+        .only("id", "status", "latest_error", "schema_snapshot", "workflow_run_id", "rows_synced")[:MAX_CONTINUED_JOBS]
+    )
+    chain: list[ExternalDataJob] = []
+    for previous in previous_jobs:
+        if previous.status != ExternalDataJob.Status.FAILED or previous.latest_error != WORKER_RESTART_ERROR_MESSAGE:
+            break
+        # A cursor belongs to the query that wrote it, and another sync type reads the source with another query.
+        if (previous.schema_snapshot or {}).get("sync_type") != schema.sync_type:
+            break
+        chain.append(previous)
+    return chain
+
+
+def _publishes_staged_full_refresh(
+    job: ExternalDataJob, sync_type: ExternalDataSchemaSyncType | None, team_id: int
+) -> bool:
+    """Whether an external destination stages this full refresh and publishes it on the final batch.
+
+    A destination writer stages a full refresh under the run id of one attempt, and each attempt
+    has its own run id. An attempt that resumes from the cursor of an earlier attempt or job
+    stages only the rows after that cursor, and its final batch publishes that part as the whole table.
+    """
+    if sync_type not in (None, ExternalDataSchema.SyncType.FULL_REFRESH):
+        return False
+    return bool(external_destination_ids_for(team_id, list(job.destination_ids or [])))
+
+
+@database_sync_to_async_pool
+def _carry_rows_synced(job: ExternalDataJob, continued: ExternalDataJob) -> None:
+    """Start the row count of `job` from the count of the job it continues.
+
+    Only a Completed job bills, and the continued job failed, so without this the rows it read
+    before the cursor never bill. `Greatest` keeps a repeated call from counting them twice.
+    """
+    carried = continued.rows_synced or 0
+    if carried <= 0:
+        return
+    ExternalDataJob.objects.filter(id=job.id).update(rows_synced=Greatest(F("rows_synced"), carried))
+    job.rows_synced = max(job.rows_synced or 0, carried)
+
+
 # An allow-list, not a deny-list: every sync type here leaves one row per key, and the reader
 # streams the table with no dedupe state. Append keeps a row per sync and CDC keeps change
 # history, so either would fan the child out once per duplicate. Webhook qualifies because its
@@ -218,6 +324,10 @@ if TYPE_CHECKING:
 # after the conversion shipped, the swap costs ~3s a run against a listing of ~0.5s per 100-row
 # page, putting break-even near 700 rows. This floor sits above it with margin.
 MIN_WAREHOUSE_PARENT_ROWS = 1_000
+
+# The longest server-provided delay that the next import attempt waits for. Anthropic's Claude Code
+# report asks for about an hour. The cap stops a wrong header from pushing a run back by days.
+MAX_SERVER_RETRY_DELAY = dt.timedelta(hours=2)
 
 
 def _parent_unusable_reason(parent: ExternalDataSchema | None) -> str | None:
@@ -369,6 +479,27 @@ def v3_pipeline_class(source_response: SourceResponse) -> "type[PipelineV3]":
 
 @activity.defn
 async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> PipelineResult:
+    started_at = time.monotonic()
+    outcome = "failed"
+    _attempt_source_type.set(None)
+    try:
+        result = await _run_import_attempt(inputs)
+        outcome = "handed_off" if result.get("handed_off") else "completed"
+        return result
+    except WorkerShuttingDownError:
+        outcome = "handed_off"
+        raise
+    except asyncio.CancelledError:
+        outcome = "cancelled"
+        raise
+    finally:
+        if activity.in_activity():
+            get_import_attempt_duration_metric(_attempt_source_type.get(), outcome).record(
+                time.monotonic() - started_at
+            )
+
+
+async def _run_import_attempt(inputs: ImportDataActivityInputs) -> PipelineResult:
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
     tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE, feature=Feature.IMPORT_PIPELINE)
@@ -387,8 +518,9 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
         # zombie predecessor stands down (its heartbeat timed out, but it may still be running).
         attempt=current_import_attempt(),
     ):
+        progress = DurableProgress(carry_over_counts=settings.DATA_WAREHOUSE_IMPORT_WATERMARK_CARRY_OVER_ENABLED)
         try:
-            return await _import_data_with_reporting(inputs, logger)
+            return await _import_data_with_reporting(inputs, logger, progress)
         except WorkerShuttingDownError:
             if not inputs.handoffs_are_free:
                 raise
@@ -398,6 +530,8 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                 should_trigger_cdp_producer=False,
                 handed_off=True,
                 handoff_attempts_used=current_activity_attempt(),
+                handoff_made_progress=progress.has_progress,
+                handoff_reason=progress.handoff_reason or "unknown",
             )
         except (OperationalError, InterfaceError, InternalError, PostHogInternalDatabaseError) as e:
             # The setup phase (resolving the job/schema/source rows for this run) reads PostHog's
@@ -420,8 +554,11 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
             raise NonReportableError(POSTHOG_DATABASE_UNAVAILABLE_MESSAGE) from e
 
 
-async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: FilteringBoundLogger) -> PipelineResult:
-    async with Heartbeater(factor=30), ShutdownMonitor() as shutdown_monitor:
+async def _import_data_with_reporting(
+    inputs: ImportDataActivityInputs, logger: FilteringBoundLogger, progress: DurableProgress
+) -> PipelineResult:
+    shutdown_grace_seconds = _import_shutdown_grace_seconds()
+    async with Heartbeater(factor=30), ShutdownMonitor(grace_seconds=shutdown_grace_seconds) as shutdown_monitor:
         await setup_row_tracking(inputs.team_id, inputs.schema_id)
 
         try:
@@ -471,6 +608,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
         await logger.adebug("Running import_data_activity")
 
         source_type = ExternalDataSourceType(model.pipeline.source_type)
+        _attempt_source_type.set(str(source_type))
 
         bind_job_context(
             team_id=inputs.team_id,
@@ -512,6 +650,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
         processed_incremental_earliest_value = None
         # The cursor as stored, before the lookback shift below moves it back.
         incremental_last_value_before_lookback = None
+        kept_rows_synced: int | None = None
 
         # A pending corrupt-delta revive rebuilds this table inside this run: handle_corrupted_delta_log
         # resets the Delta table before extraction, so the loader overwrites it from batch 0. The
@@ -523,6 +662,8 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
 
         use_stored_cursors = reset_pipeline is not True and not delta_rebuild_pending
         if use_stored_cursors:
+            # Read from the same config as the watermark, so the count matches the rows this attempt skips.
+            kept_rows_synced = prefix_promotion_rows_synced(schema.sync_type_config, str(model.id))
             processed_incremental_last_value = process_incremental_value(
                 schema.sync_type_config.get("incremental_field_last_value"),
                 schema.sync_type_config.get("incremental_field_type"),
@@ -577,6 +718,16 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
             preemption = PreemptionConfig(
                 quiet_period_seconds=settings.DATA_WAREHOUSE_IMPORT_PREEMPTION_QUIET_PERIOD_SECONDS,
                 watermark_carry_over_enabled=settings.DATA_WAREHOUSE_IMPORT_WATERMARK_CARRY_OVER_ENABLED,
+            )
+        # A deadline hand-off on the retry path would cost an attempt, so the same rule as preemption.
+        ride_out: RideOutConfig | None = None
+        if inputs.handoffs_are_free and await database_sync_to_async_pool(is_schema_flag_enabled)(
+            schema, IMPORT_RIDE_OUT_FLAG
+        ):
+            # The ride-out's stopwatch starts when the monitor reports the shutdown, after the shutdown grace.
+            ride_out = RideOutConfig(
+                grace_seconds=_graceful_shutdown_timeout_seconds() - shutdown_grace_seconds,
+                max_seconds=settings.DATA_WAREHOUSE_IMPORT_RIDE_OUT_MAX_SECONDS,
             )
 
         if schema.should_use_incremental_field:
@@ -669,11 +820,13 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 api_version=new_source.resolve_api_version(schema.api_version or model.pipeline.api_version),
                 fanout_warehouse_reuse=fanout_warehouse_reuse,
                 activity_attempt=current_import_attempt(),
+                worker_deaths=await asyncio.to_thread(count_worker_deaths, inputs, logger),
                 source_cursor=source_cursor_manager,
             )
 
             try:
-                config = new_source.parse_config(model.pipeline.job_inputs)
+                stored_inputs = await SourceInputsStore.aload(model.pipeline)
+                config = new_source.parse_config(stored_inputs)
             except CredentialsServiceFailure as e:
                 # A source whose config carries a PostHog-owned credential resolves it here, so a
                 # failure at this point is ours and not a corrupt `job_inputs`. Route it through the
@@ -713,6 +866,8 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                     )
 
             resumable_source_manager: ResumableSourceManager | None = None
+            continued_workflow_run_id: str | None = None
+            continued_job_ids: tuple[str, ...] = ()
             try:
                 # Some source setup functions bridge back to async code. Keep their outer blocking
                 # call off the shared default executor so that nested work cannot deadlock behind it.
@@ -720,6 +875,34 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 try:
                     if isinstance(new_source, ResumableSource):
                         resumable_source_manager = new_source.get_resumable_source_manager(source_inputs)
+                        reads_from_start = await database_sync_to_async_pool(_publishes_staged_full_refresh)(
+                            model, resolved_sync_type, inputs.team_id
+                        )
+                        if reads_from_start:
+                            await database_sync_to_async_pool(resumable_source_manager.clear_job_state)()
+                            await logger.ainfo(
+                                "Reading the source from the start: an external destination publishes this full refresh from one attempt"
+                            )
+                        jobs_to_continue = (
+                            await _jobs_to_continue(model, schema)
+                            if use_stored_cursors and not reads_from_start
+                            else []
+                        )
+                        if jobs_to_continue:
+                            job_to_continue = jobs_to_continue[0]
+                            continued_workflow_run_id = job_to_continue.workflow_run_id
+                            continued_job_ids = tuple(str(continued.id) for continued in jobs_to_continue)
+                            # The copy runs only while this job has no state of its own, so a later
+                            # execution never brings back a namespace this job already cleared.
+                            if await database_sync_to_async_pool(resumable_source_manager.continue_from_job)(
+                                str(job_to_continue.id)
+                            ):
+                                await _carry_rows_synced(model, job_to_continue)
+                                await logger.ainfo(
+                                    "Continuing the resumable cursor of the previous job, which stopped before it finished",
+                                    previous_job_id=str(job_to_continue.id),
+                                    continued_job_count=len(jobs_to_continue),
+                                )
                         source_response = await database_sync_to_async_pool(
                             new_source.source_for_pipeline, executor=executor
                         )(config, resumable_source_manager, source_inputs)
@@ -771,6 +954,12 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 resumed_incremental_run_uuid=resumed_incremental_run_uuid,
                 resumed_incremental_value=resumed_incremental_value,
                 preemption=preemption,
+                kept_rows_synced=kept_rows_synced,
+                continued_workflow_run_id=continued_workflow_run_id,
+                continued_job_ids=continued_job_ids,
+                ride_out=ride_out,
+                progress=progress,
+                shutdown_grace_seconds=shutdown_grace_seconds,
             )
         else:
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
@@ -845,9 +1034,9 @@ POSTHOG_DATABASE_UNAVAILABLE_MESSAGE = (
 
 
 def _log_worker_shutdown_during_import(logger: FilteringBoundLogger) -> None:
-    # One line per import still running when the worker got SIGTERM. A matching hand-off line from
-    # _handle_import_error means the import moved to another pod; without one, the import held
-    # this pod until it finished or the graceful shutdown timeout ran out.
+    # One line per import still running when the shutdown grace after SIGTERM ended. A matching
+    # hand-off line from _handle_import_error means the import moved to another pod; without one,
+    # the import held this pod until it finished or the graceful shutdown timeout ran out.
     info = activity.info()
     logger.info(
         "Worker shutdown detected while import is running",
@@ -1012,6 +1201,14 @@ async def _handle_import_error(
     if isinstance(error, RESTClientRetryableError):
         await logger.awarning(error_msg)
         await logger.adebug("REST client exhausted its retries - re-raising for Temporal retry")
+        if error.retry_after:
+            # Defer the next Temporal attempt past the server's window instead of holding a worker in it.
+            raise NonReportableApplicationError(
+                error_msg,
+                type=RESTClientRetryableError.__name__,
+                # Clamp the float first: timedelta raises OverflowError for inf or huge header values.
+                next_retry_delay=dt.timedelta(seconds=min(error.retry_after, MAX_SERVER_RETRY_DELAY.total_seconds())),
+            ) from error
         raise error
 
     # The web pods and the data-import workers deploy separately, so a table that ships in one
@@ -1060,6 +1257,17 @@ async def _handle_import_error(
     if is_transient_delta_maintenance_error(error):
         await logger.awarning(error_msg)
         await logger.adebug("Transient Delta maintenance/reset race - re-raising for Temporal retry")
+        raise NonReportableError(error_msg) from error
+
+    # execute_with_conflict_retry (ops.py) already refreshes the table handle and retries this exact
+    # race a bounded number of times - sustained contention (most commonly a heartbeat-timed-out
+    # zombie attempt still committing against the same table during a rolling deploy, see
+    # batch_consumer.py's MAX_INTERRUPTIONS comment) can still exhaust that budget. The race is
+    # self-healing on the next attempt, same as the maintenance-path race above, so it must not be
+    # captured as a bug either.
+    if is_invalid_version_race(error):
+        await logger.awarning(error_msg)
+        await logger.adebug("Delta commit-conflict race exhausted its internal retries - re-raising for Temporal retry")
         raise NonReportableError(error_msg) from error
 
     # DATA_WAREHOUSE_REDIS backs resumable-source checkpoints, row tracking, and sync locks — it's
@@ -1147,9 +1355,17 @@ async def _run(
     resumed_incremental_value: Any = None,
     preemption: PreemptionConfig | None = None,
     on_resumable_retry_budget: bool = False,
+    kept_rows_synced: int | None = None,
+    continued_workflow_run_id: str | None = None,
+    continued_job_ids: tuple[str, ...] = (),
+    ride_out: RideOutConfig | None = None,
+    progress: DurableProgress | None = None,
+    shutdown_grace_seconds: float = 0.0,
 ) -> PipelineResult:
     try:
-        reset_pipeline = reset_pipeline or source_response.destination_reset_required
+        reset_pipeline = (
+            reset_pipeline or source_response.destination_reset_required
+        ) and not source_response.reset_handed_over
         models = await _get_models(job_inputs.run_id)
 
         pipeline = v3_pipeline_class(source_response)(
@@ -1165,6 +1381,12 @@ async def _run(
             resumed_incremental_run_uuid=resumed_incremental_run_uuid,
             resumed_incremental_value=resumed_incremental_value,
             preemption=preemption,
+            kept_rows_synced=kept_rows_synced,
+            continued_workflow_run_id=continued_workflow_run_id,
+            continued_job_ids=continued_job_ids,
+            ride_out=ride_out,
+            progress=progress,
+            shutdown_grace_seconds=shutdown_grace_seconds,
         )
 
         result = await pipeline.run()

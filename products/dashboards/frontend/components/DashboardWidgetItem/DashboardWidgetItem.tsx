@@ -1,15 +1,20 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import React, { Suspense, useState } from 'react'
+import React, { Suspense, useCallback, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useInView } from 'react-intersection-observer'
 
 import { CardMetaRefreshButton } from 'lib/components/Cards/CardMetaRefreshButton'
 import { DashboardTileRefreshDataButton } from 'lib/components/Cards/InsightCard/DashboardTileRefreshDataButton'
 import { dashboardWidgetMenusLogic } from 'lib/components/Cards/InsightCard/dashboardWidgetMenusLogic'
-import { DashboardWidgetPlacementMenus } from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenus'
+import {
+    DashboardWidgetPlacementMenus,
+    type DashboardWidgetPlacementMenusProps,
+} from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenus'
 import { EditModeEdge } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { DashboardPlacement, DashboardTile, DashboardType } from '~/types'
@@ -77,13 +82,23 @@ type DashboardWidgetItemProps = {
     onRemove?: () => void
     onMoveToDashboard?: (target: Pick<DashboardType, 'id' | 'name'>) => void
     onCopyToDashboard?: (target: Pick<DashboardType, 'id' | 'name'>) => void
+    /** Opens the widget settings when the tile first renders, as right after the tile is added. */
+    openEditorOnMount?: boolean
+    onEditorClose?: () => void
     /** Injected by react-grid-layout / react-resizable — must render inside the card root. */
     children?: React.ReactNode
-} & Omit<React.HTMLAttributes<HTMLDivElement>, 'children'>
+} & Pick<DashboardWidgetPlacementMenusProps, 'tileGroupMoveOptions' | 'onMoveToTileGroup'> &
+    Omit<React.HTMLAttributes<HTMLDivElement>, 'children'>
 
 type DashboardWidgetItemContentProps = Omit<
     DashboardWidgetItemProps,
-    'children' | 'className' | 'style' | 'showResizeHandles' | 'canEnterEditModeFromEdge' | 'onEnterEditModeFromEdge'
+    | 'children'
+    | 'className'
+    | 'style'
+    | 'showResizeHandles'
+    | 'canEnterEditModeFromEdge'
+    | 'onEnterEditModeFromEdge'
+    | 'openEditorOnMount'
 > & {
     widget: NonNullable<DashboardTile['widget']>
     definition: DashboardWidgetDefinition | undefined
@@ -92,6 +107,7 @@ type DashboardWidgetItemContentProps = Omit<
     copyToDestinations: ReturnType<typeof useValues<typeof dashboardWidgetMenusLogic>>['copyToDestinations']
     editOpen: boolean
     setEditOpen: (open: boolean) => void
+    showBody: boolean
 }
 
 type DashboardWidgetItemBodyProps = {
@@ -156,12 +172,17 @@ function DashboardWidgetItemContent({
     onRemove,
     onMoveToDashboard,
     onCopyToDashboard,
+    tileGroupMoveOptions,
+    onMoveToTileGroup,
     copyToDestinations,
     editOpen,
     setEditOpen,
+    showBody,
+    onEditorClose,
 }: DashboardWidgetItemContentProps): JSX.Element {
     const widgetTypeLabel = getDashboardWidgetGroupLabel(headerCatalogEntry.groupId)
-    const defaultTitle = headerCatalogEntry.headerTitle ?? widgetTypeLabel
+    const defaultTitle =
+        definition?.getDefaultTitle?.(widget.config) ?? headerCatalogEntry.headerTitle ?? widgetTypeLabel
     const title = widget.name?.trim() || ''
     const description = widget.description?.trim() || ''
     const showDescription = tile.show_description !== false
@@ -176,6 +197,7 @@ function DashboardWidgetItemContent({
             : undefined
 
     const canUpdateWidgetTileConfig = !!onUpdateWidgetTile && !!canEditDashboard
+    const EditModal = definition?.EditModal
 
     const componentProps: DashboardWidgetComponentProps = {
         tileId: tile.id,
@@ -198,11 +220,11 @@ function DashboardWidgetItemContent({
               }
             : undefined,
         onConfigPublished: canUpdateWidgetTileConfig ? onConfigPublished : undefined,
+        onEdit: showEditingControls && EditModal ? () => setEditOpen(true) : undefined,
     }
 
     const TileFilters = definition?.TileFilters
     const { isAvailable: showTileFilters } = useWidgetAvailability(headerCatalogEntry.availability)
-    const EditModal = definition?.EditModal
     const MenuItems = definition?.MenuItems
 
     const hasDashboardSectionActions =
@@ -287,6 +309,8 @@ function DashboardWidgetItemContent({
                                         placementDestinations={copyToDestinations ?? []}
                                         onMoveToDashboard={onMoveToDashboard}
                                         onCopyToDashboard={onCopyToDashboard}
+                                        tileGroupMoveOptions={tileGroupMoveOptions}
+                                        onMoveToTileGroup={onMoveToTileGroup}
                                     />
                                 )}
                                 {onRemove && (
@@ -335,21 +359,25 @@ function DashboardWidgetItemContent({
                     onRefresh={isUnknownWidgetType ? undefined : onRefresh}
                     refreshing={isUnknownWidgetType ? false : loading}
                 >
-                    <ErrorBoundary
-                        className="flex min-h-0 min-w-0 flex-1 w-full max-w-full flex-col"
-                        exceptionProps={{
-                            feature: 'dashboard_widget',
-                            widget_type: widget.widget_type,
-                            tile_id: tile.id,
-                        }}
-                    >
-                        <DashboardWidgetItemBody
-                            widget={widget}
-                            definition={definition}
-                            componentProps={componentProps}
-                            dashboardId={dashboardId}
-                        />
-                    </ErrorBoundary>
+                    {showBody ? (
+                        <ErrorBoundary
+                            className="flex min-h-0 min-w-0 flex-1 w-full max-w-full flex-col"
+                            exceptionProps={{
+                                feature: 'dashboard_widget',
+                                widget_type: widget.widget_type,
+                                tile_id: tile.id,
+                            }}
+                        >
+                            <DashboardWidgetItemBody
+                                widget={widget}
+                                definition={definition}
+                                componentProps={componentProps}
+                                dashboardId={dashboardId}
+                            />
+                        </ErrorBoundary>
+                    ) : (
+                        <LemonSkeleton className="min-h-0 w-full flex-1" active={false} />
+                    )}
                 </WidgetCardBody>
             )}
             {EditModal &&
@@ -358,7 +386,10 @@ function DashboardWidgetItemContent({
                     <Suspense fallback={null}>
                         <EditModal
                             isOpen={editOpen}
-                            onClose={() => setEditOpen(false)}
+                            onClose={() => {
+                                setEditOpen(false)
+                                onEditorClose?.()
+                            }}
                             config={widget.config}
                             name={title}
                             defaultTitle={defaultTitle}
@@ -401,6 +432,10 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
             onRemove,
             onMoveToDashboard,
             onCopyToDashboard,
+            tileGroupMoveOptions,
+            onMoveToTileGroup,
+            openEditorOnMount,
+            onEditorClose,
             children,
             className,
             style,
@@ -409,13 +444,32 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
         ref
     ): JSX.Element | null {
         const widget = tile.widget
-        const [editOpen, setEditOpen] = useState(false)
+        const [editOpen, setEditOpen] = useState(!!openEditorOnMount && !!showEditingControls)
+        const exportPlacement = placement === DashboardPlacement.Export
+        const { ref: visibilityRef, inView } = useInView({
+            rootMargin: '500px',
+            triggerOnce: true,
+            initialInView: exportPlacement,
+            skip: exportPlacement,
+        })
+        const mergedRef = useCallback(
+            (node: HTMLDivElement | null): void => {
+                visibilityRef(node)
+                if (typeof ref === 'function') {
+                    ref(node)
+                } else if (ref) {
+                    ref.current = node
+                }
+            },
+            [ref, visibilityRef]
+        )
+        const gridClasses = className?.split(' ') ?? []
+        const interactionActive = gridClasses.includes('resizing') || gridClasses.includes('react-draggable-dragging')
 
         const { copyToDestinations } = useValues(
             dashboardWidgetMenusLogic({
                 instanceKey: widget ? `widget-${widget.id}` : `widget-tile-${tile.id}`,
                 dashboardId,
-                dashboards: undefined,
                 dashboard_tiles: widget?.dashboard_tiles,
             })
         )
@@ -432,12 +486,13 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
         const headerCatalogEntry =
             catalogEntryOrUndefined ?? getUnknownDashboardWidgetCatalogFallback(widget.widget_type)
         const isUnknownWidgetType = catalogEntryOrUndefined === undefined
+        const showBody = inView || exportPlacement || interactionActive || editOpen || !!headerCatalogEntry.live
 
         // react-grid-layout injects className/style via cloneElement — WidgetCard must be the root node
         // so decorative resize handles and RGL's .react-resizable-handle siblings share a parent (see InsightCard).
         return (
             <WidgetCard
-                ref={ref}
+                ref={mergedRef}
                 className={clsx('min-h-0', className)}
                 style={style}
                 {...divProps}
@@ -472,9 +527,13 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
                     onRemove={onRemove}
                     onMoveToDashboard={onMoveToDashboard}
                     onCopyToDashboard={onCopyToDashboard}
+                    tileGroupMoveOptions={tileGroupMoveOptions}
+                    onMoveToTileGroup={onMoveToTileGroup}
                     copyToDestinations={copyToDestinations}
                     editOpen={editOpen}
                     setEditOpen={setEditOpen}
+                    showBody={showBody}
+                    onEditorClose={onEditorClose}
                 />
             </WidgetCard>
         )

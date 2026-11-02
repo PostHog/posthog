@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FaireSource(ResumableSource[FaireSourceConfig, FaireResumeConfig]):
+    codebase_detection = detect(env=("^FAIRE_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     # Faire migrated integration partners from External API v1 to v2; this source is built
@@ -51,7 +54,7 @@ class FaireSource(ResumableSource[FaireSourceConfig, FaireResumeConfig]):
             name=ExternalDataSourceType.FAIRE,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Faire",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="Enter your Faire API access token to sync your brand's orders and product "
             "catalog into the PostHog Data warehouse.\n\nGenerate a token from the developer or "
             "API access settings in your Faire Brand Portal.",

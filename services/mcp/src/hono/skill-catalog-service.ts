@@ -1,6 +1,7 @@
 import { SkillCatalog } from '@/skills/skill-catalog'
 
 import type { RedisLike } from './cache/RedisCache'
+import { hashBytes } from './cache/SharedBlobCache'
 import { SkillArchiveCache, type SkillArchiveCacheOptions } from './cache/SkillArchiveCache'
 import {
     skillArchiveEventsTotal,
@@ -27,6 +28,8 @@ export interface SkillCatalogServiceOptions extends SkillArchiveCacheOptions {
 
 type LoadPhase = 'warmup' | 'poll'
 
+class SkillArchiveIntegrityError extends Error {}
+
 /**
  * Holds the parsed product skill catalog for this pod.
  *
@@ -36,6 +39,7 @@ type LoadPhase = 'warmup' | 'poll'
  * bad archive keeps the last catalog that parsed.
  */
 export class SkillCatalogService {
+    private readonly expectedArchiveSha: string | undefined
     private readonly archiveCache: SkillArchiveCache
     private readonly pollIntervalMs: number
     private readonly pollJitterMs: number
@@ -49,12 +53,20 @@ export class SkillCatalogService {
     private polling = false
 
     constructor(redis: RedisLike, opts: SkillCatalogServiceOptions = {}) {
-        const { pollIntervalMs, pollJitterMs, warmupTimeoutMs, warmupRetryMs, ...cacheOptions } = opts
+        const { expectedArchiveSha, pollIntervalMs, pollJitterMs, warmupTimeoutMs, warmupRetryMs, ...cacheOptions } =
+            opts
+        this.expectedArchiveSha = expectedArchiveSha
+        const validateArchive =
+            cacheOptions.validateArchive ?? ((bytes: Uint8Array) => void SkillCatalog.fromZip(bytes))
         this.archiveCache = new SkillArchiveCache(redis, {
             ...cacheOptions,
+            expectedArchiveSha,
             // Parse before the bytes can reach Redis: a release that does not parse
             // never becomes the fleet's shared copy.
-            validateArchive: cacheOptions.validateArchive ?? ((bytes) => void SkillCatalog.fromZip(bytes)),
+            validateArchive: (bytes) => {
+                this.verifyArchive(bytes)
+                validateArchive(bytes)
+            },
         })
         this.pollIntervalMs = pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS
         this.pollJitterMs = pollJitterMs ?? DEFAULT_POLL_JITTER_MS
@@ -81,7 +93,13 @@ export class SkillCatalogService {
                 return
             } catch (error) {
                 skillArchiveEventsTotal.inc({ phase: 'warmup', result: 'error' })
+                if (error instanceof SkillArchiveIntegrityError) {
+                    throw error
+                }
                 if (Date.now() + this.warmupRetryMs >= deadline) {
+                    if (this.expectedArchiveSha) {
+                        throw error
+                    }
                     console.error('[SkillCatalogService] warmup failed; starting without product skills:', error)
                     return
                 }
@@ -151,7 +169,14 @@ export class SkillCatalogService {
         this.install(changed.bytes, changed.sha, 'poll')
     }
 
+    private verifyArchive(bytes: Uint8Array): void {
+        if (this.expectedArchiveSha && hashBytes(bytes) !== this.expectedArchiveSha) {
+            throw new SkillArchiveIntegrityError('Skill archive does not match the expected SHA-256')
+        }
+    }
+
     private install(bytes: Uint8Array, sha: string, phase: LoadPhase): void {
+        this.verifyArchive(bytes)
         if (sha === this.archiveSha) {
             return
         }

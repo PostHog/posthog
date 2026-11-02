@@ -4,12 +4,14 @@ ENDPOINTS = {
     "surveys": "surveys",
     "questions": "surveys/{survey_id}/questions",
     "responses": "surveys/{survey_id}/responses",
+    "respondent_attributes": "respondents/{respondent_uuid}/attributes",
 }
 INCREMENTAL_FIELDS = {"responses": [incremental_field("collected_at")]}
 PRIMARY_KEYS = {
     "surveys": ["id"],
     "questions": ["survey_id", "id"],
     "responses": ["survey_id", "uuid"],
+    "respondent_attributes": ["respondent_uuid", "id"],
 }
 AUTH_ERRORS = {
     401: "Survicate rejected your API key. Check the key in Settings > Organization > Access Keys.",

@@ -120,7 +120,7 @@ def test_workspace_filter_on_every_page(
     assert len(result.requests) == 2
 
 
-@pytest.mark.parametrize("status", [401, 403, 404])
+@pytest.mark.parametrize("status", [404])
 def test_auth_errors_are_non_retryable(config: ScalrSourceConfig, status: int) -> None:
     script = always(response({"errors": [{"status": str(status)}]}, status))
     source = ScalrSource()

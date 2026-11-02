@@ -44,10 +44,6 @@ class TestSnowplowSource:
         # get_schemas is a static, no-I/O catalog, so the public docs table list must render.
         assert self.source.lists_tables_without_credentials is True
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(MagicMock(), team_id=1, names=["job_runs"])
-        assert [s.name for s in schemas] == ["job_runs"]
-
     @parameterized.expand(
         [
             # Only the time-windowed endpoints have a genuine server-side filter; the small

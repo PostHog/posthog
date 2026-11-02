@@ -6,7 +6,6 @@ from typing import Any, cast
 from django.db.models import Model, Prefetch
 
 import structlog
-import posthoganalytics
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
@@ -18,7 +17,7 @@ from posthog.hogql.database.database import Database
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.exceptions_capture import capture_exception
+from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, load_activity, log_activity
@@ -28,13 +27,25 @@ from posthog.temporal.common.client import sync_connect
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.data_modeling.backend.facade.api import (
+    MaterializationAlreadyRunningError,
+    MaterializationEngine,
     MaterializationFailedError,
     MaterializationForbiddenError,
     MaterializationRefusedError,
+    MaterializationRunDirection,
     SavedQueryNotFoundError,
+    disable_saved_query_materialization,
     enable_saved_query_materialization,
+    run_related_node_materializations,
 )
-from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.flags import is_managed_viewset_enabled
+from products.data_modeling.backend.facade.models import (
+    DataModelingJob,
+    DataModelingJobEngine,
+    DataWarehouseSavedQuery,
+    Node,
+    NodeType,
+)
 from products.warehouse_sources.backend.facade.models import sync_frequency_to_sync_frequency_interval
 
 from . import editing, incremental_config, lifecycle, lineage, sync_cadence, view_state
@@ -68,6 +79,19 @@ class DataWarehouseSavedQueryPagination(PageNumberPagination):
     page_size = 1000
 
 
+class SavedQueryResumeRequestSerializer(serializers.Serializer):
+    """Body of the `resume` action."""
+
+    engine = serializers.ChoiceField(
+        choices=MaterializationEngine.choices,
+        required=False,
+        help_text=(
+            "Resume only this engine's materialization: 'clickhouse' or 'trino' (the managed warehouse). "
+            "Omit it to resume every engine the query is suspended on."
+        ),
+    )
+
+
 class SavedQueryResumeSerializer(serializers.Serializer):
     resumed = serializers.BooleanField(help_text="False when the query's materialization was not suspended.")
 
@@ -94,6 +118,39 @@ class SavedQueryRunSerializer(serializers.Serializer):
         help_text="Rebuild the whole table instead of updating it incrementally. Has no effect on a "
         "view that is not incremental. This is how you reprocess history after changing what the "
         "query means without changing its text, or after upstream data was corrected.",
+    )
+    direction = serializers.ChoiceField(
+        choices=MaterializationRunDirection.choices,
+        required=False,
+        help_text=(
+            "Run this view with all upstream dependencies or all downstream dependents. "
+            "Omit this field to run only this view. You cannot use it with full_refresh."
+        ),
+    )
+    engine = serializers.ChoiceField(
+        choices=MaterializationEngine.choices,
+        required=False,
+        default=MaterializationEngine.CLICKHOUSE,
+        help_text=(
+            "Where to build the views. 'clickhouse' (the default) refreshes the tables that queries read. "
+            "'trino' builds the same views on the organization's managed warehouse only, and leaves the "
+            "ClickHouse tables as they are. 'trino' returns 403 when the organization has no managed "
+            "warehouse, and 409 while another managed warehouse run of these views is in progress."
+        ),
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs.get("direction") and attrs["full_refresh"]:
+            raise serializers.ValidationError(
+                {"full_refresh": "You cannot use full_refresh with an upstream or downstream run."}
+            )
+        return attrs
+
+
+class SavedQueryRunResponseSerializer(serializers.Serializer):
+    node_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text="The data model nodes included in the run.",
     )
 
 
@@ -196,25 +253,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             base_queryset = base_queryset.defer("columns")
 
         # Detect whether we should include managed views in the queryset
-        is_managed_viewset_enabled = posthoganalytics.feature_enabled(
-            "managed-viewsets",
-            str(self.team.uuid),
-            groups={
-                "organization": str(self.team.organization_id),
-                "project": str(self.team.id),
-            },
-            group_properties={
-                "organization": {
-                    "id": str(self.team.organization_id),
-                },
-                "project": {
-                    "id": str(self.team.id),
-                },
-            },
-            send_feature_flag_events=False,
-        )
-
-        if not is_managed_viewset_enabled:
+        if not is_managed_viewset_enabled(self.team):
             base_queryset = base_queryset.filter(managed_viewset__isnull=True)
 
         return base_queryset
@@ -268,7 +307,16 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 
-    @extend_schema(request=SavedQueryRunSerializer, responses={200: None})
+    @extend_schema(
+        request=SavedQueryRunSerializer,
+        responses={
+            200: SavedQueryRunResponseSerializer,
+            403: OpenApiResponse(
+                description="You can't edit every view in the run, or engine is 'trino' and the organization has no managed warehouse."
+            ),
+            409: OpenApiResponse(description="engine is 'trino' and a managed warehouse run is already in progress."),
+        },
+    )
     @action(
         methods=["POST"],
         detail=True,
@@ -282,14 +330,16 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             MissingDagNodeError,
             clear_incremental_state,
             materialize_saved_query,
+            run_trino_node_materializations,
         )
 
         body = SavedQueryRunSerializer(data=request.data)
         body.is_valid(raise_exception=True)
 
         saved_query = self.get_object()
+        on_trino = body.validated_data["engine"] == MaterializationEngine.TRINO
 
-        if body.validated_data["full_refresh"]:
+        if body.validated_data["full_refresh"] and not on_trino:
             # Dropping the watermark is the whole mechanism: the next run finds no progress to
             # build on and rebuilds. Commit it before dispatch, and outside any transaction the
             # dispatch could roll back, or the worker reads the old watermark and runs
@@ -298,11 +348,48 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             clear_incremental_state(saved_query, scope=TRINO_INCREMENTAL_SCOPE)
 
         try:
-            materialize_saved_query(saved_query, triggered_by_id=request.user.pk)
+            direction = body.validated_data.get("direction")
+            if direction or on_trino:
+                node = (
+                    Node.objects.filter(team_id=self.team_id, saved_query_id=saved_query.id)
+                    .order_by("created_at")
+                    .first()
+                )
+                if node is None:
+                    raise MissingDagNodeError
+                hidden_types = (
+                    frozenset()
+                    if self.user_access_control.check_access_level_for_resource("data_catalog", required_level="viewer")
+                    else frozenset({NodeType.METRIC})
+                )
+                if on_trino:
+                    node_ids = run_trino_node_materializations(
+                        self.team_id,
+                        node.id,
+                        direction=direction,
+                        user=cast(User, request.user),
+                        full_refresh=body.validated_data["full_refresh"],
+                        hidden_types=hidden_types,
+                    )
+                else:
+                    node_ids = run_related_node_materializations(
+                        self.team_id,
+                        node.id,
+                        direction=direction,
+                        user=cast(User, request.user),
+                        hidden_types=hidden_types,
+                    )
+            else:
+                node_id = materialize_saved_query(saved_query, triggered_by_id=request.user.pk)
+                node_ids = [str(node_id)]
         except MissingDagNodeError:
             raise exceptions.ValidationError(
                 detail="This view isn't fully set up to materialize. Save the query again, then try syncing."
             )
+        except MaterializationForbiddenError as error:
+            raise exceptions.PermissionDenied(str(error))
+        except MaterializationAlreadyRunningError as error:
+            raise Conflict(str(error))
 
         log_activity(
             organization_id=self.team.organization_id,
@@ -315,7 +402,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             detail=Detail(name=saved_query.name),
         )
 
-        return response.Response(status=status.HTTP_200_OK)
+        return response.Response({"node_ids": node_ids}, status=status.HTTP_200_OK)
 
     @extend_schema(
         request=incremental_config.CheckIncrementalSerializer,
@@ -333,7 +420,11 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         Parses the SQL only, so it is cheap enough to call from the editor as the user types. Lets
         the editor explain why the incremental option is unavailable before anything is saved.
         """
-        from products.data_modeling.backend.facade.api import IncrementalConfig, check_incremental_eligibility
+        from products.data_modeling.backend.facade.api import (
+            IncrementalConfig,
+            check_incremental_eligibility,
+            definition_database,
+        )
 
         body = incremental_config.CheckIncrementalSerializer(data=request.data)
         body.is_valid(raise_exception=True)
@@ -350,7 +441,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         result = check_incremental_eligibility(
             data["query"],
             config,
-            database=Database.create_for(team_id=self.team_id, user=cast(User, request.user)),
+            database=definition_database(self.team_id, user=cast(User, request.user)),
         )
         return response.Response(
             incremental_config.IncrementalEligibilitySerializer(
@@ -366,7 +457,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             status=status.HTTP_200_OK,
         )
 
-    @extend_schema(request=None, responses={200: SavedQueryResumeSerializer})
+    @extend_schema(request=SavedQueryResumeRequestSerializer, responses={200: SavedQueryResumeSerializer})
     @action(methods=["POST"], detail=True, required_scopes=["warehouse_view:write"])
     def resume(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Resume materialization suspended after repeated failures.
@@ -376,7 +467,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         """
         from products.data_modeling.backend.facade.api import unsuspend_saved_query
 
-        resumed = unsuspend_saved_query(self.get_object())
+        body = SavedQueryResumeRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        resumed = unsuspend_saved_query(self.get_object(), engine=body.validated_data.get("engine"))
 
         return response.Response({"resumed": bool(resumed)}, status=status.HTTP_200_OK)
 
@@ -393,31 +486,19 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         """
         saved_query: DataWarehouseSavedQuery = self.get_object()
 
-        if saved_query.managed_viewset is not None:
-            raise serializers.ValidationError("Cannot revert materialization of a query from a managed viewset.")
-
-        saved_query.revert_materialization()
-
-        # set data modeling node type to view
         try:
-            from products.data_modeling.backend.facade.api import update_node_type
-            from products.data_modeling.backend.facade.models import NodeType
-
-            update_node_type(saved_query, NodeType.VIEW)
-        except Exception as e:
-            capture_exception(e)
-            logger.exception("Failed to update node type to view", saved_query_name=saved_query.name)
-
-        log_activity(
-            organization_id=self.team.organization_id,
-            team_id=self.team_id,
-            user=cast(User, request.user),
-            was_impersonated=is_impersonated(request),
-            item_id=saved_query.id,
-            scope="DataWarehouseSavedQuery",
-            activity="materialization_disabled",
-            detail=Detail(name=saved_query.name),
-        )
+            disable_saved_query_materialization(
+                self.team_id,
+                saved_query.id,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated(request),
+            )
+        except SavedQueryNotFoundError:
+            raise exceptions.NotFound()
+        except MaterializationForbiddenError as e:
+            raise exceptions.PermissionDenied(str(e))
+        except (MaterializationRefusedError, MaterializationFailedError) as e:
+            raise serializers.ValidationError(str(e))
 
         return response.Response(status=status.HTTP_200_OK)
 

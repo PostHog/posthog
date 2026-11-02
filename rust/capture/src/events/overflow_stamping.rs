@@ -1,23 +1,8 @@
-//! Shared overflow-reason stamping for analytics + AI + OTEL pipelines.
-//!
-//! The in-process `OverflowLimiter` (governor-backed, keyed on
-//! `token:distinct_id`) used to live inside `KafkaSinkBase::prepare_record`,
-//! which meant every `DataType::AnalyticsMain` event reaching the sink was
-//! checked uniformly regardless of which handler produced it. After the
-//! sink became a pure mechanism layer, the check was moved upstream into
-//! `events::analytics::process_events`. That covers the `/e/`, `/batch/`,
-//! `/capture` etc. endpoints but NOT the AI (`/i/v0/ai`) or OTEL
-//! (`/i/v0/ai/otel`) endpoints, which build `ProcessedEvent`s of their own
-//! and call `state.sink.send` / `state.sink.send_batch` directly.
-//!
-//! [`stamp_overflow_reason`] is the single source of truth for that check
-//! so all three call sites — analytics, AI, OTEL — get identical semantics
-//! and metric labels. Triplicating the loop would invite drift; routing
-//! the call through one helper keeps the contract testable in one place.
-//!
-//! The helper is sync because the `OverflowLimiter` governor check is sync
-//! (unlike the replay redis limiter, which still lives in the recordings
-//! pipeline as an async call).
+//! Overflow-reason stamping shared by the analytics, AI (`/i/v0/ai`) and OTEL
+//! (`/i/v0/ai/otel`) handlers. The AI and OTEL handlers bypass
+//! `events::analytics::process_events`, so each one calls
+//! [`stamp_overflow_reason`] itself. The helper is sync because the
+//! `OverflowLimiter` check is sync.
 
 use std::sync::Arc;
 
@@ -30,34 +15,25 @@ use crate::v0_request::{DataType, OverflowReason, ProcessedEvent};
 /// event in `events`, consulting the lane's limiter and the pre-existing
 /// `force_overflow` flag stamped by event restrictions.
 ///
-/// Two lanes can overflow: `AnalyticsMain` always, and `AiEvents` only when
-/// its limiter is present — setup builds `ai_limiter` exactly when the AI
-/// overflow valve (`CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC`) is armed and
-/// overflow is enabled, so limiter presence IS the valve here; the kafka sink
-/// independently ignores overflow stamps on the AI lane when the topic is
-/// unset. Each lane consults its own limiter instance — `analytics_limiter`
-/// for `AnalyticsMain`, `ai_limiter` for `AiEvents` — so per-key budgets are
+/// Two lanes can overflow: `AnalyticsMain` and `AiEvents`. Each lane consults
+/// its own limiter instance — `analytics_limiter` for `AnalyticsMain`, `ai_limiter` for `AiEvents` — so per-key budgets are
 /// isolated: analytics volume never pushes a key's AI events into AI overflow
 /// and vice versa. The stamp carries no topic; the kafka sink maps it to the
 /// lane's own overflow topic, so an overflowing AI event lands on AI
 /// overflow, never analytics overflow.
 ///
-/// Behavior (matches the pre-refactor sink semantics byte-for-byte):
+/// Behavior:
 /// * Events on non-overflowing lanes are skipped (heatmaps, exceptions,
 ///   client-ingestion-warnings, etc. never overflow).
 /// * `force_overflow = true` (set upstream by event restrictions) emits the
 ///   `event_restriction` counter and short-circuits — the limiter is NOT
-///   consulted, matching the pre-refactor sink ordering. This runs on both
+///   consulted. This runs on both
 ///   overflowing lanes regardless of limiter presence: the sink honors
 ///   `force_overflow` on its own (restriction rerouting must survive
 ///   `OVERFLOW_ENABLED=false`). The counter can over-report in one corner —
-///   a forced AI event with the valve unarmed is counted here but ignored by
-///   the sink; only the sink knows the valve.
-/// * If the lane's limiter is `None`, only the `event_restriction`
-///   short-circuit can stamp anything; otherwise the event passes through
-///   untouched. The AI lane's limiter exists exactly when the AI overflow
-///   valve is armed and overflow is enabled, so absence keeps AI events out
-///   of rate-limit overflow.
+///   a forced AI event on Import is counted here but ignored by the sink;
+///   only the sink knows the deployment's lanes.
+/// * If the lane's limiter is `None`, the event passes through untouched.
 /// * If the lane's limiter is `Some`, `is_limited(event.key())` is consulted
 ///   and the resulting [`OverflowReason`] is stamped, plus the matching
 ///   counter. `ForceLimited` additionally sets `skip_person_processing =
@@ -65,9 +41,8 @@ use crate::v0_request::{DataType, OverflowReason, ProcessedEvent};
 ///   `force_disable_person_processing` header from the reason itself, so
 ///   the header does not depend on this stamp.
 ///
-/// Counter labels are intentionally identical to the pre-refactor sink so
-/// existing dashboards (filtering on `capture_events_rerouted_overflow`'s
-/// `reason` label) keep working without dashboard-side changes.
+/// Dashboards filter on the `reason` label of `capture_events_rerouted_overflow`,
+/// so keep its values stable.
 pub fn stamp_overflow_reason(
     events: &mut [ProcessedEvent],
     analytics_limiter: Option<&Arc<OverflowLimiter>>,
@@ -287,11 +262,6 @@ mod tests {
 
     #[test]
     fn non_analytics_main_events_are_skipped() {
-        // SnapshotMain has its own (replay) overflow path; HeatmapMain,
-        // ExceptionErrorTracking, ClientIngestionWarning, AnalyticsHistorical,
-        // and AiEvents (with the AI overflow valve unarmed) never overflow.
-        // Even with a limiter that would otherwise force-route their key, the
-        // helper must leave them untouched.
         let limiter = build_limiter(10, 10, Some("phc_t:u".to_string()), false);
         let mut events = vec![
             build_event(DataType::SnapshotMain, "phc_t", "u", false),
@@ -377,9 +347,6 @@ mod tests {
         );
     }
 
-    /// The AI lane joins overflow stamping only when its limiter is present
-    /// (setup builds it exactly when the AI overflow valve is armed); absent
-    /// keeps today's never-overflows behavior even for a force-routed key.
     #[rstest::rstest]
     #[case::limiter_present(true, Some(OverflowReason::ForceLimited), true)]
     #[case::limiter_absent(false, None, false)]
@@ -472,7 +439,7 @@ mod tests {
     }
 
     #[test]
-    fn ai_events_force_overflow_short_circuits_when_armed() {
+    fn ai_events_force_overflow_short_circuits() {
         // Identical to the analytics lane: a restriction-driven
         // force_overflow bypasses the limiter and leaves the reason unset;
         // the sink routes on the flag alone.

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SalesLoftSource(ResumableSource[SalesLoftSourceConfig, SalesloftResumeConfig]):
+    codebase_detection = detect(env=("^SALESLOFT_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"
@@ -63,7 +66,7 @@ class SalesLoftSource(ResumableSource[SalesLoftSourceConfig, SalesloftResumeConf
             name=ExternalDataSourceType.SALESLOFT,
             category=DataWarehouseSourceCategory.SALES,
             label="Salesloft",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Salesloft API key to pull your Salesloft data into the PostHog Data warehouse.
 
 You can create an API key in your [Salesloft account](https://accounts.salesloft.com/oauth/applications) under **Settings → Integrations → API**. Paste the **API key** (a Bearer token) below.""",

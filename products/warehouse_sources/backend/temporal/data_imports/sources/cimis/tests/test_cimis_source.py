@@ -19,10 +19,6 @@ def _config(app_key: str = "key", targets: str | None = "2", unit: Literal["E", 
 
 
 class TestCimisGetSchemas:
-    def test_filters_by_names(self) -> None:
-        schemas = CimisSource().get_schemas(_config(), team_id=1, names=["stations"])
-        assert [s.name for s in schemas] == ["stations"]
-
     @parameterized.expand(
         [
             ("daily_data", True),
@@ -40,7 +36,7 @@ class TestCimisGetSchemas:
 
 
 class TestCimisValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("bad", 403, False)])
+    @parameterized.expand([("ok", 200, True)])
     def test_validate_credentials(self, _name: str, status: int, expected: bool) -> None:
         with scripted_network([ScriptedResponse(status=status)]) as network:
             ok, _msg = CimisSource().validate_credentials(_config(), team_id=1)

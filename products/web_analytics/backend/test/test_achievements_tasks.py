@@ -1,6 +1,7 @@
 from collections.abc import Callable
 from datetime import datetime, timedelta
 
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -10,6 +11,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.clickhouse.client.execute import KillSwitchLevel
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.models.team.team import Team
 
 from products.web_analytics.backend.achievements import tasks
@@ -88,6 +90,37 @@ class TestRecomputeTask(BaseTest):
 
         self._run_team({**make_incremental_evaluators(), "cumulative_pageviews": pageviews})
         self.assertEqual(calls["count"], 0)
+
+    @parameterized.expand(
+        [
+            ("query_failure", ValueError("scan failed"), True),
+            ("contention", ConcurrencyLimitExceeded(), False),
+        ]
+    )
+    def test_failed_team_track_backs_off_until_a_successful_run(
+        self, _name: str, failure: Exception, backs_off: bool
+    ) -> None:
+        calls = 0
+
+        def pageviews(_ctx: EvalContext, _prior: PriorProgress) -> TrackEvaluation:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise failure
+            return TrackEvaluation(value=10_000, checkpoint={})
+
+        evaluators = {**make_incremental_evaluators(), "cumulative_pageviews": pageviews}
+        self._run_team(evaluators)
+        self._run_team(evaluators)
+        self.assertEqual(calls, 1 if backs_off else 2)
+
+        with time_machine.travel(timezone.now() + tasks.RETRY_BACKOFF_BASE + timedelta(minutes=1), tick=False):
+            self._run_team(evaluators)
+        progress = self._team_progress("traffic")
+        self.assertEqual(calls, 2)
+        self.assertEqual(progress.current_stage, 1)
+        self.assertEqual(progress.failed_attempts, 0)
+        self.assertIsNone(progress.retry_after)
 
     def test_team_track_stores_the_evaluator_checkpoint(self) -> None:
         checkpoint: dict[str, object] = {"counted_through": "2026-01-02T00:00:00+00:00"}
@@ -245,7 +278,12 @@ class TestRecomputeTask(BaseTest):
 
 class TestSweep(BaseTest):
     def _team_with_traffic_progress(
-        self, name: str, last_computed_at: datetime | None, current_stage: int = 0, visit_days_ago: int = 0
+        self,
+        name: str,
+        last_computed_at: datetime | None,
+        current_stage: int = 0,
+        visit_days_ago: int = 0,
+        retry_after: datetime | None = None,
     ) -> int:
         team = Team.objects.create(organization=self.organization, name=name)
         WebAnalyticsVisit(
@@ -259,6 +297,7 @@ class TestSweep(BaseTest):
             progress_value=0,
             state={},
             last_computed_at=last_computed_at,
+            retry_after=retry_after,
         ).save()
         return team.id
 
@@ -290,5 +329,8 @@ class TestSweep(BaseTest):
             "fresh": self._team_with_traffic_progress("fresh", now - timedelta(hours=1)),
             "maxed": self._team_with_traffic_progress("maxed", now - timedelta(days=2), current_stage=5),
             "inactive": self._team_with_traffic_progress("inactive", now - timedelta(days=2), visit_days_ago=30),
+            "backing_off": self._team_with_traffic_progress(
+                "backing off", None, retry_after=now + timedelta(minutes=5)
+            ),
         }
         self.assertEqual(self._sweep(batch_size, kill_switch), [team_ids[name] for name in expected])

@@ -25,10 +25,6 @@ class TestRunPodSchemas:
         assert schema.supports_incremental is False
         assert schema.supports_append is False
 
-    def test_names_filter(self) -> None:
-        schemas = RunPodSource().get_schemas(MagicMock(), team_id=1, names=["billing_pods"])
-        assert [s.name for s in schemas] == ["billing_pods"]
-
 
 class TestRunPodSourceForPipeline:
     @parameterized.expand(

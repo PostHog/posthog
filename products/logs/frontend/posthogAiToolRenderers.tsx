@@ -29,7 +29,11 @@ export const posthogAiToolRenderers: ToolRegistryEntry[] = [
     },
     ...labelled(['logs-services-create'], 'Logs services', <IconServer />),
     ...labelled(['logs-patterns', 'logs-patterns-diff'], 'Log patterns', <IconStack />),
-    ...labelled(['logs-count', 'logs-count-ranges', 'logs-sparkline-query'], 'Count logs', <IconPulse />),
+    ...labelled(
+        ['logs-count', 'logs-count-ranges', 'logs-sparkline-query', 'logs-group-by'],
+        'Count logs',
+        <IconPulse />
+    ),
     ...labelled(
         ['logs-attributes-list', 'logs-attribute-values-list', 'logs-facet-values-create'],
         'Log attributes',

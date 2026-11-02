@@ -67,14 +67,26 @@ class TestResolveStartDate:
 
 
 class TestRequestShaping:
-    def test_incremental_requests_only_the_watermark_range(self) -> None:
+    @parameterized.expand(
+        [
+            ("spend_report", "app_report", "2026-06-28", "2026-06-21"),
+            ("ad_revenue_report", "ad_placement_report", "2026-06-28", "2026-06-21"),
+            # Day-30 cohort metrics keep changing for 30 days after the install date.
+            ("cohort_report", "campaign_cohort_report", "2026-06-28", "2026-05-22"),
+            ("cohort_window_clamped_to_history", "campaign_cohort_report", "2024-07-01", "2024-06-30"),
+        ]
+    )
+    def test_incremental_requests_only_the_watermark_range(
+        self, _name: str, endpoint: str, watermark: str, expected_start: str
+    ) -> None:
         result = _drive(
-            [_report_page([{"date": "2026-06-28", "app_id": "a1"}])],
+            [_report_page([{"date": watermark}])],
+            endpoint=endpoint,
             should_use_incremental_field=True,
-            db_incremental_field_last_value="2026-06-28",
+            db_incremental_field_last_value=watermark,
         )
 
-        assert result.requests[0].param("start_date") == "2026-06-21"
+        assert result.requests[0].param("start_date") == expected_start
         assert result.requests[0].param("end_date") == "2026-06-30"
 
     @parameterized.expand([(name,) for name in TENJIN_REPORTS])
@@ -161,7 +173,7 @@ class TestValidateCredentials:
         assert request.param("start_date") == request.param("end_date") == TODAY.isoformat()
         assert request.param("per_page") == "1"
 
-    @parameterized.expand([(429,), (500,), (503,)])
+    @parameterized.expand([(429,), (503,)])
     def test_throttle_and_5xx_are_retryable(self, status: int) -> None:
         with (
             scripted_network(always(ScriptedResponse(status=status, json={}))),

@@ -11,11 +11,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
+    rest_api_resources,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    rename_parent_fields,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BasePaginator,
     SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     Endpoint,
     EndpointResource,
@@ -23,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.loop_returns.settings import (
+    CURSOR_PAGE_SIZE,
     DEFAULT_BACKFILL_DAYS,
     DEFAULT_PAGE_SIZE,
     FILTER_FIELDS,
@@ -119,8 +125,17 @@ def resolve_filter_field(should_use_incremental_field: bool, incremental_field: 
     return FILTER_FIELDS[0]
 
 
-def next_cursor(response: Response) -> Optional[str]:
-    """The `cursor` value of the response's `nextPageUrl`, or `None` on the last page.
+def _has_next_link(response: Response, link_key: str) -> bool:
+    try:
+        body = response.json()
+    except ValueError:
+        return False
+
+    return isinstance(body, dict) and bool(body.get(link_key))
+
+
+def next_cursor(response: Response, link_key: str = "nextPageUrl") -> Optional[str]:
+    """The `cursor` value of the response's next page link, or `None` on the last page.
 
     The cursor is re-applied to our own params rather than following `nextPageUrl` verbatim, so the
     window and state filters stay attached to every page even if Loop's link were to drop them.
@@ -133,7 +148,7 @@ def next_cursor(response: Response) -> Optional[str]:
     if not isinstance(body, dict):
         return None
 
-    next_page_url = body.get("nextPageUrl")
+    next_page_url = body.get(link_key)
     if not next_page_url or not isinstance(next_page_url, str):
         return None
 
@@ -147,16 +162,17 @@ def next_cursor(response: Response) -> Optional[str]:
     return cursors[0]
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class LoopReturnsResumeConfig:
-    """Checkpoint for a windowed endpoint: which state pass, which window, which page.
+    """Checkpoint for a windowed endpoint (which state pass, which window, which page), or the
+    next page cursor of a cursor-paginated endpoint, which has no `window_start`.
 
     Windows are re-derived from `window_start` with a fixed width, so boundaries stay identical
     across attempts. State is saved after a batch is yielded, so a crash re-yields the last batch
     (merge dedupes on the primary key) instead of skipping it.
     """
 
-    window_start: str
+    window_start: Optional[str] = None
     state_index: int = 0
     cursor: Optional[str] = None
 
@@ -279,12 +295,86 @@ class LoopReturnsPaginator(BasePaginator):
         return f"LoopReturnsPaginator(endpoint={self._config.name})"
 
 
+class LoopCursorPaginator(BasePaginator):
+    """Follows the `cursor` in the `next_page_url` of Loop's catalog endpoints.
+
+    Like `LoopReturnsPaginator`, the cursor is re-applied to our own params, so `limit` and
+    `sort_order` stay on every page even if Loop's link were to drop them.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._cursor: Optional[str] = None
+        self._previous_cursor: Optional[str] = None
+
+    def _apply(self, request: Request) -> None:
+        params = request.params if request.params is not None else {}
+        request.params = params
+        if self._cursor is not None:
+            params["cursor"] = self._cursor
+        else:
+            params.pop("cursor", None)
+
+    def init_request(self, request: Request) -> None:
+        self._apply(request)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        cursor = next_cursor(response, link_key="next_page_url")
+        if cursor is not None and cursor == self._previous_cursor:
+            # These tables are full refresh, so ending early would publish a truncated snapshot.
+            raise ValueError(f"Loop Returns pagination is not advancing (repeated cursor {cursor!r})")
+
+        if cursor is not None:
+            self._previous_cursor = cursor
+            self._cursor = cursor
+            self._has_next_page = True
+            return
+
+        if _has_next_link(response, "next_page_url"):
+            raise ValueError("Loop Returns next_page_url carried no usable cursor")
+
+        self._has_next_page = False
+
+    def update_request(self, request: Request) -> None:
+        self._apply(request)
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        if not self._has_next_page or self._cursor is None:
+            return None
+        return {"cursor": self._cursor}
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        cursor = state.get("cursor")
+        if not cursor:
+            return
+
+        self._cursor = str(cursor)
+        # Seed the repeat guard so a checkpoint whose cursor the API echoes back stops instead of
+        # looping on the same page.
+        self._previous_cursor = self._cursor
+        self._has_next_page = True
+
+    def __str__(self) -> str:
+        return "LoopCursorPaginator()"
+
+
 def get_resource(config: LoopReturnsEndpointConfig, should_use_incremental_field: bool) -> EndpointResource:
     endpoint: Endpoint = {"path": config.path}
     if config.data_selector is not None:
         endpoint["data_selector"] = config.data_selector
 
-    return {
+    params: dict[str, Any] = {}
+    if config.cursor_paginate:
+        params["limit"] = CURSOR_PAGE_SIZE
+        params["sort_order"] = "asc"
+    if config.parent is not None:
+        params["parent_id"] = {"type": "resolve", "resource": config.parent, "field": "id"}
+        # A parent deleted between the parent listing and its child request has no children left.
+        endpoint["response_actions"] = [{"status_code": 404, "action": "ignore"}]
+    if params:
+        endpoint["params"] = params
+
+    resource: EndpointResource = {
         "name": config.name,
         "table_name": config.name,
         "write_disposition": {"disposition": "merge", "strategy": "upsert"}
@@ -293,25 +383,33 @@ def get_resource(config: LoopReturnsEndpointConfig, should_use_incremental_field
         "endpoint": endpoint,
         "table_format": "delta",
     }
+    if config.parent is not None:
+        resource["include_from_parent"] = ["id"]
+        resource["data_map"] = rename_parent_fields(config.parent, {"id": config.parent_id_column})
+    return resource
 
 
 def probe_endpoint(api_key: str, api_version: str, endpoint: str) -> tuple[bool, str | None]:
     """One cheap request against `endpoint`, reporting whether the key can read it."""
     config = LOOP_RETURNS_ENDPOINTS[endpoint]
+    # A child endpoint needs a parent id in its path, and its parent's list needs the same scope.
+    probe_config = LOOP_RETURNS_ENDPOINTS[config.parent] if config.parent is not None else config
 
     params: dict[str, Any] = {}
-    if config.windowed:
+    if probe_config.windowed:
         end = datetime.now(UTC)
         params["from"] = _format_datetime(end - timedelta(hours=1))
         params["to"] = _format_datetime(end)
-    if config.paginate:
+    if probe_config.paginate:
         params["paginate"] = "true"
         params["pageSize"] = 1
+    if probe_config.cursor_paginate:
+        params["limit"] = 1
 
     session = make_tracked_session(redact_values=(api_key,))
     try:
         response = session.get(
-            f"{base_url(api_version)}{config.path}",
+            f"{base_url(api_version)}{probe_config.path}",
             headers={AUTH_HEADER: api_key},
             params=params,
             timeout=PROBE_TIMEOUT_SECONDS,
@@ -340,11 +438,17 @@ def validate_credentials(api_key: str, api_version: str, schema_name: Optional[s
     if is_valid:
         return True, None
 
-    # A key scoped for another table only is still a working key, so don't block setup on the
-    # returns probe alone. Per-table scope gaps surface in the table picker instead.
-    fallback_valid, _ = probe_endpoint(api_key, api_version, "destinations")
-    if fallback_valid:
-        return True, None
+    # A key scoped for other tables only is still a working key, so don't block setup on the
+    # returns probe alone. One table per scope is enough. Per-table scope gaps surface in the
+    # table picker instead.
+    probed_scopes = {LOOP_RETURNS_ENDPOINTS["returns"].required_scope}
+    for name, config in LOOP_RETURNS_ENDPOINTS.items():
+        if config.required_scope in probed_scopes:
+            continue
+        probed_scopes.add(config.required_scope)
+        fallback_valid, _ = probe_endpoint(api_key, api_version, name)
+        if fallback_valid:
+            return True, None
 
     return False, error
 
@@ -378,7 +482,9 @@ def loop_returns_source(
     window_end = now or datetime.now(UTC)
 
     paginator: BasePaginator
-    if config.windowed:
+    if config.cursor_paginate:
+        paginator = LoopCursorPaginator()
+    elif config.windowed:
         paginator = LoopReturnsPaginator(
             config=config,
             window_start=resolve_window_start(
@@ -406,16 +512,28 @@ def loop_returns_source(
         },
         "resources": [get_resource(config, should_use_incremental_field)],
     }
+    if config.parent is not None:
+        rest_config["resources"].insert(0, get_resource(LOOP_RETURNS_ENDPOINTS[config.parent], False))
+
+    # A fan-out's resume state lists every finished parent, which grows with the catalog, so a
+    # child endpoint restarts from its first parent instead.
+    resumable = (config.windowed or config.cursor_paginate) and config.parent is None
 
     initial_paginator_state: Optional[dict[str, Any]] = None
-    if config.windowed and resumable_source_manager.can_resume():
+    if resumable and resumable_source_manager.can_resume():
         resume_config = resumable_source_manager.load_state()
         if resume_config is not None:
             initial_paginator_state = dataclasses.asdict(resume_config)
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         # Called after each batch is yielded; `None` once the paginator is exhausted.
-        if not state or not state.get("window_start"):
+        if not state:
+            return
+        if config.cursor_paginate:
+            if state.get("cursor"):
+                resumable_source_manager.save_state(LoopReturnsResumeConfig(cursor=str(state["cursor"])))
+            return
+        if not state.get("window_start"):
             return
         resumable_source_manager.save_state(
             LoopReturnsResumeConfig(
@@ -425,20 +543,27 @@ def loop_returns_source(
             )
         )
 
-    resource = rest_api_resource(
-        rest_config,
-        team_id,
-        job_id,
-        # Window bounds are computed here, not by the framework's incremental params.
-        None,
-        resume_hook=save_checkpoint if config.windowed else None,
-        initial_paginator_state=initial_paginator_state,
-    )
+    resource: Resource
+    if config.parent is not None:
+        resource = next(
+            item for item in rest_api_resources(rest_config, team_id, job_id, None) if item.name == endpoint
+        )
+    else:
+        resource = rest_api_resource(
+            rest_config,
+            team_id,
+            job_id,
+            # Window bounds are computed here, not by the framework's incremental params.
+            None,
+            resume_hook=save_checkpoint if resumable else None,
+            initial_paginator_state=initial_paginator_state,
+        )
 
     return SourceResponse(
         name=endpoint,
         items=lambda: resource,
         primary_keys=list(config.primary_keys),
+        supports_resume=resumable,
         # Loop documents no ordering within a window, so a mid-sync watermark write could skip rows
         # the run never reached. "desc" defers that write to a successful job end
         # (finalize_desc_sort_incremental_value); the next run re-reads from the old watermark and

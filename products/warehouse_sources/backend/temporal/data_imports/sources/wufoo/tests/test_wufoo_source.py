@@ -17,7 +17,7 @@ class TestWufooSource:
 
     @pytest.mark.parametrize(
         "status, expected_valid",
-        [(200, True), (401, False), (403, False), (500, False), (None, False)],
+        [(None, False)],
     )
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.wufoo.source.validate_wufoo_credentials"

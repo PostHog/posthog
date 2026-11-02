@@ -1,7 +1,7 @@
 # Managed warehouse monitoring
 
 The **Monitoring** tab in Data ops gives every project in an organization the same operational view of its managed warehouse.
-It has two variants. Organizations on `data-warehouse-scene` see the DuckDB worker variant described first. Organizations on `data-warehouse-scene-trino` see the Trino variant described under "Trino variant". The Trino flag wins when both are on.
+It has two variants. Organizations on `data-warehouse-scene` see the DuckDB worker variant described first. Organizations on `managed-warehouse-trino-query` see the Trino variant described under "Trino variant". The Trino flag wins when both are on.
 
 ## Request path and tenant boundary
 
@@ -64,7 +64,7 @@ If a refresh fails, the UI preserves the last successful data and shows how to r
 
 ## Trino variant
 
-Organizations on `data-warehouse-scene-trino` query through Trino, so the tab shows query activity instead of workers.
+Organizations on `managed-warehouse-trino-query` query through Trino, so the tab shows query activity instead of workers.
 
 The browser calls:
 
@@ -87,7 +87,7 @@ The query counts are best-effort on a very busy warehouse and are not billing to
 Changing the Monitoring time range clears the previous range while the new metrics load.
 A failed refresh within the same range keeps the last successful data and shows a warning.
 
-MCP clients get the same data through `managed-warehouse-trino-monitoring-get` and `managed-warehouse-trino-metric-history-get`, available when `data-warehouse-scene-trino` is enabled.
+MCP clients get the same data through `managed-warehouse-trino-monitoring-get` and `managed-warehouse-trino-metric-history-get`, available when `managed-warehouse-trino-query` is enabled.
 An organization with both flags still sees the two DuckDB tools listed. Those calls return the 404 that names the Trino endpoints.
 
 ## Usage scope

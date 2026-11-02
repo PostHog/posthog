@@ -14,6 +14,9 @@ PAGE_LIMIT = 100
 # no watermark yet (first sync, or an endpoint we never expose as incremental).
 EPOCH = "1970-01-01T00:00:00Z"
 
+# GET /v2/calendar requires a from/to date range of at most 90 days and has no since/delta filter.
+CALENDAR_WINDOW_DAYS = 90
+
 
 def _updated_utc_incremental_field() -> list[IncrementalField]:
     return [
@@ -44,6 +47,12 @@ class OwnerRezEndpointConfig:
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     partition_key: Optional[str] = None
+    # When set, every request sends a required from/to date range covering this many nights,
+    # starting today.
+    date_window_days: Optional[int] = None
+    # When set, each item is exploded into one row per entry of this nested list, with the
+    # item's other top-level fields copied onto every row.
+    explode_field: Optional[str] = None
 
 
 OWNERREZ_ENDPOINTS: dict[str, OwnerRezEndpointConfig] = {
@@ -107,6 +116,32 @@ OWNERREZ_ENDPOINTS: dict[str, OwnerRezEndpointConfig] = {
         since_param="since_utc",
         incremental_fields=_updated_utc_incremental_field(),
         partition_key="created_utc",
+    ),
+    "Inquiries": OwnerRezEndpointConfig(
+        name="Inquiries",
+        path="/v2/inquiries",
+        since_param="since_utc",
+        incremental_fields=_updated_utc_incremental_field(),
+        partition_key="created_utc",
+    ),
+    "Owners": OwnerRezEndpointConfig(
+        name="Owners",
+        path="/v2/owners",
+        partition_key=None,
+    ),
+    "ListingSites": OwnerRezEndpointConfig(
+        name="ListingSites",
+        path="/v2/listingsites",
+        partition_key=None,
+    ),
+    "Calendar": OwnerRezEndpointConfig(
+        name="Calendar",
+        path="/v2/calendar",
+        # One row per property night over the forward window; the snapshot is replaced every sync.
+        date_window_days=CALENDAR_WINDOW_DAYS,
+        explode_field="days",
+        primary_keys=["property_id", "date"],
+        partition_key=None,
     ),
 }
 

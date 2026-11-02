@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ToriiSource(ResumableSource[ToriiSourceConfig, ToriiResumeConfig]):
+    codebase_detection = detect(env=("^TORII_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("1.1",)
     default_version = "1.1"
@@ -106,7 +109,7 @@ class ToriiSource(ResumableSource[ToriiSourceConfig, ToriiResumeConfig]):
             docsUrl="https://posthog.com/docs/cdp/sources/torii",
             iconPath="/static/services/torii.png",
             keywords=["saas management", "spend", "licenses", "contracts"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

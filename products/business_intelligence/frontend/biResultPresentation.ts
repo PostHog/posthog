@@ -28,7 +28,11 @@ export function biNumericValue(value: unknown): number | null {
 
 export function formatBIMeasure(value: unknown, settings?: ChartAxis['settings']): string {
     const number = biNumericValue(value)
-    return number === null
-        ? '—'
-        : String(formatDataWithSettings(number * (settings?.formatting?.style === 'percent' ? 100 : 1), settings))
+    if (number === null) {
+        if (value === null || value === undefined || typeof value === 'number') {
+            return '—'
+        }
+        return typeof value === 'object' ? JSON.stringify(value) : String(value)
+    }
+    return String(formatDataWithSettings(number * (settings?.formatting?.style === 'percent' ? 100 : 1), settings))
 }

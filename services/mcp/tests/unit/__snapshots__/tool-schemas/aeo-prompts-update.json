@@ -1,0 +1,60 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "active": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Turn the prompt on or off for future runs."
+        },
+        "archived": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "True archives the prompt: it is turned off, never runs again, and keeps its check history. Send it without other fields. False restores an archived prompt. A restored prompt stays off unless 'active' is true in the same request. An archived prompt accepts no other change until it is restored."
+        },
+        "current_version": {
+            "anyOf": [
+                {
+                    "minimum": 1,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Make an existing version current again, for example to roll back a text change. Adds no version. Fails with 400 when the version does not exist, and with 409 when another prompt has its text."
+        },
+        "id": {
+            "description": "The prompt id (a UUID), from `aeo-prompts-list`.",
+            "type": "string"
+        },
+        "prompt": {
+            "description": "New text for the prompt. A change adds the next version and makes it current; the prompt keeps its id and its check history, and each check records the version that ran. A change of case or whitespace only adds no version. Fails with 409 when another prompt in the set already has the text.",
+            "maxLength": 10000,
+            "type": "string"
+        },
+        "topic": {
+            "description": "New topic for the prompt. An empty string removes the topic. Past checks keep the topic they ran with.",
+            "maxLength": 200,
+            "type": "string"
+        },
+        "version_description": {
+            "description": "Optional note on what the text change does, stored on the new version. Send it with 'prompt'.",
+            "maxLength": 400,
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

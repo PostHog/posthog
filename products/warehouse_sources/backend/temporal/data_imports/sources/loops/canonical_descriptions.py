@@ -153,4 +153,21 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "softBounces": "Number of sends that soft bounced.",
         },
     },
+    "workflow_node_metrics": {
+        "description": "All-time email engagement counters for each email node in a workflow. Opens and clicks count sends, not events.",
+        "docs_url": "https://loops.so/docs/api-reference/get-workflow-node-metrics",
+        "columns": {
+            "workflowId": "The ID of the workflow the email node belongs to.",
+            "nodeId": "The ID of the SendEmailAction node the metrics belong to.",
+            "emailMessageId": "The ID of the email message the node sends.",
+            "subject": "The subject of the email message the node sends.",
+            "sends": "Number of sends.",
+            "opens": "Number of sends that were opened at least once.",
+            "clicks": "Number of sends where at least one link was clicked.",
+            "unsubscribes": "Number of unsubscribes.",
+            "spamReports": "Number of sends reported as spam.",
+            "hardBounces": "Number of sends that hard bounced.",
+            "softBounces": "Number of sends that soft bounced.",
+        },
+    },
 }

@@ -19,9 +19,9 @@ import deltalake.exceptions
 from jsonpath_ng.exceptions import JsonPathParserError
 from parameterized import parameterized
 from requests.exceptions import HTTPError, ProxyError
+from temporalio.exceptions import ApplicationError
 
 from posthog.credentials_service.errors import (
-    CredentialsServiceMisconfiguredError,
     CredentialsServiceUnreachableError,
     SecretInRecoveryError,
     SecretMissingError,
@@ -30,7 +30,10 @@ from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.shutdown import WorkerShuttingDownError
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import (
+    WORKER_RESTART_ERROR_MESSAGE,
+    ExternalDataSchema,
+)
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
@@ -38,6 +41,11 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
     _transient_error_message,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.preemption import PreemptionConfig
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.ride_out import (
+    IMPORT_RIDE_OUT_FLAG,
+    DurableProgress,
+    RideOutConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core import repartition_controller
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     SchemaColumnTypeChangedException,
@@ -46,6 +54,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline import PipelineV3
 from products.warehouse_sources.backend.temporal.data_imports.retry_limits import PROGRESSLESS_RESUMABLE_ATTEMPTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    ResumableSource,
     SimpleSource,
     SourceExtractionNotImplementedError,
 )
@@ -58,6 +67,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     UNKNOWN_RESOURCE_PREFIX,
     UnknownResourceError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.util import (
     NonRetryableException,
     PostHogInternalDatabaseError,
@@ -297,6 +307,114 @@ class TestSchemaSyncHistory(BaseTest):
         )
 
         assert has_completed_job is expected
+
+
+class TestJobToContinue(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "worker_restarts",
+                ExternalDataJob.Status.FAILED,
+                WORKER_RESTART_ERROR_MESSAGE,
+                "webhook",
+                "webhook",
+                True,
+            ),
+            ("user_cancel", ExternalDataJob.Status.FAILED, "Sync cancelled by user", "webhook", "webhook", False),
+            ("source_error", ExternalDataJob.Status.FAILED, "401 Unauthorized", "webhook", "webhook", False),
+            ("completed", ExternalDataJob.Status.COMPLETED, None, "webhook", "webhook", False),
+            (
+                "sync_type_changed",
+                ExternalDataJob.Status.FAILED,
+                WORKER_RESTART_ERROR_MESSAGE,
+                "incremental",
+                "webhook",
+                False,
+            ),
+            (
+                "full_refresh",
+                ExternalDataJob.Status.FAILED,
+                WORKER_RESTART_ERROR_MESSAGE,
+                "full_refresh",
+                "full_refresh",
+                False,
+            ),
+        ]
+    )
+    def test_only_a_job_stopped_by_worker_restarts_hands_its_cursor_to_the_next_job(
+        self, _name: str, status: str, latest_error: str | None, previous_sync_type: str, sync_type: str, expected: bool
+    ) -> None:
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=self.team, source_type="Stripe"
+        )
+        schema = ExternalDataSchema.objects.create(name="Charge", team=self.team, source=source, sync_type=sync_type)
+        previous = ExternalDataJob.objects.create(
+            team=self.team,
+            pipeline=source,
+            schema=schema,
+            status=status,
+            latest_error=latest_error,
+            schema_snapshot={"sync_type": previous_sync_type},
+        )
+        job = ExternalDataJob.objects.create(
+            team=self.team, pipeline=source, schema=schema, status=ExternalDataJob.Status.RUNNING
+        )
+        ExternalDataJob.objects.filter(id=previous.id).update(created_at=job.created_at - timedelta(minutes=1))
+
+        jobs_to_continue = cast(Any, module._jobs_to_continue).func(job, schema)
+
+        assert [continued.id for continued in jobs_to_continue] == ([previous.id] if expected else [])
+
+    def test_the_chain_stops_at_the_first_job_that_worker_restarts_did_not_stop(self) -> None:
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=self.team, source_type="Stripe"
+        )
+        schema = ExternalDataSchema.objects.create(name="Charge", team=self.team, source=source, sync_type="webhook")
+
+        def stopped() -> ExternalDataJob:
+            return ExternalDataJob.objects.create(
+                team=self.team,
+                pipeline=source,
+                schema=schema,
+                status=ExternalDataJob.Status.FAILED,
+                latest_error=WORKER_RESTART_ERROR_MESSAGE,
+                schema_snapshot={"sync_type": "webhook"},
+            )
+
+        before_completed = stopped()
+        completed = ExternalDataJob.objects.create(
+            team=self.team, pipeline=source, schema=schema, status=ExternalDataJob.Status.COMPLETED
+        )
+        older, newer = stopped(), stopped()
+        job = ExternalDataJob.objects.create(
+            team=self.team, pipeline=source, schema=schema, status=ExternalDataJob.Status.RUNNING
+        )
+        for minutes, previous in enumerate([newer, older, completed, before_completed], start=1):
+            ExternalDataJob.objects.filter(id=previous.id).update(
+                created_at=job.created_at - timedelta(minutes=minutes)
+            )
+
+        jobs_to_continue = cast(Any, module._jobs_to_continue).func(job, schema)
+
+        assert [continued.id for continued in jobs_to_continue] == [newer.id, older.id]
+
+    def test_the_continuing_job_counts_the_rows_of_the_job_it_continues_once(self) -> None:
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=self.team, source_type="Stripe"
+        )
+        schema = ExternalDataSchema.objects.create(name="Charge", team=self.team, source=source, sync_type="webhook")
+        stopped = ExternalDataJob.objects.create(
+            team=self.team, pipeline=source, schema=schema, status=ExternalDataJob.Status.FAILED, rows_synced=500
+        )
+        job = ExternalDataJob.objects.create(
+            team=self.team, pipeline=source, schema=schema, status=ExternalDataJob.Status.RUNNING, rows_synced=0
+        )
+
+        cast(Any, module._carry_rows_synced).func(job, stopped)
+        cast(Any, module._carry_rows_synced).func(job, stopped)
+
+        job.refresh_from_db()
+        assert job.rows_synced == 500
 
 
 @pytest.mark.asyncio
@@ -735,13 +853,25 @@ async def test_http_401_is_reraised_for_activity_retry():
 
 
 @pytest.mark.asyncio
-async def test_rest_client_retryable_error_logged_as_warning_without_source_opt_in():
+@pytest.mark.parametrize(
+    "retry_after, expected_delay",
+    [
+        (None, None),
+        (3600.0, timedelta(hours=1)),
+        (86400.0, module.MAX_SERVER_RETRY_DELAY),
+        (float("inf"), module.MAX_SERVER_RETRY_DELAY),
+        (1e15, module.MAX_SERVER_RETRY_DELAY),
+    ],
+)
+async def test_rest_client_retryable_error_logged_as_warning_without_source_opt_in(
+    retry_after: float | None, expected_delay: timedelta | None
+):
     # RESTClientRetryableError only escapes the shared REST engine's tenacity retry loop once its
     # own attempts (rate limits, transient 5xx, connection resets/timeouts) are exhausted. It must
     # be honored by type even when the source's get_retryable_errors doesn't list the message, so
     # every REST-based source gets this benign, self-recovering failure logged as a warning instead
     # of minting error-tracking noise.
-    error = RESTClientRetryableError("HTTP 429 for https://api.example.com/v3/orders/")
+    error = RESTClientRetryableError("HTTP 429 for https://api.example.com/v3/orders/", retry_after=retry_after)
     source = mock.MagicMock(spec=SimpleSource)
     source.get_non_retryable_errors.return_value = {}
     source.get_retryable_errors.return_value = set()
@@ -752,9 +882,15 @@ async def test_rest_client_retryable_error_logged_as_warning_without_source_opt_
     logger.adebug = mock.AsyncMock()
 
     with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
-        with pytest.raises(RESTClientRetryableError):
+        with pytest.raises(NonReportableError) as raised:
             await module._handle_import_error(mock.MagicMock(), logger, error)
 
+    if expected_delay is None:
+        assert raised.value is error
+    else:
+        assert isinstance(raised.value, ApplicationError)
+        assert raised.value.type == "RESTClientRetryableError"
+        assert raised.value.next_retry_delay == expected_delay
     logger.awarning.assert_awaited_once()
     logger.aexception.assert_not_awaited()
 
@@ -866,6 +1002,31 @@ async def test_transient_delta_maintenance_error_reraised_as_non_reportable():
     error = deltalake.exceptions.DeltaError(
         "Kernel error: File not found: dlt/team_1_stripe_source/customer/_delta_log/00000000000000000017.json"
     )
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+        with pytest.raises(NonReportableError) as exc_info:
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    assert exc_info.value.__cause__ is error
+    logger.awarning.assert_awaited_once()
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_invalid_version_race_reraised_as_non_reportable():
+    # execute_with_conflict_retry (ops.py) already retries this exact race a bounded number of
+    # times; sustained contention (a zombie attempt still committing during a rolling deploy) can
+    # exhaust that budget and let the raw DeltaError escape here. Self-healing on the next Temporal
+    # attempt, same as the maintenance-path race above, so it must not be captured as a bug either.
+    error = deltalake.exceptions.DeltaError("Invalid table version: 124")
     source = mock.MagicMock(spec=SimpleSource)
     source.get_non_retryable_errors.return_value = {}
     source.get_retryable_errors.return_value = set()
@@ -1094,9 +1255,12 @@ def _patched_activity_reaching_run(source_mock, schema, api_version=None, workfl
         mock.patch.object(module, "bind_job_context"),
         mock.patch.object(module, "trim_source_job_inputs", new=mock.AsyncMock()),
         mock.patch.object(module, "database_sync_to_async_pool", new=_passthrough),
+        mock.patch.object(module, "is_schema_flag_enabled", return_value=False),
         mock.patch.object(module.SourceRegistry, "is_registered", return_value=True),
         mock.patch.object(module.SourceRegistry, "get_source", return_value=source_mock),
-        mock.patch.object(module, "_run", new=mock.AsyncMock(return_value=mock.sentinel.run_result)) as run_mock,
+        mock.patch.object(
+            module, "_run", new=mock.AsyncMock(return_value={"should_trigger_cdp_producer": False})
+        ) as run_mock,
     ):
         yield run_mock
 
@@ -1181,6 +1345,73 @@ async def test_reset_run_drops_cursors_but_preserves_sync_history(
     assert source_inputs.db_incremental_field_last_value is None
     assert source_inputs.last_synced_at is None
     assert source_inputs.schema_has_ever_synced is expected_has_ever_synced
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "reset_pipeline,copied,continues",
+    [(False, True, True), (False, False, True), (True, False, False)],
+    ids=["first_execution", "later_execution", "reset"],
+)
+async def test_a_resumable_run_continues_the_cursor_of_the_interrupted_job_unless_it_resets(
+    reset_pipeline: bool, copied: bool, continues: bool
+) -> None:
+    source = mock.MagicMock(spec=ResumableSource)
+    source.parse_config.return_value = {}
+    source.source_for_pipeline.return_value = mock.MagicMock()
+    manager = source.get_resumable_source_manager.return_value
+    schema = _incremental_schema(is_incremental=True, lookback_seconds=None)
+
+    interrupted = mock.MagicMock(id="interrupted-job", workflow_run_id="interrupted-run")
+    earlier = mock.MagicMock(id="earlier-job", workflow_run_id="earlier-run")
+    manager.continue_from_job.return_value = copied
+
+    with (
+        _patched_activity_reaching_run(source, schema) as run_mock,
+        mock.patch.object(module, "_jobs_to_continue", new=mock.AsyncMock(return_value=[interrupted, earlier])),
+        mock.patch.object(module, "_carry_rows_synced", new=mock.AsyncMock()) as carry,
+    ):
+        await import_data_activity_sync(dataclasses.replace(_inputs_no_reset(), reset_pipeline=reset_pipeline))
+
+    if continues:
+        manager.continue_from_job.assert_called_once_with("interrupted-job")
+    else:
+        manager.continue_from_job.assert_not_called()
+    # A later execution of the continuing job copies nothing, and still holds the loader to the stopped jobs.
+    assert carry.await_count == (1 if continues and copied else 0)
+    assert run_mock.call_args.kwargs["continued_workflow_run_id"] == ("interrupted-run" if continues else None)
+    assert run_mock.call_args.kwargs["continued_job_ids"] == (("interrupted-job", "earlier-job") if continues else ())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "is_incremental,external_destination_ids,reads_from_start",
+    [(False, ["dest-1"], True), (False, [], False), (True, ["dest-1"], False)],
+    ids=["full_refresh_to_destination", "full_refresh_to_warehouse_only", "incremental_to_destination"],
+)
+async def test_a_full_refresh_to_an_external_destination_reads_the_source_from_the_start(
+    is_incremental: bool, external_destination_ids: list[str], reads_from_start: bool
+) -> None:
+    source = mock.MagicMock(spec=ResumableSource)
+    source.parse_config.return_value = {}
+    source.source_for_pipeline.return_value = mock.MagicMock()
+    manager = source.get_resumable_source_manager.return_value
+    manager.continue_from_job.return_value = True
+    schema = _incremental_schema(is_incremental=is_incremental, lookback_seconds=None)
+    interrupted = mock.MagicMock(id="interrupted-job", workflow_run_id="interrupted-run")
+
+    with (
+        _patched_activity_reaching_run(source, schema) as run_mock,
+        mock.patch.object(module, "external_destination_ids_for", return_value=external_destination_ids),
+        mock.patch.object(module, "_jobs_to_continue", new=mock.AsyncMock(return_value=[interrupted])),
+        mock.patch.object(module, "_carry_rows_synced", new=mock.AsyncMock()),
+    ):
+        await import_data_activity_sync(_inputs_no_reset())
+
+    # The destination publishes the staging table of this attempt alone, so it must hold every row.
+    assert manager.clear_job_state.called is reads_from_start
+    assert manager.continue_from_job.called is not reads_from_start
+    assert run_mock.call_args.kwargs["continued_job_ids"] == (() if reads_from_start else ("interrupted-job",))
 
 
 @pytest.mark.asyncio
@@ -1520,7 +1751,6 @@ async def test_probe_never_runs_when_not_eligible_or_resetting(overrides: dict[s
         (SecretInRecoveryError("HUBSPOT_APP_CLIENT_SECRET"), False),
         (SecretMissingError("HUBSPOT_APP_CLIENT_SECRET"), True),
         (SecretMissingError("HUBSPOT_APP_CLIENT_SECRET", disabled_reason="unconfigured"), True),
-        (CredentialsServiceMisconfiguredError("CREDENTIALS_SERVICE_URL"), True),
         (CredentialsServiceUnreachableError("connection refused"), False),
     ],
 )
@@ -1696,6 +1926,44 @@ def test_a_scheduled_full_refresh_resets_only_while_the_schema_is_due(
         )
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "run_reset,destination_reset_required,reset_handed_over,expected",
+    [
+        pytest.param(True, False, False, True, id="run_asked_for_a_reset"),
+        pytest.param(False, True, False, True, id="source_asked_for_a_reset"),
+        pytest.param(True, True, True, False, id="source_handed_the_reset_over"),
+    ],
+)
+async def test_the_pipeline_deletes_the_table_only_for_a_reset_the_source_kept(
+    run_reset: bool, destination_reset_required: bool, reset_handed_over: bool, expected: bool
+) -> None:
+    source_response = SourceResponse(
+        name="users",
+        items=lambda: iter(()),
+        primary_keys=["id"],
+        destination_reset_required=destination_reset_required,
+        reset_handed_over=reset_handed_over,
+    )
+    pipeline_cls = mock.MagicMock()
+    pipeline_cls.return_value.run = mock.AsyncMock()
+
+    with (
+        mock.patch.object(module, "_get_models", new=mock.AsyncMock()),
+        mock.patch.object(module, "v3_pipeline_class", return_value=pipeline_cls),
+    ):
+        await module._run(
+            mock.MagicMock(),
+            source_response,
+            mock.AsyncMock(),
+            reset_pipeline=run_reset,
+            shutdown_monitor=mock.MagicMock(),
+            resumable_source_manager=None,
+        )
+
+    assert pipeline_cls.call_args.args[3] is expected
+
+
 _STORED_WATERMARK = datetime(2026, 6, 14, 15, 33, 31, 802833)
 _QUEUED_UP_TO = datetime(2026, 6, 20, 8, 0, 0)
 
@@ -1706,7 +1974,11 @@ _QUEUED_UP_TO = datetime(2026, 6, 20, 8, 0, 0)
     [
         pytest.param(
             True,
-            {"run_uuid": "wfrun-1-a1", "last_value": "2026-06-21T00:00:00", "resume_value": "2026-06-20T08:00:00"},
+            {
+                "run_uuid": "wfrun-1-a1",
+                "last_value": "2026-06-21T00:00:00",
+                "ordered_resume_value": "2026-06-20T08:00:00",
+            },
             False,
             _QUEUED_UP_TO,
             _QUEUED_UP_TO,
@@ -1715,7 +1987,11 @@ _QUEUED_UP_TO = datetime(2026, 6, 20, 8, 0, 0)
         # The lookback of one hour applies to a run that starts from the stored watermark.
         pytest.param(
             False,
-            {"run_uuid": "wfrun-1-a1", "last_value": "2026-06-21T00:00:00", "resume_value": "2026-06-20T08:00:00"},
+            {
+                "run_uuid": "wfrun-1-a1",
+                "last_value": "2026-06-21T00:00:00",
+                "ordered_resume_value": "2026-06-20T08:00:00",
+            },
             False,
             _STORED_WATERMARK - timedelta(hours=1),
             None,
@@ -1723,7 +1999,11 @@ _QUEUED_UP_TO = datetime(2026, 6, 20, 8, 0, 0)
         ),
         pytest.param(
             True,
-            {"run_uuid": "wfrun-0-a1", "last_value": "2026-06-21T00:00:00", "resume_value": "2026-06-20T08:00:00"},
+            {
+                "run_uuid": "wfrun-0-a1",
+                "last_value": "2026-06-21T00:00:00",
+                "ordered_resume_value": "2026-06-20T08:00:00",
+            },
             False,
             _STORED_WATERMARK - timedelta(hours=1),
             None,
@@ -1739,7 +2019,11 @@ _QUEUED_UP_TO = datetime(2026, 6, 20, 8, 0, 0)
         ),
         pytest.param(
             True,
-            {"run_uuid": "wfrun-1-a1", "last_value": "2026-06-21T00:00:00", "resume_value": "2026-06-20T08:00:00"},
+            {
+                "run_uuid": "wfrun-1-a1",
+                "last_value": "2026-06-21T00:00:00",
+                "ordered_resume_value": "2026-06-20T08:00:00",
+            },
             True,
             None,
             None,
@@ -1777,25 +2061,96 @@ async def test_an_interrupted_incremental_import_continues_after_its_last_queued
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("handoffs_are_free", [True, False])
-async def test_a_free_handoff_is_a_result_and_any_other_handoff_is_a_retry(handoffs_are_free: bool):
+@pytest.mark.parametrize(
+    "handoffs_are_free,made_progress",
+    [(True, False), (True, True), (False, False)],
+    ids=["free_without_progress", "free_with_progress", "retry"],
+)
+async def test_a_free_handoff_is_a_result_and_any_other_handoff_is_a_retry(
+    handoffs_are_free: bool, made_progress: bool
+):
     error = WorkerShuttingDownError("5", "import_data_activity_sync", "data-warehouse-task-queue", 2, "wf", "wt")
     inputs = dataclasses.replace(_inputs_no_reset(), handoffs_are_free=handoffs_are_free, prior_attempts=4)
+
+    async def import_then_hand_off(_inputs, _logger, progress):
+        if made_progress:
+            progress.mark("resume_commit")
+            progress.record_handoff_reason("progress")
+        raise error
 
     with (
         mock.patch.object(module, "tag_queries"),
         mock.patch.object(module, "report_heartbeat_timeout"),
         mock.patch.object(module, "aworkload_reporting", return_value=_FakeAsyncCM()),
-        mock.patch.object(module, "_import_data_with_reporting", new=mock.AsyncMock(side_effect=error)),
+        mock.patch.object(module, "_import_data_with_reporting", new=mock.AsyncMock(side_effect=import_then_hand_off)),
         mock.patch.object(module, "current_activity_attempt", return_value=2),
     ):
         if handoffs_are_free:
             result = await import_data_activity_sync(inputs)
             # The workflow adds the attempts up, so it needs the attempt number of this execution only.
-            assert result == {"should_trigger_cdp_producer": False, "handed_off": True, "handoff_attempts_used": 2}
+            assert result == {
+                "should_trigger_cdp_producer": False,
+                "handed_off": True,
+                "handoff_attempts_used": 2,
+                "handoff_made_progress": made_progress,
+                "handoff_reason": "progress" if made_progress else "unknown",
+            }
         else:
             with pytest.raises(WorkerShuttingDownError):
                 await import_data_activity_sync(inputs)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "behavior,handoffs_are_free,expected_outcome",
+    [
+        ("completes", False, "completed"),
+        ("hands_off", True, "handed_off"),
+        ("hands_off", False, "handed_off"),
+        ("raises", False, "failed"),
+        ("cancelled", False, "cancelled"),
+    ],
+)
+async def test_each_attempt_records_one_duration_with_its_outcome(
+    behavior: str, handoffs_are_free: bool, expected_outcome: str
+):
+    shutdown = WorkerShuttingDownError("5", "import_data_activity_sync", "data-warehouse-task-queue", 2, "wf", "wt")
+
+    async def import_attempt(_inputs, _logger, _progress):
+        module._attempt_source_type.set("MongoDB")
+        if behavior == "hands_off":
+            raise shutdown
+        if behavior == "raises":
+            raise ValueError("boom")
+        if behavior == "cancelled":
+            raise asyncio.CancelledError()
+        return {"should_trigger_cdp_producer": False}
+
+    inputs = dataclasses.replace(_inputs_no_reset(), handoffs_are_free=handoffs_are_free)
+
+    with (
+        mock.patch.object(module, "tag_queries"),
+        mock.patch.object(module, "report_heartbeat_timeout"),
+        mock.patch.object(module, "aworkload_reporting", return_value=_FakeAsyncCM()),
+        mock.patch.object(module, "_import_data_with_reporting", new=mock.AsyncMock(side_effect=import_attempt)),
+        mock.patch.object(module, "current_activity_attempt", return_value=1),
+        mock.patch.object(module, "get_import_attempt_duration_metric") as metric_mock,
+        mock.patch.object(module.activity, "in_activity", return_value=True),
+    ):
+        if behavior == "completes" or (behavior == "hands_off" and handoffs_are_free):
+            await import_data_activity_sync(inputs)
+        else:
+            expected_error = {
+                "hands_off": WorkerShuttingDownError,
+                "raises": ValueError,
+                "cancelled": asyncio.CancelledError,
+            }[behavior]
+            with pytest.raises(expected_error):
+                await import_data_activity_sync(inputs)
+
+    metric_mock.assert_called_once_with("MongoDB", expected_outcome)
+    metric_mock.return_value.record.assert_called_once()
+    assert metric_mock.return_value.record.call_args.args[0] >= 0
 
 
 @pytest.mark.asyncio
@@ -1840,6 +2195,83 @@ async def test_the_pipeline_preempts_only_with_the_setting_on_and_free_handoffs(
         await import_data_activity_sync(dataclasses.replace(_inputs_no_reset(), handoffs_are_free=handoffs_are_free))
 
     assert run_mock.await_args.kwargs["preemption"] == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "flag_enabled,handoffs_are_free,grace,shutdown_grace,expected",
+    [
+        pytest.param(True, True, 7200, 0.0, RideOutConfig(grace_seconds=7200.0, max_seconds=1800.0), id="on"),
+        # The ride-out starts when the shutdown grace ends, so its deadline leaves that time out.
+        pytest.param(
+            True, True, 7200, 60.0, RideOutConfig(grace_seconds=7140.0, max_seconds=1800.0), id="after_shutdown_grace"
+        ),
+        # The worker falls back to a five-minute graceful shutdown when the setting is unset.
+        pytest.param(
+            True, True, None, 0.0, RideOutConfig(grace_seconds=300.0, max_seconds=1800.0), id="no_grace_period"
+        ),
+        # Holding the worker past the deadline on the retry path would cost an attempt at the hand-off.
+        pytest.param(True, False, 7200, 0.0, None, id="off_when_a_handoff_uses_a_retry_attempt"),
+        pytest.param(False, True, 7200, 0.0, None, id="off_when_the_flag_is_off"),
+    ],
+)
+async def test_the_pipeline_rides_out_only_with_the_flag_on_and_free_handoffs(
+    flag_enabled: bool,
+    handoffs_are_free: bool,
+    grace: int | None,
+    shutdown_grace: float,
+    expected: RideOutConfig | None,
+    settings,
+):
+    settings.DATA_WAREHOUSE_IMPORT_RIDE_OUT_MAX_SECONDS = 1800.0
+    settings.GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS = grace
+    settings.DATA_WAREHOUSE_IMPORT_SHUTDOWN_GRACE_SECONDS = shutdown_grace
+    source = mock.MagicMock(spec=SimpleSource)
+    source.parse_config.return_value = {}
+    source.source_for_pipeline.return_value = mock.MagicMock()
+    schema = _incremental_schema(is_incremental=True, lookback_seconds=None)
+
+    with (
+        _patched_activity_reaching_run(source, schema, workflow_run_id="wfrun-1") as run_mock,
+        mock.patch.object(module, "is_schema_flag_enabled", return_value=flag_enabled) as flag_check,
+    ):
+        await import_data_activity_sync(dataclasses.replace(_inputs_no_reset(), handoffs_are_free=handoffs_are_free))
+
+    assert run_mock.await_args.kwargs["ride_out"] == expected
+    if handoffs_are_free:
+        flag_check.assert_called_once_with(schema, IMPORT_RIDE_OUT_FLAG)
+    assert isinstance(run_mock.await_args.kwargs["progress"], DurableProgress)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "grace_setting,graceful_timeout,expected",
+    [
+        pytest.param(60.0, 7200, 60.0, id="default"),
+        pytest.param(0.0, 7200, 0.0, id="zero_hands_off_at_the_signal"),
+        # The hand-off after the grace keeps at least half the graceful shutdown timeout.
+        pytest.param(600.0, None, 150.0, id="capped_at_half_the_default_timeout"),
+        pytest.param(-5.0, 7200, 0.0, id="negative_is_no_grace"),
+    ],
+)
+async def test_the_shutdown_grace_reaches_the_monitor_and_the_pipeline(
+    grace_setting: float, graceful_timeout: int | None, expected: float, settings
+):
+    settings.DATA_WAREHOUSE_IMPORT_SHUTDOWN_GRACE_SECONDS = grace_setting
+    settings.GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS = graceful_timeout
+    source = mock.MagicMock(spec=SimpleSource)
+    source.parse_config.return_value = {}
+    source.source_for_pipeline.return_value = mock.MagicMock()
+    schema = _incremental_schema(is_incremental=True, lookback_seconds=None)
+
+    with (
+        _patched_activity_reaching_run(source, schema, workflow_run_id="wfrun-1") as run_mock,
+        mock.patch.object(module, "ShutdownMonitor", return_value=_FakeAsyncCM()) as monitor_cls,
+    ):
+        await import_data_activity_sync(_inputs_no_reset())
+
+    monitor_cls.assert_called_once_with(grace_seconds=expected)
+    assert run_mock.await_args.kwargs["shutdown_grace_seconds"] == expected
 
 
 @parameterized.expand(

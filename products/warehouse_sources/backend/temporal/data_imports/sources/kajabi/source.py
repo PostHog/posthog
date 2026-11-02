@@ -2,6 +2,7 @@ from typing import cast
 
 from requests.exceptions import RequestException
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -42,6 +43,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class KajabiSource(ResumableSource[KajabiSourceConfig, KajabiResumeConfig]):
+    codebase_detection = detect(env=("^KAJABI_",))
+
     lists_tables_without_credentials = True
     api_docs_url = "https://developers.kajabi.com/api-reference/changelog"
 
@@ -57,7 +60,7 @@ class KajabiSource(ResumableSource[KajabiSourceConfig, KajabiResumeConfig]):
             label="Kajabi",
             iconPath="/static/services/kajabi.png",
             docsUrl="https://posthog.com/docs/cdp/sources/kajabi",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="Create a User API Key in Kajabi's Public API settings. Give it read access to the selected tables.",
             fields=cast(
                 list[FieldType],

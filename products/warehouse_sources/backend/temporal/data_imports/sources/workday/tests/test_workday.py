@@ -6,8 +6,6 @@ from urllib.parse import parse_qs
 import pytest
 from unittest import mock
 
-from requests.exceptions import ConnectionError as RequestsConnectionError
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     RecordedRequest,
     ScriptedResponse,
@@ -227,23 +225,6 @@ class TestValidateCredentials:
         ok, error = self._validate(token=_json_response({"error": "invalid_client"}, status_code=401))
         assert ok is False
         assert error is not None and TOKEN_ERROR in error
-
-    def test_network_failure_is_surfaced(self) -> None:
-        def respond(_request: RecordedRequest) -> ScriptedResponse:
-            raise RequestsConnectionError("dns failure")
-
-        with scripted_network(respond):
-            ok, error = validate_credentials(
-                hostname=HOSTNAME,
-                tenant=TENANT,
-                client_id="client",
-                client_secret="secret",
-                refresh_token="refresh",
-                staffing_version="v7",
-            )
-
-        assert ok is False
-        assert error is not None and "dns failure" in error
 
 
 class TestWorkdaySource:

@@ -19,6 +19,22 @@ describe("sidebarStore", () => {
     ]);
   });
 
+  it("keeps offering a source after the user unchecks it", () => {
+    const { setChannelItemFilters } = useSidebarStore.getState();
+    setChannelItemFilters({
+      ...DEFAULT_SIDEBAR_CHANNEL_ITEM_FILTERS,
+      sources: [DESKTOP_SOURCE, "slack"],
+    });
+    setChannelItemFilters({
+      ...DEFAULT_SIDEBAR_CHANNEL_ITEM_FILTERS,
+      sources: [DESKTOP_SOURCE],
+    });
+
+    expect(useSidebarStore.getState().pickedChannelItemSources).toEqual(
+      expect.arrayContaining(["slack"]),
+    );
+  });
+
   it("rehydration sanitizes list item metadata fields", async () => {
     localStorage.setItem(
       "sidebar-storage",

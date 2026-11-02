@@ -49,6 +49,7 @@ import {
     Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { approvalsGateLogic } from 'lib/approvals/approvalsGateLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -180,6 +181,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         hasEarlyAccessFeatures,
         alsoCreateInProjects,
         alsoCreateInProjectOptions,
+        currentKeyConflict,
     } = useValues(featureFlagLogic)
     // The form never mounts for another config version (FeatureFlag.tsx), so the document is v1.
     const featureFlag = loadedFeatureFlag as FeatureFlagWithV1Config
@@ -207,9 +209,14 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
     const { tags: availableTags } = useValues(tagsModel)
     const { isApprovalRequired } = useValues(approvalsGateLogic)
     const { allCohorts } = useValues(cohortsModel)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const hasEvaluationContexts = useFeatureFlag('FLAG_EVALUATION_TAGS') // NB: the tag was named "flag-evaluation-tags" before we renamed the concept – i.e. this powers evaluation contexts even though the name implies tags
     const isNewFeatureFlag = id === 'new' || id === undefined
     const requiresApprovalToEnable = isNewFeatureFlag && isApprovalRequired(ApprovalActionKey.FEATURE_FLAG_ENABLE)
+    const renamedFromKey =
+        !isNewFeatureFlag && originalFeatureFlag && featureFlag.key !== originalFeatureFlag.key
+            ? originalFeatureFlag.key
+            : null
     const implementationRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
@@ -217,6 +224,15 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
             startNewFlagDisabled()
         }
     }, [requiresApprovalToEnable, featureFlag.active, startNewFlagDisabled])
+
+    const cancelEditing = (): void => {
+        if (isEditingFlag) {
+            editFeatureFlag(false)
+            loadFeatureFlag()
+        } else {
+            router.actions.push(urls.featureFlags())
+        }
+    }
 
     const handleShowImplementation = (): void => {
         setShowImplementation(true)
@@ -430,32 +446,41 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                             : undefined
                     }
                     actions={
-                        <>
-                            <LemonButton
-                                data-attr="cancel-feature-flag"
-                                type="secondary"
-                                size="small"
-                                onClick={() => {
-                                    if (isEditingFlag) {
-                                        editFeatureFlag(false)
-                                        loadFeatureFlag()
-                                    } else {
-                                        router.actions.push(urls.featureFlags())
-                                    }
-                                }}
-                            >
-                                Cancel
-                            </LemonButton>
-                            <LemonButton
-                                type="primary"
-                                data-attr="save-feature-flag"
-                                htmlType="submit"
-                                form="feature-flag"
-                                size="small"
-                            >
-                                Save
-                            </LemonButton>
-                        </>
+                        todayRailNav ? (
+                            <>
+                                <Button data-attr="cancel-feature-flag" variant="outline" onClick={cancelEditing}>
+                                    Cancel
+                                </Button>
+                                <Button
+                                    variant="primary"
+                                    data-attr="save-feature-flag"
+                                    type="submit"
+                                    form="feature-flag"
+                                >
+                                    Save
+                                </Button>
+                            </>
+                        ) : (
+                            <>
+                                <LemonButton
+                                    data-attr="cancel-feature-flag"
+                                    type="secondary"
+                                    size="small"
+                                    onClick={cancelEditing}
+                                >
+                                    Cancel
+                                </LemonButton>
+                                <LemonButton
+                                    type="primary"
+                                    data-attr="save-feature-flag"
+                                    htmlType="submit"
+                                    form="feature-flag"
+                                    size="small"
+                                >
+                                    Save
+                                </LemonButton>
+                            </>
+                        )
                     }
                 />
 
@@ -471,17 +496,42 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                     label="Flag key"
                                     info="Unique identifier used in your code."
                                     help={
-                                        !isNewFeatureFlag &&
-                                        originalFeatureFlag &&
-                                        featureFlag.key !== originalFeatureFlag.key ? (
-                                            <span className="text-warning">
-                                                <b>Warning! </b>Changing this key will break any existing code that
-                                                references it (e.g.{' '}
-                                                <code className="text-xs bg-fill-secondary rounded px-1 py-0.5">
-                                                    getFeatureFlag('{originalFeatureFlag.key}')
-                                                </code>
-                                                ). Make sure to update all SDK calls and integrations.
-                                            </span>
+                                        currentKeyConflict || renamedFromKey ? (
+                                            <div className="flex flex-col gap-1">
+                                                {currentKeyConflict ? (
+                                                    <span
+                                                        className={
+                                                            currentKeyConflict.exact ? 'text-danger' : 'text-warning'
+                                                        }
+                                                        role="status"
+                                                        aria-live="polite"
+                                                    >
+                                                        {currentKeyConflict.exact
+                                                            ? 'A feature flag with this key already exists. Choose another key or '
+                                                            : `A feature flag with the key "${currentKeyConflict.existingFlagKey}" already exists. Keys that differ only by case are easy to confuse. `}
+                                                        <Link
+                                                            to={urls.featureFlag(currentKeyConflict.existingFlagId)}
+                                                            target="_blank"
+                                                            data-attr="feature-flag-key-conflict-link"
+                                                        >
+                                                            {currentKeyConflict.exact
+                                                                ? 'open the existing flag'
+                                                                : 'Open it'}
+                                                        </Link>
+                                                        .
+                                                    </span>
+                                                ) : null}
+                                                {renamedFromKey ? (
+                                                    <span className="text-warning">
+                                                        <b>Warning! </b>Changing this key will break any existing code
+                                                        that references it (e.g.{' '}
+                                                        <code className="text-xs bg-fill-secondary rounded px-1 py-0.5">
+                                                            getFeatureFlag('{renamedFromKey}')
+                                                        </code>
+                                                        ). Make sure to update all SDK calls and integrations.
+                                                    </span>
+                                                ) : null}
+                                            </div>
                                         ) : undefined
                                     }
                                 >

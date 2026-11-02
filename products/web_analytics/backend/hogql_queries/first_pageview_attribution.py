@@ -5,7 +5,7 @@ from posthog.schema import HogQLQueryModifiers, PropertyOperator, SessionPropert
 from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.property import _expr_to_compare_op, property_to_expr
+from posthog.hogql.property import _WHOLE_LIST_OPERATORS, _expr_to_compare_op, property_to_expr
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.models.property import Property, ValueT
@@ -157,16 +157,7 @@ def first_pageview_filter_value_expr(
 def _list_aware_expr_to_compare_op(
     expr: ast.Expr, value: ValueT, operator: PropertyOperator, property: Property, is_json_field: bool, team: "Team"
 ) -> ast.Expr:
-    if not isinstance(value, list) or operator in (
-        PropertyOperator.BETWEEN,
-        PropertyOperator.NOT_BETWEEN,
-        PropertyOperator.ICONTAINS,
-        PropertyOperator.NOT_ICONTAINS,
-        PropertyOperator.ICONTAINS_MULTI,
-        PropertyOperator.NOT_ICONTAINS_MULTI,
-        PropertyOperator.IN_,
-        PropertyOperator.NOT_IN,
-    ):
+    if not isinstance(value, list) or operator in _WHOLE_LIST_OPERATORS:
         return _expr_to_compare_op(expr, value, operator, property, is_json_field, team)
     if len(value) == 0:
         return ast.Constant(value=1)

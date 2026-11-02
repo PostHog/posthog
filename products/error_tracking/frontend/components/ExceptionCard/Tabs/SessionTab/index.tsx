@@ -2,6 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { P, match } from 'ts-pattern'
 
+import { IconExternal } from '@posthog/icons'
 import { LemonBanner, Link } from '@posthog/lemon-ui'
 
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
@@ -23,9 +24,11 @@ import {
 import { ConsoleLogLoader, consoleLogRenderer } from 'lib/components/SessionTimeline/timeline/items/logs'
 import { pageRenderer } from 'lib/components/SessionTimeline/timeline/items/page'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { TabsContent } from 'lib/ui/quill'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { Button, TabsContent } from 'lib/ui/quill'
 
 import { exceptionCardLogic } from '../../exceptionCardLogic'
+import { RecordingEmptyState } from '../RecordingEmptyState'
 import { TabSpinner } from '../TabSpinner'
 import { SessionRecordingTab } from './SessionRecordingTab'
 import { sessionTabLogic } from './sessionTabLogic'
@@ -56,7 +59,7 @@ export function SessionTab({ timestamp, eventMarkerColor }: SessionTabProps): JS
                     <NoSessionStepsView timestamp={timestamp} eventMarkerColor={eventMarkerColor} />
                 </TabsContent>
                 <TabsContent value="recording" className="min-h-0 min-w-0 flex-1 overflow-hidden">
-                    <NoSessionIdFound />
+                    <NoSessionRecording />
                 </TabsContent>
             </>
         ))
@@ -172,6 +175,28 @@ export function NoSessionIdFound(): JSX.Element {
                 size="small"
             />
         </div>
+    )
+}
+
+function NoSessionRecording(): JSX.Element {
+    return (
+        <RecordingEmptyState
+            title="No session found"
+            description="There is no $session_id associated with this exception, so it has no recording. If it was captured from a server SDK, you can forward the session ID."
+        >
+            <Button
+                variant="outline"
+                render={
+                    <LinkPrimitive
+                        to="https://posthog.com/docs/data/sessions#server-sdks-and-sessions"
+                        target="_blank"
+                    />
+                }
+            >
+                Learn how to forward session IDs
+                <IconExternal />
+            </Button>
+        </RecordingEmptyState>
     )
 }
 

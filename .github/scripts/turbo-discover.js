@@ -112,6 +112,7 @@ const EXCLUDED_PATH_SEGMENTS = ['/temporal/']
 const PRODUCTS_RUNNING_TEMPORAL_IN_JOB = new Set([
     'batch-exports',
     'managed-warehouse',
+    'subscriptions',
     'tasks',
     'warehouse-sources',
 ])
@@ -1023,11 +1024,11 @@ const DJANGO_SEGMENTS = {
             'posthog/hogql/',
         ],
     },
-    // batch-exports, tasks and product-analytics used to run their temporal suites
-    // here. They now run them in their own product jobs, which cost no extra
-    // infrastructure because every shard already starts the temporal profile.
-    // signals/emission is listed because select-tests routes it here; leaving it
-    // out under-counted the segment.
+    // batch-exports, tasks, product-analytics and subscriptions used to run their
+    // temporal suites here. They now run them in their own product jobs, which cost
+    // no extra infrastructure because every shard already starts the temporal
+    // profile. signals/emission is listed because select-tests routes it here;
+    // leaving it out under-counted the segment.
     Temporal: {
         include: ['posthog/temporal/', 'products/signals/backend/emission/'],
         exclude: [],
@@ -1205,6 +1206,25 @@ function fallbackSelection(fallbackMode, reason, selection) {
     return { mode: fallbackMode, narrowed: false, skip_reason: reason, ...emptySegments(), ...selectionMetrics(selection) }
 }
 
+// Whether every legacy edit in the diff is Dagster Python under posthog/dags/. ci-dagster.yml runs
+// the tests there, and the selector assigns them to no Django segment. No module that Django loads
+// imports posthog.dags, because its __init__.py calls django.setup() again, so a Django test reaches
+// Dagster code only through its own import, which the selector follows. That makes an empty Django
+// selection correct for such a diff. A deleted file has no imports left to follow, so it does not
+// qualify. Products and Markdown are not legacy edits, so they may sit beside the Dagster files.
+function isDagsterOnlyLegacyEdit(changedFiles, fileExists) {
+    if (!Array.isArray(changedFiles)) {
+        return false
+    }
+    const isDagsterPython = (file) => file.startsWith('posthog/dags/') && file.endsWith('.py')
+    const dagsterFiles = changedFiles.filter(isDagsterPython)
+    return (
+        dagsterFiles.length > 0 &&
+        dagsterFiles.every((file) => fileExists(file)) &&
+        changedFiles.every((file) => isDagsterPython(file) || file.startsWith('products/') || /\.mdx?$/.test(file))
+    )
+}
+
 // Which Django tests this run should execute, and whether the product matrix may narrow.
 // Pure: every input is an argument, so each branch is unit-tested rather than inferred
 // from a workflow run.
@@ -1212,9 +1232,19 @@ function fallbackSelection(fallbackMode, reason, selection) {
 //   disabled       the DISABLE_BACKEND_TEST_SELECTION kill switch
 //   draft          fall back by skipping rather than by running everything
 //   legacyChanged  the paths filter saw an edit under posthog/ or ee/
+//   dagsterOnlyLegacyEdit  every legacy edit is Dagster Python, see isDagsterOnlyLegacyEdit
 //   runLegacy      whether the Django suite runs, and why
 //   selection      the selector's parsed output, null when it did not produce one
-function decideSelection({ applies, disabled, draft, legacyChanged, runLegacy, runLegacyReason, selection }) {
+function decideSelection({
+    applies,
+    disabled,
+    draft,
+    legacyChanged,
+    dagsterOnlyLegacyEdit,
+    runLegacy,
+    runLegacyReason,
+    selection,
+}) {
     if (!applies || runLegacy === false) {
         // Nothing to narrow: either the event never selects, or the Django suite is
         // skipped outright. An empty mode leaves every consumer on its own default.
@@ -1242,18 +1272,25 @@ function decideSelection({ applies, disabled, draft, legacyChanged, runLegacy, r
         console.error(`Selector requested a full run:\n  ${fullRunReasons.join('\n  ')}`)
         return fallbackSelection(fallbackMode, 'full_run_requested', selection)
     }
+    if (!(Number(selection.durations?.total_seconds) > 0)) {
+        return fallbackSelection(fallbackMode, 'no_durations', selection)
+    }
     const segments = selection.combined?.segments ?? {}
     const core = segments.core ?? []
     const poe = segments.poe ?? []
     const temporal = segments.temporal ?? []
     const compat = segments.compat ?? []
-    if (legacyChanged && core.length === 0 && temporal.length === 0) {
+    // The Dagster exemption trusts the import graph. A failed Snob run still exits cleanly, with
+    // segments that the graph never filled, so it cannot claim the exemption.
+    const dagsterExempt = dagsterOnlyLegacyEdit && selection.snob?.status === 'ok'
+    if (legacyChanged && !dagsterExempt && core.length === 0 && temporal.length === 0) {
         // A diff that touched legacy code but selected no Django test at all means the
         // selector had no rule for it, not that there is nothing to run — a non-Python
         // legacy file (C++ parser sources, a JSON config) reaches no import edge.
         // Narrowing to zero would silently gate on nothing. FULL_RUN_PATTERNS covers the
         // known cases; this catches the ones added to the `legacy` paths filter and
         // forgotten there. Products-only diffs legitimately select nothing and are not legacy.
+        // A diff whose legacy edits are all Dagster Python also legitimately selects nothing.
         return fallbackSelection(fallbackMode, 'empty_selection', selection)
     }
     console.error(`Selected: ${core.length} core, ${poe.length} POE-eligible, ${temporal.length} temporal, ${compat.length} compat`)
@@ -1509,6 +1546,7 @@ function buildMatrix(products, durations, productsScaled = false) {
 module.exports = {
     narrowedProducts,
     decideSelection,
+    isDagsterOnlyLegacyEdit,
     decideJsonTargets,
     loadJsonTargets,
     selectedShards,
@@ -1768,6 +1806,7 @@ const selectionDecision = decideSelection({
     disabled: process.env.SELECTION_DISABLED === 'true',
     draft: process.env.PR_DRAFT === 'true',
     legacyChanged,
+    dagsterOnlyLegacyEdit: isDagsterOnlyLegacyEdit(selection?.changed_files, fs.existsSync),
     runLegacy,
     runLegacyReason,
     selection,

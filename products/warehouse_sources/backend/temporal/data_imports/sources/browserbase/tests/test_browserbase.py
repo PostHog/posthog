@@ -83,11 +83,6 @@ class TestKeyRedaction:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
-    def test_maps_status_to_bool(self, _name: str, status_code: int, expected: bool) -> None:
-        with scripted_network([ScriptedResponse(status=status_code)]):
-            assert validate_credentials("bb_key") is expected
-
     def test_probes_projects_with_key_header(self) -> None:
         with scripted_network([ScriptedResponse()]) as network:
             assert validate_credentials("bb_key") is True

@@ -13,6 +13,11 @@ carries the token in the ``x-api-key`` header and redacts it from logs and
 error messages, and a small paginator extends the framework page-number
 paginator with Veeqo's total-pages header and a short-page stop.
 
+Veeqo has no list endpoints for returns, stock entries, shipments or bundles.
+Returns and stock entries are exploded from the order and product records that
+embed them; shipment tracking events and bundle contents fan out from those
+records to one request per shipment or bundle.
+
 NOTE: these endpoint params were taken from the public API docs and could not
 be curl-verified against a live account during implementation (Veeqo API keys
 must be enabled by their support team). The pagination/filter handling is
@@ -21,6 +26,7 @@ rather than confirmed.
 """
 
 import dataclasses
+from collections.abc import Callable, Iterable
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
@@ -31,9 +37,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     PageNumberPaginator,
     SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
@@ -53,16 +66,19 @@ INCREMENTAL_PARAM_BY_FIELD = {
 }
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass  # nosemgrep: prefer-frozen-dataclasses -- pre-existing; new field shifts the backlog finding into diff
 class VeeqoResumeConfig:
     """Page cursor for resumable list iteration.
 
     ``page`` is the next page to fetch. ``endpoint`` scopes the state to a single
     endpoint so we never replay an orders page number against products.
+    Fan-out tables store the ``build_dependent_resource`` checkpoint in
+    ``fanout_state`` instead.
     """
 
     endpoint: str
-    page: int
+    page: Optional[int] = None
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 class VeeqoPaginator(PageNumberPaginator):
@@ -150,6 +166,59 @@ def _build_initial_params(
     return params
 
 
+def _order_returns(order: dict[str, Any]) -> list[dict[str, Any]]:
+    return [{**item, "order_id": order.get("id")} for item in order.get("returns") or [] if isinstance(item, dict)]
+
+
+def _product_stock_entries(product: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {**entry, "product_id": product.get("id")}
+        for sellable in product.get("sellables") or []
+        if isinstance(sellable, dict)
+        for entry in sellable.get("stock_entries") or []
+        if isinstance(entry, dict)
+    ]
+
+
+def _order_shipments(order: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    seen: set[Any] = set()
+    for allocation in order.get("allocations") or []:
+        shipment = allocation.get("shipment") if isinstance(allocation, dict) else None
+        shipment_id = shipment.get("id") if isinstance(shipment, dict) else None
+        # Allocations of one order can share a shipment; request its events once.
+        if shipment_id is not None and shipment_id not in seen:
+            seen.add(shipment_id)
+            rows.append({"shipment_id": shipment_id, "order_id": order.get("id")})
+    return rows
+
+
+def _product_kits(product: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {"kit_id": sellable["id"], "product_id": product.get("id")}
+        for sellable in product.get("sellables") or []
+        if isinstance(sellable, dict) and sellable.get("type") == "Kit" and sellable.get("id") is not None
+    ]
+
+
+# Explodes each record of a `nested` table's path into the table's rows.
+_NESTED_ROW_MAPS: dict[str, Callable[[dict[str, Any]], list[dict[str, Any]]]] = {
+    "returns": _order_returns,
+    "stock_entries": _product_stock_entries,
+}
+
+# Derives the ids a fan-out child requests from each parent record.
+_FANOUT_PARENT_MAPS: dict[str, Callable[[dict[str, Any]], list[dict[str, Any]]]] = {
+    "shipment_tracking_events": _order_shipments,
+    "bundle_contents": _product_kits,
+}
+
+# `/kits/{id}` returns one bundle object; its rows are the `contents` array.
+_FANOUT_CHILD_DATA_SELECTORS: dict[str, str] = {
+    "bundle_contents": "contents",
+}
+
+
 def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     """Probe ``/warehouses`` — a cheap list call every account can serve.
 
@@ -174,6 +243,30 @@ def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     return False, f"Veeqo rejected the request (HTTP {status})."
 
 
+def _source_response(
+    endpoint: str,
+    config: VeeqoEndpointConfig,
+    items: Callable[[], Iterable[Any]],
+    column_hints: Optional[dict[str, Any]],
+) -> SourceResponse:
+    return SourceResponse(
+        name=endpoint,
+        items=items,
+        primary_keys=config.primary_keys,
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="month" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+        # Veeqo documents no sort param and no ordering guarantee for list
+        # endpoints, so declare "desc": the incremental watermark then commits
+        # only after a successful sync instead of checkpointing per batch, which
+        # is safe whatever order rows actually arrive in.
+        sort_mode="desc",
+        column_hints=column_hints,
+    )
+
+
 def veeqo_source(
     api_key: str,
     endpoint: str,
@@ -186,27 +279,70 @@ def veeqo_source(
 ) -> SourceResponse:
     config = VEEQO_ENDPOINTS[endpoint]
 
+    client_config: ClientConfig = {
+        "base_url": VEEQO_BASE_URL,
+        "headers": {"Accept": "application/json"},
+        # api_key auth injects the key into the `x-api-key` header and redacts
+        # it from logs and raised error messages.
+        "auth": {
+            "type": "api_key",
+            "api_key": api_key,
+            "name": "x-api-key",
+            "location": "header",
+        },
+        # requests preserves the custom x-api-key header when following a
+        # redirect, so a redirect response could replay the full-account key
+        # to another host — refuse redirects outright.
+        "allow_redirects": False,
+    }
+
+    resume: Optional[VeeqoResumeConfig] = None
+    if resumable_source_manager.can_resume():
+        loaded = resumable_source_manager.load_state()
+        # Only replay state saved for THIS endpoint.
+        if loaded is not None and loaded.endpoint == endpoint:
+            resume = loaded
+
+    if config.fanout is not None:
+        parent_config = VEEQO_ENDPOINTS[config.fanout.parent_name]
+
+        def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            if state:
+                resumable_source_manager.save_state(VeeqoResumeConfig(endpoint=endpoint, fanout_state=state))
+
+        child_endpoint_extra: Endpoint = {"paginator": SinglePagePaginator()}
+        if endpoint in _FANOUT_CHILD_DATA_SELECTORS:
+            child_endpoint_extra["data_selector"] = _FANOUT_CHILD_DATA_SELECTORS[endpoint]
+
+        child = build_dependent_resource(
+            endpoint_configs=VEEQO_ENDPOINTS,
+            child_endpoint=endpoint,
+            fanout=config.fanout,
+            client_config=client_config,
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            parent_endpoint_extra={
+                "data_selector_required": True,
+                "paginator": VeeqoPaginator(page_size=parent_config.page_size),
+            },
+            child_endpoint_extra=child_endpoint_extra,
+            parent_data_map=_FANOUT_PARENT_MAPS[endpoint],
+            # The parent page size travels in `fanout.parent_params`; the child
+            # endpoints are single-object responses that take no page size.
+            page_size_param=None,
+            resume_hook=save_fanout_checkpoint,
+            initial_paginator_state=resume.fanout_state if resume else None,
+        )
+        return _source_response(endpoint, config, lambda: child, column_hints=None)
+
     params = _build_initial_params(
         config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
     )
 
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": VEEQO_BASE_URL,
-            "headers": {"Accept": "application/json"},
-            # api_key auth injects the key into the `x-api-key` header and redacts
-            # it from logs and raised error messages.
-            "auth": {
-                "type": "api_key",
-                "api_key": api_key,
-                "name": "x-api-key",
-                "location": "header",
-            },
-            # requests preserves the custom x-api-key header when following a
-            # redirect, so a redirect response could replay the full-account key
-            # to another host — refuse redirects outright.
-            "allow_redirects": False,
-        },
+        "client": client_config,
         "resource_defaults": {
             "write_disposition": {
                 "disposition": "merge",
@@ -235,11 +371,8 @@ def veeqo_source(
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
-    if resumable_source_manager.can_resume():
-        resume = resumable_source_manager.load_state()
-        # Only replay a page number saved for THIS endpoint.
-        if resume is not None and resume.endpoint == endpoint:
-            initial_paginator_state = {"page": resume.page}
+    if resume is not None and resume.page:
+        initial_paginator_state = {"page": resume.page}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         # Persist only when a next page remains; the hook fires AFTER a page is
@@ -257,19 +390,7 @@ def veeqo_source(
         initial_paginator_state=initial_paginator_state,
     )
 
-    return SourceResponse(
-        name=endpoint,
-        items=lambda: resource,
-        primary_keys=["id"],
-        partition_count=1,
-        partition_size=1,
-        partition_mode="datetime" if config.partition_key else None,
-        partition_format="month" if config.partition_key else None,
-        partition_keys=[config.partition_key] if config.partition_key else None,
-        # Veeqo documents no sort param and no ordering guarantee for list
-        # endpoints, so declare "desc": the incremental watermark then commits
-        # only after a successful sync instead of checkpointing per batch, which
-        # is safe whatever order rows actually arrive in.
-        sort_mode="desc",
-        column_hints=resource.column_hints,
-    )
+    if config.nested:
+        resource.add_map(_NESTED_ROW_MAPS[endpoint])
+
+    return _source_response(endpoint, config, lambda: resource, column_hints=resource.column_hints)

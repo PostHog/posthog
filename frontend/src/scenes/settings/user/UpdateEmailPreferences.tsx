@@ -36,6 +36,7 @@ enum NotificationBlock {
     ApiKeyExposure = 'api-key-exposure',
     MaterializedViewSync = 'materialized-view-sync',
     AiEvaluationDisabled = 'ai-evaluation-disabled',
+    WorkflowSuggestions = 'workflow-suggestions',
 }
 
 const NOTIFICATION_BLOCK_ORDER = Object.values(NotificationBlock)
@@ -56,6 +57,7 @@ const NOTIFICATION_DEFAULTS: BooleanNotificationSettings = {
     all_weekly_digest_disabled: false,
     project_api_key_exposed: true,
     ai_evaluation_disabled: true,
+    workflow_suggestions: true,
     materialized_view_sync_failed: false,
     materialized_view_sync_failed_daily: true,
     materialized_view_sync_failed_immediate: false,
@@ -618,6 +620,16 @@ export function UpdateEmailPreferences(): JSX.Element {
                     label="Disabled AI evaluations"
                     description="Get notified when an AI observability evaluation stops because of an error"
                     dataAttr="ai_evaluation_disabled_enabled"
+                />
+            </div>
+        ),
+        [NotificationBlock.WorkflowSuggestions]: (
+            <div className="border rounded p-4">
+                <SimpleSwitch
+                    setting="workflow_suggestions"
+                    label="Workflow suggestions"
+                    description="Get an email when PostHog suggests a change to a workflow you set up"
+                    dataAttr="workflow_suggestions_enabled"
                 />
             </div>
         ),

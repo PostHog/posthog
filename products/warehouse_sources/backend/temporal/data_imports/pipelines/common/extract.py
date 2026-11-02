@@ -1,4 +1,3 @@
-import json
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, NoReturn
@@ -18,6 +17,8 @@ from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.errors import NonReportableError
 from posthog.utils import get_machine_id
 
+from products.warehouse_sources.backend.billing import is_in_free_historical_window
+from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore, UnreadableSourceInputsError
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import get_incremental_field_value
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     DUPLICATE_PRIMARY_KEYS_ERROR,
@@ -32,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import (
     decrement_rows,
     increment_rows,
+    setup_row_tracking,
     will_hit_billing_limit,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.primary_keys import resolve_merge_keys
@@ -95,37 +97,14 @@ class UnreadableJobInputsError(Exception):
     """
 
 
-def _decode_job_inputs(job_inputs: str) -> dict[str, Any]:
-    """Recover the config mapping from a `job_inputs` value stored as a JSON string.
-
-    `EncryptedJSONField` encrypts a mapping value by value, but stringifies and encrypts anything
-    else whole, and its read path hands a scalar straight back without parsing it. So a config
-    written as a JSON string instead of a mapping decodes to that same string on every later read,
-    with the mapping still inside it as plain JSON. `Config.from_dict` recovers such a config the
-    same way, so decoding here keeps the two readers in agreement.
-    """
-    try:
-        decoded = json.loads(job_inputs)
-    except ValueError:
-        # Text that holds no JSON and JSON that holds no mapping leave the caller with the same
-        # unusable config, so both take the branch below.
-        decoded = None
-
-    if not isinstance(decoded, dict):
-        raise NonRetryableException() from UnreadableJobInputsError(UNREADABLE_JOB_INPUTS_MESSAGE)
-
-    return decoded
-
-
 async def trim_source_job_inputs(source: "ExternalDataSource") -> None:
-    decoded_from_string = isinstance(source.job_inputs, str)
-    if decoded_from_string:
-        job_inputs = _decode_job_inputs(source.job_inputs)
-    elif isinstance(source.job_inputs, dict):
-        job_inputs = source.job_inputs
-    else:
-        # An unconfigured source (`None`) or any other non-mapping has no keys to trim. The config
-        # parse in the import activity reports an unusable value.
+    decoded_from_string = SourceInputsStore.stored_as_string(source)
+    try:
+        job_inputs = await SourceInputsStore.aload(source)
+    except UnreadableSourceInputsError:
+        if decoded_from_string:
+            raise NonRetryableException() from UnreadableJobInputsError(UNREADABLE_JOB_INPUTS_MESSAGE)
+        # A value that is not a mapping has no keys to trim. Config parsing reports the invalid value.
         return
 
     # A value decoded out of a string is saved even when no key needs trimming, so the row is
@@ -138,7 +117,7 @@ async def trim_source_job_inputs(source: "ExternalDataSource") -> None:
                 did_update_inputs = True
 
     if did_update_inputs:
-        source.job_inputs = job_inputs
+        SourceInputsStore.assign(source, job_inputs)
         await database_sync_to_async_pool(source.save)()
 
 
@@ -291,6 +270,24 @@ def report_heartbeat_timeout(inputs: "ImportDataActivityInputs", logger: Filteri
         logger.debug(f"Error while reporting heartbeat timeout: {e}", exc_info=e)
 
 
+def count_worker_deaths(inputs: "ImportDataActivityInputs", logger: FilteringBoundLogger) -> int:
+    """Times a worker died on this run without raising. `report_heartbeat_timeout` records each one."""
+    try:
+        from products.warehouse_sources.backend.models.oom_event import (  # noqa: PLC0415 — Django models must not be imported at this activity module's load time
+            ExternalDataSchemaOOMEvent,
+        )
+
+        return (
+            ExternalDataSchemaOOMEvent.objects.for_team(inputs.team_id)
+            .filter(schema_id=inputs.schema_id, run_id=inputs.run_id)
+            .count()
+        )
+    except Exception as e:
+        # The count only makes a read more careful, so a read of it that fails must not fail the sync.
+        logger.debug(f"Could not count worker deaths for schema {inputs.schema_id}: {e}", exc_info=e)
+        return 0
+
+
 async def handle_non_retryable_error(
     team_id: int,
     source_id: str,
@@ -331,15 +328,20 @@ async def handle_non_retryable_error(
     raise NonRetryableException() from error
 
 
-async def reset_rows_synced_if_needed(job: "ExternalDataJob", should_resume: bool) -> None:
+async def reset_rows_synced_if_needed(
+    job: "ExternalDataJob", should_resume: bool, kept_rows_synced: int | None = None
+) -> None:
     # Reset the rows_synced count - this may not be 0 if the job restarted due to a heartbeat timeout.
     #
     # The incremental cursor is staged and only promoted on completion, so a retried attempt
     # re-extracts the whole window from batch 0, and keeping the previous attempt's count
     # double-counts every re-read row — `rows_synced` feeds billed usage via `Sum("rows_synced")`
     # in usage reports. A resumed attempt picks up the earlier attempt's staged batches instead.
+    #
+    # `kept_rows_synced` is the count through the loaded prefix that moved the watermark this
+    # attempt reads from. This attempt does not read those rows again, so they stay counted.
     if job.rows_synced is not None and job.rows_synced != 0 and not should_resume:
-        job.rows_synced = 0
+        job.rows_synced = min(job.rows_synced, kept_rows_synced or 0)
         await database_sync_to_async_pool(job.save)(update_fields=["rows_synced", "updated_at"])
 
 
@@ -461,8 +463,9 @@ def validate_incremental_sync(
     # The Delta merge needs a key to match rows on, so a keyless incremental table fails once a
     # table already exists. Raise before extraction rather than letting the writer hit it mid-load:
     # on pipeline v3 the write happens in the load consumer, which can only fail the job, so the
-    # schema is never paused and the same doomed run repeats on every schedule.
-    if is_incremental and not is_first_sync and not resource.primary_keys:
+    # schema is never paused and the same doomed run repeats on every schedule. A run with a replace
+    # scope appends instead of merging, so it needs no key.
+    if is_incremental and not is_first_sync and not resource.primary_keys and resource.replace_scope is None:
         raise MissingPrimaryKeysException()
 
 
@@ -474,14 +477,17 @@ async def setup_row_tracking_with_billing_check(
     logger: FilteringBoundLogger,
     billable: bool | None = True,
 ) -> None:
-    if resource.rows_to_sync:
-        await increment_rows(team_id, schema.id, resource.rows_to_sync)
-        # Check billing limits against incoming rows (skip for non-billable jobs)
-        if billable and await will_hit_billing_limit(team_id=team_id, source=source, logger=logger):
-            raise BillingLimitsWillBeReachedException(
-                f"Your account will hit your Data Warehouse billing limits syncing {resource.name} "
-                f"with {resource.rows_to_sync} rows"
-            )
+    # The limit check sums these rows over every running sync in the organization. A run the check skips (a
+    # non-billable job, or a source in its free first week at the start) must stay out, or it blocks the others.
+    if not resource.rows_to_sync or not billable or is_in_free_historical_window(source.created_at):
+        return
+
+    await increment_rows(team_id, schema.id, resource.rows_to_sync)
+    if await will_hit_billing_limit(team_id=team_id, source=source, logger=logger):
+        raise BillingLimitsWillBeReachedException(
+            f"Your account will hit your Sources billing limits syncing {resource.name} "
+            f"with {resource.rows_to_sync} rows"
+        )
 
 
 def reset_pipeline_requested(
@@ -769,6 +775,9 @@ async def handle_corrupted_delta_log(
     if job.billable:
         job.billable = False
         await database_sync_to_async_pool(job.save)(update_fields=["billable"])
+        # The run registered its row estimate while the job was still billable. The estimate must
+        # stop counting toward the limit check, the same as for a job that starts non-billable.
+        await setup_row_tracking(schema.team_id, schema.id)
 
     _capture_delta_revived(schema, job, outcome="reset_rebuild", made_non_billable=was_billable)
     await logger.awarning(
@@ -807,7 +816,9 @@ async def update_incremental_field_values(
         if last_advanced:
             last_incremental_field_value = last_value
 
-        if resource.sort_mode == "asc":
+        # The loader promotes the staged value only when the run completes, so the largest value
+        # read is the watermark with or without an order. A descending read stages it at the end.
+        if resource.sort_mode != "desc":
             await logger.adebug(
                 f"{log_prefix}Updating incremental_field_last_value with {last_incremental_field_value}"
             )
@@ -860,12 +871,18 @@ async def update_row_tracking_after_batch(
     await decrement_rows(team_id, schema_id, row_count)
 
 
-def is_young_first_attempt() -> bool:
+def is_young_first_attempt(shutdown_grace_seconds: float = 0.0) -> bool:
+    """`shutdown_grace_seconds` is the time the shutdown monitor let the run continue after the signal.
+
+    It does not count toward the age, so the grace never turns a run that was young at the signal into
+    one that keeps the worker until it finishes.
+    """
     if not activity.in_activity():
         return False
 
     info = activity.info()
-    return info.attempt == 1 and datetime.now(UTC) - info.started_time < NON_RESUMABLE_HANDOFF_MAX_ATTEMPT_AGE
+    age = datetime.now(UTC) - info.started_time - timedelta(seconds=shutdown_grace_seconds)
+    return info.attempt == 1 and age < NON_RESUMABLE_HANDOFF_MAX_ATTEMPT_AGE
 
 
 def should_check_shutdown(
@@ -873,17 +890,19 @@ def should_check_shutdown(
     resource: SourceResponse,
     reset_pipeline: bool,
     source_is_resumable: bool,
+    shutdown_grace_seconds: float = 0.0,
 ) -> bool:
-    # Only raise if we're not running in descending order, otherwise we'll often not
-    # complete the job before the incremental value can be updated. Or if the source is
-    # resumable
+    # A descending run does not raise, because each stop restarts it from the old watermark. An ascending
+    # incremental run keeps its progress after a stop only through the handoff checkpoint.
     # Let a new attempt leave a shutting-down worker before it holds the worker for hours.
     # Limit handoffs to attempt one so full refresh keeps two attempts for retries.
     # Raising during a full reset will reset our progress back to 0 rows
     incremental_sync_raise_during_shutdown = (
         schema.should_use_incremental_field and resource.sort_mode != "desc" and not reset_pipeline
     )
-    return incremental_sync_raise_during_shutdown or source_is_resumable or is_young_first_attempt()
+    return (
+        incremental_sync_raise_during_shutdown or source_is_resumable or is_young_first_attempt(shutdown_grace_seconds)
+    )
 
 
 async def finalize_desc_sort_incremental_value(

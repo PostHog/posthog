@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -30,6 +31,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GuruSource(ResumableSource[GuruSourceConfig, GuruResumeConfig]):
+    codebase_detection = NOT_DETECTABLE
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://developer.getguru.com"
@@ -64,7 +67,7 @@ class GuruSource(ResumableSource[GuruSourceConfig, GuruResumeConfig]):
 You authenticate with your Guru account email and a user API token. A Guru admin can generate user tokens from [Settings > Apps and integrations > API access](https://app.getguru.com/settings/integrations/api-access). Use a user token rather than a collection token — collection tokens are read-only and scoped to a single collection.""",
             iconPath="/static/services/guru.png",
             docsUrl="https://posthog.com/docs/cdp/sources/guru",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

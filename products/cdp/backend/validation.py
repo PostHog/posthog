@@ -1,6 +1,8 @@
 import re
 import json
 import logging
+import contextlib
+from collections.abc import Iterable
 from typing import Any, Optional
 
 from django.db import models
@@ -16,8 +18,9 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.models.integration import POSTHOG_CONNECT_KIND, Integration
+from posthog.integrations import IntegrationManager
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
 from products.actions.backend.models.action import Action
 from products.cdp.backend.filters import (
@@ -36,7 +39,8 @@ from products.cdp.backend.models.hog_functions.hog_function import (
     TYPES_WITH_JAVASCRIPT_SOURCE,
     TYPES_WITH_TRANSPILED_FILTERS,
 )
-from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.cohort import Cohort, CohortType
+from products.cohorts.backend.realtime_state import CohortRealtimeState, has_realtime_state, resolve_realtime_readiness
 
 from common.hogvm.python.stl import STL
 from common.hogvm.python.stl.bytecode import BYTECODE_STL
@@ -46,6 +50,8 @@ logger = logging.getLogger(__name__)
 
 CORE_SUPPORTED_FUNCTIONS = {"fetch", "postHogCapture"}
 MAX_WORKFLOW_EMAIL_SENDERS = 10
+# Matches the cap the tasks API puts on a task's repositories.
+MAX_TASK_REPOSITORIES = 10
 
 # The mask the UI shows in place of a stored secret. A re-save that did not touch the secret
 # sends this back, meaning "keep the stored value". It must never be persisted as a real secret.
@@ -91,7 +97,7 @@ def _validate_not_posthog_connection(integration_ids: list[int], context: dict) 
     get_team = context.get("get_team")
     if get_team is None or not integration_ids:
         return
-    if Integration.objects.filter(team_id=get_team().id, id__in=integration_ids, kind=POSTHOG_CONNECT_KIND).exists():
+    if IntegrationManager.posthog.any.get_many(get_team().id, integration_ids):
         raise serializers.ValidationError(
             {"input": "A PostHog connection can't be used as a function input. Choose a different integration."}
         )
@@ -149,7 +155,7 @@ def _validate_email_sender_override(from_value: dict, context: dict) -> None:
     domain_cache: dict[int, str] = shared_cache if isinstance(shared_cache, dict) else {}
     missing_ids = [integration_id for integration_id in integration_ids if integration_id not in domain_cache]
     if missing_ids:
-        for integration in Integration.objects.filter(team_id=get_team().id, id__in=missing_ids, kind="email"):
+        for integration in IntegrationManager.email.credentials.get_many(get_team().id, missing_ids).values():
             config = integration.config or {}
             domain_cache[integration.id] = (config.get("domain") or (config.get("email") or "").split("@")[-1]).lower()
         for integration_id in missing_ids:
@@ -618,6 +624,7 @@ class _TemplatingChoiceField(serializers.ChoiceField):
 
 
 class InputsSchemaItemSerializer(serializers.Serializer):
+    # nosemgrep: choices-need-a-class -- existing input-type list; this change only adds one value to it
     type = serializers.ChoiceField(
         choices=[
             "string",
@@ -642,6 +649,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "task_mcp_installations",
             "signals_scout",
             "task_skills",
+            "replay_vision_scan",
         ]
     )
     key = serializers.CharField()
@@ -732,6 +740,19 @@ class HogFunctionTemplating(models.TextChoices):
     LIQUID = "liquid", "liquid"
 
 
+def _is_templated_choice(schema: dict, value: Any) -> bool:
+    """A choice value that is not one of the declared choices is a Hog template, not a selection.
+
+    A sub-template can prefill a choice input with an expression, for example the PagerDuty
+    `event_action` that sends `resolve` on the issue-resolved event and `trigger` otherwise. The
+    destination then rejects the uncompiled text, so the expression has to become bytecode. A value
+    the user picked from the dropdown is left alone, so it keeps compiling to nothing.
+    """
+    if not isinstance(value, str):
+        return False
+    return value not in {choice.get("value") for choice in schema.get("choices") or []}
+
+
 class InputsItemSerializer(serializers.Serializer):
     value = AnyInputField(required=False)
     templating = serializers.ChoiceField(choices=HogFunctionTemplating.choices, required=False)
@@ -794,8 +815,17 @@ class InputsItemSerializer(serializers.Serializer):
                 raise serializers.ValidationError({"input": "Value must be a list of Integration IDs."})
             _validate_not_posthog_connection(value, self.context)
         elif item_type == "task_repository":
-            if not isinstance(value, str):
-                raise serializers.ValidationError({"input": "Value must be a repository name like your-org/your-repo."})
+            repositories = [value] if isinstance(value, str) else value
+            if (
+                not isinstance(repositories, list)
+                or not all(isinstance(v, str) for v in repositories)
+                or len(repositories) > MAX_TASK_REPOSITORIES
+            ):
+                raise serializers.ValidationError(
+                    {
+                        "input": f"Value must be a list of up to {MAX_TASK_REPOSITORIES} repository names like your-org/your-repo."
+                    }
+                )
         elif item_type == "task_model":
             # A non-empty value means a model was chosen (an empty value returned above as "use the
             # default model"), so it must name a usable model. Otherwise the run-time consumer drops
@@ -820,6 +850,13 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "signals_scout":
             if not isinstance(value, str):
                 raise serializers.ValidationError({"input": "Value must be a scout skill name."})
+        elif item_type == "replay_vision_scan":
+            if not isinstance(value, dict) or not isinstance(value.get("type"), str):
+                raise serializers.ValidationError({"input": "Choose what Replay Vision should do."})
+            # The setup is never templated. Compiled code or a Liquid template from the client could name a different
+            # scanner than the value the access checks read, so only the literal value reaches the engine.
+            for key in ("bytecode", "transpiled", "templating"):
+                attrs.pop(key, None)
         elif item_type == "task_skills":
             if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
                 raise serializers.ValidationError({"input": "Value must be a list of skill names."})
@@ -898,17 +935,22 @@ class InputsItemSerializer(serializers.Serializer):
                     pass
                 else:
                     # If we have a value and hog templating is enabled, we need to transpile the value
-                    value_is_transpiled = item_type in [
-                        "string",
-                        "boolean",
-                        "dictionary",
-                        "json",
-                        "email",
-                        "native_email",
-                        "posthog_ticket_tags",
-                        "customer_analytics_account_properties",
-                        "customer_analytics_account_relationships",
-                    ] or (item_type == "boolean" and isinstance(value, str))
+                    value_is_transpiled = (
+                        item_type
+                        in [
+                            "string",
+                            "boolean",
+                            "dictionary",
+                            "json",
+                            "email",
+                            "native_email",
+                            "posthog_ticket_tags",
+                            "customer_analytics_account_properties",
+                            "customer_analytics_account_relationships",
+                        ]
+                        or (item_type == "boolean" and isinstance(value, str))
+                        or (item_type == "choice" and _is_templated_choice(schema, value))
+                    )
                     if value_is_transpiled:
                         if item_type in ("email", "native_email") and isinstance(value, dict):
                             # We want to exclude the "design" property
@@ -953,6 +995,39 @@ class InputsItemSerializer(serializers.Serializer):
         return attrs
 
 
+def exposes_secret_dictionary_keys(schema: dict, schemas: list) -> bool:
+    """Only a `secret_<key>` dictionary paired with a plain `<key>` dictionary holds locked rows the editor lists by key."""
+    key = schema.get("key")
+    if schema.get("type") != "dictionary" or not isinstance(key, str) or not key.startswith("secret_"):
+        return False
+    plain_key = key.removeprefix("secret_")
+    return any(
+        isinstance(s, dict) and s.get("key") == plain_key and s.get("type") == "dictionary" and not s.get("secret")
+        for s in schemas
+    )
+
+
+def masked_dictionary_secret(stored: Any) -> dict:
+    """Mask a secret dictionary input entry by entry, so the editor can still list its keys."""
+    entries = stored.get("value") if isinstance(stored, dict) else None
+    if isinstance(entries, dict):
+        return {"secret": True, "value": dict.fromkeys(entries, MASKED_SECRET_VALUE)}
+    return {"secret": True}
+
+
+def restore_masked_dictionary_entries(value: Any, stored: Any) -> tuple[Any, list[str]]:
+    """Put each stored secret back where the editor sent the mask for an entry it did not retype."""
+    entries = value.get("value") if isinstance(value, dict) else None
+    if not isinstance(entries, dict) or MASKED_SECRET_VALUE not in entries.values():
+        return value, []
+    stored_entries = stored.get("value") if isinstance(stored, dict) else None
+    stored_entries = stored_entries if isinstance(stored_entries, dict) else {}
+    missing = [k for k, v in entries.items() if v == MASKED_SECRET_VALUE and k not in stored_entries]
+    restored = {k: stored_entries.get(k) if v == MASKED_SECRET_VALUE else v for k, v in entries.items()}
+    stored_metadata = {k: v for k, v in stored.items() if k != "value"} if isinstance(stored, dict) else {}
+    return {**stored_metadata, **value, "value": restored}, missing
+
+
 class InputsSerializer(serializers.DictField):
     """
     Provides the same typing as the DictField but with custom validation to only include the inputs that are in the schema
@@ -990,6 +1065,12 @@ class InputsSerializer(serializers.DictField):
                     and bool(value.get("secret"))
                     and ("value" not in value or value.get("value") == MASKED_SECRET_VALUE)
                 )
+                if not is_masked and schema.get("type") == "dictionary":
+                    value, missing = restore_masked_dictionary_entries(value, (existing_secret_inputs or {}).get(key))
+                    if missing:
+                        errors[key] = f"No value is saved for {', '.join(missing)}. Enter the value again."
+                        continue
+
                 if is_masked or value == {}:
                     existing_value = (existing_secret_inputs or {}).get(key)
                     if existing_value:
@@ -1077,6 +1158,57 @@ def _contains_behavioral_property(filters: dict) -> bool:
         for property_list in property_lists
         for prop in property_list
     )
+
+
+def _action_ids_in_filters(filters: dict[str, Any]) -> set[int]:
+    # Mirrors compile_filters_expr, which compiles every entry typed "actions" in either list.
+    action_ids: set[int] = set()
+    for key in ("events", "actions"):
+        entries = filters.get(key)
+        for entry in entries if isinstance(entries, list) else []:
+            if isinstance(entry, dict) and entry.get("type") == "actions":
+                with contextlib.suppress(KeyError, TypeError, ValueError, OverflowError):
+                    action_id = int(entry["id"])
+                    # Postgres rejects an id outside the bigint range in a query, and no row can match one.
+                    if 0 < action_id < 2**63:
+                        action_ids.add(action_id)
+    return action_ids
+
+
+def _filter_action_ids(value: Any) -> set[int]:
+    if isinstance(value, list):
+        return set().union(*(_filter_action_ids(item) for item in value))
+    if not isinstance(value, dict):
+        return set()
+    action_ids: set[int] = set()
+    for key, item in value.items():
+        if key == "filters" and isinstance(item, dict):
+            action_ids |= _action_ids_in_filters(item)
+        elif key != "inputs":
+            action_ids |= _filter_action_ids(item)
+    return action_ids
+
+
+def require_viewer_access_to_added_actions(context: dict[str, Any], submitted: Any, stored: Any) -> None:
+    user = getattr(context.get("request"), "user", None)
+    user_access_control = getattr(context.get("view"), "user_access_control", None)
+    # Synthetic principals (project secret API keys) bypass access control, and callers without a view
+    # (template installs, plugin migrations) write no references a user picked.
+    if not isinstance(user, User) or user_access_control is None:
+        return
+    added_ids = _filter_action_ids(submitted) - _filter_action_ids(stored)
+    if not added_ids:
+        return
+
+    actions = Action.objects.filter(team__project_id=context["get_team"]().project_id, id__in=added_ids)
+    denied_ids = user_access_control.denied_object_ids(
+        "action", [(str(action.id), action.team_id, action.created_by_id) for action in actions], "viewer"
+    )
+    if denied_ids:
+        raise serializers.ValidationError(
+            f"You don't have viewer access to action(s) {', '.join(denied_ids)}. "
+            "Remove them from the filters, or ask for access."
+        )
 
 
 class HogFunctionFiltersSerializer(serializers.Serializer):
@@ -1193,7 +1325,9 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
             cohort_membership_supported = bool(self.context.get("cohort_membership_supported"))
             validated_cohort_ids: Optional[set[int]] = None
             if cohort_membership_supported:
-                validated_cohort_ids = self._validate_realtime_cohorts(data, team)
+                validated_cohort_ids = self._validate_realtime_cohorts(
+                    data, team, require_ready=not self.context.get("is_draft")
+                )
             data = compile_filters_bytecode(
                 data,
                 team,
@@ -1208,12 +1342,10 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
 
         return data
 
-    def _validate_realtime_cohorts(self, data: dict, team: Team) -> set[int]:
-        """A cohort without maintained cohort_membership rows would evaluate everyone as a non-member.
+    def _validate_realtime_cohorts(self, data: dict, team: Team, *, require_ready: bool) -> set[int]:
+        """Validate every cohort these filters reference, including inside referenced Actions.
 
         Returns the validated ids so the compiler can reject any IN COHORT operand outside them.
-        Error messages carry the id rather than the name: they surface to callers holding only
-        workflow scopes, and a name would hand them a cohort-metadata oracle.
         """
         collected = set(filter_cohort_ids(data))
         action_ids = filter_action_ids(data)
@@ -1222,25 +1354,54 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
             for action in Action.objects.filter(id__in=action_ids, team__project_id=team.project_id, deleted=False):
                 for step in action.steps:
                     collected |= collect_property_cohort_ids(step.properties or [])
-        cohort_ids = sorted(collected)
-        if not cohort_ids:
-            return set()
+        validate_realtime_cohorts(collected, team, require_ready=require_ready)
+        return collected
 
-        cohorts = {cohort.pk: cohort for cohort in Cohort.objects.filter(pk__in=cohort_ids, team=team, deleted=False)}
-        for cohort_id in cohort_ids:
-            cohort = cohorts.get(cohort_id)
-            if cohort is None:
-                raise serializers.ValidationError(f"Cohort {cohort_id} doesn't exist in this environment.")
-            if cohort.is_static:
-                raise serializers.ValidationError(
-                    f"Cohort {cohort_id} is a static cohort. Conditions can only use realtime cohorts."
-                )
-            if not cohort.is_flag_compatible:
-                raise serializers.ValidationError(
-                    f"Cohort {cohort_id} isn't ready for realtime evaluation. "
-                    f"Conditions can only use realtime cohorts that have finished calculating."
-                )
-        return set(cohort_ids)
+
+COHORT_NOT_READY_CODE = "cohort_not_ready"
+
+
+def _cohort_not_ready_error(cohort: Cohort) -> serializers.ValidationError:
+    readiness = resolve_realtime_readiness([cohort]).get(cohort.pk)
+    if readiness is not None and readiness.state in (CohortRealtimeState.BUILDING, CohortRealtimeState.REBUILDING):
+        percent = readiness.build.percent_complete if readiness.build is not None else None
+        progress = f" ({percent}% done)" if percent is not None else ""
+        return serializers.ValidationError(
+            f"Cohort {cohort.pk} is still calculating{progress}. Workflows can use it once it finishes.",
+            code=COHORT_NOT_READY_CODE,
+        )
+    return serializers.ValidationError(
+        f"Cohort {cohort.pk} isn't ready for realtime evaluation. "
+        f"Workflows can only use realtime cohorts that have finished calculating."
+    )
+
+
+def validate_realtime_cohorts(cohort_ids: Iterable[int], team: Team, *, require_ready: bool = True) -> None:
+    """Reject any cohort without maintained cohort_membership rows, which would treat everyone as a non-member.
+
+    With `require_ready=False` a realtime cohort that is still calculating passes, so a draft can reference
+    it before its history finishes. A cohort that can never become ready is rejected either way.
+
+    Error messages carry the id rather than the name: they surface to callers holding only workflow
+    scopes, and a name would hand them a cohort-metadata oracle.
+    """
+    ids = sorted(set(cohort_ids))
+    if not ids:
+        return
+    cohorts = {cohort.pk: cohort for cohort in Cohort.objects.filter(pk__in=ids, team=team, deleted=False)}
+    for cohort_id in ids:
+        cohort = cohorts.get(cohort_id)
+        if cohort is None:
+            raise serializers.ValidationError(f"Cohort {cohort_id} doesn't exist in this environment.")
+        if cohort.is_static:
+            raise serializers.ValidationError(
+                f"Cohort {cohort_id} is a static cohort. Workflows can only use realtime cohorts."
+            )
+        if cohort.is_flag_compatible:
+            continue
+        can_become_ready = cohort.cohort_type == CohortType.REALTIME and has_realtime_state(cohort)
+        if require_ready or not can_become_ready:
+            raise _cohort_not_ready_error(cohort)
 
 
 class FunctionInputsSerializer(serializers.Serializer):

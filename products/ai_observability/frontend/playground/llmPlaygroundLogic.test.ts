@@ -799,6 +799,8 @@ describe('llmPlaygroundLogic', () => {
                     isRecommended: false,
                     providerKeyId: 'key-1',
                     supportsDecisions: false,
+                    supportsChat: true,
+                    supportsReasoning: false,
                 }))
             )
         })
@@ -1810,6 +1812,10 @@ describe('llmPlaygroundLogic', () => {
                             thinking: true,
                             reasoning_effort: 'high',
                             tools: [{ type: 'function', function: { name: 'lookup' } }],
+                            response_format: {
+                                type: 'json_schema',
+                                json_schema: { name: 'verdict', schema: { type: 'object' }, strict: true },
+                            },
                             messages: [{ role: 'user', content: 'Hi {{name}}' }],
                         },
                     },
@@ -1830,6 +1836,10 @@ describe('llmPlaygroundLogic', () => {
             expect(llmPlaygroundPromptsLogic.values.thinking).toBe(true)
             expect(llmPlaygroundPromptsLogic.values.reasoningLevel).toBe('high')
             expect(llmPlaygroundPromptsLogic.values.tools).toEqual([{ type: 'function', function: { name: 'lookup' } }])
+            expect(llmPlaygroundPromptsLogic.values.responseFormat).toEqual({
+                type: 'json_schema',
+                json_schema: { name: 'verdict', schema: { type: 'object' }, strict: true },
+            })
             expect(llmPlaygroundPromptsLogic.values.model).toBe('gpt-5')
         })
 

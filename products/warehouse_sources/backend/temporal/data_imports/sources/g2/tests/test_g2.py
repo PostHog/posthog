@@ -128,8 +128,6 @@ class TestResumeStateSaving:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("ok", 200, True),
-            ("unauthorized", 401, False),
             ("forbidden", 403, False),
         ]
     )

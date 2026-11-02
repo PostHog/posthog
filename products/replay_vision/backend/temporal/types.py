@@ -40,7 +40,7 @@ class ScannerResult(BaseModel, frozen=True):
     model_output: AnyScannerOutput
     signals_count: int = Field(default=0, ge=0)
     # The problem type of each signal actually emitted, in emission order and with repeats kept, so the
-    # watch feed can count the kinds of issue a row carries. Empty on non-signal rows and on old rows.
+    # highlight feed can count the kinds of issue a row carries. Empty on non-signal rows and on old rows.
     signal_problem_types: list[str] = Field(default_factory=list)
     # The same signals with their headline and confidence, so the feed can name them rather than count them
     # and can rank a weak finding below a strong one. Empty on non-signal rows and on rows scanned before
@@ -213,17 +213,6 @@ class SessionIdentity(BaseModel, frozen=True):
         return self.model_dump(mode="json")
 
 
-class NavigationEntry(BaseModel, frozen=True):
-    """One page-URL change in the session, precomputed for the prompt's navigation timeline."""
-
-    rec_t: int = Field(ge=0)
-    # Interned `window_N` token, matching what the event lookups return. None when the session has no window ids.
-    window: str | None = None
-    url: str
-    # First entry seen for a window token other than the session's initial one (a tab or window opening).
-    new_window: bool = False
-
-
 class ScannerLlmInputs(BaseModel, frozen=True):
     """Per-session analytics events + recording metadata, stashed in Redis between activities."""
 
@@ -234,9 +223,6 @@ class ScannerLlmInputs(BaseModel, frozen=True):
     url_mapping: dict[str, str] = Field(default_factory=dict)
     window_mapping: dict[str, str] = Field(default_factory=dict)
     event_timestamps: dict[str, int] = Field(default_factory=dict)
-    # Chronological URL-change timeline rendered into the preamble.
-    navigation: list[NavigationEntry] = Field(default_factory=list)
-    navigation_dropped: int = Field(default=0, ge=0)
     # True when the session hit the fetch row cap, so the event lookups can't see the whole session.
     events_truncated: bool = False
     # Customer product context rendered into the preamble; empty for teams without core memory / descriptions.

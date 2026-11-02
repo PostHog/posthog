@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from decimal import Decimal
 from typing import Any, cast
 from urllib.parse import urlparse
 
@@ -205,29 +204,11 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="Absolute value or absolute increase that triggers absolute threshold alerts.",
     )
-    minimum_value = serializers.DecimalField(
-        max_digits=20,
-        decimal_places=6,
-        required=False,
-        help_text="Minimum current value before the alert can fire.",
-    )
     baseline_window_days = serializers.IntegerField(
         required=False,
         min_value=1,
         max_value=90,
         help_text="Reserved for future increase-over-baseline rules. Not used by absolute value alerts.",
-    )
-    evaluation_delay_hours = serializers.IntegerField(
-        required=False,
-        min_value=0,
-        max_value=72,
-        help_text="Hours after a UTC billing date ends before it becomes eligible for evaluation.",
-    )
-    cooldown_hours = serializers.IntegerField(
-        required=False,
-        min_value=0,
-        max_value=24 * 30,
-        help_text="Minimum hours between repeated firing notifications.",
     )
     snoozed_until = serializers.DateTimeField(
         required=False,
@@ -260,11 +241,8 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
             "threshold_type",
             "threshold_percentage",
             "threshold_value",
-            "minimum_value",
             "baseline_window_days",
-            "evaluation_delay_hours",
             "state",
-            "cooldown_hours",
             "snoozed_until",
             "next_check_at",
             "last_checked_at",
@@ -334,13 +312,11 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
             current.threshold_percentage if current else None,
         )
         threshold_value = attrs.get("threshold_value", current.threshold_value if current else None)
-        minimum_value = attrs.get("minimum_value", current.minimum_value if current else Decimal("0"))
 
         errors = validate_threshold_configuration(
             threshold_type=threshold_type,
             threshold_percentage=threshold_percentage,
             threshold_value=threshold_value,
-            minimum_value=minimum_value,
         )
         if errors:
             raise ValidationError(errors)
@@ -382,14 +358,11 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
             "threshold_type",
             "threshold_percentage",
             "threshold_value",
-            "minimum_value",
             "baseline_window_days",
-            "evaluation_delay_hours",
         }
         revision_fields = evaluation_fields | {
             "enabled",
             "snoozed_until",
-            "cooldown_hours",
         }
         with transaction.atomic():
             locked = BillingAlertConfiguration.objects.select_for_update().get(

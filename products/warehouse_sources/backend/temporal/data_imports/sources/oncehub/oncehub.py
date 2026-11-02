@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from requests import Request, Response
 
@@ -8,16 +8,24 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.oncehub.settings import ONCEHUB_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.oncehub.settings import (
+    ONCEHUB_ENDPOINTS,
+    OncehubEndpointConfig,
+)
 
 ONCEHUB_BASE_URL = "https://api.oncehub.com/v2"
-# List endpoints accept a `limit` of 1-100 (default 10); the largest page minimises round trips
-# against OnceHub's tight 5 requests/second account rate limit.
-PAGE_SIZE = 100
 # Cheap endpoint used to confirm an API key is genuine. The key is account-wide, so one probe
 # validates access to every list endpoint.
 DEFAULT_PROBE_PATH = "/users"
@@ -27,12 +35,15 @@ def _probe_headers(api_key: str) -> dict[str, str]:
     return {"API-Key": api_key, "Accept": "application/json"}
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class OncehubResumeConfig:
     # Cursor for the next page: OnceHub paginates by passing the last item's object ID as `after`.
     # A crashed full-refresh sync resumes from the page after the last one yielded; merge dedupes
     # on `id`. `None` means start from the first page.
     cursor: str | None = None
+    # `build_dependent_resource` checkpoint for fan-out endpoints (which parents finished, where the
+    # current one stopped), mutually exclusive with `cursor`.
+    fanout_state: dict[str, Any] | None = None
 
 
 class OncehubCursorPaginator(BasePaginator):
@@ -81,31 +92,33 @@ class OncehubCursorPaginator(BasePaginator):
             self._has_next_page = True
 
 
-def oncehub_source(
+def _client_config(api_key: str) -> ClientConfig:
+    return {
+        "base_url": ONCEHUB_BASE_URL,
+        # Only the non-secret Accept header goes here; the API key rides the framework auth config
+        # so it is redacted from logs and raised error messages.
+        "headers": {"Accept": "application/json"},
+        "auth": {"type": "api_key", "api_key": api_key, "name": "API-Key", "location": "header"},
+        "paginator": OncehubCursorPaginator(),
+    }
+
+
+def _list_resource(
     api_key: str,
-    endpoint: str,
+    config: OncehubEndpointConfig,
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[OncehubResumeConfig],
-    db_incremental_field_last_value: Optional[Any] = None,
-) -> SourceResponse:
-    config = ONCEHUB_ENDPOINTS[endpoint]
-
+    db_incremental_field_last_value: Optional[Any],
+) -> Resource:
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": ONCEHUB_BASE_URL,
-            # Only the non-secret Accept header goes here; the API key rides the framework auth config
-            # so it is redacted from logs and raised error messages.
-            "headers": {"Accept": "application/json"},
-            "auth": {"type": "api_key", "api_key": api_key, "name": "API-Key", "location": "header"},
-            "paginator": OncehubCursorPaginator(),
-        },
+        "client": _client_config(api_key),
         "resources": [
             {
-                "name": endpoint,
+                "name": config.name,
                 "endpoint": {
                     "path": config.path,
-                    "params": {"limit": PAGE_SIZE},
+                    "params": {"limit": config.page_size},
                     # OnceHub list endpoints wrap records in {"object": "list", "data": [...], "has_more": bool}.
                     "data_selector": "data",
                     # A 200 body that is not this envelope (missing `data`, or a bare/non-list payload)
@@ -128,7 +141,7 @@ def oncehub_source(
         if state and state.get("cursor") is not None:
             resumable_source_manager.save_state(OncehubResumeConfig(cursor=str(state["cursor"])))
 
-    resource = rest_api_resource(
+    return rest_api_resource(
         rest_config,
         team_id,
         job_id,
@@ -136,6 +149,68 @@ def oncehub_source(
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
     )
+
+
+def _fanout_resource(
+    api_key: str,
+    config: OncehubEndpointConfig,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[OncehubResumeConfig],
+    db_incremental_field_last_value: Optional[Any],
+) -> Resource:
+    assert config.fanout is not None
+    parent = ONCEHUB_ENDPOINTS[config.fanout.parent_name]
+
+    initial_fanout_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_fanout_state = resume.fanout_state
+
+    def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state:
+            resumable_source_manager.save_state(OncehubResumeConfig(fanout_state=state))
+
+    return cast(
+        Resource,
+        build_dependent_resource(
+            endpoint_configs={config.name: config, parent.name: parent},
+            child_endpoint=config.name,
+            fanout=config.fanout,
+            client_config=_client_config(api_key),
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=db_incremental_field_last_value,
+            # OnceHub rejects unknown query params, so `limit` goes only to the parent listing
+            # (via `fanout.parent_params`), never to the single-object child request.
+            page_size_param=None,
+            parent_endpoint_extra={
+                "paginator": OncehubCursorPaginator(),
+                "data_selector": "data",
+            },
+            child_endpoint_extra={
+                "paginator": SinglePagePaginator(),
+                "data_selector": "$",
+            },
+            resume_hook=save_fanout_checkpoint,
+            initial_paginator_state=initial_fanout_state,
+        ),
+    )
+
+
+def oncehub_source(
+    api_key: str,
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[OncehubResumeConfig],
+    db_incremental_field_last_value: Optional[Any] = None,
+) -> SourceResponse:
+    config = ONCEHUB_ENDPOINTS[endpoint]
+    build = _fanout_resource if config.fanout is not None else _list_resource
+    resource = build(api_key, config, team_id, job_id, resumable_source_manager, db_incremental_field_last_value)
 
     return SourceResponse(
         name=endpoint,

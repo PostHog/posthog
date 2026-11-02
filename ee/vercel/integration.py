@@ -25,6 +25,7 @@ from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.helpers.two_factor_session import has_passkeys
+from posthog.integrations import IntegrationConflict, IntegrationManager, IntegrationRecord
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -142,6 +143,24 @@ class SSOExperimentationConfig:
     url_template: str
 
 
+def get_or_create_connectable_resource(team: Team) -> tuple[IntegrationRecord, bool]:
+    """The team's Vercel resource, created as a connectable resource when the team has none."""
+    resources = IntegrationManager.vercel.oauth
+    existing = resources.find(team.pk, external_id=str(team.pk))
+    if existing is not None:
+        return existing, False
+    try:
+        created = resources.create(team.pk, external_id=str(team.pk), config={"type": "connectable"})
+        return created, True
+    except IntegrationConflict:
+        # A concurrent request created the row between the read and the insert. The SDK creates in a
+        # savepoint, so the caller's transaction stays usable for the second read.
+        existing = resources.find(team.pk, external_id=str(team.pk))
+        if existing is None:
+            raise
+        return existing, False
+
+
 class VercelIntegration:
     SSO_PATH_REDIRECT_MAP = {
         "billing": "/organization/billing/overview",
@@ -157,7 +176,7 @@ class VercelIntegration:
     SSO_EXPERIMENTATION_CONFIG: dict[str, SSOExperimentationConfig] = {
         "flag": SSOExperimentationConfig(
             model=FeatureFlag,
-            url_template="/project/{team_id}/feature_flags/{item_pk}",
+            url_template="/project/{team_id}/feature-flags/{item_pk}",
         ),
         "experiment": SSOExperimentationConfig(
             model=Experiment,
@@ -481,6 +500,46 @@ class VercelIntegration:
         return {"finalized": True}
 
     @staticmethod
+    def _promote_mapped_contact_to_owner(installation: OrganizationIntegration, contact_email: str) -> None:
+        mapped_users = User.objects.filter(pk__in=list(installation.config.get("user_mappings", {}).values()))
+        memberships = OrganizationMembership.objects.filter(
+            organization_id=installation.organization_id,
+            user__in=EmailLookupHandler.users_matching_email(contact_email, mapped_users),
+            level__lt=OrganizationMembership.Level.OWNER,
+        )
+        for membership in memberships:
+            membership.level = OrganizationMembership.Level.OWNER
+            membership.save(update_fields=["level"])
+
+    @staticmethod
+    def refresh_installation_account(installation: OrganizationIntegration) -> None:
+        installation_id = installation.integration_id
+        access_token = VercelIntegration._get_access_token(installation)
+        if not installation_id or not access_token:
+            raise RuntimeError("Vercel installation has no installation ID or access token")
+
+        # A transfer webhook runs this inside its delivery. The short timeout keeps it well inside the
+        # ingress delivery budget (`DEFAULT_DELIVERY_BUDGET_SECONDS`), which also covers the forward
+        # to the region that holds the installation.
+        account = VercelAPIClient(bearer_token=access_token, timeout=5).get_installation_account(installation_id)
+
+        # SSO saves user mappings under a lock on this row. Take the same lock, so that a mapping
+        # saved while the request to Vercel was in flight is not overwritten.
+        with transaction.atomic():
+            locked = OrganizationIntegration.objects.select_for_update().get(pk=installation.pk)
+            live_contact = account.get("contact")
+            contact = live_contact or locked.config.get("account", {}).get("contact")
+            refreshed: dict[str, Any] = {"url": account["url"], "name": account.get("name")}
+            # The Owner check at SSO reads the contact with `.get`, which a stored None breaks.
+            if contact:
+                refreshed["contact"] = {"email": contact["email"], "name": contact.get("name")}
+            locked.config["account"] = refreshed
+            locked.save(update_fields=["config", "updated_at"])
+            if live_contact:
+                VercelIntegration._promote_mapped_contact_to_owner(locked, live_contact["email"])
+        logger.info("Refreshed Vercel installation account", installation_id=installation_id, integration="vercel")
+
+    @staticmethod
     def get_product_plans(product_slug: str) -> dict[str, Any]:
         if product_slug != "posthog":
             raise exceptions.NotFound("Product not found")
@@ -528,28 +587,27 @@ class VercelIntegration:
                 user=installation.created_by,
             )
 
-        resource = Integration.objects.create(
-            team=team,
-            kind=Integration.IntegrationKind.VERCEL,
-            integration_id=str(team.pk),
+        resource = IntegrationManager.vercel.oauth.create(
+            team.pk,
+            external_id=str(team.pk),
             config=asdict(config),
-            created_by=installation.created_by,
+            created_by_id=installation.created_by_id,
         )
 
         logger.info(
             "Successfully created Vercel resource",
             installation_id=installation_id,
-            resource_id=resource.pk,
+            resource_id=resource.id,
             team_id=team.pk,
             integration="vercel",
         )
 
-        return VercelIntegration._build_resource_response(resource, installation)
+        return VercelIntegration._build_resource_response(resource, team, installation)
 
     @staticmethod
     def get_resource(resource_id: str) -> dict[str, Any]:
         resource, installation = VercelIntegration._get_resource_with_installation(resource_id)
-        return VercelIntegration._build_resource_response(resource, installation)
+        return VercelIntegration._build_resource_response(resource, resource.team, installation)
 
     @staticmethod
     def update_resource(resource_id: str, resource_data: dict[str, Any]) -> dict[str, Any]:
@@ -564,7 +622,7 @@ class VercelIntegration:
         resource.save(update_fields=["config"])
 
         logger.info("Successfully updated Vercel resource", resource_id=resource_id, integration="vercel")
-        return VercelIntegration._build_resource_response(resource, installation)
+        return VercelIntegration._build_resource_response(resource, resource.team, installation)
 
     @staticmethod
     def delete_resource(resource_id: str) -> None:
@@ -574,18 +632,20 @@ class VercelIntegration:
         logger.info("Successfully deleted Vercel resource", resource_id=resource_id, integration="vercel")
 
     @staticmethod
-    def _build_resource_response(resource: Integration, installation: OrganizationIntegration) -> dict[str, Any]:
+    def _build_resource_response(
+        resource: IntegrationRecord, team: Team, installation: OrganizationIntegration
+    ) -> dict[str, Any]:
         billing_plans = VercelIntegration.get_vercel_plans()
         current_plan_id = installation.config.get("billing_plan_id", "posthog-usage-based")
         current_plan = next((plan for plan in billing_plans if plan["id"] == current_plan_id), None)
 
         return {
-            "id": str(resource.pk),
+            "id": str(resource.id),
             "productId": resource.config.get("productId", ""),
-            "name": resource.config.get("name", resource.team.name),
+            "name": resource.config.get("name", team.name),
             "metadata": resource.config.get("metadata", {}),
             "status": "ready",
-            "secrets": VercelIntegration._build_secrets(resource.team),
+            "secrets": VercelIntegration._build_secrets(team),
             "billingPlan": current_plan,
         }
 
@@ -602,11 +662,8 @@ class VercelIntegration:
         ]
 
     @staticmethod
-    def _get_vercel_resource_for_team(team: Team) -> Integration | None:
-        try:
-            return Integration.objects.get(team=team, kind=Integration.IntegrationKind.VERCEL)
-        except Integration.DoesNotExist:
-            return None
+    def _get_vercel_resource_for_team(team: Team) -> IntegrationRecord | None:
+        return IntegrationManager.vercel.oauth.find(team.pk)
 
     @staticmethod
     def _get_installation_for_organization(organization: Organization) -> OrganizationIntegration | None:
@@ -687,7 +744,7 @@ class VercelIntegration:
             )
             return None
 
-        resource_id = str(resource.pk)
+        resource_id = str(resource.id)
 
         logger.debug(
             "Successfully set up Vercel client",
@@ -851,7 +908,7 @@ class VercelIntegration:
         return {
             **({"id": VercelIntegration._get_vercel_item_id("flag", feature_flag.pk)} if created else {}),
             "slug": feature_flag.key,
-            "origin": absolute_uri(f"/project/{feature_flag.team.id}/feature_flags/{feature_flag.pk}"),
+            "origin": absolute_uri(f"/project/{feature_flag.team.id}/feature-flags/{feature_flag.pk}"),
             "category": "flag",
             "name": feature_flag.key,
             "description": feature_flag.name,
@@ -1392,12 +1449,7 @@ def _safe_vercel_sync(
         if not installation:
             return
         try:
-            resource, created = Integration.objects.get_or_create(
-                team=team,
-                kind=Integration.IntegrationKind.VERCEL,
-                integration_id=str(team.pk),
-                defaults={"config": {"type": "connectable"}},
-            )
+            resource, created = get_or_create_connectable_resource(team)
             if created:
                 logger.info(
                     "Auto-created Vercel resource for connectable installation",
@@ -1409,7 +1461,7 @@ def _safe_vercel_sync(
                     client = VercelAPIClient(bearer_token=access_token)
                     client.import_resource(
                         integration_config_id=installation.integration_id,
-                        resource_id=str(resource.pk),
+                        resource_id=str(resource.id),
                         product_id="posthog",
                         name=team.name,
                         secrets=VercelIntegration._build_secrets(team),

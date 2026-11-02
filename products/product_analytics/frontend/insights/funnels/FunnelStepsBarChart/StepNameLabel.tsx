@@ -1,26 +1,34 @@
 import './FunnelBarVertical.scss'
 
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, FunnelStepWithConversionMetrics } from '~/types'
 
 import { funnelDataLogic } from '../funnelDataLogic'
+import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
 import { FunnelStepPathLinks } from '../shared/FunnelStepPathLinks'
 import { getActionFilterFromFunnelStep } from '../shared/funnelStepTableUtils'
+import { ValueInspectorButton } from '../shared/ValueInspectorButton'
 
 type StepNameLabelProps = {
     step: FunnelStepWithConversionMetrics
     stepIndex: number
+    showPersonsModal: boolean
 }
 
-export function StepNameLabel({ step, stepIndex }: StepNameLabelProps): JSX.Element {
+export function StepNameLabel({ step, stepIndex, showPersonsModal }: StepNameLabelProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { isStepOptional, querySource } = useValues(funnelDataLogic(insightProps))
+    const { isStepOptional, querySource, aggregationTargetLabel } = useValues(funnelDataLogic(insightProps))
+    const { isInExperimentContext } = useValues(funnelPersonsModalLogic(insightProps))
+    const { openPersonsModalForStep } = useActions(funnelPersonsModalLogic(insightProps))
     const { hasAvailableFeature } = useValues(userLogic)
 
     const isOptionalStep = isStepOptional(stepIndex + 1)
@@ -35,9 +43,19 @@ export function StepNameLabel({ step, stepIndex }: StepNameLabelProps): JSX.Elem
         </span>
     )
 
+    const count = step.count ?? 0
+    const countLabel = (
+        <span className="tabular-nums">
+            <span translate="no">{humanFriendlyNumber(count)}</span>
+            <span className="hidden @min-[11rem]:inline">
+                {` ${pluralize(count, aggregationTargetLabel.singular, aggregationTargetLabel.plural, false)}`}
+            </span>
+        </span>
+    )
+
     return (
         <div
-            className="StepNameLabel flex items-start justify-center px-1 text-center text-sm"
+            className="StepNameLabel flex flex-col items-center px-1 text-center text-sm"
             data-attr="funnel-step-legend"
             style={{ opacity: isOptionalStep ? 0.6 : 1 }}
         >
@@ -55,6 +73,19 @@ export function StepNameLabel({ step, stepIndex }: StepNameLabelProps): JSX.Elem
             ) : (
                 <div className="max-w-full px-1">{name}</div>
             )}
+            <Tooltip title={`${capitalizeFirstLetter(aggregationTargetLabel.plural)} who completed this step`}>
+                {showPersonsModal && !isInExperimentContext ? (
+                    <ValueInspectorButton
+                        onClick={() => openPersonsModalForStep({ step, stepIndex, converted: true })}
+                        // pinned: shared with the legacy step legend, so autocapture insights keep counting clicks
+                        data-attr="funnel-inspect-converted"
+                    >
+                        {countLabel}
+                    </ValueInspectorButton>
+                ) : (
+                    <span className="text-secondary">{countLabel}</span>
+                )}
+            </Tooltip>
         </div>
     )
 }

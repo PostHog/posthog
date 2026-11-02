@@ -37,7 +37,7 @@ class ImaggaSource(SimpleSource[ImaggaSourceConfig]):
             name=ExternalDataSourceType.IMAGGA,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Imagga",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             unreleasedSource=True,
             caption="""Enter your Imagga API credentials to pull your account's usage statistics into the PostHog Data warehouse.
 

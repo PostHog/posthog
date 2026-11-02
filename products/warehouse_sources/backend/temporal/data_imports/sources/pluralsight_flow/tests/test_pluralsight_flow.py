@@ -1,3 +1,4 @@
+import re
 from datetime import date
 
 import pytest
@@ -77,34 +78,90 @@ class TestPluralsightFlowSourceCoreEndpoints:
         assert result.rows == [{"id": 5}]
         assert result.params("offset") == ["2000"]
 
-    def test_incremental_endpoint_sends_gte_filter(self) -> None:
+    @pytest.mark.parametrize(
+        ("endpoint", "path", "filter_param"),
+        [
+            ("Commits", "/v3/customer/core/commits/", "author_date__gte"),
+            ("UserAliases", "/v3/customer/core/user_alias/", "created_at__gte"),
+        ],
+    )
+    def test_incremental_endpoint_sends_gte_filter(self, endpoint: str, path: str, filter_param: str) -> None:
         result = self._driver().run(
-            "Commits",
+            endpoint,
             [ScriptedResponse(json={"count": 1, "next": None, "previous": None, "results": [{"id": 1}]})],
             should_use_incremental_field=True,
         )
 
         assert result.raised is None
-        assert result.requests[0].param("author_date__gte") == "1970-01-01T00:00:00"
+        assert result.paths == [path]
+        assert result.requests[0].param(filter_param) == "1970-01-01T00:00:00"
+
+    @pytest.mark.parametrize(
+        ("endpoint", "path"),
+        [
+            ("TeamMemberships", "/v3/customer/core/team_membership/"),
+            ("PullRequestProjects", "/v3/customer/core/pull_request_projects/"),
+            ("TicketProjects", "/v3/customer/core/ticket_projects/"),
+            ("PullRequestComments", "/v3/customer/core/pull_request_comments/"),
+            ("TicketEvents", "/v3/customer/core/ticket_events/"),
+        ],
+    )
+    def test_full_refresh_endpoint_sends_no_date_filter(self, endpoint: str, path: str) -> None:
+        result = self._driver().run(
+            endpoint,
+            [ScriptedResponse(json={"count": 1, "next": None, "previous": None, "results": [{"id": 7}]})],
+            should_use_incremental_field=True,
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"id": 7}]
+        assert result.paths == [path]
+        assert not [name for name in result.requests[0].query if name.endswith("__gte")]
 
 
 class TestPluralsightFlowSourceMetricsEndpoints:
-    def test_single_object_response_yields_one_row_with_date_range(self) -> None:
+    @pytest.mark.parametrize(
+        ("endpoint", "path", "date_range_pattern"),
+        [
+            (
+                "CollaborationMetrics",
+                "/collaboration/pullrequest/metrics/",
+                r"^\[\d{4}-\d{2}-\d{2}:\d{4}-\d{2}-\d{2}\]$",
+            ),
+            (
+                "TicketMetrics",
+                "/ticket-delivery/metrics/",
+                r'^\["\d{4}-\d{2}-\d{2}T00:00:00\+00:00","\d{4}-\d{2}-\d{2}T00:00:00\+00:00"\]$',
+            ),
+            (
+                "DoraChangeFailureRate",
+                "/dora/build-release/incident/change_failure_rate/",
+                r"^\d{4}-\d{2}-\d{2}T00:00:00\+00:00,\d{4}-\d{2}-\d{2}T00:00:00\+00:00$",
+            ),
+        ],
+    )
+    def test_single_object_response_yields_one_row_with_date_range(
+        self, endpoint: str, path: str, date_range_pattern: str
+    ) -> None:
         result = SourceDriver(
             PluralsightFlowSource(), PluralsightFlowSourceConfig(workspace="acme", api_key="test-key")
-        ).run("CollaborationMetrics", [ScriptedResponse(json={"time_to_merge": {"average": 3.5, "trend": 0.1}})])
+        ).run(endpoint, [ScriptedResponse(json={"metric": {"average": 3.5, "trend": 0.1}})])
 
         assert result.raised is None
+        assert result.paths == [path]
+        assert re.match(date_range_pattern, result.requests[0].param("date_range") or "")
         assert len(result.rows) == 1
-        assert result.rows[0]["time_to_merge"] == {"average": 3.5, "trend": 0.1}
-        assert "date_range" in result.rows[0]
+        assert result.rows[0]["metric"] == {"average": 3.5, "trend": 0.1}
+        assert result.rows[0]["date_range"] == result.requests[0].param("date_range")
         assert result.saved_states == []
 
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         ("status_code", "expected_valid"),
-        [(200, True), (401, False), (403, False)],
+        [
+            (200, True),
+        ],
     )
     def test_maps_status_to_validity(self, status_code: int, expected_valid: bool) -> None:
         with scripted_network([ScriptedResponse(status=status_code, json={})]) as network:

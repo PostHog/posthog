@@ -3,13 +3,16 @@ from __future__ import annotations
 import json
 import asyncio
 import hashlib
+from collections import Counter
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, tzinfo
+from typing import Any
 from uuid import UUID
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Case, DateTimeField, Max, PositiveSmallIntegerField, Q, Value, When
+from django.db.models import Case, Count, DateTimeField, Max, PositiveSmallIntegerField, Q, QuerySet, Value, When
 from django.utils import timezone
 
 import structlog
@@ -21,9 +24,11 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.dataclasses import frozen
 from posthog.models import Team
+from posthog.models.scoping.manager import TeamScopeError
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 
+from products.signals.backend.github_optional import ResearchAccessPolicy
 from products.signals.backend.models import (
     SignalReportAction,
     SignalReportArtefact,
@@ -46,6 +51,7 @@ from products.signals.backend.scout_harness.config_registry import (
 from products.signals.backend.scout_harness.lazy_seed import (
     canonical_config_tags_for,
     canonical_display_name_for,
+    canonical_precheck_query_for,
     canonical_skill_names,
     discover_canonical_skills,
     sync_canonical_skills,
@@ -73,7 +79,6 @@ from products.signals.backend.scout_harness.team_limits import (
     Enrollment,
     _canonicalize_team_config_keys,
     _default_team_config,
-    _parse_background,
     _parse_enrollment,
     _read_flag_payload,
     _resolve_child_start_delay,
@@ -86,6 +91,7 @@ from products.signals.backend.scout_harness.team_limits import (
     _runs_today_by_team,
     _team_configs,
     background_sample_bucket,
+    parse_background_lanes,
     resolve_max_enabled_scouts,
 )
 from products.signals.backend.temporal.agentic.scout_scheduler import RunSignalsScoutInput, RunSignalsScoutWorkflow
@@ -110,9 +116,18 @@ MAX_RUNS_PER_TICK = 1000
 # size lanes off the cadence dispatch actually produces; it is imported above.
 TICK_SECONDS = COORDINATOR_INTERVAL_MINUTES * 60
 
-# One event per region per tick that runs the background lane, to chart its backlog and time to first run.
+# One event per region per tick and lane, to chart each lane's backlog and time to first run.
 BACKGROUND_TICK_EVENT = "signals_scout_background_tick"
-BACKGROUND_TICK_DISTINCT_ID = "internal_signals_scout_coordinator"
+# One event per region per tick, and one per project with due runs that tick. Each carries the limits
+# the flag payload resolved next to the usage, so a chart never needs its own copy of the limits.
+COORDINATOR_TICK_EVENT = "signals_scout_coordinator_tick"
+CAPACITY_TICK_EVENT = "signals_scout_capacity_tick"
+COORDINATOR_DISTINCT_ID = "internal_signals_scout_coordinator"
+
+# The cap that kept a project's due runs from dispatching this tick.
+DEFERRED_PER_TICK = "per_tick"
+DEFERRED_PER_DAY = "per_day"
+DEFERRED_GLOBAL = "global"
 
 
 @dataclass(frozen=True)
@@ -180,6 +195,7 @@ class RunDueChecksOutput:
     # Defaulted so a workflow history written before the agent lane existed still decodes.
     dispatched: int = 0
     deferred: int = 0
+    observed: int = 0
 
 
 @activity.defn
@@ -200,6 +216,7 @@ async def run_due_signal_report_checks_activity(_input: RunDueChecksInput) -> Ru
         errored=summary.errored,
         dispatched=summary.dispatched,
         deferred=summary.deferred,
+        observed=summary.observed,
     )
 
 
@@ -220,7 +237,7 @@ async def fetch_enabled_signals_scout_runs_activity(
         # configs are derived from the same snapshot so they can't disagree across two reads.
         payload = await asyncio.to_thread(_read_flag_payload)
         enrollment = _parse_enrollment(payload)
-        background = _parse_background(payload)
+        background_lanes = parse_background_lanes(payload)
         team_configs = _team_configs(payload)
         default_team_config = _default_team_config(payload)
         # The global per-tick ceiling is flag-tunable (no deploy): resolve it here off the same
@@ -238,7 +255,7 @@ async def fetch_enabled_signals_scout_runs_activity(
             team_configs,
             default_team_config,
             global_max_runs_per_tick,
-            background,
+            background_lanes,
             start_delay_spread_seconds=smear_seconds if child_start_delay else 0,
         )
     logger.info("signals_scout coordinator: planned runs", count=len(planned))
@@ -267,12 +284,12 @@ async def stamp_dispatched_signals_scout_runs_activity(
         # `database_sync_to_async`'s pool is sized for DB-bound work.
         payload = await asyncio.to_thread(_read_flag_payload)
         slot_aligned = _resolve_slot_aligned_dispatch(payload)
-        background = _parse_background(payload)
+        backoffs = {lane.skill_name: lane.backoff for lane in parse_background_lanes(payload) or () if lane.backoff}
         await database_sync_to_async(_stamp_dispatched_runs, thread_sensitive=False)(
             stamp_input.dispatched_runs,
             slot_aligned=slot_aligned,
             dispatched_at=stamp_input.dispatched_at,
-            backoff=background.backoff if background is not None else None,
+            backoffs=backoffs,
         )
     # Counted here rather than in the workflow so a replay cannot double-count it, and after the
     # stamp so a retried attempt counts the batch once.
@@ -355,7 +372,7 @@ def _stamp_dispatched_runs(
     *,
     slot_aligned: bool = True,
     dispatched_at: datetime | None = None,
-    backoff: BackgroundBackoff | None = None,
+    backoffs: Mapping[str, BackgroundBackoff] | None = None,
 ) -> None:
     """Sync bulk stamp. `.update()` bypasses save(), so this per-tick write never hits the
     activity log.
@@ -381,8 +398,8 @@ def _stamp_dispatched_runs(
       slot on a new period can sit up to that whole period back, which would dispatch it early and
       undo the backoff. The tick start is already on the grid, so nothing drifts.
 
-    With `backoff` set, this also moves the backoff level of each dispatched background config (see
-    `_next_backoff_levels`).
+    `backoffs` maps a lane skill to its backoff. This also moves the backoff level of each dispatched
+    background config whose lane has one (see `_next_backoff_levels`).
     """
     if not dispatched_runs:
         return
@@ -401,9 +418,10 @@ def _stamp_dispatched_runs(
             "managed_by",
             "background_backoff_level",
             "last_run_at",
+            "skill_name",
         )
     )
-    levels = _next_backoff_levels(rows, backoff, now) if backoff is not None else {}
+    levels = _next_backoff_levels(rows, backoffs, now) if backoffs else {}
     # The level and `last_run_at` commit together. After a partial write, the retried stamp would
     # read the old `last_run_at` and raise the level a second time.
     with transaction.atomic():
@@ -437,26 +455,29 @@ def _stamp_dispatched_runs(
         )
 
 
-def _next_backoff_levels(rows: list[tuple], backoff: BackgroundBackoff, now: datetime) -> dict[UUID, int]:
-    """The backoff level to store for each enabled rolling-interval background config in `rows`.
+def _next_backoff_levels(
+    rows: list[tuple], backoffs: Mapping[str, BackgroundBackoff], now: datetime
+) -> dict[UUID, int]:
+    """The backoff level to store for each enabled rolling-interval background config in `rows` whose lane backs off.
 
     A config that a member engaged with since its previous run goes back to level 0. A config with a
     previous run and no engagement goes up one level. The first run of a config keeps level 0,
     because no earlier run exists for anyone to ignore. A previous dispatch that the child skipped
     (quota, daily report limit, an active run) left no output to ignore, so it keeps the level.
     """
-    previous_runs: dict[UUID, tuple[int, int, int | None, datetime]] = {
-        pk: (team_id, interval_minutes, level, last_run_at)
-        for pk, team_id, enabled, cron_schedule, interval_minutes, managed_by, level, last_run_at in rows
+    previous_runs: dict[UUID, tuple[int, int, int | None, datetime, BackgroundBackoff]] = {
+        pk: (team_id, interval_minutes, level, last_run_at, backoffs[skill_name])
+        for pk, team_id, enabled, cron_schedule, interval_minutes, managed_by, level, last_run_at, skill_name in rows
         if enabled
         and not cron_schedule
         and managed_by == SignalScoutConfig.ManagedBy.BACKGROUND
         and last_run_at is not None
+        and skill_name in backoffs
     }
-    engaged = _engaged_team_ids({team_id: since for team_id, _, _, since in previous_runs.values()})
-    ran = _configs_with_run_between({pk: since for pk, (_, _, _, since) in previous_runs.items()}, now)
+    engaged = _engaged_team_ids({team_id: since for team_id, _, _, since, _ in previous_runs.values()})
+    ran = _configs_with_run_between({pk: since for pk, (_, _, _, since, _) in previous_runs.items()}, now)
     levels: dict[UUID, int] = {}
-    for pk, (team_id, interval_minutes, level, _) in previous_runs.items():
+    for pk, (team_id, interval_minutes, level, _, backoff) in previous_runs.items():
         if team_id in engaged:
             levels[pk] = 0
         elif pk in ran:
@@ -543,22 +564,30 @@ class _BackgroundDueRun:
     due_age_s: float
 
 
+@dataclass(frozen=True)
+class _BackgroundLaneTick:
+    lane: BackgroundEnrollment
+    due: list[_BackgroundDueRun]
+    runs_last_24h: int | None
+
+
 def _collect_planned_runs(
     enrollment: Enrollment,
     team_configs: dict[int, dict] | None = None,
     default_team_config: dict | None = None,
     max_runs_per_tick: int | None = None,
-    background: BackgroundEnrollment | None = None,
+    background_lanes: Sequence[BackgroundEnrollment] | None = None,
     start_delay_spread_seconds: int = 0,
 ) -> list[PlannedRun]:
     """Sync DB scan. Runs in a worker thread via Django's per-thread connection mgmt.
 
     Takes the parsed enrollment (explicit allowlist + the `"*"` wildcard), the optional per-team
     config overrides, the fleet-wide default config, the resolved global per-tick ceiling, and the
-    parsed `background` block — so the flag reads all stay off this DB pool.
+    parsed background lanes — so the flag reads all stay off this DB pool. `None` lanes (no lane
+    key, or a malformed list) leave every background config as it is.
 
     Background configs are dispatched only through `_collect_background_runs`, never through the
-    participating-team loop, so the consent check and the background kill switch gate every one.
+    participating-team loop, so the consent check and each lane's kill switch gate every one.
 
     `start_delay_spread_seconds` is the window the start delays of the planned runs spread across.
     0 gives every run no delay.
@@ -567,23 +596,29 @@ def _collect_planned_runs(
     team_configs = _canonicalize_team_config_keys(team_configs or {})
     default_team_config = default_team_config or {}
     due: list[_DueRun] = []
-    background_team_ids: set[int] = set()
-    if background is not None:
-        skipped_team_ids = _canonicalize_team_ids(enrollment.skip)
-        background_team_ids = _canonicalize_team_ids(set(background.team_ids)) - skipped_team_ids
+    lane_team_ids: dict[str, set[int]] = {}
+    if background_lanes is not None:
         try:
-            # A hand-picked team keeps no band, so `team_ids` stays an override that bands never change.
-            band_by_team = {
-                team_id: band
-                for team_id, band in _sampled_band_teams(background).items()
-                if team_id not in background_team_ids and team_id not in skipped_team_ids
-            }
-            background_team_ids |= band_by_team.keys()
-            _reconcile_background_configs(
-                background, background_team_ids, band_by_team, team_configs, default_team_config
-            )
+            _pause_removed_lane_configs({lane.skill_name for lane in background_lanes})
         except Exception:
-            logger.exception("signals_scout coordinator: background reconcile failed; continuing")
+            logger.exception("signals_scout coordinator: removed background lane pause failed; continuing")
+        skipped_team_ids = _canonicalize_team_ids(enrollment.skip)
+        for lane in background_lanes:
+            listed_team_ids = _canonicalize_team_ids(set(lane.team_ids)) - skipped_team_ids
+            try:
+                # A hand-picked team keeps no band, so `team_ids` stays an override that bands never change.
+                band_by_team = {
+                    team_id: band
+                    for team_id, band in _sampled_band_teams(lane).items()
+                    if team_id not in listed_team_ids and team_id not in skipped_team_ids
+                }
+                listed_team_ids |= band_by_team.keys()
+                _reconcile_background_configs(lane, listed_team_ids, band_by_team, team_configs, default_team_config)
+            except Exception:
+                logger.exception(
+                    "signals_scout coordinator: background reconcile failed; continuing", skill_name=lane.skill_name
+                )
+            lane_team_ids[lane.skill_name] = listed_team_ids
     paused_by_team = _breaker_paused_configs_by_team()
     skipped_without_consent = 0
     reconcile_by_team = operational_configs_needing_reconcile() if enrollment.wildcard else {}
@@ -592,51 +627,58 @@ def _collect_planned_runs(
         # specific-first from this team's `team_configs` entry, then the fleet `default_team_config`):
         # skip seeding the skill, skip seeding/enabling a config, and skip dispatch.
         withheld_for_team = _resolve_withheld_skills(team.id, team_configs, default_team_config)
-        if needs_seed:
-            # Explicitly enrolled (a pinned / force-provisioned id): seed from nothing. The periodic
-            # tick is the reconciliation path. `sync_canonical_skills(prune=True)` tombstones rows
-            # whose canonical was removed from disk and propagates merged SKILL.md updates to
-            # harness-seeded rows the team hasn't edited, so a content change rolls out within one
-            # tick. Idempotent; a failure here doesn't abort the tick.
-            try:
-                sync_canonical_skills(team, prune=True, withheld_skill_names=withheld_for_team)
-            except Exception:
-                logger.exception(
-                    "signals_scout coordinator: canonical skill sync failed for team; continuing",
-                    team_id=team.id,
+        try:
+            if needs_seed:
+                # Explicitly enrolled (a pinned / force-provisioned id): seed from nothing. The periodic
+                # tick is the reconciliation path. `sync_canonical_skills(prune=True)` tombstones rows
+                # whose canonical was removed from disk and propagates merged SKILL.md updates to
+                # harness-seeded rows the team hasn't edited, so a content change rolls out within one
+                # tick. Idempotent; a failure here doesn't abort the tick.
+                try:
+                    sync_canonical_skills(team, prune=True, withheld_skill_names=withheld_for_team)
+                except Exception:
+                    logger.exception(
+                        "signals_scout coordinator: canonical skill sync failed for team; continuing",
+                        team_id=team.id,
+                    )
+                # This team's seed posture resolves like the tick cap: its own `team_configs` override
+                # layered over the fleet-wide `default_team_config`, most-specific first. Passing the
+                # layers (not a shallow merge) lets `_resolve_seed_posture` fall back per key, so a
+                # malformed per-team value doesn't clobber a valid fleet default.
+                seed_config_layers = [team_configs.get(team.id) or {}, default_team_config]
+                # `register_missing_configs` drops withheld skills from its return, so they're already
+                # excluded from `live_skills` (and thus from dispatch below) as well as from seeding.
+                live_skills = register_missing_configs(
+                    team.id, seed_config_layers, withheld_skill_names=withheld_for_team
                 )
-            # This team's seed posture resolves like the tick cap: its own `team_configs` override
-            # layered over the fleet-wide `default_team_config`, most-specific first. Passing the
-            # layers (not a shallow merge) lets `_resolve_seed_posture` fall back per key, so a
-            # malformed per-team value doesn't clobber a valid fleet default.
-            seed_config_layers = [team_configs.get(team.id) or {}, default_team_config]
-            # `register_missing_configs` drops withheld skills from its return, so they're already
-            # excluded from `live_skills` (and thus from dispatch below) as well as from seeding.
-            live_skills = register_missing_configs(team.id, seed_config_layers, withheld_skill_names=withheld_for_team)
-        else:
-            # Wildcard-discovered (`"*"`): the team already self-seeded its configs through the
-            # product-autonomy-gated UI / `sync` materialization, so skip the per-tick seed +
-            # reconcile — that's what keeps the hot path cheap as self-enrollment scales to thousands
-            # of teams. Read only the live scout skill names (cheap) so a config whose skill was
-            # deleted/superseded isn't dispatched, and honor the holdback denylist. Central canonical
-            # SKILL.md updates still reach these teams: the runner cold-starts with its own
-            # `sync_canonical_skills` before loading the skill (runner.py), so a merged change lands
-            # on the scout's NEXT RUN for any harness-seeded row the team hasn't forked. What the
-            # per-tick skip drops is only the eager refresh on ticks where nothing dispatches, plus
-            # the `prune=True` tombstoning of disk-deleted canonicals and first-appearance of
-            # brand-new canonical scouts as rows — both rare, and both catch up on the team's next
-            # `sync` (follow-up if needed: a slow fleet-wide prune/seed sweep off the dispatch path).
-            live_skills = live_scout_skill_names(team.id, withheld_skill_names=withheld_for_team)
-            # The one part of the reconcile the wildcard path still runs: an operational scout
-            # that stays off stops the checks and validation that run on it. Only teams with a
-            # row that needs it pay for the call, and a withheld scout is never a reason to call.
-            if reconcile_by_team.get(team.id, set()) - withheld_for_team:
-                _reconcile_wildcard_operational_configs(
-                    team.id,
-                    live_skills,
-                    withheld_for_team,
-                    [team_configs.get(team.id) or {}, default_team_config],
-                )
+            else:
+                # Wildcard-discovered (`"*"`): the team already self-seeded its configs through the
+                # product-autonomy-gated UI / `sync` materialization, so skip the per-tick seed +
+                # reconcile — that's what keeps the hot path cheap as self-enrollment scales to thousands
+                # of teams. Read only the live scout skill names (cheap) so a config whose skill was
+                # deleted/superseded isn't dispatched, and honor the holdback denylist. Central canonical
+                # SKILL.md updates still reach these teams: the runner cold-starts with its own
+                # `sync_canonical_skills` before loading the skill (runner.py), so a merged change lands
+                # on the scout's NEXT RUN for any harness-seeded row the team hasn't forked. What the
+                # per-tick skip drops is only the eager refresh on ticks where nothing dispatches, plus
+                # the `prune=True` tombstoning of disk-deleted canonicals and first-appearance of
+                # brand-new canonical scouts as rows — both rare, and both catch up on the team's next
+                # `sync` (follow-up if needed: a slow fleet-wide prune/seed sweep off the dispatch path).
+                live_skills = live_scout_skill_names(team.id, withheld_skill_names=withheld_for_team)
+                # The one part of the reconcile the wildcard path still runs: an operational scout
+                # that stays off stops the checks and validation that run on it. Only teams with a
+                # row that needs it pay for the call, and a withheld scout is never a reason to call.
+                if reconcile_by_team.get(team.id, set()) - withheld_for_team:
+                    _reconcile_wildcard_operational_configs(
+                        team.id,
+                        live_skills,
+                        withheld_for_team,
+                        [team_configs.get(team.id) or {}, default_team_config],
+                    )
+        except TeamScopeError:
+            # The project was deleted during the tick. Skip it rather than fail the whole plan.
+            logger.info("signals_scout coordinator: team is gone, skipping it", team_id=team.id)
+            continue
         # The tools drop every output of a run without AI data processing consent, so the run
         # only spends model time. The configs keep their status and dispatch again after approval.
         if not _ai_data_processing_approved(team):
@@ -668,24 +710,29 @@ def _collect_planned_runs(
             team_count=skipped_without_consent,
         )
 
-    background_due: list[_BackgroundDueRun] = []
-    runs_last_24h: int | None = None
-    if background is not None and background.enabled:
-        background_due = _collect_background_runs(
-            background,
-            background_team_ids,
+    lane_ticks: list[_BackgroundLaneTick] = []
+    for lane in background_lanes or ():
+        if not lane.enabled:
+            continue
+        listed_team_ids = lane_team_ids.get(lane.skill_name, set())
+        lane_due = _collect_background_runs(
+            lane,
+            listed_team_ids,
             team_configs,
             default_team_config,
             now,
             start_delay_spread_seconds=start_delay_spread_seconds,
         )
-        admitted = [d.run for d in background_due]
-        if background.budget is not None and background_due:
-            runs_last_24h = _background_runs_since(background, background_team_ids, now - DAILY_BUDGET_WINDOW)
-            admitted = _apply_background_budget(background_due, background.budget, runs_last_24h)
+        admitted = [d.run for d in lane_due]
+        runs_last_24h: int | None = None
+        if lane.budget is not None and lane_due:
+            runs_last_24h = _background_runs_since(lane, listed_team_ids, now - DAILY_BUDGET_WINDOW)
+            admitted = _apply_background_budget(lane_due, lane.budget, runs_last_24h)
         due.extend(admitted)
+        lane_ticks.append(_BackgroundLaneTick(lane=lane, due=lane_due, runs_last_24h=runs_last_24h))
 
     selected: list[_DueRun] = []
+    runs_today: dict[int, int] = {}
     if due:
         # Only count runs for teams that actually have a resolved daily budget — for the default
         # rollout (no `max_runs_per_day` set anywhere) this skips the aggregate query entirely.
@@ -696,8 +743,9 @@ def _collect_planned_runs(
         }
         runs_today = _runs_today_by_team(capped_team_ids, now - DAILY_BUDGET_WINDOW)
         selected = _allocate_tick_budget(due, team_configs, default_team_config, runs_today, max_runs_per_tick)
-    if background is not None and background.enabled:
-        _capture_background_tick(background_due, selected, background.budget, runs_last_24h)
+    _capture_capacity_tick(due, selected, team_configs, default_team_config, runs_today, max_runs_per_tick)
+    for lane_tick in lane_ticks:
+        _capture_background_tick(lane_tick, selected)
     planned = [
         PlannedRun(team_id=d.team_id, skill_name=d.skill_name, start_delay_seconds=d.start_delay_s) for d in selected
     ]
@@ -707,7 +755,7 @@ def _collect_planned_runs(
 
 
 def _background_runs_since(background: BackgroundEnrollment, listed_team_ids: set[int], since: datetime) -> int:
-    """Background runs that started since `since` in this region, in one aggregate query.
+    """Background runs of one lane that started since `since` in this region, in one aggregate query.
 
     Counts the bridge rows stamped with the background origin, so a run still counts after a person
     takes its config over. The team and skill filters keep the read on the per-scout run index. A
@@ -742,6 +790,7 @@ def _apply_background_budget(
     if len(ordered) > allowance:
         logger.info(
             "signals_scout coordinator: background budget defers due runs",
+            skill_name=ordered[0].run.skill_name,
             due=len(ordered),
             allowance=allowance,
             runs_last_24h=runs_last_24h,
@@ -750,25 +799,23 @@ def _apply_background_budget(
     return [d.run for d in ordered[:allowance]]
 
 
-def _capture_background_tick(
-    background_due: list[_BackgroundDueRun],
-    selected: list[_DueRun],
-    budget: BackgroundBudget | None,
-    runs_last_24h: int | None,
-) -> None:
-    """Log and capture the backlog of the background lane for this tick.
+def _capture_background_tick(lane_tick: _BackgroundLaneTick, selected: list[_DueRun]) -> None:
+    """Log and capture the backlog of one background lane for this tick.
 
     `dispatched` counts the background runs that also pass the shared tick caps, so `due`,
     `dispatched`, and `deferred` always add up.
     """
     selected_pks = {d.config_pk for d in selected}
+    background_due = lane_tick.due
+    budget = lane_tick.lane.budget
     dispatched = sum(1 for d in background_due if d.run.config_pk in selected_pks)
     properties = {
         "region": settings.CLOUD_DEPLOYMENT,
+        "skill_name": lane_tick.lane.skill_name,
         "due": len(background_due),
         "dispatched": dispatched,
         "deferred": len(background_due) - dispatched,
-        "runs_last_24h": runs_last_24h,
+        "runs_last_24h": lane_tick.runs_last_24h,
         "max_runs_per_day": budget.max_runs_per_day if budget is not None else None,
         "never_run_due": sum(1 for d in background_due if d.never_run),
         "oldest_due_age_s": max((d.due_age_s for d in background_due), default=0.0),
@@ -776,10 +823,158 @@ def _capture_background_tick(
     logger.info("signals_scout coordinator: background tick", **properties)
     try:
         posthoganalytics.capture(
-            event=BACKGROUND_TICK_EVENT, distinct_id=BACKGROUND_TICK_DISTINCT_ID, properties=properties
+            event=BACKGROUND_TICK_EVENT, distinct_id=COORDINATOR_DISTINCT_ID, properties=properties
         )
     except Exception:
         logger.warning("signals_scout coordinator: failed to capture background tick event")
+
+
+def _capture_capacity_tick(
+    due: list[_DueRun],
+    selected: list[_DueRun],
+    team_configs: dict[int, dict],
+    default_team_config: dict,
+    runs_today: dict[int, int],
+    max_runs_per_tick: int | None,
+) -> None:
+    """Capture the coordinator tick event and one capacity event per project with due runs.
+
+    Telemetry only: a failure here logs and never fails the tick.
+    """
+    try:
+        enabled_scouts = _enabled_scouts_by_team({d.team_id for d in due})
+        fleet, projects = _tick_capacity_properties(
+            due, selected, team_configs, default_team_config, runs_today, max_runs_per_tick, enabled_scouts
+        )
+        for properties in projects:
+            posthoganalytics.capture(
+                event=CAPACITY_TICK_EVENT, distinct_id=COORDINATOR_DISTINCT_ID, properties=properties
+            )
+        posthoganalytics.capture(event=COORDINATOR_TICK_EVENT, distinct_id=COORDINATOR_DISTINCT_ID, properties=fleet)
+    except Exception:
+        logger.warning("signals_scout coordinator: failed to capture capacity tick events", exc_info=True)
+
+
+def _enabled_scouts_by_team(team_ids: set[int]) -> dict[int, int]:
+    """Enabled scout configs per team, in one grouped query. Counts the same rows as `enabled_scout_count`."""
+    if not team_ids:
+        return {}
+    rows = (
+        SignalScoutConfig.all_teams.filter(team_id__in=team_ids, enabled=True).values("team_id").annotate(n=Count("id"))
+    )
+    return {row["team_id"]: row["n"] for row in rows}
+
+
+def _tick_capacity_properties(
+    due: list[_DueRun],
+    selected: list[_DueRun],
+    team_configs: dict[int, dict],
+    default_team_config: dict,
+    runs_today: dict[int, int],
+    max_runs_per_tick: int | None,
+    enabled_scouts: dict[int, int],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """The coordinator tick properties and the capacity properties of each project with due runs.
+
+    `deferred_reason` names the cap that held back a project's due runs. The per-team caps apply
+    before the global cap in `_allocate_tick_budget`, so a project trimmed by its own cap reports
+    that cap, and a project that lost runs only to the global cap reports `global`.
+    """
+    global_cap = max_runs_per_tick if max_runs_per_tick is not None else MAX_RUNS_PER_TICK
+    due_by_team = Counter(d.team_id for d in due)
+    dispatched_by_team = Counter(d.team_id for d in selected)
+    projects: list[dict[str, Any]] = []
+    due_after_team_caps = 0
+    projects_at_daily_budget = 0
+    for team_id in sorted(due_by_team):
+        cap = _resolve_team_tick_cap(team_id, team_configs, default_team_config, runs_today)
+        team_due = due_by_team[team_id]
+        dispatched = dispatched_by_team[team_id]
+        due_after_team_caps += min(team_due, cap.effective)
+        if cap.remaining_today == 0:
+            projects_at_daily_budget += 1
+        deferred_reason: str | None = None
+        if team_due > cap.effective:
+            deferred_reason = cap.binding_reason
+        elif dispatched < team_due:
+            deferred_reason = DEFERRED_GLOBAL
+        projects.append(
+            {
+                "region": settings.CLOUD_DEPLOYMENT,
+                "project_id": team_id,
+                "due": team_due,
+                "dispatched": dispatched,
+                "deferred": team_due - dispatched,
+                "deferred_reason": deferred_reason,
+                "max_runs_per_tick": cap.max_runs_per_tick,
+                "max_runs_per_day": cap.max_runs_per_day,
+                "runs_last_24h": cap.runs_last_24h,
+                "daily_budget_used_pct": (
+                    round(100 * cap.runs_last_24h / cap.max_runs_per_day, 1)
+                    if cap.max_runs_per_day is not None and cap.runs_last_24h is not None
+                    else None
+                ),
+                "enabled_scouts": enabled_scouts.get(team_id, 0),
+                "max_enabled_scouts": resolve_max_enabled_scouts(
+                    [team_configs.get(team_id) or {}, default_team_config]
+                ),
+            }
+        )
+    fleet = {
+        "region": settings.CLOUD_DEPLOYMENT,
+        "global_max_runs_per_tick": global_cap,
+        "due_after_team_caps": due_after_team_caps,
+        "dispatched": len(selected),
+        "deferred_global": due_after_team_caps - len(selected),
+        "projects_with_due_runs": len(due_by_team),
+        "projects_at_daily_budget": projects_at_daily_budget,
+    }
+    return fleet, projects
+
+
+@dataclass(frozen=True)
+class _TeamTickCap:
+    """A team's per-tick cap and daily budget for one tick, resolved from the flag payload layers."""
+
+    max_runs_per_tick: int
+    max_runs_per_day: int | None
+    # Runs in the trailing daily-budget window. None when the team has no daily budget.
+    runs_last_24h: int | None
+
+    @property
+    def remaining_today(self) -> int | None:
+        if self.max_runs_per_day is None or self.runs_last_24h is None:
+            return None
+        return max(0, self.max_runs_per_day - self.runs_last_24h)
+
+    @property
+    def effective(self) -> int:
+        # Day's remaining headroom caps this tick too: a team that's spent its daily budget gets
+        # 0 this tick, no matter how many scouts are due. Counted runs exclude this tick's
+        # not-yet-started dispatches; the per-tick cap bounds that brief window.
+        remaining_today = self.remaining_today
+        if remaining_today is None:
+            return self.max_runs_per_tick
+        return min(self.max_runs_per_tick, remaining_today)
+
+    @property
+    def binding_reason(self) -> str:
+        """The cap that sets `effective`. On a tie the per-tick cap binds, since it binds every tick."""
+        remaining_today = self.remaining_today
+        if remaining_today is not None and remaining_today < self.max_runs_per_tick:
+            return DEFERRED_PER_DAY
+        return DEFERRED_PER_TICK
+
+
+def _resolve_team_tick_cap(
+    team_id: int, team_configs: dict[int, dict], default_team_config: dict, runs_today: dict[int, int]
+) -> _TeamTickCap:
+    max_runs_per_day = _resolve_max_runs_per_day(team_id, team_configs, default_team_config)
+    return _TeamTickCap(
+        max_runs_per_tick=_resolve_max_runs_per_tick(team_id, team_configs, default_team_config),
+        max_runs_per_day=max_runs_per_day,
+        runs_last_24h=None if max_runs_per_day is None else runs_today.get(team_id, 0),
+    )
 
 
 def _allocate_tick_budget(
@@ -811,15 +1006,7 @@ def _allocate_tick_budget(
     global_cap = max_runs_per_tick if max_runs_per_tick is not None else MAX_RUNS_PER_TICK
 
     def _team_cap(team_id: int) -> int:
-        per_tick = _resolve_max_runs_per_tick(team_id, team_configs, default_team_config)
-        per_day = _resolve_max_runs_per_day(team_id, team_configs, default_team_config)
-        if per_day is None:
-            return per_tick
-        # Day's remaining headroom caps this tick too: a team that's spent its daily budget gets
-        # 0 this tick, no matter how many scouts are due. Counted runs exclude this tick's
-        # not-yet-started dispatches; the per-tick cap bounds that brief window.
-        remaining_today = max(0, per_day - runs_today.get(team_id, 0))
-        return min(per_tick, remaining_today)
+        return _resolve_team_tick_cap(team_id, team_configs, default_team_config, runs_today).effective
 
     by_team: dict[int, list[_DueRun]] = {}
     for d in due:
@@ -913,7 +1100,7 @@ def _reconcile_wildcard_operational_configs(
 def _participating_teams(enrollment: Enrollment, reconcile_team_ids: set[int] | None = None) -> list[tuple[Team, bool]]:
     """Resolve enrollment to canonical `Team`s to run scouts on, each tagged `needs_seed`.
 
-    Two ways a team participates:
+    Three ways a team participates:
     - explicit `guaranteed_team_ids` (skip removed) → force-provisioned: `needs_seed=True`, so the
       tick seeds canonical skills + registers configs from nothing (the pinned internal projects).
       Adding an id in the flag UI enrolls it on the next tick with no manual seed; removing it (or
@@ -924,11 +1111,15 @@ def _participating_teams(enrollment: Enrollment, reconcile_team_ids: set[int] | 
       explicit tag wins (it gets the seed pass).
       `reconcile_team_ids` joins the wildcard set too: a team whose only scouts are operational
       ones the harness left off has no enabled config, and it must still reach the reconcile.
+    - completed GitHub-optional pilot activation while its project flag is enabled. Activation
+      provisions the general scout, so this path needs no seed pass or separate fleet allowlist.
     Child envs canonicalize to their parent project; `skip_team_ids` is removed from both sets.
     Skip is subtracted AFTER canonicalizing both sides, so listing a child env in `guaranteed_team_ids`
     and its parent project in `skip_team_ids` (or the reverse) still hard-excludes the project — the
     raw ids differ but their canonical parent matches.
     """
+    if enrollment.drained:
+        return []
     skip_canonical = _canonicalize_team_ids(enrollment.skip)
     explicit = _canonicalize_team_ids(enrollment.explicit) - skip_canonical
 
@@ -951,6 +1142,7 @@ def _participating_teams(enrollment: Enrollment, reconcile_team_ids: set[int] | 
             .distinct()
         )
         wildcard_ids |= reconcile_team_ids or set()
+    wildcard_ids |= ResearchAccessPolicy.enrolled_team_ids(exclude_team_ids=wildcard_ids | explicit | skip_canonical)
     wildcard_ids -= skip_canonical
     wildcard_ids -= explicit  # explicit wins the tag — it gets the seed pass below
 
@@ -1029,7 +1221,7 @@ def _ai_data_processing_approved(team: Team) -> bool:
 
 
 def _sampled_band_teams(background: BackgroundEnrollment) -> dict[int, int]:
-    """`team_id -> band` for each project that its band percent samples into the background lane.
+    """`team_id -> band` for each project of the lane's audience that its band percent samples into the lane.
 
     Reads nothing when every band is at 0 percent, which is the rollout default.
     """
@@ -1038,10 +1230,10 @@ def _sampled_band_teams(background: BackgroundEnrollment) -> dict[int, int]:
         return {}
     return {
         team_id: band
-        for team_id, band in SignalScoutBackgroundBand.all_teams.filter(band__in=percents).values_list(
-            "team_id", "band"
-        )
-        if background_sample_bucket(team_id) < percents[band]
+        for team_id, band in SignalScoutBackgroundBand.all_teams.filter(
+            band__in=percents, audience=background.audience
+        ).values_list("team_id", "band")
+        if background_sample_bucket(team_id, background.skill_name) < percents[band]
     }
 
 
@@ -1052,7 +1244,7 @@ def _reconcile_background_configs(
     team_configs: dict[int, dict],
     default_team_config: dict,
 ) -> None:
-    """Move background configs toward the `background` block of the flag payload.
+    """Move the background configs of one lane toward that lane in the flag payload.
 
     `listed_team_ids` holds the hand-picked `team_ids` and the band-sampled teams in `band_by_team`.
     Runs on a valid block only, because an unreadable block must never read as an empty list. The
@@ -1060,7 +1252,7 @@ def _reconcile_background_configs(
     stopping the pilot. A lower band percent pauses through the same path, because the team leaves
     the listed set. Creation, resume, and band updates run only with `enabled` on.
     """
-    _pause_departed_background_configs(listed_team_ids)
+    _pause_departed_background_configs(background.skill_name, listed_team_ids)
     if not background.enabled:
         return
     if background.skill_name not in canonical_skill_names():
@@ -1080,23 +1272,40 @@ def _reconcile_background_configs(
     _create_background_configs(background, eligible, band_by_team, team_configs, default_team_config)
 
 
-def _pause_departed_background_configs(listed_team_ids: set[int]) -> None:
-    """Pause every runnable background config whose team is no longer listed.
+def _pause_removed_lane_configs(lane_skill_names: set[str]) -> None:
+    """Pause every runnable background config whose skill has no lane any more."""
+    _pause_background_configs(
+        SignalScoutConfig.all_teams.filter(
+            managed_by=SignalScoutConfig.ManagedBy.BACKGROUND,
+            status__in=SignalScoutConfig.RUNNABLE_STATUSES,
+        ).exclude(skill_name__in=lane_skill_names)
+    )
+
+
+def _pause_departed_background_configs(skill_name: str, listed_team_ids: set[int]) -> None:
+    """Pause every runnable background config of one lane whose team is no longer listed."""
+    _pause_background_configs(
+        SignalScoutConfig.all_teams.filter(
+            skill_name=skill_name,
+            managed_by=SignalScoutConfig.ManagedBy.BACKGROUND,
+            status__in=SignalScoutConfig.RUNNABLE_STATUSES,
+        ).exclude(team_id__in=listed_team_ids)
+    )
+
+
+def _pause_background_configs(configs: QuerySet[SignalScoutConfig]) -> None:
+    """Pause `configs` with `background_removed`.
 
     `transition_status_by_system` refuses a row a person paused or another writer owns, so this
     only ever pauses what the background coordinator may still change.
     """
-    departed = SignalScoutConfig.all_teams.filter(
-        managed_by=SignalScoutConfig.ManagedBy.BACKGROUND,
-        status__in=SignalScoutConfig.RUNNABLE_STATUSES,
-    ).exclude(team_id__in=listed_team_ids)
-    for config in departed:
+    for config in configs:
         if config.transition_status_by_system(
             SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
             pause_reason=SignalScoutConfig.PauseReason.BACKGROUND_REMOVED,
         ):
             logger.info(
-                "signals_scout coordinator: paused background scout for a team that left the list",
+                "signals_scout coordinator: paused background scout that left its lane",
                 team_id=config.team_id,
                 skill_name=config.skill_name,
             )
@@ -1249,6 +1458,12 @@ def _collect_background_runs(
     previous run makes it due at the band interval again, before the stamp stores level 0.
     """
     if not listed_team_ids:
+        return []
+    if background.require_precheck and not canonical_precheck_query_for(background.skill_name):
+        logger.warning(
+            "signals_scout coordinator: background lane requires a pre-check its skill does not ship; skipping it",
+            skill_name=background.skill_name,
+        )
         return []
     configs = list(
         SignalScoutConfig.all_teams.filter(

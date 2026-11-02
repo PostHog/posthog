@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CallRailSource(ResumableSource[CallRailSourceConfig, CallRailResumeConfig]):
+    codebase_detection = detect(env=("^(CALL_RAIL|CALLRAIL)_",), script_hosts=("cdn.callrail.com",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v3",)
     default_version = "v3"
@@ -59,7 +62,7 @@ class CallRailSource(ResumableSource[CallRailSourceConfig, CallRailResumeConfig]
             name=ExternalDataSourceType.CALLRAIL,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="CallRail",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your CallRail API key to automatically pull your CallRail call-tracking data into the PostHog Data warehouse.
 
 You can create an API key under **Account settings → Integrations → API Keys** in CallRail. API keys are scoped to the creating user, so the key only sees data that user can access.

@@ -335,8 +335,7 @@ _Fix:_ update the SDK.
 ## E13 — Editability locks (legacy experiments, ended experiments) [HIGH]
 
 - **Legacy experiments** (`is_legacy: true` in `experiment-get`) — only the name, the description and the end date can be edited.
-  A "This is a legacy experiment. Metrics can no longer be edited." notice appears in the UI.
-  Where it is rolled out, a second notice says that legacy results will stop being available.
+  Results are no longer calculated. The UI shows a warning banner with a "Migrate experiment" button.
 - **Launched experiments** — the variant keys can't be edited (E4). If
   edits are needed, duplicate (E15), or reset (E8) and re-launch.
 

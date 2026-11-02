@@ -1,5 +1,5 @@
 import { GroupTypeManager } from '~/common/groups/group-type-manager'
-import { sanitizeString } from '~/common/utils/db/utils'
+import { asPostgresParameterText, sanitizeString } from '~/common/utils/db/utils'
 import { GroupStoreForBatch } from '~/ingestion/common/groups/group-store-for-batch'
 import { PipelineResult, ok } from '~/ingestion/framework/results'
 import { GroupTypeIndex, PipelineEvent, Team, TeamId } from '~/types'
@@ -51,7 +51,7 @@ export function prefetchGroupsStep<T extends PrefetchGroupsStepInput>(
                 entries.push({
                     teamId: event.team.id,
                     groupTypeIndex,
-                    groupKey: sanitizeString(String(groupKey)),
+                    groupKey: sanitizeString(asPostgresParameterText(groupKey)),
                     batchId: event.groupStoreForBatch.batchId,
                 })
             }

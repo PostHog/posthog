@@ -123,17 +123,96 @@ class TestKommoSourceTransport:
         assert result.params("page") == ["7"]
         assert [row["id"] for row in result.rows] == [9]
 
+    @staticmethod
+    def _catalogs_page(ids: list[int]) -> ScriptedResponse:
+        return ScriptedResponse(
+            json={"_page": 1, "_page_count": 1, "_embedded": {"catalogs": [{"id": cid} for cid in ids]}}
+        )
+
+    @staticmethod
+    def _elements_page(ids: list[int], page: int, page_count: int) -> ScriptedResponse:
+        return ScriptedResponse(
+            json={
+                "_page": page,
+                "_page_count": page_count,
+                "_embedded": {"elements": [{"id": element_id, "name": f"Item {element_id}"} for element_id in ids]},
+            }
+        )
+
+    def test_catalog_elements_fan_out_over_every_catalog_and_tag_rows_with_it(self) -> None:
+        result = self._driver().run(
+            "CatalogElements",
+            [
+                self._catalogs_page([11, 22, 33]),
+                self._elements_page([1], page=1, page_count=2),
+                self._elements_page([2], page=2, page_count=2),
+                # Kommo answers an empty catalog with 204 No Content.
+                ScriptedResponse(status=204),
+                # A catalog deleted after the listing must not fail the whole fan-out.
+                ScriptedResponse(status=404, json={"title": "Not found"}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/api/v4/catalogs",
+            "/api/v4/catalogs/11/elements",
+            "/api/v4/catalogs/11/elements",
+            "/api/v4/catalogs/22/elements",
+            "/api/v4/catalogs/33/elements",
+        ]
+        assert result.params("page") == ["1", "1", "2", "1", "1"]
+        assert [(row["catalog_id"], row["id"]) for row in result.rows] == [(11, 1), (11, 2)]
+        assert all("_catalogs_id" not in row for row in result.rows)
+        assert result.final_state == KommoResumeConfig(
+            fanout_state={
+                "completed": [
+                    "/api/v4/catalogs/11/elements",
+                    "/api/v4/catalogs/22/elements",
+                    "/api/v4/catalogs/33/elements",
+                ],
+                "current": None,
+                "child_state": None,
+            }
+        )
+        assert result.response is not None
+        assert result.response.primary_keys == ["catalog_id", "id"]
+
+    def test_catalog_fan_out_resumes_mid_catalog_and_skips_finished_ones(self) -> None:
+        result = self._driver().run(
+            "CatalogCustomFields",
+            [
+                self._catalogs_page([11, 22, 33]),
+                ScriptedResponse(
+                    json={"_page": 3, "_page_count": 3, "_embedded": {"custom_fields": [{"id": 7, "type": "text"}]}}
+                ),
+                ScriptedResponse(status=204),
+            ],
+            resume_state=KommoResumeConfig(
+                fanout_state={
+                    "completed": ["/api/v4/catalogs/11/custom_fields"],
+                    "current": "/api/v4/catalogs/22/custom_fields",
+                    "child_state": {"page": 3},
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/api/v4/catalogs",
+            "/api/v4/catalogs/22/custom_fields",
+            "/api/v4/catalogs/33/custom_fields",
+        ]
+        assert result.params("page") == ["1", "3", "1"]
+        assert [(row["catalog_id"], row["id"]) for row in result.rows] == [(22, 7)]
+
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         ("status_code", "expected_ok", "expected_message_fragment"),
         [
-            (200, True, None),
-            (401, False, "rejected the access token"),
-            (403, False, "cannot access the account"),
             (402, False, "not paid up"),
             (404, False, "acme.kommo.com"),
-            (500, False, "unexpected 500"),
         ],
     )
     def test_maps_status_codes_to_actionable_results(

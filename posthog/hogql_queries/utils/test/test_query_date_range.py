@@ -799,6 +799,25 @@ class TestQueryDateRangeWithIntervals(APIBaseTest):
 
         self.assertEqual(query.intervals_between, _count_intervals_by_stepping(query))
 
+    @parameterized.expand(
+        [
+            ("daily", IntervalType.DAY, "-7d", "2021-08-18T00:00:00Z", "2021-08-25T00:00:00Z"),
+            ("weekly_from_mid_week", IntervalType.WEEK, "-4w", "2021-07-25T00:00:00Z", "2021-08-22T00:00:00Z"),
+        ]
+    )
+    def test_exclude_incomplete_periods_drops_only_the_current_cohort(
+        self, _name: str, interval: IntervalType, date_from: str, expected_from: str, expected_to: str
+    ):
+        now = parser.isoparse("2021-08-25T12:00:00Z")
+        included = QueryDateRangeWithIntervals(DateRange(date_from=date_from), 8, self.team, interval, now)
+        excluded = QueryDateRangeWithIntervals(
+            DateRange(date_from=date_from, excludeIncompletePeriods=True), 8, self.team, interval, now
+        )
+
+        self.assertEqual(excluded.date_from(), parser.isoparse(expected_from))
+        self.assertEqual(excluded.date_to(), parser.isoparse(expected_to))
+        self.assertEqual(excluded.intervals_between, included.intervals_between - 1)
+
     def test_determine_time_delta_valid(self):
         delta = QueryDateRangeWithIntervals.determine_time_delta(5, "day")
         self.assertEqual(delta, timedelta(days=5))

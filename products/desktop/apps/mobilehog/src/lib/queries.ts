@@ -8,7 +8,7 @@ import {
 } from "@tanstack/react-query";
 import { DEFAULT_MODEL, DEFAULT_REPOSITORY } from "@/config";
 import { type Photo, uploadStagedPhotos } from "@/lib/attachments";
-import { useAuth } from "@/lib/auth";
+import { type Session, useAuth } from "@/lib/auth";
 import { getClient } from "@/lib/client";
 import { currentRunConfig } from "@/lib/composer";
 import { useRepo } from "@/lib/repo";
@@ -30,6 +30,7 @@ export const keys = {
     ["run-artifacts", taskId, runId] as const,
   photoUrl: (taskId: string, runId: string, artifactId: string) =>
     ["photo-url", taskId, runId, artifactId] as const,
+  insight: (shortId: string) => ["insights", shortId] as const,
 };
 
 // Presigned photo URLs expire after an hour; refresh them well before that.
@@ -109,6 +110,14 @@ export function useTasks(search = "") {
   });
 }
 
+export function currentUserQuery(session: Session | null) {
+  return {
+    queryKey: ["me", session?.host, session?.userId],
+    queryFn: () => getClient().getCurrentUser(),
+    staleTime: Number.POSITIVE_INFINITY,
+  };
+}
+
 export function useTask(taskId: string) {
   const session = useAuth((s) => s.session);
   return useQuery({
@@ -119,6 +128,16 @@ export function useTask(taskId: string) {
       const status = (query.state.data as Task | undefined)?.latest_run?.status;
       return status && !TERMINAL.has(status) ? 5000 : false;
     },
+  });
+}
+
+export function useInsightSummary(shortId: string) {
+  const session = useAuth((s) => s.session);
+  return useQuery({
+    queryKey: keys.insight(shortId),
+    queryFn: () => getClient().getInsightSummary(shortId),
+    enabled: !!session,
+    staleTime: 5 * 60_000,
   });
 }
 

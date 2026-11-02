@@ -129,6 +129,31 @@ The `ttl_seconds` parameter accepts either an `int` (uniform TTL) or a `dict` ma
 
 Rules are matched most-specific first (shortest period wins). On the **read path**, existing jobs that are too stale for the requested TTL are skipped and recomputed. On the **write path**, each job is created with the TTL appropriate for its date range — ranges with different TTLs are never merged into a single job.
 
+## Design decisions
+
+Why the executor works the way it does, and what went wrong without each piece.
+The code holds the current values.
+
+### Freshness and expiry
+
+- **Freshness is per reader, expiry is per creator (#47942).** A job's `expires_at` comes from the TTL of the caller that built it, but each reader judges freshness against its own schedule. The fresh lookup drops jobs past `expires_at`; a reader with `stale_while_revalidate_seconds` set still serves jobs inside that grace. Callers with different freshness needs share one job, and a stricter reader builds a replacement instead of forcing its TTL on everyone.
+- **No force-rebuild parameter.** A builder that wants a window rebuilt early gives it a shorter TTL, which makes the existing job stale for that builder only. The shorter TTL also stamps a shorter `expires_at` on the new job, so readers rely on stale-while-revalidate to cover the gap until the next build.
+- **Stale-while-revalidate (#70080).** User reads that would block on a rebuild get recently expired, complete rows at once, and the caller rebuilds in the background. The grace stays under the ClickHouse expiry buffer, because the rows are deleted after it.
+- **Refreshers never get the grace (#70563).** A refresher served its own stale rows stores them as a fresh result and never recomputes, so nothing refreshes again. The rule lives in `stale_policy.py` so every product uses the same one.
+
+### TTL schedule options
+
+- **Settling period (#69554).** Web analytics sessions keep changing for 24 hours after a window ends. Jobs built before then froze in-motion bounce and duration values for a multi-day band TTL, mostly on the UTC edge windows of non-UTC teams.
+- **Empty-result cap (#77835).** A data warehouse source that had not synced yet produced zero-row jobs, which served $0 cost days for the full band TTL. Empty jobs now expire sooner, but only while a late sync could still fill the window, so old history is not rescanned forever.
+- **Default-band jitter (#96576).** A backfill built every frozen chunk on the same day, so all chunks expired together and the next read rebuilt the whole history. A stable per-window offset spreads those expiries.
+- **Window-start invalidation (#105883).** A warmer that builds a window before it starts left an early snapshot that hid the data arriving once the window began. Such a snapshot is rejected at the window start, even within the stale grace.
+- **Job width cap.** One GROUP BY over a high-cardinality team grows with the window, and a memory bump does not keep up with the largest teams. The same data fits over a narrower window, so callers cap job width and pin a team to 1-day jobs after an OOM (#64394).
+
+### Inserts
+
+- **Data-horizon clamp (#97251).** An experiment build "as of" a past moment inserted half a day but recorded the whole day as covered, so the missing hours were never rebuilt. Callers whose INSERT stops at `end` opt in, and the partial day becomes its own job.
+- **Skipping replica quorum (#103220).** One down or stale-registered aux replica made every quorum INSERT fail, so precompute stopped region-wide. Background builders read their rows minutes later, so they skip quorum with `read_after_write=False`.
+
 ## Concurrency and race conditions
 
 The executor handles concurrent queries that need the same lazy-computed data.
@@ -278,5 +303,5 @@ The `lazy_computation.executed` log line carries the same `outcome`, `cache_stat
 ## TODOs
 
 - While we are waiting, we block an entire django thread despite not doing any useful work. We should make it easier for people to use e.g. celery with this, this would involve using async queries though.
-- The stale enum value isn't used for anything, we just mark stale jobs as errored
+- Crashed PENDING jobs are marked FAILED, not STALE. Only the staff invalidate endpoint (`precompute_debug`) sets STALE.
 - Add posthog logging for state transitions

@@ -1,3 +1,5 @@
+import dataclasses
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -68,11 +70,20 @@ class TestBuildSignalExtra:
         assert extra["filters"] == {"serviceNames": ["checkout"], "severityLevels": ["error"]}
         assert extra["url"].endswith("/project/7/logs")
 
-    @parameterized.expand([("firing",), ("broken",)])
-    def test_built_extra_satisfies_signal_schema(self, action):
+    @parameterized.expand(
+        [
+            ("firing", "firing", {}),
+            ("broken", "broken", {}),
+            ("grouped_firing", "firing", {"service_name": "checkout", "severity_text": "error"}),
+        ]
+    )
+    def test_built_extra_satisfies_signal_schema(
+        self, _name: str, action: AlertSignalAction, group_labels: dict[str, str]
+    ) -> None:
         # emit_signal validates extra against this variant with extra="forbid";
         # if build_signal_extra drifts from the schema, every emit fails validation.
-        LogsAlertStateChangeSignalExtra.model_validate(build_signal_extra(_notified(action)))
+        notified = dataclasses.replace(_notified(action), group_labels=group_labels)
+        LogsAlertStateChangeSignalExtra.model_validate(build_signal_extra(notified))
 
 
 class TestBuildSignalDescription:

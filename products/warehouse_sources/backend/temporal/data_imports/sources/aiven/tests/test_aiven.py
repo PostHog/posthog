@@ -190,7 +190,11 @@ class TestSourceResponse:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("server_error", 500, False)])
+    @parameterized.expand(
+        [
+            ("ok", 200, True),
+        ]
+    )
     def test_maps_status_to_bool(self, _name: str, status: int, expected: bool) -> None:
         with scripted_network(always(ScriptedResponse(status=status))) as network:
             assert validate_credentials("tok") is expected

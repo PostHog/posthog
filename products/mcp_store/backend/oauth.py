@@ -9,12 +9,14 @@ from urllib.parse import urlparse
 
 from django.db import transaction
 
-import requests
+import httpx
 import structlog
 import tldextract
 
 from posthog.dataclasses import frozen
 from posthog.egress.slack.observability import record_slack_api_response, slack_endpoint_from_url
+from posthog.security.pinned_httpx import pinned_client
+from posthog.security.pinned_requests import SSRFBlockedError
 from posthog.security.url_validation import is_url_allowed
 
 from .models import MCPServerInstallation, MCPServerTemplate, TemplateOAuthCredentials
@@ -24,19 +26,17 @@ from .oauth_credentials import (
     resolve_oauth_credentials_source,
     validate_oauth_credentials_source_metadata,
 )
+from .url_policy import resolve_mcp_url_policy
 
 logger = structlog.get_logger(__name__)
 
 TIMEOUT = 10
+MAX_OAUTH_RESPONSE_BYTES = 1024 * 1024
 SUPPORTED_TOKEN_ENDPOINT_AUTH_METHODS = ("none", "client_secret_post", "client_secret_basic")
 DEFAULT_CONFIDENTIAL_TOKEN_ENDPOINT_AUTH_METHOD = "client_secret_basic"
 # Shared template clients are set up for client_secret_post. Some providers, such as HubSpot, reject HTTP Basic.
 SHARED_TEMPLATE_DEFAULT_TOKEN_ENDPOINT_AUTH_METHOD = "client_secret_post"
 TOKEN_REFRESH_REJECTION_ERRORS = frozenset({"invalid_client", "invalid_grant"})
-
-
-class SSRFBlockedError(Exception):
-    pass
 
 
 class OAuthTokenExchangeError(Exception):
@@ -66,6 +66,21 @@ def _validate_url(url: str) -> None:
     allowed, reason = is_url_allowed(url)
     if not allowed:
         raise SSRFBlockedError(f"URL blocked by SSRF protection: {reason} ({url})")
+
+
+def _oauth_client(url: str) -> httpx.Client:
+    verdict = resolve_mcp_url_policy(url, None)
+    if not verdict.allowed:
+        raise SSRFBlockedError(f"URL blocked by SSRF protection: {verdict.reason}")
+    return pinned_client(
+        url,
+        verdict.pinned_ips,
+        timeout=TIMEOUT,
+        total_timeout=TIMEOUT,
+        max_response_bytes=MAX_OAUTH_RESPONSE_BYTES,
+        follow_redirects=True,
+        max_redirects=3,
+    )
 
 
 def _canonical_origin(url: str) -> str | None:
@@ -201,9 +216,12 @@ def _fetch_auth_server_metadata(auth_server_url: str) -> dict:
     last_exc: Exception = RuntimeError("no discovery candidates were attempted")
     for metadata_url in candidates:
         _validate_url(metadata_url)
-        metadata_resp = requests.get(metadata_url, timeout=TIMEOUT)
+        with _oauth_client(metadata_url) as client:
+            metadata_resp = client.get(metadata_url, timeout=TIMEOUT)
         if metadata_resp.status_code in FALLBACK_STATUSES:
-            last_exc = requests.HTTPError(response=metadata_resp)
+            last_exc = httpx.HTTPStatusError(
+                "Metadata endpoint unavailable", request=metadata_resp.request, response=metadata_resp
+            )
             continue
         metadata_resp.raise_for_status()
         metadata = metadata_resp.json()
@@ -334,13 +352,15 @@ def discover_oauth_metadata(server_url: str) -> dict:
     # Step 1: Try RFC 9728 Protected Resource Metadata to find the authorization server
     resource_url = f"{origin}/.well-known/oauth-protected-resource{path}"
     _validate_url(resource_url)
-    resource_resp = requests.get(resource_url, timeout=TIMEOUT)
+    with _oauth_client(resource_url) as client:
+        resource_resp = client.get(resource_url, timeout=TIMEOUT)
     if resource_resp.status_code == 404 and path:
         fallback_url = f"{origin}/.well-known/oauth-protected-resource"
         _validate_url(fallback_url)
-        resource_resp = requests.get(fallback_url, timeout=TIMEOUT)
+        with _oauth_client(fallback_url) as client:
+            resource_resp = client.get(fallback_url, timeout=TIMEOUT)
 
-    if resource_resp.ok:
+    if resource_resp.is_success:
         resource_data = resource_resp.json()
         bound_resource = None
         if "resource" in resource_data:
@@ -378,7 +398,7 @@ class DcrClientRegistration:
     token_endpoint_auth_method: str
 
 
-def _describe_dcr_rejection(resp: requests.Response) -> str:
+def _describe_dcr_rejection(resp: httpx.Response) -> str:
     """Build a short, user-safe message from an RFC 7591 error response."""
     try:
         body = resp.json()
@@ -424,10 +444,11 @@ def register_dcr_client(
         payload["scope"] = " ".join(scopes)
 
     _validate_url(registration_endpoint)
-    resp = requests.post(registration_endpoint, json=payload, timeout=TIMEOUT, allow_redirects=False)
+    with _oauth_client(registration_endpoint) as client:
+        resp = client.post(registration_endpoint, json=payload, timeout=TIMEOUT, follow_redirects=False)
     if 300 <= resp.status_code < 400:
         raise ValueError("Dynamic Client Registration endpoint redirected")
-    if not resp.ok:
+    if not resp.is_success:
         logger.error(
             "DCR registration request rejected",
             status=resp.status_code,
@@ -622,7 +643,7 @@ def _token_request_auth(
     return form, None
 
 
-def _oauth_error_code(response: requests.Response | None) -> str | None:
+def _oauth_error_code(response: httpx.Response | None) -> str | None:
     if response is None:
         return None
 
@@ -668,7 +689,10 @@ def refresh_oauth_token(
 
     try:
         _validate_url(token_url)
-        resp = requests.post(token_url, data=data, auth=auth, timeout=TIMEOUT, allow_redirects=False)
+        with _oauth_client(token_url) as client:
+            resp = client.post(
+                token_url, data=data, auth=auth or httpx.USE_CLIENT_DEFAULT, timeout=TIMEOUT, follow_redirects=False
+            )
         if oauth_credentials_source in SUPPORTED_OAUTH_CREDENTIAL_SOURCES:
             record_slack_api_response(
                 resp,
@@ -683,9 +707,9 @@ def refresh_oauth_token(
         resp.raise_for_status()
     except SSRFBlockedError:
         raise TokenRefreshError(f"Token refresh URL blocked by SSRF protection: {token_url}")
-    except requests.RequestException as exc:
-        failed_status_code = getattr(exc.response, "status_code", None)
-        oauth_error_code = _oauth_error_code(exc.response)
+    except httpx.HTTPError as exc:
+        failed_status_code = getattr(getattr(exc, "response", None), "status_code", None)
+        oauth_error_code = _oauth_error_code(getattr(exc, "response", None))
         logger.warning(
             "OAuth token refresh request failed",
             token_url=token_url,
@@ -840,7 +864,10 @@ def exchange_oauth_token(
     except ValueError as exc:
         raise OAuthTokenExchangeError(str(exc))
 
-    token_response = requests.post(token_endpoint, data=form, auth=auth, timeout=TIMEOUT, allow_redirects=False)
+    with _oauth_client(token_endpoint) as client:
+        token_response = client.post(
+            token_endpoint, data=form, auth=auth or httpx.USE_CLIENT_DEFAULT, timeout=TIMEOUT, follow_redirects=False
+        )
     oauth_credentials_source = installation.template.oauth_credentials_source if installation.template else ""
     if oauth_credentials_source in SUPPORTED_OAUTH_CREDENTIAL_SOURCES:
         record_slack_api_response(
@@ -855,7 +882,7 @@ def exchange_oauth_token(
     # RFC 6749 specifies 200, but some providers (e.g. Supabase) return 201.
     if 300 <= token_response.status_code < 400:
         raise OAuthTokenExchangeError("Token endpoint redirected")
-    if not token_response.ok:
+    if not token_response.is_success:
         logger.error(
             "OAuth token exchange failed",
             status_code=token_response.status_code,

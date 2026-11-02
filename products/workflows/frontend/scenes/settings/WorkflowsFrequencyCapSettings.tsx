@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -8,34 +8,33 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { teamLogic } from 'scenes/teamLogic'
 
-// Kept in step with the max_value on TeamWorkflowsConfigSerializer.
-const MAX_MESSAGES = 1000
-const MAX_WINDOW_DAYS = 30
-
-// A cleared number input reports NaN, which must save as null to turn the cap off.
-function toInputValue(value: number | null | undefined): number | null {
-    return typeof value === 'number' && Number.isFinite(value) ? value : null
-}
-
-function errorFor(value: number | null, other: number | null, max: number): string | undefined {
-    if (value === null) {
-        return other === null ? undefined : 'Fill in both fields, or clear both to turn the cap off'
-    }
-    return Number.isInteger(value) && value >= 1 && value <= max
-        ? undefined
-        : `Enter a whole number from 1 to ${max.toLocaleString()}`
-}
+import {
+    MAX_FREQUENCY_CAP_MESSAGES,
+    MAX_FREQUENCY_CAP_WINDOW_DAYS,
+    frequencyCapFieldError,
+    toFrequencyCapInputValue,
+} from './frequencyCap'
+import { unsavedSettingsLogic } from './unsavedSettingsLogic'
 
 export function WorkflowsFrequencyCapSettings(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
+    const unsavedGuard = unsavedSettingsLogic({
+        sectionId: 'workflows-frequency-cap',
+        message: 'Leave without saving?\nThe frequency cap you entered will be discarded.',
+    })
+    // useActions alone does not mount a logic, and the guard arms on mount.
+    useMountedLogic(unsavedGuard)
+    const { setHasUnsavedChanges } = useActions(unsavedGuard)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
 
-    const savedMaxMessages = toInputValue(currentTeam?.workflows_config?.marketing_frequency_cap_max_messages)
-    const savedWindowDays = toInputValue(currentTeam?.workflows_config?.marketing_frequency_cap_window_days)
+    const savedMaxMessages = toFrequencyCapInputValue(
+        currentTeam?.workflows_config?.marketing_frequency_cap_max_messages
+    )
+    const savedWindowDays = toFrequencyCapInputValue(currentTeam?.workflows_config?.marketing_frequency_cap_window_days)
 
     const [maxMessages, setMaxMessages] = useState<number | null>(savedMaxMessages)
     const [windowDays, setWindowDays] = useState<number | null>(savedWindowDays)
@@ -45,9 +44,13 @@ export function WorkflowsFrequencyCapSettings(): JSX.Element {
         setWindowDays(savedWindowDays)
     }, [savedMaxMessages, savedWindowDays])
 
-    const maxMessagesError = errorFor(maxMessages, windowDays, MAX_MESSAGES)
-    const windowDaysError = errorFor(windowDays, maxMessages, MAX_WINDOW_DAYS)
+    const maxMessagesError = frequencyCapFieldError(maxMessages, windowDays, MAX_FREQUENCY_CAP_MESSAGES)
+    const windowDaysError = frequencyCapFieldError(windowDays, maxMessages, MAX_FREQUENCY_CAP_WINDOW_DAYS)
     const unchanged = maxMessages === savedMaxMessages && windowDays === savedWindowDays
+
+    useEffect(() => {
+        setHasUnsavedChanges(!unchanged)
+    }, [unchanged, setHasUnsavedChanges])
 
     return (
         <div className="@container">
@@ -62,9 +65,9 @@ export function WorkflowsFrequencyCapSettings(): JSX.Element {
                         id="workflows-frequency-cap-max-messages"
                         type="number"
                         min={1}
-                        max={MAX_MESSAGES}
+                        max={MAX_FREQUENCY_CAP_MESSAGES}
                         value={maxMessages ?? undefined}
-                        onChange={(value) => setMaxMessages(toInputValue(value))}
+                        onChange={(value) => setMaxMessages(toFrequencyCapInputValue(value))}
                         placeholder="No cap"
                         disabledReason={restrictedReason}
                         data-attr="workflows-frequency-cap-max-messages"
@@ -80,9 +83,9 @@ export function WorkflowsFrequencyCapSettings(): JSX.Element {
                         id="workflows-frequency-cap-window-days"
                         type="number"
                         min={1}
-                        max={MAX_WINDOW_DAYS}
+                        max={MAX_FREQUENCY_CAP_WINDOW_DAYS}
                         value={windowDays ?? undefined}
-                        onChange={(value) => setWindowDays(toInputValue(value))}
+                        onChange={(value) => setWindowDays(toFrequencyCapInputValue(value))}
                         placeholder="No cap"
                         disabledReason={restrictedReason}
                         data-attr="workflows-frequency-cap-window-days"

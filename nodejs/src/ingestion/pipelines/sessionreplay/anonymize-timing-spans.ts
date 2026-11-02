@@ -71,8 +71,6 @@ export function recordAnonymizeTimingSpans(
                     'anonymize.route': outcome.route ?? '',
                     'anonymize.cv_total_ms': timings.cvTotalNs / NS_PER_MS,
                     'anonymize.cv_count': timings.cvCount,
-                    'anonymize.blur_total_ms': timings.blurTotalNs / NS_PER_MS,
-                    'anonymize.blur_count': timings.blurCount,
                 })
             },
         })

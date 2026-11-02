@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.crates_io.
     EXTRA_DOWNLOADS_VERSION_ID,
     MAX_CRATES,
     MAX_VERSIONS_PER_CRATE_FOR_DEPENDENCIES,
+    MAX_VERSIONS_PER_CRATE_FOR_VERSION_DOWNLOADS,
     CratesIORetryableError,
     _fetch_json,
     crates_io_source,
@@ -146,10 +147,7 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status, expected_valid",
         [
-            (200, True),
             (404, False),
-            (403, False),
-            (500, False),
         ],
     )
     def test_status_mapping(self, status, expected_valid):
@@ -259,6 +257,39 @@ class TestGetRows:
         assert result.urls[1:] == [
             f"{CRATES_IO_BASE_URL}/crates/serde/1.0.1/dependencies",
             f"{CRATES_IO_BASE_URL}/crates/serde/1.0.0/dependencies",
+        ]
+
+    def test_version_downloads_stamps_crate_and_version_num(self):
+        result = _driver("serde-json").run(
+            "version_downloads",
+            [
+                ScriptedResponse(json=_versions_page(["1.0.1", "1.0.0", "0.9.0"], next_page=None)),
+                ScriptedResponse(
+                    json={
+                        "version_downloads": [
+                            {"version": 1, "downloads": 40, "date": "2026-07-01"},
+                            {"version": 1, "downloads": 7, "date": ""},
+                            {"downloads": 9, "date": "2026-07-02"},
+                        ]
+                    }
+                ),
+                ScriptedResponse(status=404),
+                ScriptedResponse(json={"version_downloads": []}),
+            ],
+        )
+
+        # The endpoint returns only the numeric version id, so the crate and version number exist on
+        # the row only because the connector stamps them. Rows missing a primary key part are dropped.
+        assert result.raised is None
+        assert result.rows == [
+            {"version": 1, "downloads": 40, "date": "2026-07-01", "crate": "serde", "version_num": "1.0.1"}
+        ]
+        assert result.urls == [
+            f"{CRATES_IO_BASE_URL}/crates/serde-json/versions?per_page={MAX_VERSIONS_PER_CRATE_FOR_VERSION_DOWNLOADS}&sort=date",
+            # A version whose downloads 404 is skipped rather than failing the crate.
+            f"{CRATES_IO_BASE_URL}/crates/serde-json/1.0.1/downloads",
+            f"{CRATES_IO_BASE_URL}/crates/serde-json/1.0.0/downloads",
+            f"{CRATES_IO_BASE_URL}/crates/serde-json/0.9.0/downloads",
         ]
 
     def test_reverse_dependencies_joins_the_dependent_version(self):

@@ -381,6 +381,7 @@ const surveysGetAll = (): ToolBase<
                     created_by: params.created_by,
                     ids: Array.isArray(params.ids) ? params.ids.join(',') || undefined : params.ids,
                     limit: params.limit,
+                    linked_flag_id: params.linked_flag_id,
                     offset: params.offset,
                     search: params.search,
                     status: params.status,

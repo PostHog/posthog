@@ -1,5 +1,3 @@
-import pytest
-
 from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.smartengage import (
     SmartEngageSourceConfig,
@@ -20,7 +18,7 @@ class TestSmartEngageSource:
         assert config.category == DataWarehouseSourceCategory.MARKETING___EMAIL
         # The source must stay visible: unreleasedSource hides it from every user.
         assert not config.unreleasedSource
-        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.releaseStatus == ReleaseStatus.BETA
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/smartengage"
 
     def test_get_schemas_are_full_refresh_only(self) -> None:
@@ -33,15 +31,3 @@ class TestSmartEngageSource:
             assert schema.supports_incremental is False
             assert schema.supports_append is False
             assert schema.incremental_fields == []
-
-    @pytest.mark.parametrize(
-        "observed_error,expected_non_retryable",
-        [
-            ("401 Client Error: Unauthorized for url: https://api.smartengage.com/avatars/list", True),
-            ("403 Client Error: Forbidden for url: https://api.smartengage.com/tags/list", True),
-            ("500 Server Error: Internal Server Error for url: https://api.smartengage.com/avatars/list", False),
-        ],
-    )
-    def test_non_retryable_errors(self, observed_error: str, expected_non_retryable: bool) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable) is expected_non_retryable

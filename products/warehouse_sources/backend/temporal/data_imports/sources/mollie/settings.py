@@ -64,8 +64,20 @@ MOLLIE_ENDPOINTS: dict[str, MollieEndpointConfig] = {
         path="/payment-links",
         embedded_key="payment_links",
     ),
-    # Balances, balance transactions, settlements and profiles are organization-level resources:
-    # Mollie serves them only to access tokens, never to a profile API key.
+    "payouts": MollieEndpointConfig(
+        name="payouts",
+        path="/payouts",
+        embedded_key="payouts",
+    ),
+    # Balances, balance transactions, settlements, settlement payments, invoices and profiles are
+    # organization-level resources: Mollie serves them only to access tokens, never to a profile API key.
+    "invoices": MollieEndpointConfig(
+        name="invoices",
+        path="/invoices",
+        embedded_key="invoices",
+        # Invoices carry no createdAt; issuedAt is the fixed invoice date.
+        partition_key="issuedAt",
+    ),
     "balances": MollieEndpointConfig(
         name="balances",
         path="/balances",
@@ -85,6 +97,19 @@ MOLLIE_ENDPOINTS: dict[str, MollieEndpointConfig] = {
             parent_field_renames={"id": "balanceId"},
         ),
     ),
+    "settlement_payments": MollieEndpointConfig(
+        name="settlement_payments",
+        path="/settlements/{settlementId}/payments",
+        embedded_key="payments",
+        primary_keys=["settlementId", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="settlements",
+            resolve_param="settlementId",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "settlementId"},
+        ),
+    ),
     "profiles": MollieEndpointConfig(
         name="profiles",
         path="/profiles",
@@ -101,6 +126,19 @@ MOLLIE_ENDPOINTS: dict[str, MollieEndpointConfig] = {
             resolve_field="id",
             include_from_parent=["id"],
             parent_field_renames={"id": "customerId"},
+        ),
+    ),
+    "captures": MollieEndpointConfig(
+        name="captures",
+        path="/payments/{paymentId}/captures",
+        embedded_key="captures",
+        primary_keys=["paymentId", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="payments",
+            resolve_param="paymentId",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "paymentId"},
         ),
     ),
 }

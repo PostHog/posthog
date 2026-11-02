@@ -15,7 +15,6 @@ import { captureInboxReportAction } from 'products/signals/frontend/inbox/inboxA
 import { inboxTaskKickoffLogic } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 
-import { TodayActionButton } from './TodayActionButton'
 import { reportWorkKind, reportWorkPrompt } from './todayNextStep'
 import { todayReportLogic } from './todayReportLogic'
 
@@ -59,14 +58,14 @@ export function TodayImplementMenu({
 
     if (disabledReason) {
         return (
-            <TodayActionButton
+            <Button
                 variant="primary"
                 className="me-1 gap-1.5"
                 disabledReason={disabledReason}
                 data-attr="today-report-implement-with"
             >
                 {label}
-            </TodayActionButton>
+            </Button>
         )
     }
 

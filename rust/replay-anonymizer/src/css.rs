@@ -6,10 +6,10 @@ use simd_json::borrowed::{Object, Value};
 use crate::assets::{
     is_numbered_placeholder, numbered_placeholder, CSS_IMAGE_REFS_ATTR_PREFIX, PLACEHOLDER_SRC,
 };
-use crate::blur::is_image_data_uri;
 use crate::collect::{is_image_ref, is_image_ref_strict};
 use crate::context::{Ctx, ImageSource};
-use crate::images::ImageFallback;
+use crate::data_uri::is_image_data_uri;
+use crate::data_uri::ImageFallback;
 use crate::json::{as_array_mut, as_object_mut, as_str, string_value};
 
 pub const INLINED_STYLESHEET_ATTR: &str = "_cssText";
@@ -731,10 +731,10 @@ mod tests {
         let allow = AllowLists::default();
         let ctx = Ctx::with_image_collection(
             &allow,
-            Some(ImageCollection {
-                team_id: "0123456789abcdef0123456789abcdef".to_string(),
-                content_key: "fedcba9876543210fedcba9876543210".to_string(),
-            }),
+            Some(ImageCollection::new(
+                "0123456789abcdef0123456789abcdef".to_string(),
+                "fedcba9876543210fedcba9876543210".to_string(),
+            )),
         );
         let original = png_data_uri(8, 8, [10, 20, 30, 255]);
         let css = format!("background-image:url('{original}')");
@@ -758,10 +758,10 @@ mod tests {
         let allow = AllowLists::default();
         let ctx = Ctx::with_image_collection(
             &allow,
-            Some(ImageCollection {
-                team_id: "0123456789abcdef0123456789abcdef".to_string(),
-                content_key: "fedcba9876543210fedcba9876543210".to_string(),
-            }),
+            Some(ImageCollection::new(
+                "0123456789abcdef0123456789abcdef".to_string(),
+                "fedcba9876543210fedcba9876543210".to_string(),
+            )),
         )
         .collecting_urls(Some(UrlCollection {
             reference_namespace: None,
@@ -811,22 +811,23 @@ mod tests {
     }
 
     #[test]
-    fn inline_svg_in_css_stays_out_of_the_collection_lane() {
+    fn inline_svg_in_css_reaches_the_collection_lane_as_its_document() {
         let allow = AllowLists::default();
         let ctx = Ctx::with_image_collection(
             &allow,
-            Some(ImageCollection {
-                team_id: "0123456789abcdef0123456789abcdef".to_string(),
-                content_key: "fedcba9876543210fedcba9876543210".to_string(),
-            }),
+            Some(ImageCollection::new(
+                "0123456789abcdef0123456789abcdef".to_string(),
+                "fedcba9876543210fedcba9876543210".to_string(),
+            )),
         );
         let original = "data:image/svg+xml;base64,PHN2Zz48dGV4dD5qb2huLmZha2VuYW1lQGV4YW1wbGUuY29tPC90ZXh0Pjwvc3ZnPg==";
         let css = format!("background-image:url('{original}')");
         let rewritten = rewrite(&ctx, &css, CssContext::DeclarationList).expect("image changes");
-        assert!(rewritten.refs.is_empty());
+        assert_eq!(rewritten.refs.len(), 1);
         assert!(!rewritten.css.contains(original));
-        assert!(rewritten.css.contains("data:image/png;base64"));
-        assert!(ctx.take_image_source_counts().is_empty());
+        let images = ctx.into_collected_images();
+        assert_eq!(images.len(), 1);
+        assert!(images[0].bytes.starts_with(b"<svg>"));
     }
 
     #[test]

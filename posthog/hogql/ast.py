@@ -24,7 +24,7 @@ from posthog.hogql.database.models import (
     UnknownDatabaseField,
     VirtualTable,
 )
-from posthog.hogql.errors import NotImplementedError, QueryError, ResolutionError
+from posthog.hogql.errors import FIELD_NOT_FOUND_MESSAGE, NotImplementedError, QueryError, ResolutionError
 
 # :NOTE: when you add new AST fields or nodes, add them to CloningVisitor and TraversingVisitor in visitor.py as well.
 # :NOTE2: also search for ":TRICKY:" in "resolver.py" when modifying SelectQuery or JoinExpr
@@ -212,7 +212,20 @@ class FieldAliasType(Type):
         raise NotImplementedError("FieldAliasType.resolve_table_type not implemented")
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(kw_only=True, slots=True, frozen=False)
+class ArrayJoinAliasType(FieldAliasType):
+    """An ARRAY JOIN alias holds one item of its array expression, not the whole array."""
+
+    def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
+        constant_type = self.type.resolve_constant_type(context)
+        if isinstance(constant_type, ArrayType):
+            return constant_type.item_type
+        if isinstance(constant_type, StringArrayType):
+            return StringType(nullable=False)
+        return UnknownType()
+
+
+@dataclass(kw_only=True, slots=True, frozen=False)
 class BaseTableType(Type):
     def resolve_database_table(self, context: HogQLContext) -> Table:
         raise NotImplementedError("BaseTableType.resolve_database_table not overridden")
@@ -239,7 +252,7 @@ class BaseTableType(Type):
                 )
             return FieldType(name=name, table_type=self)
 
-        raise QueryError(f"Field not found: {name}")
+        raise QueryError(f"{FIELD_NOT_FOUND_MESSAGE}: {name}")
 
 
 TableOrSelectType = Union[BaseTableType, "SelectSetQueryType", "SelectQueryType", "SelectQueryAliasType"]
@@ -1036,7 +1049,7 @@ class Lambda(Expr):
     expr: Expr | Block
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(kw_only=True, slots=True, frozen=False)
 class Constant(Expr):
     value: Any
     # When True, the SQL printer routes this constant through
@@ -1044,11 +1057,10 @@ class Constant(Expr):
     # ``_sensitive`` suffix and ``substitute_params_for_display`` redacts the
     # value to ``[HIDDEN]``
     is_sensitive: bool | None = None
-    # Internal ClickHouse-printer hint, not part of the logical AST. Set True only by the physical pass, only for its
-    # fixed scrubbing sentinels (the nullIf ''/'null' literals, the quote-trim regex, the 'true'/'false' the property
-    # group stores booleans as), to render them inline instead of as a bound parameter — matching the inline string the
-    # `json_extract_trim_quotes` helper emits. The printer enforces a fixed allowlist (`INLINE_SENTINEL_LITERALS`), so it
-    # can never inline arbitrary text. Unset (None) by default, like `type`, so the "skip None" AST serializers (Hog
+    # Internal ClickHouse-printer hint. Set True only on fixed scrubbing sentinels (the nullIf ''/'null' literals, the
+    # quote-trim regex, the 'true'/'false' the property group stores booleans as), to render them inline instead of as a
+    # bound parameter — matching the inline string the `json_extract_trim_quotes` helper emits. The printer enforces a
+    # fixed allowlist (`INLINE_SENTINEL_LITERALS`), so it can never inline arbitrary text. Unset (None) by default, like `type`, so the "skip None" AST serializers (Hog
     # compilers, `pretty_dataclasses` snapshots) leave it out.
     inline_sentinel: bool | None = None
 
@@ -1379,11 +1391,15 @@ class RatioExpr(Expr):
     right: Optional[Constant] = None
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(kw_only=True, slots=True, frozen=False)
 class SampleExpr(Expr):
     # k or n
     sample_value: RatioExpr
     offset_value: Optional[RatioExpr] = None
+
+    def samples_all_rows(self) -> bool:
+        """`SAMPLE 1` with no denominator and no offset reads every row. The printers drop it."""
+        return self.sample_value.left.value == 1 and self.sample_value.right is None and self.offset_value is None
 
 
 @dataclass(kw_only=True, slots=True)

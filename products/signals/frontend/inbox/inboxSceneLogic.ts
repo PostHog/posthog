@@ -12,7 +12,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { reconcileById } from 'lib/utils/objects'
+import { objectsEqual, reconcileById } from 'lib/utils/objects'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -33,6 +33,7 @@ import type { SignalReportMetricSnapshotsApi } from 'products/signals/frontend/g
 import {
     captureInboxReportClosed,
     captureInboxReportOpened,
+    setInboxServedRanker,
     captureInboxReportScrolled,
     InboxReportCloseMethod,
     InboxReportLinkSource,
@@ -46,9 +47,7 @@ import type { ScoutCreateInitialValues } from './logics/scoutCreateModalLogic'
 import { scratchpadLogic } from './logics/scratchpadLogic'
 import { signalSourcesLogic } from './signalSourcesLogic'
 import {
-    INBOX_LEGACY_TAB_KEYS,
     INBOX_REPORT_SECTION_KEYS,
-    INBOX_STAFF_ONLY_TAB_KEYS,
     INBOX_TAB_KEYS,
     InboxReportSectionKey,
     InboxTabKey,
@@ -58,8 +57,8 @@ import {
     SignalScoutRunSummary,
 } from './types'
 import { mergeReportRows, selectedFlatListSections } from './utils/flatReportList'
-import { isInboxRedesignEnabled } from './utils/inboxRedesign'
 import { inboxTabRedirectPath } from './utils/inboxReportUrls'
+import { keepFieldsWrittenDuringFetch } from './utils/reportFreshness'
 import { isReportMetricsEnabled, mergeReportMetricSnapshots, reportNeedsMetricRefresh } from './utils/reportMetrics'
 import { decodeScoutCreateTemplate } from './utils/scoutTemplateDeepLink'
 
@@ -147,9 +146,7 @@ export function mergeSignalRuns(scoutRuns: SignalScoutRunSummary[], signalTasks:
 }
 
 /**
- * Which pane of the scout detail page is open. The main column holds Reports, Runs, Trials and Signals; the
- * rail holds Told and Learned. One value covers both, because below the detail page's container
- * breakpoint the rail's tabs join the main tab bar and only one pane shows at a time.
+ * Which pane of the scout detail page is open. One tab bar holds every pane, so one pane shows at a time.
  *
  * `null` means nobody has chosen: the page picks Reports when the scout has any, else Runs.
  */
@@ -183,14 +180,9 @@ function scoutTabSearchParams(pane: ScoutDetailTab | null, findingId: string | n
     return pane && pane !== panePathImplies(findingId) ? { ...rest, tab: pane } : rest
 }
 
-/** Whether a URL segment is one of the current layout's page tabs. */
-function isInboxTabKey(value: string | undefined, redesign: boolean): value is InboxTabKey {
-    const tabKeys = (redesign ? INBOX_TAB_KEYS : INBOX_LEGACY_TAB_KEYS) as string[]
-    return value !== undefined && tabKeys.includes(value)
-}
-
-function isStaffOnlyTab(tab: string | undefined): boolean {
-    return tab !== undefined && (INBOX_STAFF_ONLY_TAB_KEYS as string[]).includes(tab)
+/** Whether a URL segment is one of the inbox's page tabs. */
+function isInboxTabKey(value: string | undefined): value is InboxTabKey {
+    return value !== undefined && (INBOX_TAB_KEYS as string[]).includes(value)
 }
 
 /**
@@ -270,62 +262,46 @@ function findLoadedReport(id: string): SignalReport | null {
 
 /**
  * Position (1-based) and size of the report's list, for `Inbox report opened` and `Inbox report
- * scrolled`. Under the flat Reports list (`flatList`) the rank is rebuilt with the same selection,
- * dedupe, and ordering the list rendered with, so these outcome events join to the impressions
- * recorded at the same rank. With the redesign flag off each tab is its own list, so the rank is
- * the position within the report's own state. Null when the report isn't in a rendered list (e.g.
- * a cold deep-link).
+ * scrolled`. The rank is rebuilt with the same selection, dedupe, and ordering the flat Reports list
+ * rendered with, so these outcome events join to the impressions recorded at the same rank. Null
+ * when the report isn't in a rendered list (e.g. a cold deep-link).
  */
-function findReportRank(
-    id: string,
-    flatList: boolean
-): {
+function findReportRank(id: string): {
     rank: number | null
     listSize: number | null
     section: InboxReportSectionKey | null
+    rankerId: string | null
 } {
-    if (flatList) {
-        const filterValues = inboxFiltersLogic.findMounted()?.values
-        if (!filterValues) {
-            return { rank: null, listSize: null, section: null }
-        }
-        const isStaff = userLogic.findMounted()?.values.user?.is_staff ?? false
-        const reportsBySection = Object.fromEntries(
-            INBOX_REPORT_SECTION_KEYS.map((sectionKey) => [
-                sectionKey,
-                reportListLogic.findMounted({
-                    sectionKey,
-                    listParams: INBOX_REPORT_SECTION_LIST_PARAMS[sectionKey],
-                })?.values.reports ?? [],
-            ])
-        ) as Record<InboxReportSectionKey, SignalReport[]>
-        const rows = mergeReportRows(
-            reportsBySection,
-            selectedFlatListSections(filterValues.visibleStateFilter, isStaff),
-            filterValues.activeSortField,
-            filterValues.activeSortDirection
-        )
-        const idx = rows.findIndex((row) => row.report.id === id)
-        if (idx >= 0) {
-            return { rank: idx + 1, listSize: rows.length, section: rows[idx].sectionKey }
-        }
-        return { rank: null, listSize: null, section: null }
+    const notFound = { rank: null, listSize: null, section: null, rankerId: null }
+    const filterValues = inboxFiltersLogic.findMounted()?.values
+    if (!filterValues) {
+        return notFound
     }
-    for (const sectionKey of Object.keys(INBOX_REPORT_SECTION_LIST_PARAMS) as InboxReportSectionKey[]) {
-        const mounted = reportListLogic.findMounted({
+    const isStaff = userLogic.findMounted()?.values.user?.is_staff ?? false
+    const reportsBySection = Object.fromEntries(
+        INBOX_REPORT_SECTION_KEYS.map((sectionKey) => [
             sectionKey,
-            listParams: INBOX_REPORT_SECTION_LIST_PARAMS[sectionKey],
-        })
-        const reports = mounted?.values.reports
-        if (!reports) {
-            continue
-        }
-        const idx = reports.findIndex((r: SignalReport) => r.id === id)
-        if (idx >= 0) {
-            return { rank: idx + 1, listSize: reports.length, section: sectionKey }
-        }
+            reportListLogic.findMounted({
+                sectionKey,
+                listParams: INBOX_REPORT_SECTION_LIST_PARAMS[sectionKey],
+            })?.values.reports ?? [],
+        ])
+    ) as Record<InboxReportSectionKey, SignalReport[]>
+    const rows = mergeReportRows(
+        reportsBySection,
+        selectedFlatListSections(filterValues.visibleStateFilter, isStaff),
+        filterValues.activeSortField,
+        filterValues.activeSortDirection
+    )
+    const idx = rows.findIndex((row) => row.report.id === id)
+    if (idx >= 0) {
+        const sectionKey = rows[idx].sectionKey
+        const rankerId =
+            reportListLogic.findMounted({ sectionKey, listParams: INBOX_REPORT_SECTION_LIST_PARAMS[sectionKey] })
+                ?.values.loadedRanker ?? null
+        return { rank: idx + 1, listSize: rows.length, section: sectionKey, rankerId }
     }
-    return { rank: null, listSize: null, section: null }
+    return notFound
 }
 
 // One list answered, with rows or with a failure, and none is still fetching. Until then, a missing
@@ -350,13 +326,17 @@ function captureOpenWhenRanked(
     cache: Record<string, any>,
     tracking: InboxOpenTracking,
     openMethod: InboxReportOpenMethod,
-    linkSource: InboxReportLinkSource | null,
-    flatList: boolean
+    linkSource: InboxReportLinkSource | null
 ): void {
     const previousReportId = cache.previousReportId ?? null
     const deadline = Date.now() + OPEN_RANK_WAIT_MS
+    let sent = false
 
     const fire = (resolved: ReturnType<typeof findReportRank>, options?: CaptureOptions): void => {
+        if (sent) {
+            return
+        }
+        sent = true
         cache.pendingOpenCapture = undefined
         cache.disposables.dispose('openRank')
         captureInboxReportOpened(
@@ -368,6 +348,7 @@ function captureOpenWhenRanked(
                 rank: resolved.rank,
                 listSize: resolved.listSize,
                 section: resolved.section,
+                rankerId: resolved.rankerId,
             },
             // The wait puts the capture up to `OPEN_RANK_WAIT_MS` after the report opened, and
             // posthog-js stamps an event at the capture moment. Without the override, a scroll or an
@@ -382,19 +363,28 @@ function captureOpenWhenRanked(
     // can sort above the report, which makes a rank read from the states that answered first too
     // small.
     const fireWhenReady = (firstRead: boolean): void => {
-        const resolved = findReportRank(tracking.report.id, flatList)
+        const resolved = findReportRank(tracking.report.id)
         if ((firstRead && resolved.rank !== null) || reportListsSettled() || Date.now() >= deadline) {
             fire(resolved)
         }
     }
 
-    cache.pendingOpenCapture = (options?: CaptureOptions) => fire(findReportRank(tracking.report.id, flatList), options)
+    cache.pendingOpenCapture = (options?: CaptureOptions) => fire(findReportRank(tracking.report.id), options)
     fireWhenReady(true)
-    if (!cache.pendingOpenCapture) {
+    if (sent) {
         return
     }
+    // kea-disposables runs this setup again on each resume. A resume without a pause replaces the
+    // stored cleanup and leaves the earlier interval running, so each tick checks `sent` and stops
+    // itself rather than rely on `dispose` alone.
     cache.disposables.add(() => {
-        const interval = setInterval(() => fireWhenReady(false), OPEN_RANK_POLL_MS)
+        const interval = setInterval(() => {
+            if (sent) {
+                clearInterval(interval)
+                return
+            }
+            fireWhenReady(false)
+        }, OPEN_RANK_POLL_MS)
         return () => clearInterval(interval)
     }, 'openRank')
 }
@@ -424,12 +414,10 @@ function inboxSurfaceUrl(values: {
     isFindingsOpen: boolean
     isRunsOpen: boolean
     isTriageOpen: boolean
-    isRedesign: boolean
 }): string {
     if (values.selectedReportId) {
-        // Under the redesign every report lives in the one Reports list; the legacy layout keeps the
-        // report under the tab that listed it, so its back control returns there.
-        return urls.inboxReport(values.isRedesign ? 'reports' : values.activeTab, values.selectedReportId)
+        // Every report lives in the one Reports list.
+        return urls.inboxReport('reports', values.selectedReportId)
     }
     if (values.selectedScoutSkillName) {
         return urls.inboxScout(values.selectedScoutSkillName, values.selectedScoutFindingId ?? undefined)
@@ -476,30 +464,14 @@ function flushOpenReport(
     cache.openTracking = undefined
 }
 
-/**
- * Run the current inbox URL through `urlToAction` again. A `replace` to the unchanged URL still
- * dispatches `locationChanged`, and the scene logic treats an unchanged scene and params as no
- * navigation, so only the route handlers run.
- */
-function replayInboxLocation(): void {
-    const { pathname, search, hash } = router.values.location
-    const path = removeProjectIdIfPresent(pathname)
-    if (path !== urls.inbox() && !path.startsWith(`${urls.inbox()}/`)) {
-        return
-    }
-    router.actions.replace(pathname + search + hash)
-}
-
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface inboxSceneLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
-    receivedFeatureFlags: boolean // featureFlagLogic
     user: UserType | null // userLogic
     activeTab: InboxTabKey
     activeTabState: InboxTabKey | null
     breadcrumbs: Breadcrumb[]
     isFindingsOpen: boolean
-    isRedesign: boolean
     isRunsOpen: boolean
     isScratchpadOpen: boolean
     isStaff: boolean
@@ -521,13 +493,6 @@ export interface inboxSceneLogicValues {
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface inboxSceneLogicActions {
-    setFeatureFlags: (
-        flags: string[],
-        variants: Record<string, boolean | string>
-    ) => {
-        flags: string[]
-        variants: Record<string, boolean | string>
-    } // featureFlagLogic
     loadSourceConfigs: () => any // signalSourcesLogic
     applySelectedReportMetricSnapshots: (snapshots: SignalReportMetricSnapshotsApi[]) => {
         snapshots: SignalReportMetricSnapshotsApi[]
@@ -621,8 +586,7 @@ export interface inboxSceneLogicActions {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface inboxSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
-        isRedesign: (featureFlags: FeatureFlagsSet) => boolean
-        activeTab: (activeTabState: InboxTabKey | null, isRedesign: boolean) => InboxTabKey
+        activeTab: (activeTabState: InboxTabKey | null) => InboxTabKey
         isStaff: (user: UserType | null) => boolean
         signalRuns: (signalRunsResponse: SignalRun[] | null) => SignalRun[]
         signalRunsLoading: (signalRunsResponse: SignalRun[] | null, signalRunsResponseLoading: boolean) => boolean
@@ -654,8 +618,8 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         // is dispatched through an unmounted logic, so the scene keeps it alive instead of relying on
         // a component (the list toolbar, the detail actions) having rendered first.
         logic: [inboxFiltersLogic, inboxBulkActionsLogic],
-        values: [userLogic, ['user'], featureFlagLogic, ['featureFlags', 'receivedFeatureFlags']],
-        actions: [signalSourcesLogic, ['loadSourceConfigs'], featureFlagLogic, ['setFeatureFlags']],
+        values: [userLogic, ['user'], featureFlagLogic, ['featureFlags']],
+        actions: [signalSourcesLogic, ['loadSourceConfigs']],
     })),
 
     actions({
@@ -757,10 +721,11 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             null as SignalReport | null,
             {
                 loadSelectedReport: async ({ id }: { id: string }, breakpoint) => {
+                    const before = values.selectedReportResponse
                     try {
                         const report = await api.signalReports.get(id)
                         breakpoint()
-                        return report
+                        return keepFieldsWrittenDuringFetch(report, before, values.selectedReportResponse)
                     } catch (error) {
                         // Discard a superseded load so a slow response for a report the user already
                         // navigated away from can't overwrite the current one (e.g. a stale 404
@@ -795,7 +760,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 setSelectedReportId: (_, { id }) => id,
             },
         ],
-        // Null until a route sets a tab; `activeTab` fills in the layout's landing tab.
+        // Null until a route sets a tab; `activeTab` fills in the landing tab.
         activeTabState: [
             null as InboxTabKey | null,
             {
@@ -880,23 +845,12 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
     }),
 
     selectors({
-        isRedesign: [
-            (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => isInboxRedesignEnabled(featureFlags),
-        ],
-        // The landing tab differs per layout (Reports under the redesign, Pull requests with the
-        // flag off), and a bare `/inbox` keeps whichever tab was already active. A tab set under one
-        // layout can outlive a mid-session flag flip (async flag resolution, or a bookmarked URL of
-        // the other layout). Fall back to the layout's landing tab when the active tab is not one of
-        // this layout's tabs, so the body never renders a tab the active layout has no panel for.
+        // A bare `/inbox` keeps whichever tab was already active, and lands on Reports before any
+        // route sets one.
         activeTab: [
-            (s) => [s.activeTabState, s.isRedesign],
-            (activeTabState: InboxTabKey | null, isRedesign: boolean): InboxTabKey =>
-                activeTabState && isInboxTabKey(activeTabState, isRedesign)
-                    ? activeTabState
-                    : isRedesign
-                      ? 'reports'
-                      : 'pulls',
+            (s) => [s.activeTabState],
+            (activeTabState: InboxTabKey | null): InboxTabKey =>
+                activeTabState && isInboxTabKey(activeTabState) ? activeTabState : 'reports',
         ],
         breadcrumbs: [
             () => [],
@@ -935,32 +889,24 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
     }),
 
     listeners(({ actions, values, cache, selectors }) => ({
-        setFeatureFlags: (_, __, ___, previousState) => {
-            // Routes handled before PostHog answered ran against the flag the last visit persisted,
-            // and held their layout redirects (see `urlToAction`). Route the current URL again once
-            // the layout is known, and again on a mid-session flip, so the surface the URL names
-            // opens under the layout that renders.
-            const wasResolved = featureFlagLogic.selectors.receivedFeatureFlags(previousState)
-            if (wasResolved && selectors.isRedesign(previousState) === values.isRedesign) {
-                return
+        [inboxBulkActionsLogic.actionTypes.reportWriteFailed]: ({ reportIds }: { reportIds: string[] }) => {
+            const id = values.selectedReportId
+            if (id && reportIds.includes(id)) {
+                actions.loadSelectedReport({ id })
             }
-            replayInboxLocation()
         },
-        setActiveTab: ({ tab }) => {
-            // With the flag off the runs list is a tab, so its slow poll follows the tab. Under the
-            // redesign it is a panel and `setRunsOpen` owns the poll; it must not be touched here,
-            // because opening that panel also moves the tab to Scouts.
-            if (values.isRedesign) {
-                return
-            }
-            if (tab === 'runs') {
-                actions.loadRuns()
-                cache.disposables.add(() => {
-                    const interval = setInterval(() => actions.loadRuns(), RUNS_POLL_INTERVAL_MS)
-                    return () => clearInterval(interval)
-                }, 'runsPoll')
-            } else {
-                cache.disposables.dispose('runsPoll')
+        // A claim from a list row can change the open report. Patch it the way the detail pane's own claim
+        // does, which also skips the copy that pane already patched.
+        [inboxBulkActionsLogic.actionTypes.reportClaimChanged]: ({
+            reportId,
+            assignee,
+        }: {
+            reportId: string
+            assignee: SignalReport['assignee']
+        }) => {
+            const report = values.selectedReport
+            if (report?.id === reportId && !objectsEqual(report.assignee ?? null, assignee ?? null)) {
+                actions.seedSelectedReport({ ...report, assignee })
             }
         },
         setRunsOpen: ({ open }) => {
@@ -1038,10 +984,9 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             if (values.selectedScoutSkillName !== null) {
                 actions.setSelectedScoutSkillName(null)
             }
-            // Under the redesign a report page is a Reports-tab surface even when reached from a
-            // scout page, so its back button returns to the report list. With the flag off the
-            // report stays under the tab that listed it.
-            if (values.isRedesign && values.activeTab !== 'reports') {
+            // A report page is a Reports-tab surface even when reached from a scout page, so its
+            // back button returns to the report list.
+            if (values.activeTab !== 'reports') {
                 actions.setActiveTab('reports')
             }
             // Reuse the list row if we already have it (instant render), then refresh from the server.
@@ -1071,8 +1016,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 cache,
                 tracking,
                 (cache.pendingOpenMethod as InboxReportOpenMethod | undefined) ?? 'unknown',
-                (cache.pendingLinkSource as InboxReportLinkSource | null | undefined) ?? null,
-                values.isRedesign
+                (cache.pendingLinkSource as InboxReportLinkSource | null | undefined) ?? null
             )
             cache.pendingOpenMethod = undefined
             cache.pendingLinkSource = undefined
@@ -1115,7 +1059,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 return
             }
             open.scrolled = true
-            const { rank, listSize } = findReportRank(open.report.id, values.isRedesign)
+            const { rank, listSize } = findReportRank(open.report.id)
             captureInboxReportScrolled({
                 report: open.report,
                 rank,
@@ -1216,6 +1160,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         beforeUnmount: () => {
             // Flush dwell time for a report still open when the scene unmounts (navigated away).
             flushOpenReport(cache, 'unmount')
+            setInboxServedRanker(null)
         },
     })),
 
@@ -1313,21 +1258,6 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 actions.setTriageOpen(false)
             }
         }
-        // A layout redirect rewrites the URL for the layout the flag names. On a cold load the
-        // handlers run before PostHog answers, against the flag the last visit persisted, and a
-        // redirect issued then would erase the surface the URL names before the `setFeatureFlags`
-        // listener can route it again. Hold the URL until flags land; that listener replays it.
-        const redirectForLayout = (
-            path: string,
-            searchParams: Record<string, any>,
-            hashParams: Record<string, any>
-        ): boolean => {
-            if (!values.receivedFeatureFlags) {
-                return false
-            }
-            router.actions.replace(path, searchParams, hashParams)
-            return true
-        }
         return {
             [urls.inboxScratchpad()]: () => {
                 if (!values.isScratchpadOpen) {
@@ -1339,28 +1269,23 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                     actions.setFindingsOpen(true)
                 }
             },
-            [urls.inboxRuns()]: (_, searchParams, hashParams) => {
-                // With the flag off the runs list is still the Runs tab.
-                if (!values.isRedesign) {
-                    redirectForLayout(urls.inbox('runs'), searchParams, hashParams)
-                    return
-                }
+            [urls.inboxRuns()]: () => {
                 if (!values.isRunsOpen) {
                     actions.setRunsOpen(true)
                 }
             },
-            [urls.inboxTriage()]: (_, searchParams, hashParams) => {
-                // Triage mode only exists under the redesign; the queue it walks is the Reports tab.
-                if (!values.isRedesign) {
-                    redirectForLayout(urls.inbox('reports'), searchParams, hashParams)
-                    return
-                }
+            [urls.inboxTriage()]: () => {
                 markInboxListVisited()
                 if (!values.isTriageOpen) {
                     actions.setTriageOpen(true)
                 }
             },
-            [urls.inbox()]: (_, __, hashParams) => {
+            [urls.inbox()]: (_, searchParams, hashParams) => {
+                const redirectPath = inboxTabRedirectPath(undefined, searchParams)
+                if (redirectPath) {
+                    router.actions.replace(redirectPath, searchParams, hashParams)
+                    return
+                }
                 markInboxListVisited()
                 consumeScoutTemplateHash(actions, hashParams)
                 closeAllSurfaces()
@@ -1369,32 +1294,27 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 if (tab === 'scout-trials') {
                     return
                 }
-                // Tab segments from the other inbox layout still arrive from Slack messages, bookmarks,
-                // and a flag that flipped between visits: send them to the surface that replaced them.
-                const redirectPath = inboxTabRedirectPath(tab, values.isRedesign)
+                // Tab segments from the old inbox layout still arrive from Slack messages and
+                // bookmarks: send them to the surface that replaced them.
+                const redirectPath = inboxTabRedirectPath(tab, searchParams)
                 if (redirectPath) {
-                    redirectForLayout(redirectPath, searchParams, hashParams)
+                    router.actions.replace(redirectPath, searchParams, hashParams)
                     return
                 }
                 // A bare report deep-link `/inbox/<reportId>` is redirected to report form. Mark the list
                 // as visited only when we're actually staying on a list view — otherwise the redirected
                 // report would be misclassified as an in-app click instead of a deep-link.
-                if (tab && !isInboxTabKey(tab, values.isRedesign)) {
+                if (tab && !isInboxTabKey(tab)) {
                     router.actions.replace(urls.inboxReport('reports', tab), searchParams, hashParams)
                     return
                 }
                 markInboxListVisited()
                 consumeScoutTemplateHash(actions, hashParams)
-                // Staff-only tabs (Not actionable): bounce non-staff to the default tab. Under the
-                // redesign that list is a section the Reports tab hides from non-staff instead.
-                if (!values.isRedesign && isStaffOnlyTab(tab) && userLogic.values.user != null && !values.isStaff) {
-                    actions.setActiveTab('pulls')
-                    return
-                }
-                if (isInboxTabKey(tab, values.isRedesign) && values.activeTab !== tab) {
+                // A selected report takes precedence in actionToUrl, so clear it before changing tabs.
+                closeAllSurfaces()
+                if (isInboxTabKey(tab) && values.activeTab !== tab) {
                     actions.setActiveTab(tab)
                 }
-                closeAllSurfaces()
             },
             [urls.inboxScout(':skillName')]: (
                 { skillName }: { skillName?: string },
@@ -1447,27 +1367,14 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 if (!reportId) {
                     return
                 }
-                if (values.isRedesign) {
-                    // `/inbox/pulls/<id>` and friends: the same report, now addressed through the one
-                    // Reports list that replaced those tabs. While the redirect is held, open the
-                    // report under this layout rather than leave the page empty until flags land.
-                    if (
-                        tab !== 'reports' &&
-                        redirectForLayout(urls.inboxReport('reports', reportId), searchParams, hashParams)
-                    ) {
-                        return
-                    }
-                    if (values.activeTab !== 'reports') {
-                        actions.setActiveTab('reports')
-                    }
-                } else {
-                    if (isStaffOnlyTab(tab) && userLogic.values.user != null && !values.isStaff) {
-                        actions.setActiveTab('pulls')
-                        return
-                    }
-                    if (isInboxTabKey(tab, false) && values.activeTab !== tab) {
-                        actions.setActiveTab(tab)
-                    }
+                // `/inbox/pulls/<id>` and friends: the same report, now addressed through the one
+                // Reports list that replaced those tabs.
+                if (tab !== 'reports') {
+                    router.actions.replace(urls.inboxReport('reports', reportId), searchParams, hashParams)
+                    return
+                }
+                if (values.activeTab !== 'reports') {
+                    actions.setActiveTab('reports')
                 }
                 if (values.selectedReportId !== reportId) {
                     // A `back` pointing at triage means the open came from the triage card's "Full

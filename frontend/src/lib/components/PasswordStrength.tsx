@@ -8,8 +8,16 @@ export type ValidatedPasswordResult = {
     feedback?: string
 }
 
-let zxcvbnFn: ((password: string) => { score: number; feedback: { suggestions: string[] } }) | null = null
+let zxcvbnFn: ((password: string) => { score: number; feedback: { warning: string } }) | null = null
 let zxcvbnLoading = false
+
+const PASSWORD_NEXT_STEP = "Try a longer password that isn't a common word or pattern."
+
+// zxcvbn's suggestions assume passphrases ("Add another word or two"), so only its warning is
+// shown, which names the weakness it found
+function weakPasswordFeedback(warning: string): string {
+    return warning ? `${warning}. ${PASSWORD_NEXT_STEP}` : `This password is too easy to guess. ${PASSWORD_NEXT_STEP}`
+}
 
 // We load zxcvbn asynchronously as it's a large dependency and we don't want to block the main thread
 function ensureZxcvbnLoaded(): void {
@@ -42,19 +50,20 @@ export function validatePassword(password: string = ''): ValidatedPasswordResult
         }
     }
 
+    if (!password) {
+        return { score: 0 }
+    }
+
     if (!zxcvbnFn) {
         // Return basic length-based validation while zxcvbn is loading
-        if (!password) {
-            return { score: 0 }
-        }
         return { score: 3, feedback: '' }
     }
 
     const result = zxcvbnFn(password)
 
     return {
-        score: password ? result.score + 1 : 0,
-        feedback: result.feedback.suggestions.join(' '),
+        score: result.score + 1,
+        feedback: result.score < 3 ? weakPasswordFeedback(result.feedback.warning) : '',
     }
 }
 

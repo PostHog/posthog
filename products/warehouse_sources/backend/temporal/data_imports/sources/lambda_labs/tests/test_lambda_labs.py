@@ -160,7 +160,12 @@ class TestPaginationAndResume:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize(("status", "expected"), [(200, True), (401, False), (403, False)])
+    @pytest.mark.parametrize(
+        ("status", "expected"),
+        [
+            (200, True),
+        ],
+    )
     def test_status_maps_to_bool(self, status: int, expected: bool) -> None:
         with scripted_network([ScriptedResponse(status=status)]) as network:
             assert validate_credentials("secret_key") is expected

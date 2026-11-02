@@ -35,6 +35,7 @@ const NOW = new Date('2026-06-27T22:00:00Z')
 function makeRun(overrides: Partial<SignalScoutRunSummary> = {}): SignalScoutRunSummary {
     return {
         run_id: 'run-1',
+        total_spend: null,
         skill_name: 'signals-scout-dev-report-probe',
         skill_version: 1,
         status: 'completed',

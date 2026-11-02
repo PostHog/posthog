@@ -2,6 +2,7 @@ import type { SpanContext } from "@opentelemetry/api";
 import {
   buildPosthogPropertiesHeaderLines,
   buildPosthogPropertiesHeaderRecord,
+  buildPosthogPropertyHeaderRecord,
   buildPosthogScopedPropertyHeaderLines,
   buildPosthogScopedPropertyHeaderRecord,
   buildPosthogSessionHeaderLines,
@@ -9,7 +10,12 @@ import {
 } from "@posthog/agent-contracts/posthog-property-headers";
 import type { GatewayEnv } from "../adapters/claude/session/options";
 import type { Task } from "../types";
-import { resolveGatewayProduct, resolveGatewayTarget } from "../utils/gateway";
+import {
+  modelIdForGatewayRoute,
+  resolveGatewayProduct,
+  resolveGatewayTarget,
+  resolveLlmGatewayUrl,
+} from "../utils/gateway";
 import type { Logger } from "../utils/logger";
 import type { AgentServerConfig } from "./types";
 
@@ -197,6 +203,70 @@ export function buildGatewayEnv(
     anthropicCustomHeaders: customHeaders,
     openaiCustomHeaders,
     posthogProjectId: String(projectId),
+    isAiGateway,
+  };
+}
+
+export interface PiProviderRoute {
+  apiKey: string;
+  baseUrl: string;
+  headers: Record<string, string>;
+  model: string | undefined;
+  isAiGateway: boolean;
+}
+
+/** Go with the run's scoped token when the worker minted one, else the Python gateway. */
+export function buildPiProviderRoute(
+  config: Pick<AgentServerConfig, "apiKey" | "apiUrl" | "projectId">,
+  {
+    originProduct,
+    aiStage,
+    taskId,
+    model,
+    properties,
+  }: {
+    originProduct?: Task["origin_product"] | null;
+    aiStage?: string | null;
+    taskId?: string | null;
+    model?: string;
+    properties: Record<string, string | number | boolean | null | undefined>;
+  },
+  logger: Logger,
+): PiProviderRoute {
+  const gatewayToken = process.env.AI_GATEWAY_TOKEN?.trim() || undefined;
+  const target = resolveGatewayTarget({
+    product: resolveGatewayProduct({ originProduct }),
+    aiStage,
+    posthogHost: config.apiUrl,
+  });
+  if (target.isAiGateway && gatewayToken) {
+    return {
+      apiKey: gatewayToken,
+      baseUrl: target.baseUrl,
+      // Go reads one properties blob and strips `$` keys, so the session id has its own header.
+      headers: {
+        ...buildPosthogPropertiesHeaderRecord({
+          ...properties,
+          ai_product: target.aiProduct,
+          team_id: config.projectId,
+        }),
+        ...buildPosthogSessionHeaderRecord(taskId),
+      },
+      model: modelIdForGatewayRoute(model, true),
+      isAiGateway: true,
+    };
+  }
+  if (target.isAiGateway) {
+    logger.warn(
+      `AI_GATEWAY_TOKEN missing for routed product ${target.aiProduct}; falling back to the Python gateway`,
+    );
+  }
+  return {
+    apiKey: config.apiKey,
+    baseUrl: resolveLlmGatewayUrl(process.env.LLM_GATEWAY_URL, config.apiUrl),
+    headers: buildPosthogPropertyHeaderRecord(properties),
+    model,
+    isAiGateway: false,
   };
 }
 

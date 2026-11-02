@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OutbrainSource(ResumableSource[OutbrainSourceConfig, OutbrainResumeConfig]):
+    codebase_detection = detect(env=("^OUTBRAIN_",), script_hosts=("amplify.outbrain.com", "widgets.outbrain.com"))
+
     supported_versions = ("v0.1",)
     default_version = "v0.1"
     api_docs_url = "https://developers.outbrain.com"

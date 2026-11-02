@@ -29,24 +29,31 @@ from products.signals.backend.artefact_schemas import RankingModelResult, Rankin
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.ranking import model_store, scorer
 from products.signals.backend.ranking.features import (
+    ALL_PROJECT_VECTOR_KINDS,
     EMBEDDING_DIMENSIONS,
     MIN_PROJECT_HISTORY_REPORTS,
     PROJECT_VECTOR_KINDS,
     REPORT_EMBEDDINGS_FEATURE_SET,
-    TITLE_EMBEDDINGS_FEATURE_SET,
+    REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET,
     FeatureSet,
 )
 from products.signals.backend.ranking.model_store import ModelLoadError, load_serving_set
 from products.signals.backend.ranking.overrides import RankingOverrides
-from products.signals.backend.ranking.scorer import NO_PROJECT_VECTORS, NO_VECTOR, ScoringError, score_reports
+from products.signals.backend.ranking.scorer import (
+    NO_PROJECT_VECTORS,
+    NO_VECTOR,
+    PROJECT_VECTOR_KINDS_MISSING,
+    ScoringError,
+    score_reports,
+)
 from products.signals.backend.ranking.serving_manifest import (
     CROSS_FAMILY_ROLE,
-    DAILY_CANDIDATE_ROLE,
     MANIFEST_SERVED_ROLE,
     METADATA_FILE,
     ONNX_MODEL_FILE,
     ONNX_MODEL_KIND,
     PINNED_ROLE,
+    RECENT_ROLE,
     SERVED_OVERRIDE_ROLE,
     SERVED_ROLE,
     ServingManifest,
@@ -258,19 +265,37 @@ class TestModelStore(_StoreTestMixin, SimpleTestCase):
                 "inputs ['has_history', 'project', 'report'] are not ['report']",
             ),
             (
-                "onnx_project_kinds_in_another_order",
+                "onnx_project_kind_unknown",
                 {
                     "model_kind": ONNX_MODEL_KIND,
                     "onnx_fixture": "project_report.onnx",
-                    "project_vector_kinds": ("open", "typical", "action", "dismiss"),
+                    "project_vector_kinds": ("typical", "open", "action", "closed"),
                 },
-                "project_vector_kinds ['open', 'typical', 'action', 'dismiss']",
+                "project_vector_kinds ['typical', 'open', 'action', 'closed'] are not distinct",
+            ),
+            (
+                "onnx_project_kind_repeated",
+                {
+                    "model_kind": ONNX_MODEL_KIND,
+                    "onnx_fixture": "project_report.onnx",
+                    "project_vector_kinds": ("typical", "open", "open", "dismiss"),
+                },
+                "project_vector_kinds ['typical', 'open', 'open', 'dismiss'] are not distinct",
+            ),
+            (
+                "onnx_project_kinds_wider_than_the_graph",
+                {
+                    "model_kind": ONNX_MODEL_KIND,
+                    "onnx_fixture": "project_report.onnx",
+                    "project_vector_kinds": ALL_PROJECT_VECTOR_KINDS,
+                },
+                "input project is tensor(float)",
             ),
         ]
     )
     def test_a_challenger_that_cannot_load_is_skipped(self, _name: str, kwargs: dict, reason: str) -> None:
         served = self._served()
-        challenger = self._challenger("title_embeddings", TITLE_EMBEDDINGS_FEATURE_SET, **kwargs)
+        challenger = self._challenger("nn", REPORT_EMBEDDINGS_FEATURE_SET, **kwargs)
         self.store.publish_manifest([served, challenger])
 
         serving = load_serving_set()
@@ -340,12 +365,12 @@ class TestModelStore(_StoreTestMixin, SimpleTestCase):
         load_serving_set()
         model_reads = [key for key in self.store.reads if key != serving_manifest_key(PREFIX)]
 
-        self.store.publish_manifest([served.model_copy(update={"roles": [SERVED_ROLE, DAILY_CANDIDATE_ROLE]})])
+        self.store.publish_manifest([served.model_copy(update={"roles": [SERVED_ROLE, RECENT_ROLE]})])
         serving = load_serving_set()
 
         assert serving is not None
         assert [key for key in self.store.reads if key != serving_manifest_key(PREFIX)] == model_reads
-        assert serving.served.entry.roles == [SERVED_ROLE, DAILY_CANDIDATE_ROLE]
+        assert serving.served.entry.roles == [SERVED_ROLE, RECENT_ROLE]
 
 
 class _FakeVectors:
@@ -409,49 +434,26 @@ class TestScorer(_ScorerTestMixin, SimpleTestCase):
     def test_one_vector_read_per_rendering_whatever_the_number_of_models(self) -> None:
         served = self._served()
         candidate = self.store.publish_model(
-            "report_embeddings", REPORT_EMBEDDINGS_FEATURE_SET, version=OLDER_VERSION, roles=[DAILY_CANDIDATE_ROLE]
+            "report_embeddings", REPORT_EMBEDDINGS_FEATURE_SET, version=OLDER_VERSION, roles=[RECENT_ROLE]
         )
-        title = self._challenger("title_embeddings", TITLE_EMBEDDINGS_FEATURE_SET)
-        self.store.publish_manifest([served, candidate, title])
+        challenger = self._challenger("nn", REPORT_EMBEDDINGS_FEATURE_SET, model_kind=ONNX_MODEL_KIND)
+        self.store.publish_manifest([served, candidate, challenger])
 
         _, fake_vectors, _ = self._score(["r1", "r2"], {}, persist=False)
 
-        assert sorted(fake_vectors.calls) == sorted([EMBEDDING_RENDERING_TITLE_SUMMARY, EMBEDDING_RENDERING_TITLE])
-
-    def test_a_challenger_without_a_vector_is_a_skipped_result(self) -> None:
-        served = self._served(thresholds={"open": 0.25})
-        title = self._challenger("title_embeddings", TITLE_EMBEDDINGS_FEATURE_SET)
-        manifest = self.store.publish_manifest([served, title])
-
-        (outcome,), _, captured = self._score(
-            ["r1"],
-            {EMBEDDING_RENDERING_TITLE_SUMMARY: {"r1": ReportVector(embedding=_vector(1), inserted_at=LANDED)}},
-            persist=False,
-        )
-
-        assert outcome.score is not None
-        results = outcome.score.results
-        assert (results[served.key].status, set(results[served.key].scores)) == ("scored", set(HEADS))
-        # thumbs_up saved no threshold, so it has no base rate to divide by.
-        assert results[served.key].lifts == {"open": results[served.key].scores["open"] / 0.25}
-        assert results[title.key].lifts == {}
-        assert (results[title.key].status, results[title.key].skip_reason) == ("skipped", NO_VECTOR)
-        assert outcome.score.served_key == manifest.served.key
-        assert outcome.score.embedding_inserted_at == LANDED
-        assert captured.events == []
+        assert fake_vectors.calls == [EMBEDDING_RENDERING_TITLE_SUMMARY]
 
     def test_xgboost_and_onnx_models_score_in_one_pass(self) -> None:
         served = self._served()
-        onnx = self._challenger("title_embeddings", TITLE_EMBEDDINGS_FEATURE_SET, model_kind=ONNX_MODEL_KIND)
+        onnx = self._challenger("nn", REPORT_EMBEDDINGS_FEATURE_SET, model_kind=ONNX_MODEL_KIND)
         self.store.publish_manifest([served, onnx])
         expected = np.load(ONNX_FIXTURES / "report.expected.npz")
         report_ids = [f"r{index}" for index in range(len(expected["report"]))]
         vectors = {
-            rendering: {
+            EMBEDDING_RENDERING_TITLE_SUMMARY: {
                 report_id: ReportVector(embedding=vector, inserted_at=LANDED)
                 for report_id, vector in zip(report_ids, expected["report"])
             }
-            for rendering in (EMBEDDING_RENDERING_TITLE_SUMMARY, EMBEDDING_RENDERING_TITLE)
         }
 
         outcomes, _, _ = self._score(report_ids, vectors, persist=False)
@@ -464,14 +466,16 @@ class TestScorer(_ScorerTestMixin, SimpleTestCase):
             expected_scores = dict(zip(ONNX_OUTPUT_HEADS, probabilities.tolist()))
             assert results[onnx.key].scores == pytest.approx(expected_scores, abs=1e-6)
 
-    def _project_model(self, roles: Sequence[str]) -> ServingManifestEntry:
+    def _project_model(
+        self, roles: Sequence[str], kinds: Sequence[str] = PROJECT_VECTOR_KINDS, name: str = "nn"
+    ) -> ServingManifestEntry:
         return self.store.publish_model(
-            "nn",
+            name,
             REPORT_EMBEDDINGS_FEATURE_SET,
             roles=roles,
             model_kind=ONNX_MODEL_KIND,
             onnx_fixture="project_report.onnx",
-            project_vector_kinds=PROJECT_VECTOR_KINDS,
+            project_vector_kinds=kinds,
         )
 
     def test_an_onnx_model_reads_the_team_project_vectors(self) -> None:
@@ -520,6 +524,35 @@ class TestScorer(_ScorerTestMixin, SimpleTestCase):
         model_store.clear_model_cache()
         self.store.publish_manifest([self._project_model([SERVED_ROLE])], project_vectors=key)
         with self.assertRaisesRegex(ScoringError, "reads project vectors"):
+            self._score(["r1"], vectors, persist=False)
+
+    def test_a_model_that_reads_a_kind_the_day_lacks_is_skipped_or_stops_the_served_score(self) -> None:
+        expected = np.load(ONNX_FIXTURES / "project_report.expected.npz")
+        # The published day carries the four default kinds only, like a day written before `fixed` was stored.
+        key = self.store.publish_project_vectors(self.team_id, expected["project"], expected["has_history"])
+        report = ReportVector(embedding=_vector(1), inserted_at=LANDED)
+        vectors = {EMBEDDING_RENDERING_TITLE_SUMMARY: {"r1": report}}
+        served = self._served()
+        nn = self._project_model([CROSS_FAMILY_ROLE])
+        fixed = self._project_model([CROSS_FAMILY_ROLE], kinds=("typical", "open", "action", "fixed"), name="nn_fixed")
+        self.store.publish_manifest([served, nn, fixed], project_vectors=key)
+
+        (outcome,), _, _ = self._score(["r1"], vectors, persist=False)
+
+        assert outcome.score is not None
+        results = outcome.score.results
+        assert results[nn.key].status == "scored"
+        assert (results[fixed.key].status, results[fixed.key].skip_reason) == (
+            "skipped",
+            PROJECT_VECTOR_KINDS_MISSING,
+        )
+
+        model_store.clear_model_cache()
+        self.store.publish_manifest(
+            [self._project_model([SERVED_ROLE], kinds=("typical", "open", "action", "fixed"), name="nn_fixed")],
+            project_vectors=key,
+        )
+        with self.assertRaisesRegex(ScoringError, r"reads project vector kinds \['fixed'\]"):
             self._score(["r1"], vectors, persist=False)
 
 
@@ -576,8 +609,10 @@ class TestScorerPersists(_ScorerTestMixin, BaseTest):
     def test_persist_writes_one_valid_row_per_scored_report_of_the_team(self, _name: str, shared_pass: bool) -> None:
         self.team_id = self.team.id
         served = self._served(thresholds={"open": 0.0})
-        title = self._challenger("title_embeddings", TITLE_EMBEDDINGS_FEATURE_SET)
-        manifest = self.store.publish_manifest([served, title])
+        candidate = self.store.publish_model(
+            "report_embeddings", REPORT_EMBEDDINGS_FEATURE_SET, version=OLDER_VERSION, roles=[RECENT_ROLE]
+        )
+        manifest = self.store.publish_manifest([served, candidate])
         scored, unscored = self._report(self.team.id), self._report(self.team.id)
         other_team = Team.objects.create(organization=self.organization)
         foreign = self._report(other_team.id)
@@ -585,10 +620,7 @@ class TestScorerPersists(_ScorerTestMixin, BaseTest):
 
         outcomes, _, captured = self._score(
             [scored, unscored, foreign],
-            {
-                EMBEDDING_RENDERING_TITLE_SUMMARY: {scored: vector, foreign: vector},
-                EMBEDDING_RENDERING_TITLE: {scored: vector},
-            },
+            {EMBEDDING_RENDERING_TITLE_SUMMARY: {scored: vector, foreign: vector}},
             persist=True,
             shared_pass=shared_pass,
         )
@@ -602,11 +634,11 @@ class TestScorerPersists(_ScorerTestMixin, BaseTest):
         assert [(str(row.report_id), row.team_id) for row in rows] == [(scored, self.team.id)]
         score = RankingScore.model_validate_json(rows[0].content)
         assert score.served_key == manifest.served.key
-        assert score.results[title.key].status == "scored"
+        assert score.results[candidate.key].status == "scored"
         assert sorted(
             (event["event"], event["properties"]["report_id"], event["properties"]["model_key"])
             for event in captured.events
-        ) == sorted([(REPORT_SCORED_EVENT, scored, served.key), (REPORT_SCORED_EVENT, scored, title.key)])
+        ) == sorted([(REPORT_SCORED_EVENT, scored, served.key), (REPORT_SCORED_EVENT, scored, candidate.key)])
         classification = {
             event["properties"]["model_key"]: {
                 key: value
@@ -618,10 +650,47 @@ class TestScorerPersists(_ScorerTestMixin, BaseTest):
         # thumbs_up saved no threshold, and a model without one gets no stand-in. A zero threshold gives no lift.
         assert classification == {
             served.key: {"readable_heads": ["open"], "threshold_open": 0.0, "predicted_open": True},
-            title.key: {"readable_heads": ["open"]},
+            candidate.key: {"readable_heads": ["open"]},
         }
         assert self.store.reads.count(serving_manifest_key(PREFIX)) == 1
         assert captured.scopes == (0 if shared_pass else 1)
+
+    def _judge(self, report_id: str, priority: str, created_at: datetime.datetime) -> None:
+        artefact = SignalReportArtefact.objects.create(
+            team=self.team,
+            report_id=report_id,
+            type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+            content=json.dumps({"priority": priority}),
+        )
+        SignalReportArtefact.objects.filter(pk=artefact.pk).update(created_at=created_at)
+
+    def test_a_priority_model_scores_each_report_by_its_latest_priority_judgment(self) -> None:
+        self.team_id = self.team.id
+        feature_names = REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET.feature_names
+        rng = np.random.default_rng(0)
+        x = pd.DataFrame(np.zeros((40, len(feature_names))), columns=list(feature_names))
+        x["priority_P0"] = np.arange(40) % 2
+        x["emb_0"] = rng.normal(size=40)
+        booster = xgb.XGBClassifier(n_estimators=3, max_depth=2).fit(x, x["priority_P0"]).get_booster()
+        served = self.store.publish_model("nn_with_prio", REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET)
+        for head in HEADS:
+            self.store.objects[f"{served.prefix}/{head}.ubj"] = bytes(booster.save_raw("ubj"))
+        self.store.publish_manifest([served])
+        now_p0, now_p4 = self._report(self.team.id), self._report(self.team.id)
+        self._judge(now_p0, "P4", NOW - datetime.timedelta(days=2))
+        self._judge(now_p0, "P0", NOW - datetime.timedelta(days=1))
+        self._judge(now_p4, "P0", NOW - datetime.timedelta(days=2))
+        self._judge(now_p4, "P4", NOW - datetime.timedelta(days=1))
+        vector = ReportVector(embedding=_vector(1), inserted_at=LANDED)
+
+        outcomes, _, _ = self._score(
+            [now_p0, now_p4], {EMBEDDING_RENDERING_TITLE_SUMMARY: {now_p0: vector, now_p4: vector}}, persist=False
+        )
+
+        scores = {
+            outcome.report_id: outcome.score.results[served.key].scores["open"] for outcome in outcomes if outcome.score
+        }
+        assert scores[now_p0] > scores[now_p4]
 
     def test_without_persist_nothing_is_written_or_captured(self) -> None:
         self.team_id = self.team.id

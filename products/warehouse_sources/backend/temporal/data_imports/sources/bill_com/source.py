@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BillComSource(ResumableSource[BillComSourceConfig, BillComResumeConfig]):
+    codebase_detection = detect(env=("^(BILL_COM|BILLCOM)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v3",)
     default_version = "v3"
@@ -67,7 +70,7 @@ class BillComSource(ResumableSource[BillComSourceConfig, BillComResumeConfig]):
             name=ExternalDataSourceType.BILLCOM,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="BILL (formerly Bill.com)",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["bill.com", "accounts payable", "accounts receivable", "ap", "ar"],
             caption="""Connect BILL to pull your accounts payable and receivable data into the PostHog Data warehouse.
 

@@ -27,6 +27,11 @@ class HoneycombScope(Enum):
     PER_SLO_TIME_WINDOW = "per_slo_time_window"
     # Fan out over every board in the environment (GET /1/boards/{board_id}/views).
     PER_BOARD = "per_board"
+    # Environment-wide collection returned in cursor-paginated pages (GET /1/signals).
+    ENVIRONMENT_PAGINATED = "environment_paginated"
+    # Fan out over every Signal in the environment, one paginated walk per Signal per time window
+    # (GET /1/signals/{signal_id}/historical_anomalies?start_time=…&end_time=…).
+    PER_SIGNAL_TIME_WINDOW = "per_signal_time_window"
 
 
 @dataclass(frozen=False)
@@ -34,7 +39,8 @@ class HoneycombEndpointConfig:
     name: str
     scope: HoneycombScope
     # Path template. Dataset fan-out paths contain ``{dataset_slug}`` (and ``{slo_id}`` for
-    # PER_SLO_TIME_WINDOW), PER_BOARD paths contain ``{board_id}``; ENVIRONMENT paths are static.
+    # PER_SLO_TIME_WINDOW), PER_BOARD paths contain ``{board_id}``, PER_SIGNAL_TIME_WINDOW paths
+    # contain ``{signal_id}``; ENVIRONMENT paths are static.
     path: str
     # Primary key columns used for merge dedup. For fan-out children the dataset slug is
     # included (and injected into every row) so the key stays unique across the whole table —
@@ -50,10 +56,12 @@ class HoneycombEndpointConfig:
     include_environment_wide: bool = False
     # The menu of incremental cursor candidates advertised to the user. Empty = full refresh
     # only — Honeycomb's v1 config endpoints expose no server-side timestamp filter; only the
-    # SLO counts history takes a start_time/end_time range.
+    # SLO counts history and Signal historical anomalies take a start_time/end_time range.
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Whether the table is selected for sync by default in the connection wizard.
     should_sync_default: bool = True
+    # Body key holding the rows of a cursor-paginated response; v1 config endpoints return a bare array.
+    response_key: Optional[str] = None
 
 
 HONEYCOMB_ENDPOINTS: dict[str, HoneycombEndpointConfig] = {
@@ -148,6 +156,34 @@ HONEYCOMB_ENDPOINTS: dict[str, HoneycombEndpointConfig] = {
             },
         ],
         # Enterprise-only and enabled per team on request, so most keys get a 403/404 here.
+        should_sync_default=False,
+    ),
+    "signals": HoneycombEndpointConfig(
+        name="signals",
+        scope=HoneycombScope.ENVIRONMENT_PAGINATED,
+        path="/1/signals",
+        response_key="signals",
+        primary_keys=["id"],
+        partition_key="created_at",
+        # Needs the Manage Signals permission, which keys created for the other tables usually lack.
+        should_sync_default=False,
+    ),
+    "signal_historical_anomalies": HoneycombEndpointConfig(
+        name="signal_historical_anomalies",
+        scope=HoneycombScope.PER_SIGNAL_TIME_WINDOW,
+        path="/1/signals/{signal_id}/historical_anomalies",
+        response_key="historical_anomalies",
+        # Anomaly ids are derived from the Signal, so the injected signal id is part of the key.
+        primary_keys=["id", "signal_id"],
+        partition_key="started_at",
+        incremental_fields=[
+            {
+                "label": "started_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "started_at",
+                "field_type": IncrementalFieldType.Integer,
+            },
+        ],
         should_sync_default=False,
     ),
 }

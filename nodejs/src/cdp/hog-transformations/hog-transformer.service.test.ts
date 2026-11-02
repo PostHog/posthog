@@ -3,6 +3,7 @@ import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/produc
 import { DateTime } from 'luxon'
 
 import { closeHub, createHub } from '~/common/utils/db/hub'
+import { parseJSON } from '~/common/utils/json-parse'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { posthogFilterOutPlugin } from '../../../src/cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'
@@ -16,7 +17,7 @@ import { Hub } from '../../types'
 import { createHogFunction, insertHogFunction } from '../_tests/fixtures'
 import { posthogPluginGeoip } from '../legacy-plugins/_transformations/posthog-plugin-geoip/template'
 import { propertyFilterPlugin } from '../legacy-plugins/_transformations/property-filter-plugin/template'
-import { HogFunctionTemplate } from '../types'
+import { HogFunctionTemplate, HogFunctionType } from '../types'
 import type { HogTransformerServiceConfig } from './hog-transformer.service'
 import { HogTransformerService, createHogTransformerService } from './hog-transformer.service'
 import { resetHogvmNodeModuleCacheForTests } from './rust-vm'
@@ -935,6 +936,37 @@ describe('HogTransformer', () => {
             queueAppMetricSpy.mockRestore()
         })
 
+        it('logs a deleted integration on the transformation and leaves the event unchanged', async () => {
+            const hogFunction = createHogFunction({
+                type: 'transformation',
+                name: 'Uses an integration',
+                team_id: teamId,
+                enabled: true,
+                bytecode: await compileHog(`
+                    let returnEvent := event
+                    returnEvent.properties.transformed := true
+                    return returnEvent
+                `),
+                inputs_schema: [{ key: 'oauth', type: 'integration', required: true }],
+                inputs: { oauth: { value: 99999999 } },
+                execution_order: 1,
+            })
+            await insertHogFunction(hub.postgres, teamId, hogFunction)
+            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
+
+            const event = createPluginEvent({ event: 'test', properties: {} }, teamId)
+            const result = await hogTransformer.transformEventAndProduceMessages(event)
+
+            expect(result.event?.properties).toEqual({})
+            expect(result.invocationResults).toHaveLength(1)
+            expect(result.invocationResults[0].logs).toEqual([
+                expect.objectContaining({
+                    level: 'error',
+                    message: expect.stringContaining("The integration for input 'oauth' no longer exists"),
+                }),
+            ])
+        })
+
         it('should apply a matching transformation and skip a filtered one in sequence', async () => {
             const successTemplate = {
                 free: true,
@@ -1568,6 +1600,100 @@ describe('HogTransformer', () => {
         })
     })
 
+    describe('geoip template no-op', () => {
+        const geoipFunction = async (overrides: Partial<HogFunctionType> = {}): Promise<HogFunctionType> =>
+            createHogFunction({
+                type: 'transformation',
+                name: geoipTemplate.name,
+                team_id: teamId,
+                template_id: 'template-geoip',
+                hog: geoipTemplate.code,
+                bytecode: await compileHog(geoipTemplate.code),
+                ...overrides,
+            })
+
+        const transform = async (hogFunctions: HogFunctionType[], properties: Record<string, any>) => {
+            const executeSpy = jest.spyOn(hogTransformer['hogExecutor'], 'execute')
+            const queueAppMetricSpy = jest.spyOn(hogTransformer['hogFunctionMonitoringService'], 'queueAppMetric')
+            const result = await hogTransformer.transformEvent(createPluginEvent({ properties }, teamId), hogFunctions)
+            hogTransformer['hogFunctionMonitoringService'].queueInvocationResults(result.invocationResults)
+            const outcome = {
+                vmCalls: executeSpy.mock.calls.length,
+                event: JSON.stringify(result.event),
+                logs: result.invocationResults.flatMap((r) => r.logs.map(({ level, message }) => ({ level, message }))),
+                metrics: queueAppMetricSpy.mock.calls.map(([{ metric_kind, metric_name, count }]) => ({
+                    metric_kind,
+                    metric_name,
+                    count,
+                })),
+            }
+            executeSpy.mockRestore()
+            queueAppMetricSpy.mockRestore()
+            return outcome
+        }
+
+        it.each([
+            { name: '$geoip_disable is true', properties: { $ip: '216.160.83.56', $geoip_disable: true } },
+            { name: '$ip is missing', properties: { $current_url: 'https://example.com' } },
+            { name: '$ip is empty', properties: { $ip: '', $geoip_disable: false } },
+            { name: '$ip is an empty object', properties: { $ip: {} } },
+        ])('answers without the vm and matches its output when $name', async ({ properties }) => {
+            const onVm = await transform([await geoipFunction({ template_id: undefined })], properties)
+            const skipped = await transform([await geoipFunction()], properties)
+
+            expect(onVm.vmCalls).toBe(1)
+            expect(skipped.vmCalls).toBe(0)
+            expect(skipped.event).toBe(onVm.event)
+            expect(skipped.metrics).toEqual(onVm.metrics)
+            expect(skipped.metrics).toEqual([{ metric_kind: 'success', metric_name: 'succeeded', count: 1 }])
+            for (const outcome of [onVm, skipped]) {
+                expect(outcome.logs).toEqual([
+                    { level: 'info', message: 'geoip disabled or no ip.' },
+                    { level: 'debug', message: expect.stringMatching(/^Function completed in [\d.]+ms\./) },
+                ])
+            }
+        })
+
+        it.each([
+            { name: 'the event has an ip', code: geoipTemplate.code, properties: { $ip: '216.160.83.56' } },
+            {
+                name: 'the function code differs from the template',
+                code: geoipTemplate.code.replace('geoip disabled or no ip.', 'geoip skipped.'),
+                properties: { $ip: '216.160.83.56', $geoip_disable: true },
+            },
+        ])('runs the vm when $name', async ({ code, properties }) => {
+            const outcome = await transform(
+                [await geoipFunction({ hog: code, bytecode: await compileHog(code) })],
+                properties
+            )
+
+            expect(outcome.vmCalls).toBe(1)
+        })
+
+        it('decides on the event as changed by an earlier transformation', async () => {
+            const disableGeoipCode = `
+                let returnEvent := event
+                returnEvent.properties.$geoip_disable := true
+                return returnEvent
+            `
+            const disableGeoip = createHogFunction({
+                type: 'transformation',
+                team_id: teamId,
+                hog: disableGeoipCode,
+                bytecode: await compileHog(disableGeoipCode),
+            })
+            const properties = { $ip: '216.160.83.56' }
+
+            const onVm = await transform([disableGeoip, await geoipFunction({ template_id: undefined })], properties)
+            const skipped = await transform([disableGeoip, await geoipFunction()], properties)
+
+            expect(onVm.vmCalls).toBe(2)
+            expect(skipped.vmCalls).toBe(1)
+            expect(skipped.event).toBe(onVm.event)
+            expect(parseJSON(skipped.event).properties).toEqual({ $ip: '216.160.83.56', $geoip_disable: true })
+        })
+    })
+
     it('should throw when trying to capture events in transformations', async () => {
         // Create a transformation function that captures an event
         const captureTemplate: HogFunctionTemplate = {
@@ -1676,6 +1802,24 @@ describe('HogTransformer', () => {
             expect(result.event?.properties).toMatchObject({
                 $current_url: 'https://example.com',
             })
+        })
+
+        it('answers a geoip no-op without calling the rust vm', async () => {
+            const geoipFunction = createHogFunction({
+                type: 'transformation',
+                team_id: teamId,
+                template_id: 'template-geoip',
+                hog: geoipTemplate.code,
+                bytecode: await compileHog(geoipTemplate.code),
+            })
+            const properties = { $ip: '216.160.83.56', $geoip_disable: true }
+
+            const result = await hogTransformer.transformEvent(createPluginEvent({ properties }, teamId), [
+                geoipFunction,
+            ])
+
+            expect(mockHogvmNode.executeSync).not.toHaveBeenCalled()
+            expect(result.event?.properties).toEqual(properties)
         })
 
         it('routes through executeBatch instead of executeSync when batch execution is enabled', async () => {

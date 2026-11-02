@@ -875,6 +875,13 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
                 resp = getattr(self.client, method)(url, body, format="json")
                 assert (resp.status_code == status.HTTP_403_FORBIDDEN) == refused, (scopes, resp.content)
 
+    @parameterized.expand([("create", "post", False), ("update", "put", True), ("partial_update", "patch", True)])
+    def test_non_object_body_is_a_validation_error(self, _name: str, method: str, existing: bool):
+        url = f"{self.base_url}/{self._make_pipeline().id}/" if existing else f"{self.base_url}/"
+        for body in ("null", "[]"):
+            resp = getattr(self.client, method)(url, body, content_type="application/json")
+            assert resp.status_code == status.HTTP_400_BAD_REQUEST, (body, resp.content)
+
     @parameterized.expand(
         [
             ("while_writing", True, {}, status.HTTP_400_BAD_REQUEST),
@@ -909,15 +916,18 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
     # ──────────────────────────────────────── train action ────────────────────────────────────────
 
     def test_start_training(self):
-        pipeline = self._make_pipeline()
+        pipeline = self._make_pipeline(iterations_per_run=8)
 
         # The run must not exist before the call: the endpoint rejects pipelines that
         # already have a live run, so the mock creates it the way run_training would.
-        def _fake_run_training(*, pipeline: AutoresearchPipeline, iteration_budget: int, user_id: Any):
+        def _fake_run_training(
+            *, pipeline: AutoresearchPipeline, iteration_budget: int, user_id: Any, kickoff_reason: str
+        ):
             return AutoresearchTrainingRun.objects.create(
                 pipeline=pipeline,
                 status=AutoresearchTrainingRun.Status.RUNNING,
                 iteration_budget=iteration_budget,
+                kickoff_reason=kickoff_reason,
             )
 
         with patch("products.autoresearch.backend.training.runner.run_training", side_effect=_fake_run_training):
@@ -926,6 +936,8 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         assert resp.status_code == status.HTTP_200_OK
         data = resp.json()
         assert data["status"] == "running"
+        assert data["iteration_budget"] == 8
+        assert data["kickoff_reason"] == "manual"
 
     @parameterized.expand(
         [
@@ -1106,13 +1118,72 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         pipeline = self._make_trained_pipeline()
         resp = self.client.patch(
             f"{self.base_url}/{pipeline.id}/",
-            {"name": "Renamed", "cadence_days": 3, "iteration_budget": 20},
+            {
+                "name": "Renamed",
+                "cadence_days": 3,
+                "iterations_per_run": 8,
+                "research_interval_days": None,
+                "agent_model": "gpt-6.1-sol",
+                "agent_reasoning_effort": "high",
+            },
             format="json",
         )
         assert resp.status_code == status.HTTP_200_OK, resp.json()
+        assert resp.json()["next_research_at"] is None
+        assert (resp.json()["effective_agent_model"], resp.json()["effective_agent_reasoning_effort"]) == (
+            "gpt-6.1-sol",
+            "high",
+        )
         pipeline.refresh_from_db()
         assert pipeline.name == "Renamed"
         assert pipeline.cadence_days == 3
+        assert pipeline.iterations_per_run == 8
+        assert pipeline.research_interval_days is None
+        assert (pipeline.agent_model, pipeline.agent_reasoning_effort) == ("gpt-6.1-sol", "high")
+
+    @parameterized.expand(
+        [
+            ("unknown_model", {}, {"agent_model": "not-a-model"}, "agent_model"),
+            (
+                "effort_the_model_lacks",
+                {},
+                {"agent_model": "gpt-5", "agent_reasoning_effort": "max"},
+                "agent_reasoning_effort",
+            ),
+            ("unknown_effort_on_the_default_model", {}, {"agent_reasoning_effort": "turbo"}, "agent_reasoning_effort"),
+            (
+                "effort_against_the_stored_model",
+                {"agent_model": "gpt-5"},
+                {"agent_reasoning_effort": "max"},
+                "agent_reasoning_effort",
+            ),
+            (
+                "clearing_the_model",
+                {"agent_model": "gpt-5", "agent_reasoning_effort": "high"},
+                {"agent_model": None},
+                None,
+            ),
+        ]
+    )
+    def test_agent_model_settings_are_validated(
+        self, _name: str, stored: dict, payload: dict, rejected_field: str | None
+    ):
+        pipeline = self._make_pipeline(**stored)
+        resp = self.client.patch(f"{self.base_url}/{pipeline.id}/", payload, format="json")
+        if rejected_field is None:
+            assert resp.status_code == status.HTTP_200_OK, resp.json()
+            assert (resp.json()["effective_agent_model"], resp.json()["effective_agent_reasoning_effort"]) == (
+                "claude-opus-5-5",
+                "high",
+            )
+            return
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert resp.json()["attr"] == rejected_field
+        pipeline.refresh_from_db()
+        assert (pipeline.agent_model, pipeline.agent_reasoning_effort) == (
+            stored.get("agent_model"),
+            stored.get("agent_reasoning_effort"),
+        )
 
     def test_resubmitting_unchanged_target_after_training_is_allowed(self):
         pipeline = self._make_trained_pipeline()
@@ -1988,6 +2059,9 @@ class TestPipelineCreateSerializerValidation(SimpleTestCase):
             ("cadence_above_max", "cadence_days", 366),
             ("iteration_budget_below_min", "iteration_budget", 0),
             ("iteration_budget_above_max", "iteration_budget", 501),
+            ("iterations_per_run_below_min", "iterations_per_run", 0),
+            ("iterations_per_run_above_max", "iterations_per_run", 51),
+            ("research_interval_days_not_a_choice", "research_interval_days", 10),
             ("plateau_iterations_below_min", "plateau_iterations", 0),
             ("success_auc_below_min", "success_auc", -0.1),
             ("success_auc_above_max", "success_auc", 1.5),

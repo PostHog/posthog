@@ -28,7 +28,8 @@ from django.utils import timezone
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.integrations import IntegrationManager
+from posthog.models.integration import GitHubIntegration
 from posthog.utils import pluralize
 
 from products.review_hog.backend.models import ReviewReport
@@ -51,6 +52,7 @@ from products.review_hog.backend.reviewer.progress import (
     TurnMarker,
     TurnStats,
     finding_counts,
+    live_turn_markers,
     progress_payload,
     snapshot_stats,
     turn_markers,
@@ -488,7 +490,9 @@ def _auth_from_row(team_id: int, integration_row_id: int) -> tuple[str, str | No
     revocation surfaces there and is swallowed like any other status-comment failure.
     """
     github = GitHubIntegration(
-        Integration.objects.get(id=integration_row_id, team_id=team_id), source="review_hog", priority=Priority.CRITICAL
+        IntegrationManager.github.oauth.get(team_id, integration_row_id),
+        source="review_hog",
+        priority=Priority.CRITICAL,
     )
     return github.get_access_token(), github.github_installation_id
 
@@ -641,9 +645,19 @@ def _render_live_body(
     team_id: int, report: ReviewReport, review_mode: str, review_design: str, *, run_index: int, failed: bool
 ) -> str:
     state = _turn_state(team_id, report, run_index)
+    # A run that dies in the publish window renders its finished turn, which is not a live turn. A
+    # failed turn renders its own marker, because `_fail_run` writes the failure note before this render.
+    if run_index <= report.run_count or state.marker is None:
+        live_marker = None
+    elif failed:
+        live_marker = state.marker
+    else:
+        live_marker = live_turn_markers(team_id, [report], {(str(report.id), run_index): state.marker}).get(
+            str(report.id)
+        )
     return render_in_progress_body(
         str(report.id),
-        progress_payload(team_id, report, state.snapshot, state.turn, state.pairs),
+        progress_payload(team_id, report, state.snapshot, state.turn, state.pairs, live_marker),
         review_mode=review_mode,
         review_design=state.review_design(review_design),
         head_sha=report.head_sha,

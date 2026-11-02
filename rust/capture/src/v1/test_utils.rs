@@ -113,31 +113,6 @@ pub fn wrapped_event(event_name: &str, distinct_id: &str) -> WrappedEvent {
     }
 }
 
-pub fn wrapped_event_at(timestamp: DateTime<Utc>) -> WrappedEvent {
-    let uuid = Uuid::new_v4();
-    WrappedEvent {
-        event: Event {
-            event: "$pageview".to_string(),
-            uuid: uuid.to_string(),
-            distinct_id: "user-1".to_string(),
-            timestamp: timestamp.to_rfc3339(),
-            session_id: None,
-            window_id: None,
-            options: RawOptions::default(),
-            properties: raw_obj("{}"),
-        },
-        uuid,
-        options: Options::default(),
-        adjusted_timestamp: Some(timestamp),
-        result: EventResult::Ok,
-        details: None,
-        destination: Destination::default(),
-        force_disable_person_processing: false,
-        spread_partitions: false,
-        is_gateway_verified: false,
-    }
-}
-
 pub fn malformed_wrapped_event() -> WrappedEvent {
     let uuid = Uuid::new_v4();
     WrappedEvent {
@@ -389,8 +364,8 @@ pub fn realistic_dup_uuid_pair() -> (Event, Event) {
     (first, second)
 }
 
-/// One Ok event per `Destination` variant + one pre-marked Drop, with
-/// ordinal `user-dest-{0..5}` distinct_ids.
+/// One Ok event per analytics destination plus Dlq and Custom, and one
+/// pre-marked Drop.
 pub fn realistic_spread_destinations() -> Vec<WrappedEvent> {
     let main = realistic_pageview("user-dest-0").with_destination(Destination::AnalyticsMain);
     let historical =
@@ -461,7 +436,6 @@ pub fn assert_round_trip(
 // Payload generators for batch-level tests
 // ---------------------------------------------------------------------------
 
-/// Serialize a list of Events into a valid V1 batch JSON payload.
 /// A non-historical batch wrapping `events`, the shape `process_batch` takes.
 pub fn valid_batch(events: Vec<Event>) -> crate::v1::analytics::types::Batch {
     crate::v1::analytics::types::Batch {
@@ -472,6 +446,7 @@ pub fn valid_batch(events: Vec<Event>) -> crate::v1::analytics::types::Batch {
     }
 }
 
+/// Serialize a list of Events into a valid V1 batch JSON payload.
 pub fn batch_payload(events: &[Event]) -> Vec<u8> {
     let batch_json = serde_json::json!({
         "created_at": "2026-03-19T14:30:00.000Z",
@@ -682,9 +657,6 @@ impl TestStateBuilder {
         self
     }
 
-    /// Arm the AI overflow valve: a dedicated AI-lane limiter with the given
-    /// rate and burst. Also sets `ai_events_overflow_enabled`, mirroring
-    /// production where both derive from the same overflow-topic config.
     pub fn with_ai_events_overflow_limiter(mut self, per_second: u32, burst: u32) -> Self {
         self.ai_events_overflow_limiter = Some((
             NonZeroU32::new(per_second).expect("per_second must be > 0"),
@@ -802,12 +774,14 @@ impl TestStateBuilder {
                 self.overflow_preserve_locality,
             ))
         });
-        let ai_events_overflow_enabled = ai_events_overflow_limiter.is_some();
 
         let mock_producer = self.mock_producer.unwrap_or_default();
         let outputs = Arc::new(OutputRegistry::single(KafkaSinkBase::with_producer(
             mock_producer.clone(),
-            OutputTable::from(&test_outputs_config()),
+            OutputTable::new(
+                &test_outputs_config(),
+                self.capture_mode.has_ai_overflow_lane(),
+            ),
         )));
 
         let timesource: Arc<dyn TimeSource + Send + Sync> = Arc::new(crate::time::SystemTime {});
@@ -836,7 +810,6 @@ impl TestStateBuilder {
             replay_overflow_limiter: None,
             capture_v1_scatter_gather_min_batch: 8,
             ai_gateway_signing_secret: self.ai_gateway_signing_secret,
-            ai_events_overflow_enabled,
             ingestion_warning_emitter: self.ingestion_warning_emitter,
             capture_mode: self.capture_mode,
         };

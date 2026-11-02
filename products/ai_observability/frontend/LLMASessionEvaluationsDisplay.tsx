@@ -26,10 +26,11 @@ export function LLMASessionEvaluationsDisplay({ sessionId }: LLMASessionEvaluati
     return (
         <>
             {summaries.map((summary) => {
+                const evaluation = evaluations?.find(({ id }) => id === summary.latestRun.evaluation_id)
                 const { type, icon, label } = getEvalBadgeProps(summary.latestRun, {
                     trueIsFailure: detectorEvaluationIds.includes(summary.latestRun.evaluation_id),
-                    passingRule: evaluations?.find((evaluation) => evaluation.id === summary.latestRun.evaluation_id)
-                        ?.output_config.passing_rule,
+                    categoryOptions: evaluation?.output_config.options,
+                    passingRule: evaluation?.output_config.passing_rule,
                 })
                 return (
                     <Tooltip key={summary.latestRun.evaluation_id} title={<EvalTooltipContent {...summary} />}>

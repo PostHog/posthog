@@ -4,7 +4,8 @@ from rest_framework import viewsets
 
 from posthog.api.project import ProjectBackwardCompatSerializer, ProjectViewSet
 from posthog.api.shared import ProjectBackwardCompatBasicSerializer, TeamBasicSerializer
-from posthog.api.team import TeamSerializer, TeamViewSet
+from posthog.api.team.team_serializer import TeamSerializer
+from posthog.api.team.viewsets import TeamViewSet
 
 # /api/projects/ (Project model) is the canonical surface; /api/environments/ (Team model) is the
 # backward-compat alias, now served through /api/projects/ by an in-process path rewrite
@@ -21,7 +22,13 @@ from posthog.api.team import TeamSerializer, TeamViewSet
 # is_pending_deletion and deletion_scheduled_at were added project-side on master; a project-only field
 # is fine for the rewrite target.
 # `tags` labels a Project, which environments do not have, so it stays off the Team surface.
-PROJECT_ONLY_SERIALIZER_FIELDS = {"product_description", "is_pending_deletion", "deletion_scheduled_at", "tags"}
+PROJECT_ONLY_SERIALIZER_FIELDS = {
+    "product_description",
+    "is_pending_deletion",
+    "deletion_scheduled_at",
+    "tags",
+    "logo_media_id",
+}
 
 # Actions that legitimately exist only on the project surface (operate on the Project, not the Team).
 PROJECT_ONLY_ACTIONS = {

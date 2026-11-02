@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,6 +33,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class UsersnapSource(ResumableSource[UsersnapSourceConfig, UsersnapResumeConfig]):
+    codebase_detection = detect(env=("^USERSNAP_",), script_hosts=("widget.usersnap.com",), npm=("@usersnap/browser",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -44,7 +47,7 @@ class UsersnapSource(ResumableSource[UsersnapSourceConfig, UsersnapResumeConfig]
             name=ExternalDataSourceType.USERSNAP,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Usersnap",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Usersnap REST API credentials to pull your Usersnap projects and feedback items into the PostHog Data warehouse.
 
 The Usersnap REST API is a gated feature: it must be enabled on your plan by Usersnap (contact their customer success team). Once enabled, generate a JWT secret under **Settings → REST API** in Usersnap and copy both the secret and its JWT ID here — PostHog signs the short-lived bearer tokens for you.""",

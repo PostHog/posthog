@@ -30,9 +30,9 @@ import { getInlineText } from 'lib/components/MarkdownNotebook/utils'
 import { uploadFile } from 'lib/hooks/useUploadFiles'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 import type { NotebookArtifactContent } from '~/queries/schema/schema-assistant-messages'
 
 import { NotebookBtwLayout } from 'products/notebooks/frontend/NotebookBtwLayout'
@@ -86,11 +86,16 @@ const NOTEBOOK_AI_PRESENCE_DEPARTURE_IDLE_MS = 5_000
 const NOTEBOOK_AI_PRESENCE_FADE_OUT_MS = 300
 
 type MarkdownNotebookV2Props = {
+    collapsedToolbarContainer?: HTMLElement | null
     debugOpen?: boolean
     onDebugOpenChange?: (isOpen: boolean) => void
 }
 
-export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNotebookV2Props): JSX.Element {
+export function MarkdownNotebookV2({
+    collapsedToolbarContainer,
+    debugOpen,
+    onDebugOpenChange,
+}: MarkdownNotebookV2Props): JSX.Element {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
     const {
         isEditable,
@@ -803,7 +808,9 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                         canvasHeader={
                             jupyterMode ? (
                                 <>
-                                    {isEditable ? <NotebookJupyterToolbar /> : null}
+                                    {isEditable ? (
+                                        <NotebookJupyterToolbar collapsedContainer={collapsedToolbarContainer} />
+                                    ) : null}
                                     <NotebookVariablesBar />
                                 </>
                             ) : (

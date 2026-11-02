@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -40,6 +41,8 @@ _FALLBACK_PROBE_RESOURCE_ID = "lkc-00000"
 
 @SourceRegistry.register
 class ConfluentCloudSource(ResumableSource[ConfluentCloudSourceConfig, ConfluentCloudResumeConfig]):
+    codebase_detection = detect(env=("^(CONFLUENT_CLOUD|CONFLUENTCLOUD)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -52,7 +55,7 @@ class ConfluentCloudSource(ResumableSource[ConfluentCloudSourceConfig, Confluent
             name=ExternalDataSourceType.CONFLUENTCLOUD,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Confluent Cloud",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["kafka", "flink", "ksqldb", "metrics"],
             caption="""Warehouse your Confluent Cloud operational metrics (throughput, consumer lag, connector and Flink utilization) beyond the Metrics API's ~7 day retention window.
 
@@ -82,6 +85,7 @@ Then list the IDs of the resources to collect metrics for — for example Kafka 
                     ),
                     SourceFieldInputConfig(
                         name="kafka_cluster_ids",
+                        sync_setting=True,
                         label="Kafka cluster IDs",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -90,6 +94,7 @@ Then list the IDs of the resources to collect metrics for — for example Kafka 
                     ),
                     SourceFieldInputConfig(
                         name="connector_ids",
+                        sync_setting=True,
                         label="Connector IDs",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -98,6 +103,7 @@ Then list the IDs of the resources to collect metrics for — for example Kafka 
                     ),
                     SourceFieldInputConfig(
                         name="ksqldb_cluster_ids",
+                        sync_setting=True,
                         label="ksqlDB cluster IDs",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -106,6 +112,7 @@ Then list the IDs of the resources to collect metrics for — for example Kafka 
                     ),
                     SourceFieldInputConfig(
                         name="schema_registry_ids",
+                        sync_setting=True,
                         label="Schema Registry cluster IDs",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -114,6 +121,7 @@ Then list the IDs of the resources to collect metrics for — for example Kafka 
                     ),
                     SourceFieldInputConfig(
                         name="compute_pool_ids",
+                        sync_setting=True,
                         label="Flink compute pool IDs",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

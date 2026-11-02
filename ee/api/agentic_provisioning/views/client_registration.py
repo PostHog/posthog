@@ -31,7 +31,12 @@ from posthog.api.oauth.cimd import (
     fetch_and_upsert_cimd_application,
     is_cimd_client_id,
 )
-from posthog.api.oauth.client_assertion import ClientAssertionError, describe_jwks, verify_client_assertion
+from posthog.api.oauth.client_assertion import (
+    PRIVATE_KEY_REQUIRED_MESSAGE,
+    ClientAssertionError,
+    describe_jwks,
+    verify_client_assertion,
+)
 from posthog.models.oauth import OAuthApplication
 
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
@@ -85,7 +90,10 @@ class ClientRegistrationView(ProvisioningAPIView):
                     "can_provision_resources": app.provisioning.can_provision_resources,
                 },
                 "capabilities": {
-                    "account_requests": app.provisioning.active and app.provisioning.can_create_accounts,
+                    "account_requests": app.provisioning.active
+                    and app.provisioning.can_create_accounts
+                    and not app.cannot_meet_provisioning_signature,
+                    "unsigned_requests": not app.requires_provisioning_signature,
                 },
                 "checks": checks,
             }
@@ -143,6 +151,10 @@ class ClientRegistrationView(ProvisioningAPIView):
         return app
 
     def _check_jwks(self, app: OAuthApplication, checks: list[dict[str, Any]]) -> None:
+        if app.cannot_meet_provisioning_signature:
+            _record(checks, "jwks", False, PRIVATE_KEY_REQUIRED_MESSAGE)
+            return
+
         if not app.jwks_uri:
             # Not a failure: a public client legitimately publishes no keys. Reported so the
             # response says which of the two situations the caller is in.

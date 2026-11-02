@@ -55,9 +55,6 @@ from products.tasks.backend.temporal.process_task.activities.emit_progress_activ
     emit_progress_activity,
 )
 from products.tasks.backend.temporal.process_task.activities.forward_pending_message import forward_pending_user_message
-from products.tasks.backend.temporal.process_task.activities.get_sandbox_for_repository import (
-    GetSandboxForRepositoryOutput,
-)
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
     GetTaskProcessingContextInput,
     TaskProcessingContext,
@@ -67,6 +64,7 @@ from products.tasks.backend.temporal.process_task.activities.provision_sandbox i
     CheckoutBranchInSandboxInput,
     CloneRepositoryInSandboxInput,
     CreateSandboxForRepositoryInput,
+    GetSandboxForRepositoryOutput,
     InjectFreshTokensOnResumeInput,
     PrepareSandboxForRepositoryInput,
     checkout_branch_in_sandbox,
@@ -78,12 +76,6 @@ from products.tasks.backend.temporal.process_task.activities.provision_sandbox i
 from products.tasks.backend.temporal.process_task.activities.read_sandbox_logs import (
     ReadSandboxLogsInput,
     read_sandbox_logs,
-)
-from products.tasks.backend.temporal.process_task.activities.record_peer_message_outcome import (
-    RecordPeerMessageOutcomeInput,
-    is_timeout_activity_failure,
-    peer_message_id_from_context,
-    record_peer_message_outcome,
 )
 from products.tasks.backend.temporal.process_task.activities.relay_sandbox_events import (
     RelaySandboxEventsInput,
@@ -933,23 +925,6 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                     "execute_sandbox_send_followup_failed",
                     extra={"run_id": self.context.run_id, "error": str(e), **error_properties},
                 )
-                peer_message_id = peer_message_id_from_context(followup.context)
-                if peer_message_id is not None:
-                    # Mirror process_task's peer-failure isolation: record the
-                    # outcome on the sender's audit row, nack the parent, and leave
-                    # this (recipient) run's completion state untouched. Replay-safe
-                    # without a patch marker: peer context cannot exist in
-                    # pre-feature histories. Timeouts stay non-terminal — the
-                    # timed-out attempt may still deliver (see the process_task twin).
-                    if not is_timeout_activity_failure(e):
-                        await self._record_peer_message_delivery_failure(peer_message_id, cause_message or str(e))
-                    self._enqueue_ack(
-                        signal_name=signal_name,
-                        ack_id=followup.ack_id,
-                        accepted=False,
-                        detail=(cause_message or str(e))[:200],
-                    )
-                    return
                 self._completion_status = "failed"
                 self._completion_error = f"Follow-up delivery failed: {cause_message or e}"
                 self._completion_error_type = "followup_delivery_failed"
@@ -963,30 +938,6 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         finally:
             self._in_flight_followup_ack_ids.discard(followup.ack_id)
             await self._flush_pending_outbound()
-
-    async def _record_peer_message_delivery_failure(self, peer_message_id: str, detail: str) -> None:
-        """Terminalize the peer message row for failures the delivery activity could
-        not record itself; idempotent and best-effort (see process_task's twin)."""
-        try:
-            await workflow.execute_activity(
-                record_peer_message_outcome,
-                RecordPeerMessageOutcomeInput(
-                    peer_message_id=peer_message_id,
-                    outcome="delivery_failed",
-                    failure_phase="sandbox_delivery",
-                    failure_detail=truncate_error_message(detail),
-                ),
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RetryPolicy(
-                    initial_interval=timedelta(seconds=2),
-                    maximum_attempts=3,
-                ),
-            )
-        except Exception:
-            workflow.logger.warning(
-                "peer_message_failure_record_failed",
-                extra={"run_id": self.context.run_id, "peer_message_id": peer_message_id},
-            )
 
     def _is_duplicate_signal(self, signal_name: str, ack_id: Optional[str]) -> bool:
         """Detect orchestrator re-sends and re-ack idempotently.
@@ -1112,7 +1063,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
     async def _get_task_processing_context(self, input: ExecuteSandboxInput) -> TaskProcessingContext:
         return await workflow.execute_activity(
             get_task_processing_context,
-            GetTaskProcessingContextInput(run_id=input.run_id, create_pr=input.create_pr),
+            GetTaskProcessingContextInput(run_id=input.run_id, create_pr=input.create_pr, launches_agent=True),
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
@@ -1457,6 +1408,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 team_id=self.context.team_id,
                 distinct_id=self.context.distinct_id,
                 sandbox_id=sandbox_id,
+                stream_generation=self.context.stream_generation,
             ),
             start_to_close_timeout=RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
             schedule_to_close_timeout=RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,

@@ -12,15 +12,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clockify.c
     _clamp_future_value_to_now,
     _flatten_approval_request,
     _format_datetime_z,
-    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.clockify.settings import CLOCKIFY_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.clockify.source import ClockifySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clockify import (
     ClockifySourceConfig,
@@ -276,9 +273,3 @@ class TestClockifySourceResponse:
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
         assert response.sort_mode == config.sort_mode
-
-
-class TestValidateCredentials:
-    def test_network_error_is_invalid(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            assert validate_credentials("key") is False

@@ -28,6 +28,10 @@ export const SurveysListQueryParams = () => zod.object({
     created_by: zod.number().optional().describe('Filter surveys by the ID of the user who created them.'),
     ids: zod.array(zod.string()).optional().describe('Multiple values may be separated by commas.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
+    linked_flag_id: zod
+        .number()
+        .optional()
+        .describe('Filter surveys by the ID of the feature flag they are linked to.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod
         .string()
@@ -67,6 +71,14 @@ export const SurveysCreateParams = () => zod.object({
 export const surveysCreateBodyNameMax = 400
 
 export const surveysCreateBodyTargetingFlagFiltersOneEarlyExitDefault = false
+export const surveysCreateBodyQuestionsItemOneBranchingOneThreeIndexMin = 0
+
+export const surveysCreateBodyQuestionsItemOneBranchingOneFourResponseValuesOneMin = 0
+
+export const surveysCreateBodyQuestionsItemTwoBranchingOneThreeIndexMin = 0
+
+export const surveysCreateBodyQuestionsItemTwoBranchingOneFourResponseValuesOneMin = 0
+
 export const surveysCreateBodyQuestionsItemThreeBranchingOneThreeIndexMin = 0
 
 export const surveysCreateBodyQuestionsItemThreeBranchingOneFourResponseValuesOneMin = 0
@@ -291,21 +303,21 @@ export const SurveysCreateBody = () => zod.object({
                                                 ),
                                             operator: zod
                                                 .enum([
+                                                    'semver_eq',
+                                                    'semver_neq',
                                                     'semver_gt',
                                                     'semver_gte',
                                                     'semver_lt',
                                                     'semver_lte',
-                                                    'semver_eq',
-                                                    'semver_neq',
                                                     'semver_tilde',
                                                     'semver_caret',
                                                     'semver_wildcard',
                                                 ])
                                                 .describe(
-                                                    '\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
+                                                    '\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                                 )
                                                 .describe(
-                                                    'Semantic version comparison operator.\n\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
+                                                    'Semantic version comparison operator.\n\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                                 ),
                                             value: zod.string().describe('Semantic version string.'),
                                         }),
@@ -374,6 +386,18 @@ export const SurveysCreateBody = () => zod.object({
                                                 .unknown()
                                                 .describe(
                                                     'Cohort comparison value (single or list, depending on usage).'
+                                                ),
+                                            cohort_deleted: zod
+                                                .boolean()
+                                                .optional()
+                                                .describe(
+                                                    'Set to true in responses when the cohort is deleted or does not exist. The flag cannot evaluate this condition. Ignored on write.'
+                                                ),
+                                            cohort_missing: zod
+                                                .boolean()
+                                                .optional()
+                                                .describe(
+                                                    'Set to true in responses when no cohort with this id exists in the project, so it cannot be restored. `cohort_deleted` is also true. Absent for a soft-deleted cohort. Ignored on write.'
                                                 ),
                                         }),
                                         zod.object({
@@ -493,6 +517,110 @@ export const SurveysCreateBody = () => zod.object({
                         .describe('Format for the description field.\n\n\* `text` - text\n\* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
                     buttonText: zod.string().optional().describe('Custom button label.'),
+                    translations: zod
+                        .record(
+                            zod.string(),
+                            zod.object({
+                                question: zod.string().optional().describe('Translated question text.'),
+                                description: zod.string().optional().describe('Translated helper text.'),
+                                buttonText: zod.string().optional().describe('Translated button label.'),
+                                lowerBoundLabel: zod
+                                    .string()
+                                    .optional()
+                                    .describe('Translated lowest rating label. Rating questions only.'),
+                                upperBoundLabel: zod
+                                    .string()
+                                    .optional()
+                                    .describe('Translated highest rating label. Rating questions only.'),
+                                choices: zod
+                                    .array(zod.string())
+                                    .optional()
+                                    .describe(
+                                        'Translated choices. Must have the same length as the question choices. Choice questions only.'
+                                    ),
+                                link: zod.string().optional().describe('Translated URL. Link questions only.'),
+                            })
+                        )
+                        .optional()
+                        .describe(
+                            "Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost."
+                        ),
+                    validation: zod
+                        .array(
+                            zod.object({
+                                type: zod
+                                    .enum(['min_length', 'max_length', 'email'])
+                                    .describe(
+                                        '\* `min_length` - min_length\n\* `max_length` - max_length\n\* `email` - email'
+                                    )
+                                    .describe(
+                                        'Validation rule type for open-text questions.\n\n\* `min_length` - min_length\n\* `max_length` - max_length\n\* `email` - email'
+                                    ),
+                                value: zod
+                                    .number()
+                                    .min(1)
+                                    .nullish()
+                                    .describe('Rule value for min_length or max_length validations.'),
+                            })
+                        )
+                        .nullish()
+                        .describe('Validation rules for the response text, for example a minimum length.'),
+                    branching: zod
+                        .union([
+                            zod.union([
+                                zod.object({
+                                    type: zod
+                                        .enum(['next_question'])
+                                        .describe('\* `next_question` - next_question')
+                                        .describe(
+                                            'Continue to the next question in sequence.\n\n\* `next_question` - next_question'
+                                        ),
+                                }),
+                                zod.object({
+                                    type: zod
+                                        .enum(['end'])
+                                        .describe('\* `end` - end')
+                                        .describe('End the survey.\n\n\* `end` - end'),
+                                }),
+                                zod.object({
+                                    type: zod
+                                        .enum(['specific_question'])
+                                        .describe('\* `specific_question` - specific_question')
+                                        .describe(
+                                            'Jump to a specific question index.\n\n\* `specific_question` - specific_question'
+                                        ),
+                                    index: zod
+                                        .number()
+                                        .min(surveysCreateBodyQuestionsItemOneBranchingOneThreeIndexMin)
+                                        .describe('0-based index of the next question.'),
+                                }),
+                                zod.object({
+                                    type: zod
+                                        .enum(['response_based'])
+                                        .describe('\* `response_based` - response_based')
+                                        .describe(
+                                            'Branch based on the selected or entered response.\n\n\* `response_based` - response_based'
+                                        ),
+                                    responseValues: zod
+                                        .record(
+                                            zod.string(),
+                                            zod.union([
+                                                zod
+                                                    .number()
+                                                    .min(
+                                                        surveysCreateBodyQuestionsItemOneBranchingOneFourResponseValuesOneMin
+                                                    ),
+                                                zod.enum(['end']),
+                                            ])
+                                        )
+                                        .describe(
+                                            "Response-based branching map. Values can be a question index or 'end'."
+                                        ),
+                                }),
+                            ]),
+                            zod.null(),
+                        ])
+                        .optional(),
                 }),
                 zod.object({
                     id: zod
@@ -511,7 +639,91 @@ export const SurveysCreateBody = () => zod.object({
                         .describe('Format for the description field.\n\n\* `text` - text\n\* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
                     buttonText: zod.string().optional().describe('Custom button label.'),
+                    translations: zod
+                        .record(
+                            zod.string(),
+                            zod.object({
+                                question: zod.string().optional().describe('Translated question text.'),
+                                description: zod.string().optional().describe('Translated helper text.'),
+                                buttonText: zod.string().optional().describe('Translated button label.'),
+                                lowerBoundLabel: zod
+                                    .string()
+                                    .optional()
+                                    .describe('Translated lowest rating label. Rating questions only.'),
+                                upperBoundLabel: zod
+                                    .string()
+                                    .optional()
+                                    .describe('Translated highest rating label. Rating questions only.'),
+                                choices: zod
+                                    .array(zod.string())
+                                    .optional()
+                                    .describe(
+                                        'Translated choices. Must have the same length as the question choices. Choice questions only.'
+                                    ),
+                                link: zod.string().optional().describe('Translated URL. Link questions only.'),
+                            })
+                        )
+                        .optional()
+                        .describe(
+                            "Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost."
+                        ),
                     link: zod.string().describe('HTTPS or mailto URL for link questions.'),
+                    branching: zod
+                        .union([
+                            zod.union([
+                                zod.object({
+                                    type: zod
+                                        .enum(['next_question'])
+                                        .describe('\* `next_question` - next_question')
+                                        .describe(
+                                            'Continue to the next question in sequence.\n\n\* `next_question` - next_question'
+                                        ),
+                                }),
+                                zod.object({
+                                    type: zod
+                                        .enum(['end'])
+                                        .describe('\* `end` - end')
+                                        .describe('End the survey.\n\n\* `end` - end'),
+                                }),
+                                zod.object({
+                                    type: zod
+                                        .enum(['specific_question'])
+                                        .describe('\* `specific_question` - specific_question')
+                                        .describe(
+                                            'Jump to a specific question index.\n\n\* `specific_question` - specific_question'
+                                        ),
+                                    index: zod
+                                        .number()
+                                        .min(surveysCreateBodyQuestionsItemTwoBranchingOneThreeIndexMin)
+                                        .describe('0-based index of the next question.'),
+                                }),
+                                zod.object({
+                                    type: zod
+                                        .enum(['response_based'])
+                                        .describe('\* `response_based` - response_based')
+                                        .describe(
+                                            'Branch based on the selected or entered response.\n\n\* `response_based` - response_based'
+                                        ),
+                                    responseValues: zod
+                                        .record(
+                                            zod.string(),
+                                            zod.union([
+                                                zod
+                                                    .number()
+                                                    .min(
+                                                        surveysCreateBodyQuestionsItemTwoBranchingOneFourResponseValuesOneMin
+                                                    ),
+                                                zod.enum(['end']),
+                                            ])
+                                        )
+                                        .describe(
+                                            "Response-based branching map. Values can be a question index or 'end'."
+                                        ),
+                                }),
+                            ]),
+                            zod.null(),
+                        ])
+                        .optional(),
                 }),
                 zod.object({
                     id: zod
@@ -530,6 +742,34 @@ export const SurveysCreateBody = () => zod.object({
                         .describe('Format for the description field.\n\n\* `text` - text\n\* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
                     buttonText: zod.string().optional().describe('Custom button label.'),
+                    translations: zod
+                        .record(
+                            zod.string(),
+                            zod.object({
+                                question: zod.string().optional().describe('Translated question text.'),
+                                description: zod.string().optional().describe('Translated helper text.'),
+                                buttonText: zod.string().optional().describe('Translated button label.'),
+                                lowerBoundLabel: zod
+                                    .string()
+                                    .optional()
+                                    .describe('Translated lowest rating label. Rating questions only.'),
+                                upperBoundLabel: zod
+                                    .string()
+                                    .optional()
+                                    .describe('Translated highest rating label. Rating questions only.'),
+                                choices: zod
+                                    .array(zod.string())
+                                    .optional()
+                                    .describe(
+                                        'Translated choices. Must have the same length as the question choices. Choice questions only.'
+                                    ),
+                                link: zod.string().optional().describe('Translated URL. Link questions only.'),
+                            })
+                        )
+                        .optional()
+                        .describe(
+                            "Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost."
+                        ),
                     display: zod
                         .enum(['number', 'emoji'])
                         .describe('\* `number` - number\n\* `emoji` - emoji')
@@ -546,6 +786,12 @@ export const SurveysCreateBody = () => zod.object({
                         .string()
                         .optional()
                         .describe("Label for the highest rating (e.g., 'Excellent')"),
+                    isNpsQuestion: zod
+                        .boolean()
+                        .optional()
+                        .describe(
+                            'Whether a rating question with a scale of 10 shows NPS scoring. A missing value counts as true.'
+                        ),
                     branching: zod
                         .union([
                             zod.union([
@@ -620,6 +866,34 @@ export const SurveysCreateBody = () => zod.object({
                         .describe('Format for the description field.\n\n\* `text` - text\n\* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
                     buttonText: zod.string().optional().describe('Custom button label.'),
+                    translations: zod
+                        .record(
+                            zod.string(),
+                            zod.object({
+                                question: zod.string().optional().describe('Translated question text.'),
+                                description: zod.string().optional().describe('Translated helper text.'),
+                                buttonText: zod.string().optional().describe('Translated button label.'),
+                                lowerBoundLabel: zod
+                                    .string()
+                                    .optional()
+                                    .describe('Translated lowest rating label. Rating questions only.'),
+                                upperBoundLabel: zod
+                                    .string()
+                                    .optional()
+                                    .describe('Translated highest rating label. Rating questions only.'),
+                                choices: zod
+                                    .array(zod.string())
+                                    .optional()
+                                    .describe(
+                                        'Translated choices. Must have the same length as the question choices. Choice questions only.'
+                                    ),
+                                link: zod.string().optional().describe('Translated URL. Link questions only.'),
+                            })
+                        )
+                        .optional()
+                        .describe(
+                            "Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost."
+                        ),
                     choices: zod
                         .array(zod.string())
                         .min(surveysCreateBodyQuestionsItemFourChoicesMin)
@@ -709,6 +983,34 @@ export const SurveysCreateBody = () => zod.object({
                         .describe('Format for the description field.\n\n\* `text` - text\n\* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
                     buttonText: zod.string().optional().describe('Custom button label.'),
+                    translations: zod
+                        .record(
+                            zod.string(),
+                            zod.object({
+                                question: zod.string().optional().describe('Translated question text.'),
+                                description: zod.string().optional().describe('Translated helper text.'),
+                                buttonText: zod.string().optional().describe('Translated button label.'),
+                                lowerBoundLabel: zod
+                                    .string()
+                                    .optional()
+                                    .describe('Translated lowest rating label. Rating questions only.'),
+                                upperBoundLabel: zod
+                                    .string()
+                                    .optional()
+                                    .describe('Translated highest rating label. Rating questions only.'),
+                                choices: zod
+                                    .array(zod.string())
+                                    .optional()
+                                    .describe(
+                                        'Translated choices. Must have the same length as the question choices. Choice questions only.'
+                                    ),
+                                link: zod.string().optional().describe('Translated URL. Link questions only.'),
+                            })
+                        )
+                        .optional()
+                        .describe(
+                            "Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost."
+                        ),
                     choices: zod
                         .array(zod.string())
                         .min(surveysCreateBodyQuestionsItemFiveChoicesMin)
@@ -1021,6 +1323,14 @@ export const SurveysPartialUpdateParams = () => zod.object({
 export const surveysPartialUpdateBodyNameMax = 400
 
 export const surveysPartialUpdateBodyTargetingFlagFiltersOneEarlyExitDefault = false
+export const surveysPartialUpdateBodyQuestionsItemOneBranchingOneThreeIndexMin = 0
+
+export const surveysPartialUpdateBodyQuestionsItemOneBranchingOneFourResponseValuesOneMin = 0
+
+export const surveysPartialUpdateBodyQuestionsItemTwoBranchingOneThreeIndexMin = 0
+
+export const surveysPartialUpdateBodyQuestionsItemTwoBranchingOneFourResponseValuesOneMin = 0
+
 export const surveysPartialUpdateBodyQuestionsItemThreeBranchingOneThreeIndexMin = 0
 
 export const surveysPartialUpdateBodyQuestionsItemThreeBranchingOneFourResponseValuesOneMin = 0
@@ -1247,21 +1557,21 @@ export const SurveysPartialUpdateBody = () => zod.object({
                                                 ),
                                             operator: zod
                                                 .enum([
+                                                    'semver_eq',
+                                                    'semver_neq',
                                                     'semver_gt',
                                                     'semver_gte',
                                                     'semver_lt',
                                                     'semver_lte',
-                                                    'semver_eq',
-                                                    'semver_neq',
                                                     'semver_tilde',
                                                     'semver_caret',
                                                     'semver_wildcard',
                                                 ])
                                                 .describe(
-                                                    '\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
+                                                    '\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                                 )
                                                 .describe(
-                                                    'Semantic version comparison operator.\n\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
+                                                    'Semantic version comparison operator.\n\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                                 ),
                                             value: zod.string().describe('Semantic version string.'),
                                         }),
@@ -1330,6 +1640,18 @@ export const SurveysPartialUpdateBody = () => zod.object({
                                                 .unknown()
                                                 .describe(
                                                     'Cohort comparison value (single or list, depending on usage).'
+                                                ),
+                                            cohort_deleted: zod
+                                                .boolean()
+                                                .optional()
+                                                .describe(
+                                                    'Set to true in responses when the cohort is deleted or does not exist. The flag cannot evaluate this condition. Ignored on write.'
+                                                ),
+                                            cohort_missing: zod
+                                                .boolean()
+                                                .optional()
+                                                .describe(
+                                                    'Set to true in responses when no cohort with this id exists in the project, so it cannot be restored. `cohort_deleted` is also true. Absent for a soft-deleted cohort. Ignored on write.'
                                                 ),
                                         }),
                                         zod.object({
@@ -1449,6 +1771,110 @@ export const SurveysPartialUpdateBody = () => zod.object({
                         .describe('Format for the description field.\n\n\* `text` - text\n\* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
                     buttonText: zod.string().optional().describe('Custom button label.'),
+                    translations: zod
+                        .record(
+                            zod.string(),
+                            zod.object({
+                                question: zod.string().optional().describe('Translated question text.'),
+                                description: zod.string().optional().describe('Translated helper text.'),
+                                buttonText: zod.string().optional().describe('Translated button label.'),
+                                lowerBoundLabel: zod
+                                    .string()
+                                    .optional()
+                                    .describe('Translated lowest rating label. Rating questions only.'),
+                                upperBoundLabel: zod
+                                    .string()
+                                    .optional()
+                                    .describe('Translated highest rating label. Rating questions only.'),
+                                choices: zod
+                                    .array(zod.string())
+                                    .optional()
+                                    .describe(
+                                        'Translated choices. Must have the same length as the question choices. Choice questions only.'
+                                    ),
+                                link: zod.string().optional().describe('Translated URL. Link questions only.'),
+                            })
+                        )
+                        .optional()
+                        .describe(
+                            "Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost."
+                        ),
+                    validation: zod
+                        .array(
+                            zod.object({
+                                type: zod
+                                    .enum(['min_length', 'max_length', 'email'])
+                                    .describe(
+                                        '\* `min_length` - min_length\n\* `max_length` - max_length\n\* `email` - email'
+                                    )
+                                    .describe(
+                                        'Validation rule type for open-text questions.\n\n\* `min_length` - min_length\n\* `max_length` - max_length\n\* `email` - email'
+                                    ),
+                                value: zod
+                                    .number()
+                                    .min(1)
+                                    .nullish()
+                                    .describe('Rule value for min_length or max_length validations.'),
+                            })
+                        )
+                        .nullish()
+                        .describe('Validation rules for the response text, for example a minimum length.'),
+                    branching: zod
+                        .union([
+                            zod.union([
+                                zod.object({
+                                    type: zod
+                                        .enum(['next_question'])
+                                        .describe('\* `next_question` - next_question')
+                                        .describe(
+                                            'Continue to the next question in sequence.\n\n\* `next_question` - next_question'
+                                        ),
+                                }),
+                                zod.object({
+                                    type: zod
+                                        .enum(['end'])
+                                        .describe('\* `end` - end')
+                                        .describe('End the survey.\n\n\* `end` - end'),
+                                }),
+                                zod.object({
+                                    type: zod
+                                        .enum(['specific_question'])
+                                        .describe('\* `specific_question` - specific_question')
+                                        .describe(
+                                            'Jump to a specific question index.\n\n\* `specific_question` - specific_question'
+                                        ),
+                                    index: zod
+                                        .number()
+                                        .min(surveysPartialUpdateBodyQuestionsItemOneBranchingOneThreeIndexMin)
+                                        .describe('0-based index of the next question.'),
+                                }),
+                                zod.object({
+                                    type: zod
+                                        .enum(['response_based'])
+                                        .describe('\* `response_based` - response_based')
+                                        .describe(
+                                            'Branch based on the selected or entered response.\n\n\* `response_based` - response_based'
+                                        ),
+                                    responseValues: zod
+                                        .record(
+                                            zod.string(),
+                                            zod.union([
+                                                zod
+                                                    .number()
+                                                    .min(
+                                                        surveysPartialUpdateBodyQuestionsItemOneBranchingOneFourResponseValuesOneMin
+                                                    ),
+                                                zod.enum(['end']),
+                                            ])
+                                        )
+                                        .describe(
+                                            "Response-based branching map. Values can be a question index or 'end'."
+                                        ),
+                                }),
+                            ]),
+                            zod.null(),
+                        ])
+                        .optional(),
                 }),
                 zod.object({
                     id: zod
@@ -1467,7 +1893,91 @@ export const SurveysPartialUpdateBody = () => zod.object({
                         .describe('Format for the description field.\n\n\* `text` - text\n\* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
                     buttonText: zod.string().optional().describe('Custom button label.'),
+                    translations: zod
+                        .record(
+                            zod.string(),
+                            zod.object({
+                                question: zod.string().optional().describe('Translated question text.'),
+                                description: zod.string().optional().describe('Translated helper text.'),
+                                buttonText: zod.string().optional().describe('Translated button label.'),
+                                lowerBoundLabel: zod
+                                    .string()
+                                    .optional()
+                                    .describe('Translated lowest rating label. Rating questions only.'),
+                                upperBoundLabel: zod
+                                    .string()
+                                    .optional()
+                                    .describe('Translated highest rating label. Rating questions only.'),
+                                choices: zod
+                                    .array(zod.string())
+                                    .optional()
+                                    .describe(
+                                        'Translated choices. Must have the same length as the question choices. Choice questions only.'
+                                    ),
+                                link: zod.string().optional().describe('Translated URL. Link questions only.'),
+                            })
+                        )
+                        .optional()
+                        .describe(
+                            "Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost."
+                        ),
                     link: zod.string().describe('HTTPS or mailto URL for link questions.'),
+                    branching: zod
+                        .union([
+                            zod.union([
+                                zod.object({
+                                    type: zod
+                                        .enum(['next_question'])
+                                        .describe('\* `next_question` - next_question')
+                                        .describe(
+                                            'Continue to the next question in sequence.\n\n\* `next_question` - next_question'
+                                        ),
+                                }),
+                                zod.object({
+                                    type: zod
+                                        .enum(['end'])
+                                        .describe('\* `end` - end')
+                                        .describe('End the survey.\n\n\* `end` - end'),
+                                }),
+                                zod.object({
+                                    type: zod
+                                        .enum(['specific_question'])
+                                        .describe('\* `specific_question` - specific_question')
+                                        .describe(
+                                            'Jump to a specific question index.\n\n\* `specific_question` - specific_question'
+                                        ),
+                                    index: zod
+                                        .number()
+                                        .min(surveysPartialUpdateBodyQuestionsItemTwoBranchingOneThreeIndexMin)
+                                        .describe('0-based index of the next question.'),
+                                }),
+                                zod.object({
+                                    type: zod
+                                        .enum(['response_based'])
+                                        .describe('\* `response_based` - response_based')
+                                        .describe(
+                                            'Branch based on the selected or entered response.\n\n\* `response_based` - response_based'
+                                        ),
+                                    responseValues: zod
+                                        .record(
+                                            zod.string(),
+                                            zod.union([
+                                                zod
+                                                    .number()
+                                                    .min(
+                                                        surveysPartialUpdateBodyQuestionsItemTwoBranchingOneFourResponseValuesOneMin
+                                                    ),
+                                                zod.enum(['end']),
+                                            ])
+                                        )
+                                        .describe(
+                                            "Response-based branching map. Values can be a question index or 'end'."
+                                        ),
+                                }),
+                            ]),
+                            zod.null(),
+                        ])
+                        .optional(),
                 }),
                 zod.object({
                     id: zod
@@ -1486,6 +1996,34 @@ export const SurveysPartialUpdateBody = () => zod.object({
                         .describe('Format for the description field.\n\n\* `text` - text\n\* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
                     buttonText: zod.string().optional().describe('Custom button label.'),
+                    translations: zod
+                        .record(
+                            zod.string(),
+                            zod.object({
+                                question: zod.string().optional().describe('Translated question text.'),
+                                description: zod.string().optional().describe('Translated helper text.'),
+                                buttonText: zod.string().optional().describe('Translated button label.'),
+                                lowerBoundLabel: zod
+                                    .string()
+                                    .optional()
+                                    .describe('Translated lowest rating label. Rating questions only.'),
+                                upperBoundLabel: zod
+                                    .string()
+                                    .optional()
+                                    .describe('Translated highest rating label. Rating questions only.'),
+                                choices: zod
+                                    .array(zod.string())
+                                    .optional()
+                                    .describe(
+                                        'Translated choices. Must have the same length as the question choices. Choice questions only.'
+                                    ),
+                                link: zod.string().optional().describe('Translated URL. Link questions only.'),
+                            })
+                        )
+                        .optional()
+                        .describe(
+                            "Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost."
+                        ),
                     display: zod
                         .enum(['number', 'emoji'])
                         .describe('\* `number` - number\n\* `emoji` - emoji')
@@ -1502,6 +2040,12 @@ export const SurveysPartialUpdateBody = () => zod.object({
                         .string()
                         .optional()
                         .describe("Label for the highest rating (e.g., 'Excellent')"),
+                    isNpsQuestion: zod
+                        .boolean()
+                        .optional()
+                        .describe(
+                            'Whether a rating question with a scale of 10 shows NPS scoring. A missing value counts as true.'
+                        ),
                     branching: zod
                         .union([
                             zod.union([
@@ -1576,6 +2120,34 @@ export const SurveysPartialUpdateBody = () => zod.object({
                         .describe('Format for the description field.\n\n\* `text` - text\n\* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
                     buttonText: zod.string().optional().describe('Custom button label.'),
+                    translations: zod
+                        .record(
+                            zod.string(),
+                            zod.object({
+                                question: zod.string().optional().describe('Translated question text.'),
+                                description: zod.string().optional().describe('Translated helper text.'),
+                                buttonText: zod.string().optional().describe('Translated button label.'),
+                                lowerBoundLabel: zod
+                                    .string()
+                                    .optional()
+                                    .describe('Translated lowest rating label. Rating questions only.'),
+                                upperBoundLabel: zod
+                                    .string()
+                                    .optional()
+                                    .describe('Translated highest rating label. Rating questions only.'),
+                                choices: zod
+                                    .array(zod.string())
+                                    .optional()
+                                    .describe(
+                                        'Translated choices. Must have the same length as the question choices. Choice questions only.'
+                                    ),
+                                link: zod.string().optional().describe('Translated URL. Link questions only.'),
+                            })
+                        )
+                        .optional()
+                        .describe(
+                            "Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost."
+                        ),
                     choices: zod
                         .array(zod.string())
                         .min(surveysPartialUpdateBodyQuestionsItemFourChoicesMin)
@@ -1665,6 +2237,34 @@ export const SurveysPartialUpdateBody = () => zod.object({
                         .describe('Format for the description field.\n\n\* `text` - text\n\* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
                     buttonText: zod.string().optional().describe('Custom button label.'),
+                    translations: zod
+                        .record(
+                            zod.string(),
+                            zod.object({
+                                question: zod.string().optional().describe('Translated question text.'),
+                                description: zod.string().optional().describe('Translated helper text.'),
+                                buttonText: zod.string().optional().describe('Translated button label.'),
+                                lowerBoundLabel: zod
+                                    .string()
+                                    .optional()
+                                    .describe('Translated lowest rating label. Rating questions only.'),
+                                upperBoundLabel: zod
+                                    .string()
+                                    .optional()
+                                    .describe('Translated highest rating label. Rating questions only.'),
+                                choices: zod
+                                    .array(zod.string())
+                                    .optional()
+                                    .describe(
+                                        'Translated choices. Must have the same length as the question choices. Choice questions only.'
+                                    ),
+                                link: zod.string().optional().describe('Translated URL. Link questions only.'),
+                            })
+                        )
+                        .optional()
+                        .describe(
+                            "Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost."
+                        ),
                     choices: zod
                         .array(zod.string())
                         .min(surveysPartialUpdateBodyQuestionsItemFiveChoicesMin)

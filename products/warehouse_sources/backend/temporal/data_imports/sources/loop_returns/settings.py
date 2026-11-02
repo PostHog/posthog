@@ -16,6 +16,10 @@ MAX_WINDOW_DAYS = 90
 # stay well under the cap to keep a single page's payload modest.
 DEFAULT_PAGE_SIZE = 250
 
+# `limit` cap on the cursor-paginated catalog endpoints (orders, products, product variants and
+# customers). Loop documents 250 as the maximum on orders, customers and product variants.
+CURSOR_PAGE_SIZE = 250
+
 # How far back a first sync reaches when the user doesn't give a start date. Without `from`/`to`
 # Loop only returns the previous 24 hours, so a default is required for a usable backfill.
 DEFAULT_BACKFILL_DAYS = 730
@@ -42,6 +46,8 @@ class LoopReturnsEndpointConfig:
     data_selector: str | None = None
     # Cursor pagination through `paginate`/`pageSize` with a `nextPageUrl` in the body.
     paginate: bool = False
+    # Cursor pagination through `limit`/`cursor` with a `next_page_url` in the body.
+    cursor_paginate: bool = False
     # Endpoint accepts `from`/`to`, so history is walked in windows.
     windowed: bool = False
     # States fetched one pass each; empty means the endpoint has no `state` param.
@@ -52,6 +58,10 @@ class LoopReturnsEndpointConfig:
     partition_key: str | None = None
     # API key scope the endpoint needs, as named in Loop's dashboard.
     required_scope: str = "Returns"
+    # Endpoint whose row `id` fills the `{parent_id}` path placeholder, one request per parent row.
+    parent: str | None = None
+    # Column that carries the parent row's `id` on each child row.
+    parent_id_column: str = "parent_id"
 
 
 LOOP_RETURNS_ENDPOINTS: dict[str, LoopReturnsEndpointConfig] = {
@@ -82,6 +92,44 @@ LOOP_RETURNS_ENDPOINTS: dict[str, LoopReturnsEndpointConfig] = {
         primary_keys=("id",),
         data_selector="destinations",
         required_scope="Destinations (Read)",
+    ),
+    "orders": LoopReturnsEndpointConfig(
+        name="orders",
+        path="/orders",
+        primary_keys=("id",),
+        data_selector="orders",
+        cursor_paginate=True,
+        partition_key="created_at",
+        required_scope="Order (Read)",
+    ),
+    "products": LoopReturnsEndpointConfig(
+        name="products",
+        path="/products",
+        primary_keys=("id",),
+        data_selector="products",
+        cursor_paginate=True,
+        partition_key="created_at",
+        required_scope="Product (Read)",
+    ),
+    "product_variants": LoopReturnsEndpointConfig(
+        name="product_variants",
+        path="/products/{parent_id}/product-variants",
+        # Rows from every product land in one table, and the docs don't say that a variant id is
+        # unique across products, so the parent product id is part of the key.
+        primary_keys=("product_id", "id"),
+        data_selector="product_variants",
+        cursor_paginate=True,
+        required_scope="Product (Read)",
+        parent="products",
+        parent_id_column="product_id",
+    ),
+    "customers": LoopReturnsEndpointConfig(
+        name="customers",
+        path="/customers",
+        primary_keys=("id",),
+        data_selector="customers",
+        cursor_paginate=True,
+        required_scope="Customers (Read)",
     ),
 }
 

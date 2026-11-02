@@ -70,8 +70,19 @@ export class HogFlowInvocationPipeline {
         this.hogRateLimiterMirror = new KeyedRateLimiterService(rateLimiterConfig, deps.valkeyShadow.writer)
     }
 
-    @instrumented('cdpConsumer.handleEachBatch.queueMatchingFlows')
     public async buildInvocations(
+        invocationGlobals: HogFunctionInvocationGlobals[],
+        options?: { eligibilityFn?: (hogFlow: HogFlow, globals: HogFunctionInvocationGlobals) => boolean }
+    ): Promise<CyclotronJobInvocation[]> {
+        return (await this.buildInvocationsWithRelease(invocationGlobals, options)).invocations
+    }
+
+    /**
+     * Also returns the masker's `release`. Masking claims are written before the caller queues the runs,
+     * so a caller that retries after a failed queue must release them, or the retry masks every run.
+     */
+    @instrumented('cdpConsumer.handleEachBatch.queueMatchingFlows')
+    public async buildInvocationsWithRelease(
         invocationGlobals: HogFunctionInvocationGlobals[],
         options?: {
             // Predicate evaluated per (flow, globals) before the executor runs filter bytecode.
@@ -81,7 +92,10 @@ export class HogFlowInvocationPipeline {
             // touching the executor.
             eligibilityFn?: (hogFlow: HogFlow, globals: HogFunctionInvocationGlobals) => boolean
         }
-    ): Promise<CyclotronJobInvocation[]> {
+    ): Promise<{
+        invocations: CyclotronJobInvocation[]
+        release: (persisted?: CyclotronJobInvocation[]) => Promise<void>
+    }> {
         const teamsToLoad = [...new Set(invocationGlobals.map((x) => x.project.id))]
         const hogFlowsByTeam = await this.deps.hogFlowManager.getHogFlowsForTeams(teamsToLoad)
         const eligibilityFn = options?.eligibilityFn
@@ -226,7 +240,11 @@ export class HogFlowInvocationPipeline {
             })
         )
 
-        const { masked, notMasked: notMaskedInvocations } = await this.deps.hogMasker.filterByMasking(validInvocations)
+        const {
+            masked,
+            notMasked: notMaskedInvocations,
+            release,
+        } = await this.deps.hogMasker.filterByMasking(validInvocations)
 
         this.deps.hogFunctionMonitoringService.queueAppMetrics(
             masked.map((item) => ({
@@ -255,6 +273,6 @@ export class HogFlowInvocationPipeline {
 
         this.deps.hogFunctionMonitoringService.queueAppMetrics(triggeredInvocationsMetrics, 'hog_flow')
 
-        return notMaskedInvocations
+        return { invocations: notMaskedInvocations, release }
     }
 }

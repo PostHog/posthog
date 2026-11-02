@@ -3,6 +3,8 @@ from typing import Any
 import pytest
 from unittest import mock
 
+import requests
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -16,9 +18,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tawk_to.se
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.tawk_to.source import TawkToSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.tawk_to.tawk_to import (
+    API_KEY_FORBIDDEN_MESSAGE,
+    INVALID_API_KEY_MESSAGE,
     PAGE_SIZE,
     TawkToApiError,
+    TawkToCredentialsError,
     TawkToResumeConfig,
+    TawkToRetryableError,
     get_rows,
     validate_credentials,
 )
@@ -54,22 +60,34 @@ def _page(items: list[dict[str, Any]], total: int) -> dict[str, Any]:
 
 
 class TestValidateCredentials:
+    def test_accepts_a_working_key(self):
+        with scripted_network(always(_response({"ok": True, "data": []}))):
+            assert validate_credentials("key") is True
+
     @pytest.mark.parametrize(
-        "status_code, body, expected",
+        "status_code, body, expected_message",
         [
-            (200, {"ok": True, "data": []}, True),
-            (200, {"ok": False, "error": "auth_error"}, False),
-            (401, {"ok": False, "error": "auth_error", "message": "invalid_auth"}, False),
-            (500, {}, False),
+            (200, {"ok": False, "error": "auth_error"}, INVALID_API_KEY_MESSAGE),
+            (401, {"ok": False, "error": "auth_error", "message": "invalid_auth"}, INVALID_API_KEY_MESSAGE),
+            (403, {"ok": False, "error": "forbidden"}, API_KEY_FORBIDDEN_MESSAGE),
         ],
     )
-    def test_status_and_body_mapping(self, status_code, body, expected):
+    def test_rejected_key_raises_credentials_error(self, status_code, body, expected_message):
         with scripted_network(always(_response(body, status_code))):
-            assert validate_credentials("key") is expected
+            with pytest.raises(TawkToCredentialsError) as exc:
+                validate_credentials("key")
+        assert str(exc.value) == expected_message
 
-    def test_swallows_exceptions(self):
-        with scripted_network(always(Exception("boom"))):
-            assert validate_credentials("key") is False
+    @pytest.mark.parametrize("status_code", [429, 500, 503])
+    def test_rate_limit_and_server_errors_are_retryable(self, status_code):
+        with scripted_network(always(_response({}, status_code))):
+            with pytest.raises(TawkToRetryableError):
+                validate_credentials("key")
+
+    def test_transport_errors_propagate(self):
+        with scripted_network(always(requests.ConnectionError("boom"))):
+            with pytest.raises(requests.ConnectionError):
+                validate_credentials("key")
 
 
 class TestGetRows:

@@ -90,6 +90,44 @@
                     ],
                     "description": "How to draw this measurement; copied from a referenced metric."
                 },
+                "monitoring": {
+                    "anyOf": [
+                        {
+                            "properties": {
+                                "baseline_period_minutes": {
+                                    "anyOf": [
+                                        {
+                                            "exclusiveMinimum": 0,
+                                            "maximum": 527040,
+                                            "type": "number"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "The actual period measured by baseline_value, in minutes. Required when a baseline is supplied."
+                                },
+                                "reference_period_minutes": {
+                                    "description": "The period the comparison target describes, in minutes. Independent of the soak and run schedule.",
+                                    "exclusiveMinimum": 0,
+                                    "maximum": 527040,
+                                    "type": "number"
+                                },
+                                "threshold_scaling": {
+                                    "description": "How the target applies to a measurement from Monitoring start to the observation time. `linear` multiplies the target by elapsed minutes / reference_period_minutes and requires an additive event count or property sum. `fixed` keeps the target unchanged, including for rates and averages. This definition does not enable Monitoring execution.",
+                                    "enum": ["linear", "fixed"],
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["reference_period_minutes", "threshold_scaling"],
+                            "type": "object"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Optional Monitoring measurement definition, available only with the organization's Monitoring rollout. Measurements cover Monitoring start through the observation time. Omit for existing whole-window checks."
+                },
                 "query": {
                     "anyOf": [
                         {

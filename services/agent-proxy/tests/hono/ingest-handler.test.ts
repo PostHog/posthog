@@ -28,7 +28,7 @@ import {
 } from '@/lib/constants.js'
 import { logger } from '@/lib/logging.js'
 import { TaskRunRedisStream, getCompletedKey, getStreamKey, getWatchedKey } from '@/lib/redis-stream.js'
-import { heartbeatWorkflowIfNeeded } from '@/lib/side-effects.js'
+import { heartbeatWorkflowIfNeeded, notifyPermissionRequestIfNeeded } from '@/lib/side-effects.js'
 import type { SandboxEventIngestTokenPayload } from '@/lib/types.js'
 
 // ---------------------------------------------------------------------------
@@ -419,6 +419,35 @@ describe('ingest-handler', () => {
         mockValidate.mockResolvedValue(makeClaims())
     })
 
+    it.each([
+        { line: { seq: 1, event: { type: 'notification', notification: { method: 'late' } } }, legacy: false },
+        { line: { type: '_posthog/stream_complete', final_seq: 0 }, legacy: false },
+        { line: { seq: 1, event: { type: 'notification', notification: { method: 'late' } } }, legacy: true },
+        { line: { type: '_posthog/stream_complete', final_seq: 0 }, legacy: true },
+    ])('rejects an old sender after the stream resumes: %j', async ({ line, legacy }) => {
+        mockValidate.mockResolvedValue({ ...makeClaims(), ...(legacy ? {} : { streamGeneration: 'initial' }) })
+        await fakeRedis.set(`${getStreamKey(RUN_ID)}:generation`, 'initial')
+        const initial = await handleIngest(
+            makeContext({ body: makeStringBody(JSON.stringify(line) + '\n') }),
+            fakeRedis as unknown as Redis,
+            makeConfig(),
+            []
+        )
+        expect(initial.status).toBe(200)
+        await redisStream.deleteStream()
+        await fakeRedis.set(`${getStreamKey(RUN_ID)}:generation`, 'replacement')
+        const response = await handleIngest(
+            makeContext({ body: makeStringBody(JSON.stringify(line) + '\n') }),
+            fakeRedis as unknown as Redis,
+            makeConfig(),
+            []
+        )
+        expect(response.status).toBe(403)
+        expect(await response.json()).not.toHaveProperty('last_accepted_seq')
+        expect(await redisStream.getLastSequence()).toBe(0)
+        expect(await redisStream.isComplete()).toBe(false)
+    })
+
     // -----------------------------------------------------------------------
     // Auth / routing guards
     // -----------------------------------------------------------------------
@@ -699,6 +728,46 @@ describe('ingest-handler', () => {
                 },
             })
             expect(String(request?.body)).not.toContain('not-for-analytics')
+        } finally {
+            callback.mockRestore()
+        }
+    })
+
+    it('reports an accepted permission request once, and skips replays and malformed requests', async () => {
+        const callback = vi
+            .spyOn(globalThis, 'fetch')
+            .mockResolvedValue(new Response(JSON.stringify({ dispatched: true }), { status: 200 }))
+        try {
+            const config = makeConfig({ djangoCallbackBaseUrl: 'http://django.example.com' })
+            const params = { requestId: 'perm-1', toolCall: { title: 'Run tests' }, options: [{ optionId: 'allow' }] }
+            const request = { type: 'notification', notification: { method: '_posthog/permission_request', params } }
+            const malformed = {
+                type: 'notification',
+                notification: { method: '_posthog/permission_request', params: { ...params, options: [] } },
+            }
+            const lines = [
+                { seq: 1, event: request },
+                { seq: 1, event: request },
+                { seq: 2, event: malformed },
+            ]
+            for (const line of lines) {
+                const response = await handleIngest(
+                    makeContext({ body: makeStringBody(JSON.stringify(line) + '\n') }),
+                    fakeRedis as unknown as Redis,
+                    config,
+                    [] as CryptoKey[]
+                )
+                expect(response.status).toBe(200)
+            }
+            expect(callback).toHaveBeenCalledTimes(1)
+            expect(JSON.parse(String(callback.mock.calls[0]![1]?.body))).toMatchObject({
+                kind: 'permission_requested',
+                agent_active: false,
+                task_id: TASK_ID,
+                team_id: TEAM_ID,
+                sequence: 1,
+                request_id: 'perm-1',
+            })
         } finally {
             callback.mockRestore()
         }
@@ -1298,8 +1367,8 @@ describe('ingest-handler', () => {
                     params: { update: { sessionUpdate: 'user_message_chunk' } },
                 },
             },
-            expectedKinds: ['heartbeat'],
-            expectedActive: true,
+            expectedKinds: [],
+            expectedActive: false,
         },
         {
             name: 'agent output',
@@ -1322,8 +1391,29 @@ describe('ingest-handler', () => {
                     params: { update: { sessionUpdate: 'plan' } },
                 },
             },
-            expectedKinds: ['heartbeat'],
-            expectedActive: true,
+            expectedKinds: [],
+            expectedActive: false,
+        },
+        {
+            name: 'resumed session commands',
+            event: {
+                type: 'notification',
+                notification: {
+                    method: 'session/update',
+                    params: { update: { sessionUpdate: 'available_commands_update' } },
+                },
+            },
+            expectedKinds: [],
+            expectedActive: false,
+        },
+        {
+            name: 'idle resume turn complete',
+            event: {
+                type: 'notification',
+                notification: { method: '_posthog/turn_complete', params: { stopReason: 'idle_resume' } },
+            },
+            expectedKinds: ['awaiting_input'],
+            expectedActive: false,
         },
         {
             name: 'command dispatch',
@@ -1546,7 +1636,17 @@ describe('ingest-handler', () => {
 
         const turnComplete = { type: 'notification', notification: { method: '_posthog/turn_complete' } }
         const piTurnError = { type: 'pi_event', event: { type: 'turn_completed', stopReason: 'error' } }
-        const sessionUpdate = { type: 'notification', notification: { method: 'session/update', params: {} } }
+        const sessionUpdate = {
+            type: 'notification',
+            notification: { method: 'session/update', params: { update: { sessionUpdate: 'agent_message_chunk' } } },
+        }
+        const permissionRequest = {
+            type: 'notification',
+            notification: {
+                method: '_posthog/permission_request',
+                params: { requestId: 'perm-1', toolCall: {}, options: [{ optionId: 'allow' }] },
+            },
+        }
         const networkFailure = Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNRESET' } })
 
         it.each([
@@ -1555,6 +1655,7 @@ describe('ingest-handler', () => {
             ['awaiting_input', turnComplete, '400', new Response('', { status: 400 }), 1],
             ['turn_failed', piTurnError, 'network failure', networkFailure, 2],
             ['turn_failed', piTurnError, '503', new Response('', { status: 503 }), 2],
+            ['permission_requested', permissionRequest, '503', new Response('', { status: 503 }), 2],
             ['heartbeat', sessionUpdate, 'network failure', networkFailure, 1],
             ['heartbeat', sessionUpdate, '503', new Response('', { status: 503 }), 1],
         ])(
@@ -1570,8 +1671,10 @@ describe('ingest-handler', () => {
                     .mockResolvedValue(new Response('{"dispatched": true}', { status: 200 }))
                 global.fetch = fetchMock as typeof fetch
 
+                await redisStream.claimFirstAgentActivity()
                 const config = makeConfig({ djangoCallbackBaseUrl: 'http://django' })
                 await heartbeatWorkflowIfNeeded(redisStream, RUN_ID, event, TASK_ID, TEAM_ID, 'tok', config)
+                notifyPermissionRequestIfNeeded(RUN_ID, 1, event, TASK_ID, TEAM_ID, 'tok', config)
                 await vi.advanceTimersByTimeAsync(2000)
 
                 expect(fetchMock).toHaveBeenCalledTimes(expectedCalls)
@@ -1583,7 +1686,13 @@ describe('ingest-handler', () => {
         )
 
         it.each([
-            { type: 'notification', notification: { method: 'session/update' } },
+            {
+                type: 'notification',
+                notification: {
+                    method: 'session/update',
+                    params: { update: { sessionUpdate: 'agent_message_chunk' } },
+                },
+            },
             ...['assistant_message_chunk', 'assistant_thought_chunk', 'tool_call_started', 'tool_call_updated'].map(
                 (type) => ({ type: 'pi_event', event: { type } })
             ),

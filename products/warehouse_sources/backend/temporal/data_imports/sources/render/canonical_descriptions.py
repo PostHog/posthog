@@ -191,4 +191,39 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updatedAt": "When the disk was last updated.",
         },
     },
+    "instances": {
+        "description": "Running instances of each service. A scaled service has one row per instance.",
+        "docs_url": "https://api-docs.render.com/reference/list-instances",
+        "columns": {
+            "serviceId": "ID of the service the instance belongs to.",
+            "id": "Unique identifier for the instance.",
+            "createdAt": "When the instance was created.",
+        },
+    },
+    "members": {
+        "description": "Users who belong to each workspace, with their workspace role and status.",
+        "docs_url": "https://api-docs.render.com/reference/retrieve-owner-members",
+        "columns": {
+            "ownerId": "ID of the workspace the user belongs to.",
+            "userId": "Unique identifier for the user.",
+            "name": "Name of the user.",
+            "email": "Email address of the user.",
+            "status": "Whether the membership is active or inactive.",
+            "role": "The user's role in the workspace, in uppercase (for example ADMIN or DEVELOPER).",
+            "mfaEnabled": "Whether the user has multi-factor authentication turned on.",
+        },
+    },
+    "audit_logs": {
+        "description": "Workspace audit log: material actions performed by members, API keys, and Render itself. Needs a Pro workspace plan or higher and an admin API key.",
+        "docs_url": "https://api-docs.render.com/reference/list-owner-audit-logs",
+        "columns": {
+            "ownerId": "ID of the workspace the event belongs to.",
+            "id": "Unique identifier for the audit log entry.",
+            "timestamp": "When the event occurred.",
+            "event": "The type of event that occurred, for example CreateServerEvent.",
+            "status": "Whether the action succeeded or failed.",
+            "actor": "Who performed the action: the actor type (user, rest_api, or system), and its email and ID if applicable.",
+            "metadata": "Additional context about the event, such as the affected service ID.",
+        },
+    },
 }

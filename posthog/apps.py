@@ -38,8 +38,12 @@ class PostHogConfig(AppConfig):
             connect_signal_handlers as connect_gateway_credential_signal_handlers,
         )
         from posthog.storage.team_llm_gateway_policy_signal_handlers import connect_signal_handlers
+        from posthog.storage.team_metadata_signal_handlers import (
+            connect_signal_handlers as connect_team_metadata_signal_handlers,
+        )
 
         connect_signal_handlers()
+        connect_team_metadata_signal_handlers()
         connect_gateway_credential_signal_handlers()
         connect_organization_cache_signal_handlers()
 
@@ -49,6 +53,7 @@ class PostHogConfig(AppConfig):
         # shell) would lose them. They live in dedicated import-light modules — never wire
         # ready() through an API module, even one that looks light today.
         import posthog.storage.checks  # noqa: F401, PLC0415
+        import posthog.models.file_system.signal_handlers  # noqa: F401, PLC0415
         import posthog.caching.organization_serializer_cache  # noqa: F401, PLC0415
         import posthog.models.activity_logging.signal_handlers  # noqa: F401, PLC0415
 

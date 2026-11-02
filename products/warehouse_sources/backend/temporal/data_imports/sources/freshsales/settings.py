@@ -150,6 +150,18 @@ FRESHSALES_ENDPOINTS: dict[str, FreshsalesEndpointConfig] = {
         object_key="lifecycle_stages",
         is_selector=True,
     ),
+    "contact_statuses": FreshsalesEndpointConfig(
+        name="contact_statuses",
+        resource="selector/contact_statuses",
+        object_key="contact_statuses",
+        is_selector=True,
+    ),
+    "territories": FreshsalesEndpointConfig(
+        name="territories",
+        resource="selector/territories",
+        object_key="territories",
+        is_selector=True,
+    ),
     "lead_sources": FreshsalesEndpointConfig(
         name="lead_sources",
         resource="selector/lead_sources",

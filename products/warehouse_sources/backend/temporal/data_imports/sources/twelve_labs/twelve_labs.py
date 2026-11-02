@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     AuthConfig,
     Endpoint,
     EndpointResource,
+    ResponseAction,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
@@ -308,6 +309,84 @@ def _fan_out_resource(
     return next(resource for resource in resources if resource.name == config.name)
 
 
+def _knowledge_store_item_tags_resource(
+    config: TwelveLabsEndpointConfig,
+    api_key: str,
+    team_id: int,
+    job_id: str,
+) -> Resource:
+    """Fan out over every knowledge store, then every video item in it, and list each item's tags.
+
+    Tag rows already carry `knowledge_store_id` and `item_id`, so nothing is injected into them. The
+    framework does not resume a two-level fan-out, so a retried run starts over and merge dedupes the
+    re-pulled rows on the [knowledge_store_id, item_id, _id] key.
+    """
+    stores_name = "knowledge_stores_list"
+    items_name = "knowledge_store_items_list"
+    # Sort parents ascending on creation so page boundaries stay stable if new rows land mid-sync.
+    parent_params: dict[str, Any] = {"page_limit": PAGE_LIMIT, "sort_by": "created_at", "sort_option": "asc"}
+    # A store or item deleted between the parent list and the child request returns 404.
+    skip_deleted_parent: list[ResponseAction] = [{"status_code": 404, "action": "ignore"}]
+
+    def _add_store_id(row: dict[str, Any]) -> dict[str, Any]:
+        row["knowledge_store_id"] = row.pop(make_parent_key_name(stores_name, "_id"))
+        return row
+
+    stores_resource: EndpointResource = {
+        "name": stores_name,
+        "endpoint": {
+            "path": "/knowledge-stores",
+            "params": parent_params,
+            "paginator": _paginator(),
+            "data_selector": "data",
+        },
+    }
+    items_resource: EndpointResource = {
+        "name": items_name,
+        "include_from_parent": ["_id"],
+        "data_map": _add_store_id,
+        "endpoint": {
+            "path": "/knowledge-stores/{knowledge_store_id}/items",
+            "params": {
+                "knowledge_store_id": {"type": "resolve", "resource": stores_name, "field": "_id"},
+                **parent_params,
+            },
+            "paginator": _paginator(),
+            "data_selector": "data",
+            "response_actions": skip_deleted_parent,
+        },
+    }
+    tags_resource: EndpointResource = {
+        "name": config.name,
+        "endpoint": {
+            "path": config.path,
+            "params": {
+                "knowledge_store_id": {"type": "resolve", "resource": items_name, "field": "knowledge_store_id"},
+                "item_id": {"type": "resolve", "resource": items_name, "field": "_id"},
+                "page_limit": PAGE_LIMIT,
+            },
+            "paginator": _paginator(),
+            "data_selector": "data",
+            "response_actions": skip_deleted_parent,
+        },
+    }
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": TWELVE_LABS_BASE_URL,
+            "headers": {"Accept": "application/json"},
+            "auth": _auth_config(api_key),
+            "allow_redirects": False,
+        },
+        "resources": [stores_resource, items_resource, tags_resource],
+    }
+
+    resources = {resource.name: resource for resource in rest_api_resources(rest_config, team_id, job_id, None)}
+    # Only video items hold tags, so image items are dropped instead of paying a request each.
+    resources[items_name].add_filter(lambda item: item.get("asset_type") == "video")
+    return resources[config.name]
+
+
 def twelve_labs_source(
     api_key: str,
     endpoint: str,
@@ -320,7 +399,9 @@ def twelve_labs_source(
 ) -> SourceResponse:
     config = TWELVE_LABS_ENDPOINTS[endpoint]
 
-    if config.fan_out_over:
+    if config.fan_out_over == "knowledge_store_items":
+        resource = _knowledge_store_item_tags_resource(config, api_key, team_id, job_id)
+    elif config.fan_out_over:
         resource = _fan_out_resource(
             config, _FAN_OUT_PARENTS[config.fan_out_over], api_key, team_id, job_id, resumable_source_manager
         )
@@ -349,4 +430,6 @@ def twelve_labs_source(
         partition_format="week" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
         column_hints=resource.column_hints,
+        # The two-level item tags fan-out saves no checkpoint, so a shutdown cannot resume it.
+        supports_resume=config.fan_out_over != "knowledge_store_items",
     )

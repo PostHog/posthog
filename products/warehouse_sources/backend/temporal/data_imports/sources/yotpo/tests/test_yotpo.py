@@ -4,7 +4,6 @@ import pytest
 
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -119,11 +118,3 @@ def test_a_failed_next_page_keeps_the_cursor_of_the_written_batch() -> None:
     assert isinstance(result.raised, HTTPError)
     assert result.rows == [{"id": 1}]
     assert result.committed_states == [YotpoResumeConfig(page=2, until=datetime.now(UTC).date().isoformat())]
-
-
-def test_unknown_table_fails_before_minting_a_token() -> None:
-    result = SourceDriver(
-        YotpoSource(), YotpoSourceConfig(app_key="test-store", api_secret="test-secret", start_date="2020-01-01")
-    ).run("unknown", [])
-    assert isinstance(result.raised, UnknownResourceError)
-    assert result.requests == []

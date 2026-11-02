@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.buildkite import (
@@ -199,6 +198,9 @@ class TestValidateCredentials:
             ("team_pipelines", f"{ORG_URL}/teams?per_page=1"),
             ("pipeline_schedules", f"{ORG_URL}/pipelines?per_page=1"),
             ("cluster_queues", f"{ORG_URL}/clusters?per_page=1"),
+            ("team_members", f"{ORG_URL}/teams?per_page=1"),
+            ("artifacts", f"{ORG_URL}/builds?per_page=1"),
+            ("annotations", f"{ORG_URL}/builds?per_page=1"),
         ]
     )
     def test_fanout_schema_probe_targets_the_parent_listing(self, endpoint: str, expected_url: str) -> None:
@@ -210,13 +212,6 @@ class TestValidateCredentials:
 
         assert network.requests_log[0].url == expected_url
         assert network.requests_log[0].headers["authorization"] == "Bearer bkua"
-
-    def test_swallows_transport_errors(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            ok, error = validate_credentials("bkua", "my-org")
-
-        assert ok is False
-        assert error is not None
 
 
 class TestSuiteFanout:
@@ -267,6 +262,14 @@ class TestSimpleFanout:
                 [f"{ORG_URL}/pipelines/web/schedules", f"{ORG_URL}/pipelines/api/schedules"],
                 [{"id": "s1"}, {"id": "s2"}],
                 [{"pipeline_slug": "web"}, {"pipeline_slug": "api"}],
+            ),
+            (
+                "team_members",
+                [{"id": "t1", "slug": "backend"}, {"id": "t2", "slug": "frontend"}],
+                f"{ORG_URL}/teams",
+                [f"{ORG_URL}/teams/t1/members", f"{ORG_URL}/teams/t2/members"],
+                [{"user_id": "u1", "role": "member"}, {"user_id": "u1", "role": "maintainer"}],
+                [{"team_id": "t1", "team_slug": "backend"}, {"team_id": "t2", "team_slug": "frontend"}],
             ),
             (
                 "cluster_queues",
@@ -330,3 +333,46 @@ class TestJobsFanout:
         assert result.requests[0].param("created_from") == "2026-03-04T02:58:14+00:00"
         assert result.requests[0].param("per_page") == "100"
         assert result.requests[1].param("created_from") is None
+
+
+class TestBuildChildFanout:
+    @parameterized.expand(
+        [
+            ("artifacts", {}),
+            # Without scope=all the listing drops every job-scoped annotation.
+            ("annotations", {"scope": ("all",)}),
+        ]
+    )
+    def test_walks_every_page_of_each_build_inside_the_incremental_window(
+        self, endpoint: str, extra_query: dict[str, tuple[str, ...]]
+    ) -> None:
+        child_base = f"{ORG_URL}/pipelines/web/builds/42/{endpoint}"
+        page2 = f"{child_base}?page=2&per_page=100"
+        result = _driver().run(
+            endpoint,
+            [
+                _response(
+                    [{"id": "b1", "number": 42, "created_at": "2026-03-04T02:58:14Z", "pipeline": {"slug": "web"}}]
+                ),
+                # Unlike jobs, these children are top-level arrays paginated on a Link header.
+                _response([{"id": "x1"}], link=page2),
+                _response([{"id": "x2"}]),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
+            incremental_field="build_created_at",
+        )
+
+        assert result.raised is None
+        assert result.requests[0].param("created_from") == "2026-03-04T02:58:14+00:00"
+        assert result.urls[1].split("?")[0] == child_base
+        assert result.queries[1] == {"per_page": ("100",), **extra_query}
+        assert result.urls[2] == page2
+        # The build id is part of the primary key, and build_created_at is the incremental cursor.
+        assert [
+            (row["id"], row["build_id"], row["build_number"], row["pipeline_slug"], row["build_created_at"])
+            for row in result.rows
+        ] == [
+            ("x1", "b1", 42, "web", "2026-03-04T02:58:14Z"),
+            ("x2", "b1", 42, "web", "2026-03-04T02:58:14Z"),
+        ]

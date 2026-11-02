@@ -77,7 +77,17 @@ const RUNNING_IMPORT: DashboardImportApi = {
     ],
 }
 
+// The progress step shows a spinner on the current phase for as long as the import runs, and the runner waits
+// for every loader to disappear before it snapshots. These stories wait for the progress footer instead. The
+// modal opens after a delay, so this wait also stops the snapshot from catching the page before the modal opens.
+// The runner freezes animations, so the spinner snapshots deterministically.
+const progressTestOptions = {
+    waitForLoadersToDisappear: false,
+    waitForSelector: '[data-attr="metrics-dashboard-import-hide"]',
+}
+
 export const ImportProgress: Story = {
+    parameters: { testOptions: progressTestOptions },
     render: () => {
         useDelayedOnMountEffect(() => {
             metricsDashboardImportLogic.actions.openImport(RUNNING_IMPORT)
@@ -88,6 +98,7 @@ export const ImportProgress: Story = {
 }
 
 export const ImportCheckingLayout: Story = {
+    parameters: { testOptions: progressTestOptions },
     render: () => {
         useDelayedOnMountEffect(() => {
             metricsDashboardImportLogic.actions.openImport({

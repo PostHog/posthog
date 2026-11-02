@@ -42,9 +42,6 @@ struct PartitionProgress {
     /// Releasable commit floors owned by in-flight work that outlives its consumed message. Unlike
     /// [`held_offset`](Self::held_offset), each floor is removed explicitly when that work finishes.
     deferred: BTreeSet<i64>,
-    /// Last offset Kafka acked as committed. The gap to `processed_offset` is the window Kafka
-    /// replays after a crash.
-    committed_offset: i64,
 }
 
 impl PartitionProgress {
@@ -222,14 +219,6 @@ impl OffsetTracker {
         floor
     }
 
-    /// Mark an offset as acked-committed by Kafka. Monotonic, and a no-op for a never-processed
-    /// partition (you cannot commit what you have not consumed).
-    pub fn mark_committed(&self, partition: i32, offset: i64) {
-        if let Some(mut progress) = self.partitions.get_mut(&partition) {
-            progress.committed_offset = progress.committed_offset.max(offset);
-        }
-    }
-
     /// Snapshot of `partition → next-offset-to-consume` for every partition with a *processed*
     /// offset, capped at the earliest sticky [`hold`](Self::hold) or releasable
     /// [`defer`](Self::defer) floor. Partitions tracked only because they were dispatched or deferred
@@ -251,10 +240,6 @@ impl OffsetTracker {
                     .map(|offset| (*entry.key(), offset))
             })
             .collect()
-    }
-
-    pub fn committed_offset(&self, partition: i32) -> Option<i64> {
-        self.partitions.get(&partition).map(|p| p.committed_offset)
     }
 
     /// Drop all tracking for a revoked partition. Its offset should already be committed. Removing the
@@ -352,28 +337,6 @@ mod tests {
         assert_eq!(snapshot.get(&0), Some(&10));
         assert_eq!(snapshot.get(&1), Some(&20));
         assert_eq!(snapshot.get(&2), Some(&30));
-    }
-
-    #[test]
-    fn mark_committed_advances_monotonically_only_for_known_partitions() {
-        let tracker = OffsetTracker::new();
-
-        // Committing an unprocessed partition is a no-op.
-        tracker.mark_committed(7, 100);
-        assert_eq!(tracker.committed_offset(7), None);
-
-        tracker.mark_dispatched(7, 200);
-        assert_eq!(tracker.mark_processed(7, 200), MarkOutcome::WithinDispatch);
-        assert_eq!(tracker.committed_offset(7), Some(0));
-
-        tracker.mark_committed(7, 150);
-        assert_eq!(tracker.committed_offset(7), Some(150));
-
-        // Backward commit ignored, forward advances.
-        tracker.mark_committed(7, 100);
-        assert_eq!(tracker.committed_offset(7), Some(150));
-        tracker.mark_committed(7, 200);
-        assert_eq!(tracker.committed_offset(7), Some(200));
     }
 
     #[test]

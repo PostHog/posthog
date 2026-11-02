@@ -413,7 +413,13 @@ def reconcile_replacement(team_id: int, replacement_id: str) -> bool:
         run = tasks_facade.get_task_run(content.run_id, team_id)
         claim = get_active_claim(team_id=team_id, report_id=report.id)
         if (
-            report.status in {SignalReport.Status.DELETED, SignalReport.Status.SUPPRESSED, SignalReport.Status.RESOLVED}
+            report.status
+            in {
+                SignalReport.Status.DELETED,
+                SignalReport.Status.SUPPRESSED,
+                SignalReport.Status.RESOLVED,
+                SignalReport.Status.MONITORING,
+            }
             or not claim
             or claim.claim_id != replacement.claim_id
             or claim.actor_task_id != replacement.task_id

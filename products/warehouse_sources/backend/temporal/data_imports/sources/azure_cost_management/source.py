@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -31,6 +32,17 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AzureCostManagementSource(ResumableSource[AzureCostManagementSourceConfig, AzureCostManagementResumeConfig]):
+    codebase_detection = detect(
+        env=("^(AZURE_COST_MANAGEMENT|AZURECOSTMANAGEMENT)_",),
+        npm=("@azure/arm-costmanagement",),
+        pypi=("azure-mgmt-costmanagement",),
+        go=("github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/costmanagement/armcostmanagement",),
+        maven=(
+            "com.azure.resourcemanager:azure-resourcemanager-costmanagement",
+            "com.azure.resourcemanager:azure-resourcemanager-consumption",
+        ),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # api-version is a required query param on every Cost Management call; the resolved pin flows
     # through verbatim to `_endpoint_url`. The query/forecast/dimensions wire is identical across
@@ -59,7 +71,7 @@ class AzureCostManagementSource(ResumableSource[AzureCostManagementSourceConfig,
             name=ExternalDataSourceType.AZURECOSTMANAGEMENT,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Microsoft Azure Cost Management",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Pull your daily Azure spend into the PostHog Data warehouse, broken down by service, resource group, and resource.
 
 Register an app in Microsoft Entra ID, create a client secret for it, and give its service principal the `Cost Management Reader` role on the scope you want to sync. Then enter the directory (tenant) ID, the application (client) ID, and the secret value.
@@ -105,6 +117,7 @@ The scope is the Azure Resource Manager path to read cost for, without a leading
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date (historical backfill)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

@@ -1,7 +1,4 @@
-import { Node, NodeKind } from '~/queries/schema/schema-general'
-import { InsightModel } from '~/types'
-
-import { extractValidationErrorCode, getQueryBasedInsightModel } from './utils'
+import { extractValidationErrorCode } from './utils'
 
 describe('extractValidationErrorCode', () => {
     test.each([
@@ -16,51 +13,5 @@ describe('extractValidationErrorCode', () => {
         ['no error', null, null],
     ])('%s', (_name, error, expected) => {
         expect(extractValidationErrorCode(error)).toBe(expected)
-    })
-})
-
-describe('getQueryBasedInsightModel', () => {
-    it.each([
-        [
-            'derives dashboards from dashboard_tiles when the response omits the deprecated field',
-            {
-                dashboard_tiles: [
-                    { id: 10, dashboard_id: 1 },
-                    { id: 11, dashboard_id: 2 },
-                ],
-            },
-            [1, 2],
-        ],
-        [
-            'keeps the server-provided dashboards value when present',
-            { dashboards: [3], dashboard_tiles: [{ id: 10, dashboard_id: 1 }] },
-            [3],
-        ],
-        ['leaves dashboards undefined when neither field is present', {}, undefined],
-        [
-            'derives dashboards from dashboard_tiles when dashboards is null',
-            { dashboards: null, dashboard_tiles: [{ id: 10, dashboard_id: 1 }] },
-            [1],
-        ],
-        [
-            'excludes soft-deleted tiles when deriving dashboards',
-            {
-                dashboard_tiles: [
-                    { id: 10, dashboard_id: 1 },
-                    { id: 11, dashboard_id: 2, deleted: true },
-                ],
-            },
-            [1],
-        ],
-    ])('%s', (_name, input, expected) => {
-        const result = getQueryBasedInsightModel(input as Partial<InsightModel>)
-        expect(result.dashboards).toEqual(expected)
-    })
-
-    it('leaves the rest of the insight untouched', () => {
-        const query = { kind: NodeKind.TrendsQuery } as Node
-        const result = getQueryBasedInsightModel({ id: 7, name: 'Pageviews', query })
-
-        expect(result).toEqual({ id: 7, name: 'Pageviews', query })
     })
 })

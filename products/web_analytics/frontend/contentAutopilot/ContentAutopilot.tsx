@@ -10,14 +10,12 @@ import {
     LemonSelect,
     LemonSkeleton,
     LemonTabs,
-    Spinner,
 } from '@posthog/lemon-ui'
-
-import { pluralize } from 'lib/utils/strings'
 
 import { ContentAutopilotDrafts } from './ContentAutopilotDrafts'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotOpportunities } from './ContentAutopilotOpportunities'
+import { ContentAutopilotPrompts } from './ContentAutopilotPrompts'
 import { ContentAutopilotProposalDetail } from './ContentAutopilotProposalDetail'
 import { ContentAutopilotSetup } from './ContentAutopilotSetup'
 
@@ -26,9 +24,9 @@ export const ContentAutopilot = (): JSX.Element => {
         profile,
         activeRun,
         siteRuns,
-        reviewQueue,
+        draftRows,
         readyDraftCount,
-        failedDraftCount,
+        latestRunErrors,
         workspaceTab,
         onboardingOpen,
         siteProfiles,
@@ -46,7 +44,6 @@ export const ContentAutopilot = (): JSX.Element => {
         useActions(contentAutopilotLogic)
     const loading = siteProfilesLoading || runsLoading || proposalsLoading
     const lastRun = siteRuns[0]
-    const lastRunErrors = lastRun?.run_status === 'failed' ? lastRun.errors.map(({ message }) => message).join(' ') : ''
     const confirmCancelRun = (): void => {
         if (!activeRun) {
             return
@@ -114,48 +111,9 @@ export const ContentAutopilot = (): JSX.Element => {
                         <LemonSkeleton className="h-72 w-full" />
                     ) : (
                         <>
-                            {activeRun ? (
-                                <LemonCard hoverEffect={false} className="p-4 flex items-center justify-between gap-3">
-                                    <div className="flex items-center gap-3">
-                                        <Spinner className="text-xl" />
-                                        <div>
-                                            <h3 className="m-0">Drafting pages</h3>
-                                            <p className="m-0 mt-1 text-muted">
-                                                PostHog is reading your pages and the pages AI assistants cite, then
-                                                writing and checking each draft. This takes a few minutes per page.
-                                            </p>
-                                        </div>
-                                    </div>
-                                    <LemonButton
-                                        type="secondary"
-                                        status="danger"
-                                        onClick={confirmCancelRun}
-                                        loading={runMutationLoading}
-                                    >
-                                        Stop drafting
-                                    </LemonButton>
-                                </LemonCard>
-                            ) : failedDraftCount > 0 ? (
-                                <LemonBanner
-                                    type="error"
-                                    action={
-                                        workspaceTab === 'drafts'
-                                            ? undefined
-                                            : {
-                                                  children: 'View drafts',
-                                                  onClick: () => setWorkspaceTab('drafts'),
-                                                  'data-attr': 'content-autopilot-view-failed-drafts',
-                                              }
-                                    }
-                                >
-                                    {pluralize(failedDraftCount, 'draft')} from the latest run didn't pass. Open a draft
-                                    to see what to fix, or regenerate it.
-                                    {lastRunErrors ? ` ${lastRunErrors}` : null}
-                                </LemonBanner>
-                            ) : lastRun?.run_status === 'failed' ? (
-                                <LemonBanner type="error">
-                                    The latest run failed.{' '}
-                                    {lastRunErrors || 'Select opportunities and draft them again.'}
+                            {latestRunErrors.length > 0 ? (
+                                <LemonBanner type={lastRun?.run_status === 'failed' ? 'error' : 'warning'}>
+                                    {latestRunErrors.join(' ')}
                                 </LemonBanner>
                             ) : null}
 
@@ -163,6 +121,20 @@ export const ContentAutopilot = (): JSX.Element => {
                                 activeKey={workspaceTab}
                                 onChange={setWorkspaceTab}
                                 data-attr="content-autopilot-workspace-tabs"
+                                rightSlot={
+                                    activeRun ? (
+                                        <LemonButton
+                                            type="tertiary"
+                                            status="danger"
+                                            size="small"
+                                            onClick={confirmCancelRun}
+                                            loading={runMutationLoading}
+                                            data-attr="content-autopilot-stop-drafting"
+                                        >
+                                            Stop drafting
+                                        </LemonButton>
+                                    ) : null
+                                }
                                 tabs={[
                                     {
                                         key: 'opportunities',
@@ -173,8 +145,13 @@ export const ContentAutopilot = (): JSX.Element => {
                                         key: 'drafts',
                                         label: readyDraftCount
                                             ? `Drafts (${readyDraftCount} ready to review)`
-                                            : `Drafts (${reviewQueue.length})`,
+                                            : `Drafts (${draftRows.length})`,
                                         content: <ContentAutopilotDrafts />,
+                                    },
+                                    {
+                                        key: 'prompts',
+                                        label: 'Prompts',
+                                        content: <ContentAutopilotPrompts />,
                                     },
                                 ]}
                             />

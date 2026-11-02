@@ -6,6 +6,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
+    route,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vimeo import VimeoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.vimeo.settings import AUTH_ERROR, PERMISSION_ERROR
@@ -84,3 +85,145 @@ def test_resume_cannot_send_token_to_another_origin(resume_url: str) -> None:
     assert isinstance(result.raised, ValueError)
     assert "Refusing to send request" in str(result.raised)
     assert result.requests == []
+
+
+def parent(uri: str, connection: str, link: dict[str, object] | None) -> dict[str, object]:
+    return {"uri": uri, "name": "ignored", "metadata": {"connections": {connection: link} if link else {}}}
+
+
+@pytest.mark.parametrize(
+    "endpoint,parent_path,connection,parent_column,child_query",
+    [
+        ("folder_videos", "/me/projects", "videos", "folder_uri", {"sort": ("date",), "direction": ("asc",)}),
+        ("showcase_videos", "/me/albums", "videos", "showcase_uri", {"sort": ("date",), "direction": ("asc",)}),
+        ("video_comments", "/me/videos", "comments", "video_uri", {"direction": ("asc",)}),
+        ("video_likes", "/me/videos", "likes", "video_uri", {"sort": ("date",), "direction": ("asc",)}),
+    ],
+)
+def test_fanout_skips_empty_parents_and_tags_child_rows(
+    endpoint: str, parent_path: str, connection: str, parent_column: str, child_query: dict[str, tuple[str]]
+) -> None:
+    child_path = f"/parents/7/{connection}"
+    result = driver().run(
+        endpoint,
+        route(
+            {
+                parent_path: [
+                    ScriptedResponse(
+                        json={
+                            "data": [
+                                parent("/parents/5", connection, {"uri": f"/parents/5/{connection}", "total": 0}),
+                                parent("/parents/6", connection, None),
+                                parent("/parents/7", connection, {"uri": child_path, "total": 3}),
+                            ],
+                            "paging": {"next": None},
+                        }
+                    )
+                ],
+                child_path: [
+                    ScriptedResponse(
+                        json={"data": [{"uri": "/child/1"}], "paging": {"next": f"{child_path}?page=2&per_page=100"}}
+                    ),
+                    ScriptedResponse(json={"data": [{"uri": "/child/2"}], "paging": {"next": None}}),
+                ],
+            }
+        ),
+    )
+
+    assert result.raised is None
+    assert result.rows == [
+        {"uri": "/child/1", parent_column: "/parents/7"},
+        {"uri": "/child/2", parent_column: "/parents/7"},
+    ]
+    assert [request.path for request in result.requests] == [parent_path, child_path, child_path]
+    assert result.requests[0].query["fields"] == (
+        f"uri,metadata.connections.{connection}.uri,metadata.connections.{connection}.total",
+    )
+    assert result.requests[1].query == {"page": ("1",), "per_page": ("100",), **child_query}
+    for request in result.requests:
+        assert request.headers["authorization"] == "Bearer test-token"
+
+
+def test_comment_replies_walk_videos_then_comments() -> None:
+    result = driver().run(
+        "video_comment_replies",
+        route(
+            {
+                "/me/videos": [
+                    ScriptedResponse(
+                        json={
+                            "data": [parent("/videos/1", "comments", {"uri": "/videos/1/comments", "total": 2})],
+                            "paging": {"next": None},
+                        }
+                    )
+                ],
+                "/videos/1/comments": [
+                    ScriptedResponse(
+                        json={
+                            "data": [
+                                parent(
+                                    "/videos/1/comments/10",
+                                    "replies",
+                                    {"uri": "/videos/1/comments/10/replies", "total": 0},
+                                ),
+                                parent(
+                                    "/videos/1/comments/11",
+                                    "replies",
+                                    {"uri": "/videos/1/comments/11/replies", "total": 1},
+                                ),
+                            ],
+                            "paging": {"next": None},
+                        }
+                    )
+                ],
+                "/videos/1/comments/11/replies": [
+                    ScriptedResponse(json={"data": [{"uri": "/videos/1/comments/12"}], "paging": {"next": None}})
+                ],
+            }
+        ),
+    )
+
+    assert result.raised is None
+    assert result.rows == [{"uri": "/videos/1/comments/12", "comment_uri": "/videos/1/comments/11"}]
+    assert [request.path for request in result.requests] == [
+        "/me/videos",
+        "/videos/1/comments",
+        "/videos/1/comments/11/replies",
+    ]
+    assert result.requests[1].query["fields"] == (
+        "uri,metadata.connections.replies.uri,metadata.connections.replies.total",
+    )
+
+
+def test_fanout_resumes_after_completed_parents_and_ignores_deleted_parent() -> None:
+    result = driver().run(
+        "video_likes",
+        route(
+            {
+                "/me/videos": [
+                    ScriptedResponse(
+                        json={
+                            "data": [
+                                parent("/videos/1", "likes", {"uri": "/videos/1/likes", "total": 1}),
+                                parent("/videos/2", "likes", {"uri": "/videos/2/likes", "total": 1}),
+                                parent("/videos/3", "likes", {"uri": "/videos/3/likes", "total": 1}),
+                            ],
+                            "paging": {"next": None},
+                        }
+                    )
+                ],
+                "/videos/2/likes": [
+                    ScriptedResponse(status=404, json={"error": "The requested video couldn't be found."})
+                ],
+                "/videos/3/likes": [ScriptedResponse(json={"data": [{"uri": "/users/9"}], "paging": {"next": None}})],
+            }
+        ),
+        resume_state=VimeoResumeConfig(completed=["/videos/1/likes"]),
+    )
+
+    assert result.raised is None
+    assert result.rows == [{"uri": "/users/9", "video_uri": "/videos/3"}]
+    assert [request.path for request in result.requests] == ["/me/videos", "/videos/2/likes", "/videos/3/likes"]
+    assert result.saved_states[-1] == VimeoResumeConfig(
+        completed=["/videos/1/likes", "/videos/2/likes", "/videos/3/likes"]
+    )

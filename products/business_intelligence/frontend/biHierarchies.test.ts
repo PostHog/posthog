@@ -10,7 +10,7 @@ import {
     getBIResultDimensions,
     parseBIEditorState,
 } from './biEditorTypes'
-import { getBIHierarchyDrills, hierarchyError } from './biHierarchies'
+import { getBIHierarchyDrills, getBIHierarchyParent, hierarchyError } from './biHierarchies'
 
 const field = (name: string): BIField => ({
     id: name,
@@ -120,4 +120,52 @@ it('rejects invalid definitions and malformed persisted levels', () => {
             hierarchies: [{ ...geography, levels: [null, field('state')] }],
         })
     ).toBeNull()
+})
+
+it('reverses successive drills without dropping original or newly added user filters and keeps formatting', () => {
+    const market = field('market')
+    const initial = worksheet({
+        ...config,
+        filters: [{ field: market, operator: 'equals', value: 'retail' }],
+        rowFilterGroup: { operator: 'OR', filters: ['market'], groups: [] },
+    })
+    initial.chartSettings = {
+        ...initial.chartSettings,
+        legendPosition: 'bottom',
+        leftYAxisSettings: { label: 'Orders', showGridLines: false },
+    }
+    const [state] = getBIHierarchyDrills(
+        initial,
+        getBIDrillSelection(initial.config, { 'properties.country': 'Example' })
+    )
+    const [city] = getBIHierarchyDrills(
+        state.worksheet,
+        getBIDrillSelection(state.worksheet.config, { 'properties.state': null })
+    )
+    const changed = {
+        ...city.worksheet,
+        config: {
+            ...city.worksheet.config,
+            filters: [
+                ...city.worksheet.config.filters,
+                { field: field('channel'), operator: 'equals' as const, value: 'direct' },
+            ],
+        },
+    }
+    const parent = getBIHierarchyParent(changed)!
+    expect(parent.config.rows[0].name).toBe('state')
+    expect(parent.source.query).toContain("properties.country = 'Example'")
+    expect(parent.source.query).not.toContain('properties.state IS NULL')
+    expect(parent.source.query).toContain("properties.channel = 'direct'")
+    expect(parent.chartSettings?.leftYAxisSettings).toMatchObject({ label: 'Orders', showGridLines: false })
+    const root = getBIHierarchyParent(parent)!
+    expect(root.config.rows[0].name).toBe('country')
+    expect(root.source.query).not.toContain("properties.country = 'Example'")
+    expect(root.source.query).toContain("properties.market = 'retail'")
+    expect(root.source.query).toContain("properties.channel = 'direct'")
+    expect(getBIHierarchyParent(root)).toBeNull()
+    expect(getBIHierarchyParent({ ...parent, config: { ...parent.config, rows: [field('unrelated')] } })).toBeNull()
+    expect(parseBIEditorState(BIEditorView.BI, JSON.stringify(parent.config))?.config.hierarchyDrillPath).toEqual(
+        parent.config.hierarchyDrillPath
+    )
 })

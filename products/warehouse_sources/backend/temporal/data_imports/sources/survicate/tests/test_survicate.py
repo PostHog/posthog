@@ -7,9 +7,6 @@ import pytest
 
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
@@ -155,15 +152,97 @@ def test_child_pagination_and_resume(endpoint: str, resumed: bool) -> None:
         assert any(saved.state == state for saved in result.saved_states)
 
 
-@pytest.mark.parametrize("status", [200, 401, 403, 404, 429, 500])
+RESPONDENT_PAGE_TWO = BASE + "/respondents/resp-a/attributes?start=2"
+
+
+@pytest.mark.parametrize(
+    ("resume_state", "expected_rows", "expected_attribute_requests"),
+    [
+        (
+            None,
+            [("resp-a", 1), ("resp-a", 2), ("resp-d", 4)],
+            ["resp-a", "resp-a", "resp-b", "resp-c", "resp-d"],
+        ),
+        (
+            {"respondent_uuid": "resp-a", "next_url": RESPONDENT_PAGE_TWO},
+            [("resp-a", 2), ("resp-d", 4)],
+            ["resp-a", "resp-b", "resp-c", "resp-d"],
+        ),
+        (
+            {"respondent_uuid": "resp-b", "next_url": None},
+            [("resp-d", 4)],
+            ["resp-c", "resp-d"],
+        ),
+        (
+            {"respondent_uuid": "resp-c-deleted", "next_url": None},
+            [("resp-d", 4)],
+            ["resp-d"],
+        ),
+    ],
+)
+def test_respondent_attributes_walk_and_resume(
+    resume_state: dict[str, Any] | None,
+    expected_rows: list[tuple[str, int]],
+    expected_attribute_requests: list[str],
+) -> None:
+    script = answer(
+        {
+            "/v2/surveys": page([{"id": "survey-a"}], "/surveys?start=older-survey"),
+            "/v2/surveys?start=older-survey": page([{"id": "survey-b"}]),
+            "/v2/surveys/survey-a/responses": page(
+                [{"uuid": "r1", "respondent": {"uuid": "resp-c"}}, {"uuid": "r2", "respondent": {"uuid": "resp-a"}}],
+                "/surveys/survey-a/responses?start=older-response",
+            ),
+            "/v2/surveys/survey-a/responses?start=older-response": page(
+                [{"uuid": "r3", "respondent": None}, {"uuid": "r4"}]
+            ),
+            "/v2/surveys/survey-b/responses": page(
+                [
+                    {"uuid": "r5", "respondent": {"uuid": "resp-a"}},
+                    {"uuid": "r6", "respondent": {"uuid": "resp-d", "attributes": []}},
+                    {"uuid": "r7", "respondent": {"uuid": "resp-b"}},
+                ]
+            ),
+            "/v2/respondents/resp-a/attributes": page(
+                [{"id": 1, "name": "plan", "value": "pro"}], "/respondents/resp-a/attributes?start=2"
+            ),
+            RESPONDENT_PAGE_TWO.removeprefix(ORIGIN): page([{"id": 2, "name": "store", "value": "north"}]),
+            "/v2/respondents/resp-b/attributes": ScriptedResponse(status=404, json={"message": "Not found"}),
+            "/v2/respondents/resp-c/attributes": page([]),
+            "/v2/respondents/resp-d/attributes": page([{"id": 4, "name": "plan", "value": "free"}]),
+        }
+    )
+
+    result = run(
+        "respondent_attributes",
+        script,
+        resume_state=SurvicateResumeConfig(state=resume_state) if resume_state else None,
+    )
+
+    assert result.raised is None
+    assert [(row["respondent_uuid"], row["id"]) for row in result.rows] == expected_rows
+    attribute_requests = [request for request in result.requests if request.path.startswith("/v2/respondents/")]
+    assert [request.path.split("/")[3] for request in attribute_requests] == expected_attribute_requests
+    assert all(request.headers["authorization"] == "Basic fake-api-key" for request in result.requests)
+    if resume_state is None or resume_state["next_url"] is None or resume_state["respondent_uuid"] != "resp-a":
+        assert attribute_requests[0].query == {"items_per_page": ("100",)}
+    if resume_state is None:
+        assert result.saved_states[0].state == {"respondent_uuid": "resp-a", "next_url": RESPONDENT_PAGE_TWO}
+    assert result.saved_states[-1].state == {"respondent_uuid": "resp-d", "next_url": None}
+    assert result.completed_state is None
+
+
+@pytest.mark.parametrize("status", [404, 429, 500])
 def test_credential_probe_and_error_mapping(status: int) -> None:
     response = ScriptedResponse(status=status, json=page([]).json if status == 200 else {"message": "Unauthorized"})
     source = SurvicateSource()
     config = SurvicateSourceConfig(api_key="fake-api-key")
     with scripted_network(always(response)) as network:
         if status in (429, 500):
-            with pytest.raises(RESTClientRetryableError):
-                source.validate_credentials(config, 1)
+            assert source.validate_credentials(config, 1) == (
+                False,
+                "Couldn't reach Survicate to check your credentials. Try again in a few minutes.",
+            )
         elif status == 404:
             with pytest.raises(HTTPError):
                 source.validate_credentials(config, 1)

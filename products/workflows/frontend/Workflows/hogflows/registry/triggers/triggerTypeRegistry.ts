@@ -18,6 +18,15 @@ export type TriggerFrequencyOption = {
     fixedTtl?: number
 }
 
+const MASKING_HASH_PER_PERSON_PER_DAY = "{concat(toString(person.id), '-', formatDateTime(now(), '%Y-%m-%d'))}"
+const CALENDAR_DAY_TTL = 24 * 60 * 60
+
+export const PERSON_FREQUENCY_OPTIONS: TriggerFrequencyOption[] = [
+    { value: null, label: 'Every time the trigger fires' },
+    { value: '{person.id}', label: 'One time' },
+    { value: MASKING_HASH_PER_PERSON_PER_DAY, label: 'Once per calendar day', fixedTtl: CALENDAR_DAY_TTL },
+]
+
 export type TriggerTypeDefinition = {
     value: string
     label: string
@@ -42,6 +51,8 @@ export type TriggerTypeDefinition = {
     frequencyOptions?: TriggerFrequencyOption[]
     /** Copy under the "Frequency" heading; defaults to the generic person-centric wording */
     frequencyDescription?: string
+    /** Show the exit condition section. Only for triggers the executor re-checks before each step. */
+    showExitConditions?: boolean
 }
 
 const triggerTypeDefinitions: TriggerTypeDefinition[] = []

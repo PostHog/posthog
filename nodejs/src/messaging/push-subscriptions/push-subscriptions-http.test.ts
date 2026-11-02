@@ -215,6 +215,20 @@ describe('push subscriptions http', () => {
         })
     })
 
+    it('sends the headers the service set', async () => {
+        answer = {
+            status: 429,
+            body: { type: 'throttled_error', code: 'capture_billing_limited', detail: 'Failed.', attr: null },
+            headers: { 'Retry-After': '3600' },
+        }
+
+        const response = await post('/api/push_subscriptions/', { body: '{}' })
+
+        expect(response.status).toEqual(429)
+        expect(response.headers['retry-after']).toEqual('3600')
+        expect(response.headers['content-type']).toEqual('application/json')
+    })
+
     it('counts a request the service throws on as a 500', async () => {
         const failedRequests = async (): Promise<number> => {
             const metric = await register.getSingleMetric('push_subscription_request_duration_seconds')!.get()

@@ -22,8 +22,12 @@ use crate::{
     api::{errors::FlagError, types::FlagsResponse},
     flags::{flag_matching::EvaluationType, flag_service::FlagService},
     handler::phases::{Phase, PhaseGuard},
-    metrics::consts::{FLAG_REQUESTS_COUNTER, FLAG_REQUESTS_LATENCY, FLAG_REQUEST_FAULTS_COUNTER},
+    metrics::consts::{
+        FLAG_REQUESTS_COUNTER, FLAG_REQUESTS_LATENCY, FLAG_REQUEST_BLOCKED_COUNTER,
+        FLAG_REQUEST_FAULTS_COUNTER,
+    },
     team::team_models::Team,
+    utils::forwarded_for,
 };
 use std::collections::HashMap;
 use tracing::{debug, instrument};
@@ -196,6 +200,32 @@ async fn process_request_inner(
 
         tracing::debug!("Team fetched: team_id={}", team.id);
 
+        // Compute auth status once to avoid repeated header parsing and allocation.
+        let is_internal = authentication::is_internal_request(&context);
+
+        // Before billing, so a blocked caller never counts toward the team's flags usage.
+        // Internal requests skip the check. Django calls from a private pod IP without an
+        // `Origin`, so a team that blocks a private range would see every flag off in its own
+        // PostHog app.
+        // `context.ip` is the leftmost `X-Forwarded-For` entry, which the caller controls.
+        let block_reason = if is_internal {
+            None
+        } else {
+            team.request_block_reason(
+                context.origin_host.as_deref(),
+                forwarded_for::addresses(&context.headers).chain(std::iter::once(context.ip)),
+            )
+        };
+        if let Some(reason) = block_reason {
+            with_canonical_log(|log| log.request_blocked_by = Some(reason));
+            inc(
+                FLAG_REQUEST_BLOCKED_COUNTER,
+                &[("reason".to_string(), reason.as_str().to_string())],
+                1,
+            );
+            return Ok(FlagsResponse::minimal(context.request_id));
+        }
+
         // Early exit if flags are disabled
         let flags_response = if request.is_flags_disabled() {
             with_canonical_log(|log| log.flags_disabled = true);
@@ -228,9 +258,6 @@ async fn process_request_inner(
 
                 tracing::debug!("Distinct ID resolved: {}", distinct_id);
 
-                // Compute auth status once to avoid repeated header parsing and allocation.
-                let is_internal = authentication::is_internal_request(&context);
-
                 let override_defs = if is_internal {
                     request.override_flags_definitions.as_ref()
                 } else {
@@ -253,8 +280,7 @@ async fn process_request_inner(
 
                 tracing::debug!("Flags filtered: {} flags found", filtered_flags.flags.len());
 
-                let property_overrides =
-                    properties::prepare_overrides(&context, &request, team.id)?;
+                let property_overrides = properties::prepare_overrides(&context, &request)?;
 
                 // Evaluate flags (this will return empty if is_flags_disabled is true)
                 let response = {
@@ -274,6 +300,7 @@ async fn process_request_inner(
                         property_overrides.groups,
                         property_overrides.hash_key,
                         context.request_id,
+                        context.request_entered_at,
                         request.is_flags_disabled(),
                         request.flag_keys.clone(),
                         Some(is_internal && context.meta.detailed_analysis.unwrap_or(false)),

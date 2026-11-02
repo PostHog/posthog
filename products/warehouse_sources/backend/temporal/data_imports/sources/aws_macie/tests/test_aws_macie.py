@@ -179,6 +179,7 @@ def test_findings_filter_and_hydration(config: AwsMacieSourceConfig, session: Mo
         ("buckets", "buckets", {"bucketArn": "arn:aws:s3:::example-bucket", "bucketCreatedAt": "2025-01-01T00:00:00Z"}),
         ("classification_jobs", "items", {"jobId": "job-1", "createdAt": "2025-01-01T00:00:00Z"}),
         ("members", "members", {"accountId": "111111111111", "updatedAt": "2025-01-01T00:00:00Z"}),
+        ("usage_statistics", "records", {"accountId": "111111111111", "freeTrialStartDate": "2025-01-01T00:00:00Z"}),
     ],
 )
 @pytest.mark.parametrize("terminal_token", [None, ""])
@@ -208,8 +209,102 @@ def test_empty_page_continues_to_terminal_page(
             "nextToken": ("page-two",),
             "onlyAssociated": ("false",),
         }
+    elif endpoint == "usage_statistics":
+        assert result.requests[1].json() == {
+            "maxResults": 25,
+            "nextToken": "page-two",
+            "timeRange": "MONTH_TO_DATE",
+            "sortBy": {"key": "accountId", "orderBy": "ASC"},
+        }
     else:
         assert result.requests[1].json() == {"maxResults": 50, "nextToken": "page-two"}
+
+
+BUCKET_A = "arn:aws:s3:::bucket-a"
+BUCKET_B = "arn:aws:s3:::bucket-b"
+BUCKET_C = "arn:aws:s3:::bucket-c"
+NOT_FOUND = ScriptedResponse(
+    json={"message": "Resource not found."},
+    status=404,
+    headers={"x-amzn-ErrorType": "ResourceNotFoundException:http://example.com"},
+)
+
+
+def test_bucket_fan_out_walks_buckets_and_child_pages(driver: SourceDriver) -> None:
+    result = driver.run(
+        "resource_profile_detections",
+        [
+            ScriptedResponse(json={"buckets": [{"bucketArn": BUCKET_A}, {"bucketArn": BUCKET_B}], "nextToken": "b2"}),
+            ScriptedResponse(json={"detections": [{"id": "CREDIT_CARD_NUMBER", "count": 3}], "nextToken": "d2"}),
+            ScriptedResponse(json={"detections": [{"id": "AWS_CREDENTIALS", "count": 1}]}),
+            NOT_FOUND,
+            ScriptedResponse(json={"buckets": [{"bucketArn": BUCKET_C}]}),
+            ScriptedResponse(json={"detections": [{"id": "CREDIT_CARD_NUMBER", "count": 7}]}),
+        ],
+    )
+    assert result.raised is None
+    assert [(row["bucket_arn"], row["id"], row["count"]) for row in result.rows] == [
+        (BUCKET_A, "CREDIT_CARD_NUMBER", 3),
+        (BUCKET_A, "AWS_CREDENTIALS", 1),
+        (BUCKET_C, "CREDIT_CARD_NUMBER", 7),
+    ]
+    assert [request.path for request in result.requests] == [
+        "/datasources/s3",
+        "/resource-profiles/detections",
+        "/resource-profiles/detections",
+        "/resource-profiles/detections",
+        "/datasources/s3",
+        "/resource-profiles/detections",
+    ]
+    assert result.requests[0].json() == {
+        "maxResults": 50,
+        "sortCriteria": {"attributeName": "bucketName", "orderBy": "ASC"},
+    }
+    assert result.requests[2].query == {"resourceArn": (BUCKET_A,), "maxResults": ("25",), "nextToken": ("d2",)}
+    assert result.requests[3].query == {"resourceArn": (BUCKET_B,), "maxResults": ("25",)}
+    assert result.requests[4].json()["nextToken"] == "b2"
+    assert [
+        (tuple(state.bucket_arns), state.bucket_offset, state.bucket_page_token, state.next_token, state.completed)
+        for state in result.saved_states
+    ] == [
+        ((), 0, None, None, False),
+        ((BUCKET_A, BUCKET_B), 0, "b2", "d2", False),
+        ((BUCKET_A, BUCKET_B), 1, "b2", None, False),
+        ((), 0, "b2", None, False),
+        ((), 0, "b2", None, False),
+        ((), 0, None, None, True),
+        ((), 0, None, None, True),
+    ]
+    assert result.final_state is not None and result.final_state.completed
+
+
+@pytest.mark.parametrize(
+    "endpoint,body,expected",
+    [
+        (
+            "resource_profiles",
+            {"profileUpdatedAt": "2025-01-01T00:00:00Z", "statistics": {"totalItemsSkipped": 2}},
+            {"profile_updated_at": dt.datetime(2025, 1, 1, tzinfo=dt.UTC), "statistics": {"totalItemsSkipped": 2}},
+        ),
+        (
+            "resource_profile_artifacts",
+            {"artifacts": [{"arn": f"{BUCKET_B}/key.csv", "classificationResultStatus": "SKIPPED"}]},
+            {"arn": f"{BUCKET_B}/key.csv", "classification_result_status": "SKIPPED"},
+        ),
+    ],
+)
+def test_bucket_fan_out_resumes_from_saved_bucket_page(
+    driver: SourceDriver, endpoint: str, body: dict[str, Any], expected: dict[str, Any]
+) -> None:
+    result = driver.run(
+        endpoint,
+        [ScriptedResponse(json=body)],
+        resume_state=AwsMacieResumeConfig(bucket_arns=(BUCKET_A, BUCKET_B), bucket_offset=1),
+    )
+    assert result.raised is None
+    assert [request.query for request in result.requests] == [{"resourceArn": (BUCKET_B,)}]
+    assert result.rows == [{**expected, "bucket_arn": BUCKET_B, "region": "eu-west-1"}]
+    assert result.final_state is not None and result.final_state.completed
 
 
 def test_resume_preserves_original_filter(driver: SourceDriver) -> None:
@@ -289,6 +384,30 @@ def test_access_denied_at_create_and_table_selection(
     assert len(network.requests_log) == 1
 
 
+@pytest.mark.parametrize(
+    "schema_name,child,expected",
+    [
+        ("resource_profile_artifacts", NOT_FOUND, True),
+        (
+            "resource_profiles",
+            ScriptedResponse(
+                json={"message": "Not authorized"},
+                status=403,
+                headers={"x-amzn-ErrorType": "AccessDeniedException"},
+            ),
+            False,
+        ),
+    ],
+)
+def test_bucket_profile_permission_probe(
+    config: AwsMacieSourceConfig, schema_name: str, child: ScriptedResponse, expected: bool
+) -> None:
+    with scripted_network([ScriptedResponse(json={"buckets": [{"bucketArn": BUCKET_A}]}), child]) as network:
+        valid, _ = validate_credentials(config, schema_name)
+    assert valid is expected
+    assert network.requests_log[1].query == {"resourceArn": (BUCKET_A,)}
+
+
 def test_findings_permission_probe_reads_details(config: AwsMacieSourceConfig) -> None:
     with scripted_network(
         [
@@ -305,12 +424,14 @@ def test_findings_permission_probe_reads_details(config: AwsMacieSourceConfig) -
 
 
 @pytest.mark.parametrize("status,code", [(429, "ThrottlingException"), (500, "InternalServerException")])
-def test_transient_errors_propagate(config: AwsMacieSourceConfig, status: int, code: str) -> None:
+def test_transient_errors_report_an_unreachable_vendor(config: AwsMacieSourceConfig, status: int, code: str) -> None:
     with scripted_network(
         always(ScriptedResponse(json={"message": "Try again."}, status=status, headers={"x-amzn-ErrorType": code}))
     ) as network:
-        with pytest.raises(AwsMacieError, match=code):
-            validate_credentials(config)
+        assert validate_credentials(config) == (
+            False,
+            "Couldn't reach AWS Macie to check your credentials. Try again in a few minutes.",
+        )
     assert all(request.path == "/findings" for request in network.requests_log)
     assert not any(pattern.lower() in code.lower() for pattern in AwsMacieSource().get_non_retryable_errors())
 

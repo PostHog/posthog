@@ -3,6 +3,7 @@ import datetime
 from collections.abc import Generator, Iterator
 from contextlib import contextmanager
 from decimal import Decimal
+from pathlib import Path
 from typing import cast
 
 import pytest
@@ -27,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ValidatedRowFilter,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.tests.resolver import addrinfo
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import CERTIFICATE_ERRORS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql import (
@@ -59,7 +61,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysq
     _is_transient_tiproxy_unavailable,
     _is_transient_too_many_connections,
     _is_transient_vitess_dial_timeout,
+    _is_transient_vitess_no_endpoints,
     _is_transient_vitess_reparent,
+    _pinned_addresses,
     _reconnect_pinned,
     _release_streaming_cursor,
     _retry_on_transient_tablet_unavailable,
@@ -938,8 +942,10 @@ class TestKeysetReadPath:
         return mock_connect, cursor, plan_check
 
     @staticmethod
-    def _keyset_source(manager):
-        source = MySQLImplementation().build_pipeline(_make_config(), _make_inputs(), resumable_source_manager=manager)
+    def _keyset_source(manager, **inputs):
+        source = MySQLImplementation().build_pipeline(
+            _make_config(), _make_inputs(**inputs), resumable_source_manager=manager
+        )
         assert source.supports_resume is True
         return source
 
@@ -996,6 +1002,14 @@ class TestKeysetReadPath:
         assert manager.save_state.call_count == 1
         manager.clear_state.assert_not_called()
 
+    def test_a_worker_death_halves_the_pages(self, keyset_mocks):
+        _, cursor, _ = keyset_mocks
+        cursor.fetchall.side_effect = [[(1,)], []]
+
+        list(cast(Generator, self._keyset_source(self._fake_manager(), worker_deaths=1).items()))
+
+        assert "LIMIT 1" in cursor.execute.call_args_list[0].args[0]
+
     def test_resumes_from_the_persisted_checkpoint(self, keyset_mocks):
         manager = self._fake_manager()
         manager.can_resume.return_value = True
@@ -1021,6 +1035,33 @@ class TestKeysetReadPath:
         )
 
         assert source.supports_resume is False
+
+    @pytest.mark.parametrize(
+        "incremental,has_manager,expected_ascending,expected_resume",
+        [
+            pytest.param(True, False, True, False, id="incremental_streaming"),
+            pytest.param(True, True, True, False, id="incremental_streaming_with_manager"),
+            pytest.param(False, False, False, False, id="full_refresh_streaming"),
+            pytest.param(False, True, False, True, id="full_refresh_keyset"),
+        ],
+    )
+    def test_only_the_incremental_streaming_read_claims_ascending_order(
+        self, keyset_mocks, incremental: bool, has_manager: bool, expected_ascending: bool, expected_resume: bool
+    ):
+        inputs = _make_inputs(
+            should_use_incremental_field=incremental,
+            incremental_field="id" if incremental else None,
+            incremental_field_type=IncrementalFieldType.Integer if incremental else None,
+        )
+
+        source = MySQLImplementation().build_pipeline(
+            _make_config(), inputs, resumable_source_manager=self._fake_manager() if has_manager else None
+        )
+
+        assert (source.sort_mode, source.supports_resume) == (
+            "asc" if expected_ascending else None,
+            expected_resume,
+        )
 
 
 class TestBuildPipelineSourceLocation:
@@ -1616,6 +1657,39 @@ class TestIsTransientVitessDialTimeout:
 
     def test_does_not_match_non_operational_error(self):
         assert not _is_transient_vitess_dial_timeout(ValueError("dial tcp 10.0.0.1: connection timed out"))
+
+
+class TestIsTransientVitessNoEndpoints:
+    @pytest.mark.parametrize(
+        "message",
+        [
+            # The shape a Vitess/PlanetScale vtgate surfaces when it has zero serving tablet
+            # endpoints for the target — the attempt count and reqid both vary, the stable signal
+            # is the "vtgate connection error: no endpoints" phrase.
+            "unavailable: vtgate connection error: no endpoints, after 1 attempts, reqid=csYTzBMNB2hB8111yzcg4A",
+            "unavailable: vtgate connection error: no endpoints",
+        ],
+    )
+    def test_matches_no_endpoints(self, message):
+        assert _is_transient_vitess_no_endpoints(pymysql.err.OperationalError(1105, message))
+
+    @pytest.mark.parametrize(
+        "code,message",
+        [
+            # A different 1105 payload must not be absorbed by this predicate.
+            (1105, "unknown: target: keyspace.-.primary: code = Unavailable"),
+            (2003, "Can't connect to MySQL server on 'db.example.com' (timed out)"),
+            (1045, "Access denied for user"),
+        ],
+    )
+    def test_does_not_match_other_errors(self, code, message):
+        assert not _is_transient_vitess_no_endpoints(pymysql.err.OperationalError(code, message))
+
+    def test_does_not_match_error_without_args(self):
+        assert not _is_transient_vitess_no_endpoints(pymysql.err.OperationalError())
+
+    def test_does_not_match_non_operational_error(self):
+        assert not _is_transient_vitess_no_endpoints(ValueError("vtgate connection error: no endpoints"))
 
 
 class TestIsTransientTooManyConnections:
@@ -2220,6 +2294,7 @@ class TestBuildQueryForceIndex:
             db_incremental_field_last_value="2025-01-01",
         )
         assert "FORCE INDEX" not in query
+        assert query.endswith("ORDER BY `created_at` ASC")
 
     def test_force_index_hint_added_when_provided(self):
         query, _ = _build_query(
@@ -2234,6 +2309,7 @@ class TestBuildQueryForceIndex:
         assert "FORCE INDEX (`idx_created_at`)" in query
         # Hint goes between the table and the WHERE clause
         assert query.index("FORCE INDEX") < query.index("WHERE")
+        assert query.endswith("ORDER BY `created_at` ASC")
 
     def test_force_index_hint_applied_for_non_incremental_query_too(self):
         # Full refresh mode — the hint still attaches so callers can force a
@@ -2372,23 +2448,40 @@ class TestMySQLSourceNonRetryableErrors:
         return MySQLSource()
 
     @pytest.mark.parametrize(
-        "error_msg",
+        "error_msg, stops_the_sync",
         [
-            "(2003, \"Can't connect to MySQL server on 'db.example.com' (timed out)\")",
-            "(2003, \"Can't connect to MySQL server on 'db.example.com' ([Errno 111] Connection refused)\")",
+            ("(2003, \"Can't connect to MySQL server on 'db.example.com' (timed out)\")", False),
+            ("(2003, \"Can't connect to MySQL server on 'db.example.com' ([Errno 110] Connection timed out)\")", False),
+            (
+                "(2003, \"Can't connect to MySQL server on 'db.example.com' ([Errno 104] Connection reset by peer)\")",
+                False,
+            ),
+            ("(2003, \"Can't connect to MySQL server on 'db.example.com' ([Errno 111] Connection refused)\")", True),
+            ("(2003, \"Can't connect to MySQL server on 'db.example.com' ([Errno 113] No route to host)\")", True),
+            (
+                "(2003, \"Can't connect to MySQL server on 'nope.example.com' ([Errno -2] Name or service not known)\")",
+                True,
+            ),
         ],
     )
-    def test_cannot_connect_surfaces_actionable_message(self, source, error_msg):
-        # A persistent connect failure is non-retryable, but the customer must get reachability
-        # guidance rather than the raw pymysql (2003, ...) tuple. Guards against reverting the
-        # umbrella message back to None.
-        non_retryable = source.get_non_retryable_errors()
+    def test_cannot_connect_surfaces_actionable_message(self, source, error_msg, stops_the_sync):
+        # A refused port or an unknown host stays wrong on every attempt, so it stops the sync. A
+        # timeout or reset often clears by the next run, so it stays retryable. Both must replace
+        # pymysql's raw (2003, ...) tuple, which repeats the customer's host.
+        non_retryable = {**Any_Source_Errors, **source.get_non_retryable_errors()}
+        assert error_message_matches(error_msg, non_retryable) is stops_the_sync
+        if stops_the_sync:
+            messages = source.get_non_retryable_errors()
+        else:
+            assert error_message_matches(error_msg, source.get_retryable_errors())
+            messages = source.get_retry_exhausted_errors()
         friendly = next(
-            (message for pattern, message in non_retryable.items() if pattern in error_msg),
+            (message for pattern, message in messages.items() if error_message_matches(error_msg, [pattern])),
             None,
         )
         assert friendly is not None, f"Connect failure should surface a friendly message: {error_msg}"
         assert "SSH tunnel" in friendly
+        assert "example.com" not in friendly
 
     def test_tidb_cloud_access_denied_surfaces_actionable_message(self, source):
         # TiDB Cloud's ER_ACCESS_DENIED_ERROR wording doesn't contain the standard MySQL
@@ -2949,6 +3042,24 @@ class TestMySQLSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            "OperationalError: (1105, 'unavailable: vtgate connection error: no endpoints, "
+            "after 1 attempts, reqid=csYTzBMNB2hB8111yzcg4A')",
+            "vtgate connection error: no endpoints",
+        ],
+    )
+    def test_vitess_no_endpoints_is_classified_retryable(self, source, error_msg):
+        # Both `_connect_with_transient_retry` and `_retry_on_transient_tablet_unavailable`
+        # already retry this in-process (see `_is_transient_vitess_no_endpoints` in mysql.py);
+        # once exhausted it re-raises for Temporal to retry the whole activity. Without this
+        # classification `_handle_import_error` logs it at `exception` on every occurrence,
+        # flooding error tracking with a self-recovering Vitess/PlanetScale failover.
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Vitess no-endpoints error should be classified retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             "(1105, 'unknown: target: v2.-.replica: vttablet: rpc error: code = Canceled "
             "desc = grpc: the client connection is closing')",
             "grpc: the client connection is closing",
@@ -3006,6 +3117,15 @@ class TestMySQLSourceValidateCredentials:
                     2003, "Can't connect to MySQL server on 'db.example.com' ([Errno 101] Network is unreachable)"
                 ),
                 "Could not reach the host. Check the host is correct and that PostHog's IP addresses are allowed through your firewall.",
+            ),
+            # pymysql wraps the TLS failure in the generic 2003 error, so it must not get the firewall advice.
+            (
+                pymysql.err.OperationalError(
+                    2003,
+                    "Can't connect to MySQL server on 'db.example.com' ([SSL: CERTIFICATE_VERIFY_FAILED] "
+                    "certificate verify failed: unable to get local issuer certificate (_ssl.c:1032))",
+                ),
+                CERTIFICATE_ERRORS["certificate verify failed"],
             ),
             # Server error 1049: the host/port/credentials are fine but the named database
             # doesn't exist. Previously fell through to capture as an unexpected error.
@@ -3306,6 +3426,33 @@ class TestConnectCertificateVerification:
         assert kwargs["ssl_verify_identity"] is expected_identity
         assert refuses_plaintext is (expected_cert is True)
 
+    def test_custom_authority_and_client_certificate_reach_pymysql(self, mocker):
+        seen: dict[str, str] = {}
+
+        def read_files(**kwargs):
+            seen.update({name: Path(kwargs[name]).read_text() for name in ("ssl_ca", "ssl_cert", "ssl_key")})
+            seen["verify"] = kwargs["ssl_verify_cert"]
+            return MagicMock()
+
+        mocker.patch(f"{_MYSQL_MODULE}._TLSRequiredConnection", side_effect=read_files)
+        config = _make_config(
+            using_ssl="false", ca_certificate="CA PEM", client_certificate="CERT PEM", client_key="KEY PEM"
+        )
+
+        with MySQLImplementation().connect(config):
+            pass
+
+        assert seen == {"ssl_ca": "CA PEM", "ssl_cert": "CERT PEM", "ssl_key": "KEY PEM", "verify": True}
+
+    def test_client_certificate_without_verification_still_refuses_plaintext(self, mocker):
+        plain = mocker.patch(f"{_MYSQL_MODULE}._SourceConnection", return_value=MagicMock())
+        refusing = mocker.patch(f"{_MYSQL_MODULE}._TLSRequiredConnection", return_value=MagicMock())
+
+        with MySQLImplementation().connect(_make_config(client_certificate="CERT PEM", client_key="KEY PEM")):
+            pass
+
+        assert refusing.called and not plain.called
+
     @pytest.mark.parametrize("capabilities,refused", [(0, True), (CLIENT.SSL, False)])
     def test_authentication_against_a_server_that_advertises_tls_or_not(self, mocker, capabilities, refused):
         # The credentials go out during `_request_authentication`, and every reconnect runs it
@@ -3325,3 +3472,22 @@ class TestConnectCertificateVerification:
         else:
             connection._request_authentication()
             delegate.assert_called_once()
+
+
+class TestOOBDomainDetection:
+    def test_the_pinned_path_logs_before_it_resolves(self, mocker):
+        mysql_module = "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql"
+        mixins_module = "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins"
+        mocker.patch(f"{mixins_module}.is_cloud", return_value=True)
+        mocker.patch(f"{mysql_module}.host_lookup_is_skipped", return_value=False)
+        mocker.patch(
+            f"{mysql_module}.resolve_psycopg_hostaddr_with_timeout",
+            side_effect=AssertionError("resolved before the detection log"),
+        )
+        log_host_check = mocker.patch(f"{mixins_module}._log_host_check")
+
+        with pytest.raises(AssertionError):
+            _pinned_addresses("abc.oast.live", 3306, 5, 2)
+
+        stages = [call.args[3] for call in log_host_check.call_args_list]
+        assert "oob_domain" in stages

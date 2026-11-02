@@ -167,7 +167,7 @@ export interface DataCatalogMetricApi {
      */
     display_name?: string
     /**
-     * What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'.
+     * What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put the query's design decisions in 'reasoning'.
      * @maxLength 300
      */
     description: string
@@ -177,10 +177,10 @@ export interface DataCatalogMetricApi {
      */
     unit?: string
     /**
-     * Email of the human accountable for this metric, or null.
+     * Email of the human accountable for this metric, or null. Set it to the email of a member of this organization to reassign the metric, or to null to clear it. Changing the owner keeps the metric's approval.
      * @nullable
      */
-    readonly owner: string | null
+    owner?: string | null
     /**
      * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
      * @nullable
@@ -229,7 +229,7 @@ export interface DataCatalogMetricApi {
      * @nullable
      */
     confidence?: number | null
-    /** AI author's reasoning, surfaced as review context. */
+    /** Why the definition is shaped this way, in 1-3 short sentences. Name the main design decisions and trade-offs: the source table or view, a filter or exclusion, the grain, an approximation. Leave out the use case, who asked, run results, validation figures, and edit history. */
     reasoning?: string
     /** User who first created this metric. */
     readonly created_by: UserBasicApi
@@ -245,6 +245,136 @@ export interface PaginatedDataCatalogMetricListApi {
     /** @nullable */
     previous?: string | null
     results: DataCatalogMetricApi[]
+}
+
+/**
+ * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
+ * @nullable
+ */
+export type DataCatalogMetricCreateApiDefinition = { [key: string]: unknown } | null
+
+/**
+ * Create input. ``overwrite`` exists only here, because PATCH addresses an existing metric by its URL name.
+ */
+export interface DataCatalogMetricCreateApi {
+    readonly id: string
+    /**
+     * Identifier-safe run handle, unique among the team's live metrics. Renaming or deleting a metric frees its name for reuse, and anything referencing the old name (SQL over information_schema.metrics, run URLs, links) stops resolving.
+     * @maxLength 128
+     * @pattern ^[A-Za-z][A-Za-z0-9_]*$
+     */
+    name: string
+    /**
+     * Human-friendly label. Mutable, unlike name.
+     * @maxLength 255
+     */
+    display_name?: string
+    /**
+     * What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put the query's design decisions in 'reasoning'.
+     * @maxLength 300
+     */
+    description: string
+    /**
+     * Unit of the result, e.g. usd, percent, cents.
+     * @maxLength 64
+     */
+    unit?: string
+    /**
+     * Email of the human accountable for this metric, or null. Set it to the email of a member of this organization to reassign the metric, or to null to clear it. Changing the owner keeps the metric's approval.
+     * @nullable
+     */
+    owner?: string | null
+    /**
+     * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
+     * @nullable
+     */
+    definition?: DataCatalogMetricCreateApiDefinition
+    /**
+     * Query kind of the definition (HogQLQuery, TrendsQuery, ...), or null for a stub.
+     * @nullable
+     */
+    readonly definition_kind: string | null
+    /** Tables the definition directly references, extracted at write time for the catalog's denied-table filter. */
+    readonly referenced_table_names: unknown
+    /** Persisted lifecycle state: 'proposed' or 'approved'. Drift is reported separately. */
+    readonly status: string
+    /** True when the definition has drifted from its linked source insight (or the insight is gone). */
+    readonly is_drifted: boolean
+    /** @nullable */
+    readonly approved_at: string | null
+    /** User who approved this metric as canonical, or null. */
+    readonly approved_by: UserBasicApi | null
+    /**
+     * Create the metric from this insight's query (snapshotted server-side). Set to null to unlink. Mutually exclusive with definition.
+     * @maxLength 12
+     * @nullable
+     */
+    source_insight_short_id?: string | null
+    /**
+     * When the metric was last run (30-minute throttle).
+     * @nullable
+     */
+    readonly last_run_at: string | null
+    /** Whether a human ('user') or an agent ('ai_generated') authored this metric.
+     *
+     * * `user` - user
+     * * `ai_generated` - ai_generated */
+    created_source?: CreatedSourceEnumApi
+    /**
+     * Model that generated the metric, if AI-authored.
+     * @maxLength 128
+     */
+    ai_model?: string
+    /**
+     * AI author's confidence in the proposal, 0-1.
+     * @minimum 0
+     * @maximum 1
+     * @nullable
+     */
+    confidence?: number | null
+    /** Why the definition is shaped this way, in 1-3 short sentences. Name the main design decisions and trade-offs: the source table or view, a filter or exclusion, the grain, an approximation. Leave out the use case, who asked, run results, validation figures, and edit history. */
+    reasoning?: string
+    /** User who first created this metric. */
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    /** Replace the fields of the live metric that already holds this name. When false, a taken name returns 409 with code 'metric_name_taken' and the existing metric stays unchanged. Overwriting an approved metric with a changed name, description, unit, or definition resets it to 'proposed'. */
+    overwrite?: boolean
+}
+
+/**
+ * The live metric that holds the name a create was sent with.
+ */
+export interface DataCatalogMetricNameConflictExistingApi {
+    /** Name of the existing metric. */
+    name: string
+    /** Lifecycle state of the existing metric: 'proposed' or 'approved'. */
+    status: string
+}
+
+export interface DataCatalogMetricNameConflictExtraApi {
+    /** The metric that holds the name. Send overwrite true to replace it. */
+    existing_metric: DataCatalogMetricNameConflictExistingApi
+}
+
+/**
+ * The 409 body of a create whose name a live metric already holds.
+ */
+export interface DataCatalogMetricNameConflictApi {
+    /** Error class the API attaches to every error body. */
+    type: string
+    /** Always 'metric_name_taken'. */
+    code: string
+    /** Human-readable reason, safe to show as is. */
+    detail: string
+    /**
+     * Always null: the conflict is not tied to one field.
+     * @nullable
+     */
+    attr: string | null
+    /** Absent when the existing metric is hidden from the caller because it reads a table they cannot access. */
+    extra?: DataCatalogMetricNameConflictExtraApi
 }
 
 /**
@@ -267,7 +397,7 @@ export interface PatchedDataCatalogMetricApi {
      */
     display_name?: string
     /**
-     * What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'.
+     * What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put the query's design decisions in 'reasoning'.
      * @maxLength 300
      */
     description?: string
@@ -277,10 +407,10 @@ export interface PatchedDataCatalogMetricApi {
      */
     unit?: string
     /**
-     * Email of the human accountable for this metric, or null.
+     * Email of the human accountable for this metric, or null. Set it to the email of a member of this organization to reassign the metric, or to null to clear it. Changing the owner keeps the metric's approval.
      * @nullable
      */
-    readonly owner?: string | null
+    owner?: string | null
     /**
      * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
      * @nullable
@@ -329,13 +459,21 @@ export interface PatchedDataCatalogMetricApi {
      * @nullable
      */
     confidence?: number | null
-    /** AI author's reasoning, surfaced as review context. */
+    /** Why the definition is shaped this way, in 1-3 short sentences. Name the main design decisions and trade-offs: the source table or view, a filter or exclusion, the grain, an approximation. Leave out the use case, who asked, run results, validation figures, and edit history. */
     reasoning?: string
     /** User who first created this metric. */
     readonly created_by?: UserBasicApi
     readonly created_at?: string
     /** @nullable */
     readonly updated_at?: string | null
+}
+
+/**
+ * Input for approving one metric.
+ */
+export interface DataCatalogMetricApproveRequestApi {
+    /** The metric's `updated_at` as last seen by the approver. When the metric changed since then, the API returns 409 and leaves it proposed. Omit to approve the current version. */
+    expected_updated_at?: string
 }
 
 /**
@@ -437,9 +575,9 @@ export interface DataCatalogMetricRunApi {
 }
 
 /**
- * Input for the bulk metric actions: the metric names to act on.
+ * Input for giving many metrics one owner.
  */
-export interface DataCatalogMetricBulkNamesRequestApi {
+export interface DataCatalogMetricBulkChangeOwnerRequestApi {
     /**
      * Names of the metrics to act on, at most 100. Duplicates are collapsed.
      * @minItems 1
@@ -447,6 +585,11 @@ export interface DataCatalogMetricBulkNamesRequestApi {
      * @items.maxLength 128
      */
     names: string[]
+    /**
+     * Email of the member of this organization who becomes the owner of every named metric, or null to clear the owner. Changing the owner keeps each metric's approval.
+     * @nullable
+     */
+    owner: string | null
 }
 
 /**
@@ -457,6 +600,29 @@ export interface DataCatalogMetricBulkSkipApi {
     name: string
     /** Why it was skipped, e.g. 'Not found', 'Already approved', 'Drifted from its source insight'. */
     reason: string
+}
+
+/**
+ * Outcome of a bulk owner change: what changed, and what was left alone.
+ */
+export interface DataCatalogMetricBulkChangeOwnerApi {
+    /** The metrics that now have the new owner, freshly serialized. */
+    updated: DataCatalogMetricApi[]
+    /** Requested metrics whose owner did not change, with reasons. */
+    skipped: DataCatalogMetricBulkSkipApi[]
+}
+
+/**
+ * Input for the bulk metric actions: the metric names to act on.
+ */
+export interface DataCatalogMetricBulkNamesRequestApi {
+    /**
+     * Names of the metrics to act on, at most 100. Duplicates are collapsed.
+     * @minItems 1
+     * @maxItems 100
+     * @items.maxLength 128
+     */
+    names: string[]
 }
 
 /**
@@ -564,9 +730,17 @@ export type DataCatalogCertificationsListParams = {
      * A search term.
      */
     search?: string
+    /**
+     * Only certifications with this review status.
+     */
+    status?: string
 }
 
 export type DataCatalogMetricsListParams = {
+    /**
+     * Only metrics with this query node kind.
+     */
+    definition_kind?: string
     /**
      * Number of results to return per page.
      */
@@ -579,6 +753,10 @@ export type DataCatalogMetricsListParams = {
      * A search term.
      */
     search?: string
+    /**
+     * Only metrics with this review status.
+     */
+    status?: string
 }
 
 export type DataCatalogMetricsRunCreateParams = {
@@ -625,4 +803,8 @@ export type DataCatalogRelationshipProposalsListParams = {
      * Filter by proposed/accepted/rejected.
      */
     status?: string
+    /**
+     * Only relationships involving this table on either side.
+     */
+    table_name?: string
 }

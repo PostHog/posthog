@@ -48,4 +48,23 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "deletedAt": "When the response was deleted, only returned when `with_deleted_responses` is true.",
         },
     },
+    "Themes": {
+        "description": "AI-generated themes over open-text survey answers. Each row links one answer "
+        "to one theme; an answer can belong to several themes.",
+        "docs_url": "https://docs.sprig.com/reference/sprig-api/v1/get-v1-themes-1",
+        "columns": {
+            "id": "Sprig-assigned identifier for the themed response.",
+            "visitorId": "Sprig-assigned identifier for the visitor who answered.",
+            "surveyId": "The id of the survey this answer belongs to.",
+            "questionId": "The id of the question this answer is for.",
+            "questionText": "The text of the question as shown to the visitor.",
+            "questionType": "The type of question (e.g. OPEN).",
+            "response": "The visitor's open-text answer.",
+            "responseGroupUid": "Identifier grouping every answer from a single response submission.",
+            "theme": "The name of the theme the answer is associated with.",
+            "themeDescription": "A description of the theme.",
+            "createdAt": "The date and time the answer was created.",
+            "updatedAt": "The date and time the answer was last updated.",
+        },
+    },
 }

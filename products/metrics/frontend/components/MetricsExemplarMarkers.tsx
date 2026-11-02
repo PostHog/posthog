@@ -1,3 +1,5 @@
+import type { MouseEvent } from 'react'
+
 import { Tooltip } from '@posthog/lemon-ui'
 import { useChartLayout } from '@posthog/quill-charts'
 
@@ -8,7 +10,7 @@ import { hexToRGBA } from 'lib/utils/colors'
 export interface MetricsExemplar {
     /** Emission time of the traced sample, as epoch ms. */
     timeMs: number
-    onClick: () => void
+    onClick: (event: MouseEvent) => void
     /** Design-token color name. Defaults to 'brand-blue'; error-spike markers pass 'danger' so the
      * two kinds sharing this overlay stay distinguishable. */
     color?: string
@@ -60,7 +62,7 @@ export function MetricsExemplarMarkers({ exemplars }: { exemplars: MetricsExempl
                             data-attr="metrics-exemplar-marker"
                             onClick={(e) => {
                                 e.stopPropagation()
-                                exemplar.onClick()
+                                exemplar.onClick(e)
                             }}
                             // Opts this marker out of the chart's own hover/tooltip tracking (see
                             // `useChartInteraction`'s `originatesInInteractiveOverlay`), so hovering

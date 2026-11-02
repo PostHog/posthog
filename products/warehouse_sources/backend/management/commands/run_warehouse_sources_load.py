@@ -58,6 +58,7 @@ def build_consumer_config(options: dict) -> ConsumerConfig:
         "max_attempts": options["max_attempts"],
         "health_port": options["health_port"],
         "health_timeout_seconds": options["health_timeout"],
+        "stall_dump_after_seconds": options["health_timeout"],
         "stuck_batch_timeout_seconds": options["stuck_batch_timeout"] or None,
     }
     if options.get("poll_timeout") is not None:

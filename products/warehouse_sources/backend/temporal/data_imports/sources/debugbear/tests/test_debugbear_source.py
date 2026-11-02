@@ -24,11 +24,40 @@ class TestDebugbearSource:
     @pytest.mark.parametrize(
         ("pattern", "message"),
         [
-            ("401 Client Error", "401 Client Error: Unauthorized for url: https://www.debugbear.com/api/v1/projects"),
-            ("403 Client Error", "403 Client Error: Forbidden for url: https://www.debugbear.com/api/v1/projects"),
+            (
+                "DebugBear rejected the RUM metrics request",
+                "DebugBear rejected the RUM metrics request for project 1 with a 400 error — "
+                "Real User Monitoring is likely not set up for this project.",
+            ),
         ],
     )
     def test_non_retryable_errors_match(self, pattern: str, message: str) -> None:
         errors = self.source.get_non_retryable_errors()
         assert pattern in errors
         assert any(p in message for p in errors)
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            # DebugBear sits behind Cloudflare; a persistent edge/origin blip surfaces as a raw
+            # 52x after the transport's own retries are exhausted.
+            "530 Server Error: <none> for url: https://www.debugbear.com/api/v1/projects",
+            "502 Server Error: Bad Gateway for url: https://www.debugbear.com/api/v1/projects",
+            "503 Server Error: Service Unavailable for url: https://www.debugbear.com/api/v1/projects",
+            "429 Client Error: Too Many Requests for url: https://www.debugbear.com/api/v1/projects",
+        ],
+    )
+    def test_retryable_errors_match(self, message: str) -> None:
+        errors = self.source.get_retryable_errors()
+        assert any(p in message for p in errors)
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "401 Client Error: Unauthorized for url: https://www.debugbear.com/api/v1/projects",
+            "403 Client Error: Forbidden for url: https://www.debugbear.com/api/v1/projects",
+        ],
+    )
+    def test_retryable_errors_do_not_match_client_errors(self, message: str) -> None:
+        errors = self.source.get_retryable_errors()
+        assert not any(p in message for p in errors)

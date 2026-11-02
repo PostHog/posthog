@@ -18,26 +18,28 @@ function ContextMenuPortal({ ...props }: ContextMenuPrimitive.Portal.Props): Rea
     return <ContextMenuPrimitive.Portal data-slot="context-menu-portal" {...props} />
 }
 
-function ContextMenuTrigger({ className, ...props }: ContextMenuPrimitive.Trigger.Props): React.ReactElement {
+const ContextMenuTrigger = React.forwardRef<
+    React.ComponentRef<typeof ContextMenuPrimitive.Trigger>,
+    ContextMenuPrimitive.Trigger.Props
+>(function ContextMenuTrigger({ className, ...props }, ref) {
     return (
         <ContextMenuPrimitive.Trigger
+            ref={ref}
             data-slot="context-menu-trigger"
             className={cn('select-none', className)}
             {...props}
         />
     )
-}
+})
 
-function ContextMenuContent({
-    className,
-    align = 'start',
-    alignOffset = 4,
-    side = 'inline-end',
-    sideOffset = 0,
-    children,
-    ...props
-}: ContextMenuPrimitive.Popup.Props &
-    Pick<ContextMenuPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset'>): React.ReactElement {
+const ContextMenuContent = React.forwardRef<
+    React.ComponentRef<typeof ContextMenuPrimitive.Popup>,
+    ContextMenuPrimitive.Popup.Props &
+        Pick<ContextMenuPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset'>
+>(function ContextMenuContent(
+    { className, align = 'start', alignOffset = 4, side = 'inline-end', sideOffset = 0, children, ...props },
+    ref
+) {
     return (
         <ContextMenuPrimitive.Portal>
             <ContextMenuPrimitive.Positioner
@@ -50,6 +52,7 @@ function ContextMenuContent({
                 sideOffset={sideOffset}
             >
                 <ContextMenuPrimitive.Popup
+                    ref={ref}
                     data-slot="context-menu-content"
                     className={cn('quill-menu__content', className)}
                     {...props}
@@ -59,41 +62,42 @@ function ContextMenuContent({
             </ContextMenuPrimitive.Positioner>
         </ContextMenuPrimitive.Portal>
     )
-}
+})
 
-function ContextMenuGroup({ ...props }: ContextMenuPrimitive.Group.Props): React.ReactElement {
-    return <ContextMenuPrimitive.Group data-slot="context-menu-group" {...props} />
-}
+const ContextMenuGroup = React.forwardRef<
+    React.ComponentRef<typeof ContextMenuPrimitive.Group>,
+    ContextMenuPrimitive.Group.Props
+>(function ContextMenuGroup({ ...props }, ref) {
+    return <ContextMenuPrimitive.Group ref={ref} data-slot="context-menu-group" {...props} />
+})
 
-function ContextMenuLabel({
-    className,
-    inset,
-    ...props
-}: ContextMenuPrimitive.GroupLabel.Props & {
-    inset?: boolean
-}): React.ReactElement {
+const ContextMenuLabel = React.forwardRef<
+    React.ComponentRef<typeof ContextMenuPrimitive.GroupLabel>,
+    ContextMenuPrimitive.GroupLabel.Props & {
+        inset?: boolean
+    }
+>(function ContextMenuLabel({ className, inset, ...props }, ref) {
     return (
         <ContextMenuPrimitive.GroupLabel
+            ref={ref}
             data-slot="context-menu-label"
             data-inset={inset}
             className={cn('px-2 py-1.5 text-xs text-muted-foreground', inset && 'quill-menu-item--inset', className)}
             {...props}
         />
     )
-}
+})
 
-function ContextMenuItem({
-    className,
-    inset,
-    variant = 'default',
-    children,
-    ...props
-}: ContextMenuPrimitive.Item.Props & {
-    inset?: boolean
-    variant?: 'default' | 'destructive'
-}): React.ReactElement {
+const ContextMenuItem = React.forwardRef<
+    React.ComponentRef<typeof ContextMenuPrimitive.Item>,
+    ContextMenuPrimitive.Item.Props & {
+        inset?: boolean
+        variant?: 'default' | 'destructive'
+    }
+>(function ContextMenuItem({ className, inset, variant = 'default', children, ...props }, ref) {
     return (
         <ContextMenuPrimitive.Item
+            ref={ref}
             data-slot="context-menu-item"
             data-inset={inset}
             data-variant={variant}
@@ -111,22 +115,21 @@ function ContextMenuItem({
             {children}
         </ContextMenuPrimitive.Item>
     )
-}
+})
 
 function ContextMenuSub({ ...props }: ContextMenuPrimitive.SubmenuRoot.Props): React.ReactElement {
     return <ContextMenuPrimitive.SubmenuRoot data-slot="context-menu-sub" {...props} />
 }
 
-function ContextMenuSubTrigger({
-    className,
-    inset,
-    children,
-    ...props
-}: ContextMenuPrimitive.SubmenuTrigger.Props & {
-    inset?: boolean
-}): React.ReactElement {
+const ContextMenuSubTrigger = React.forwardRef<
+    React.ComponentRef<typeof ContextMenuPrimitive.SubmenuTrigger>,
+    ContextMenuPrimitive.SubmenuTrigger.Props & {
+        inset?: boolean
+    }
+>(function ContextMenuSubTrigger({ className, inset, children, ...props }, ref) {
     return (
         <ContextMenuPrimitive.SubmenuTrigger
+            ref={ref}
             data-slot="context-menu-sub-trigger"
             data-inset={inset}
             className={cn(
@@ -144,18 +147,18 @@ function ContextMenuSubTrigger({
             <ChevronRightIcon className="rtl:rotate-180 ms-auto" />
         </ContextMenuPrimitive.SubmenuTrigger>
     )
-}
+})
 
-function ContextMenuSubContent({
-    className,
-    align = 'start',
-    alignOffset = -3,
-    side = 'inline-end',
-    sideOffset = 0,
-    ...props
-}: React.ComponentProps<typeof ContextMenuContent>): React.ReactElement {
+const ContextMenuSubContent = React.forwardRef<
+    React.ComponentRef<typeof ContextMenuContent>,
+    React.ComponentProps<typeof ContextMenuContent>
+>(function ContextMenuSubContent(
+    { className, align = 'start', alignOffset = -3, side = 'inline-end', sideOffset = 0, ...props },
+    ref
+) {
     return (
         <ContextMenuContent
+            ref={ref}
             data-slot="context-menu-sub-content"
             className={cn('quill-menu__sub-content w-auto', className)}
             align={align}
@@ -165,19 +168,17 @@ function ContextMenuSubContent({
             {...props}
         />
     )
-}
+})
 
-function ContextMenuCheckboxItem({
-    className,
-    children,
-    checked,
-    inset,
-    ...props
-}: ContextMenuPrimitive.CheckboxItem.Props & {
-    inset?: boolean
-}): React.ReactElement {
+const ContextMenuCheckboxItem = React.forwardRef<
+    React.ComponentRef<typeof ContextMenuPrimitive.CheckboxItem>,
+    ContextMenuPrimitive.CheckboxItem.Props & {
+        inset?: boolean
+    }
+>(function ContextMenuCheckboxItem({ className, children, checked, inset, ...props }, ref) {
     return (
         <ContextMenuPrimitive.CheckboxItem
+            ref={ref}
             data-slot="context-menu-checkbox-item"
             data-inset={inset}
             className={cn(
@@ -200,22 +201,24 @@ function ContextMenuCheckboxItem({
             {children}
         </ContextMenuPrimitive.CheckboxItem>
     )
-}
+})
 
-function ContextMenuRadioGroup({ ...props }: ContextMenuPrimitive.RadioGroup.Props): React.ReactElement {
-    return <ContextMenuPrimitive.RadioGroup data-slot="context-menu-radio-group" {...props} />
-}
+const ContextMenuRadioGroup = React.forwardRef<
+    React.ComponentRef<typeof ContextMenuPrimitive.RadioGroup>,
+    ContextMenuPrimitive.RadioGroup.Props
+>(function ContextMenuRadioGroup({ ...props }, ref) {
+    return <ContextMenuPrimitive.RadioGroup ref={ref} data-slot="context-menu-radio-group" {...props} />
+})
 
-function ContextMenuRadioItem({
-    className,
-    children,
-    inset,
-    ...props
-}: ContextMenuPrimitive.RadioItem.Props & {
-    inset?: boolean
-}): React.ReactElement {
+const ContextMenuRadioItem = React.forwardRef<
+    React.ComponentRef<typeof ContextMenuPrimitive.RadioItem>,
+    ContextMenuPrimitive.RadioItem.Props & {
+        inset?: boolean
+    }
+>(function ContextMenuRadioItem({ className, children, inset, ...props }, ref) {
     return (
         <ContextMenuPrimitive.RadioItem
+            ref={ref}
             data-slot="context-menu-radio-item"
             data-inset={inset}
             className={cn(
@@ -237,21 +240,34 @@ function ContextMenuRadioItem({
             {children}
         </ContextMenuPrimitive.RadioItem>
     )
-}
+})
 
-function ContextMenuSeparator({ className, ...props }: ContextMenuPrimitive.Separator.Props): React.ReactElement {
+const ContextMenuSeparator = React.forwardRef<
+    React.ComponentRef<typeof ContextMenuPrimitive.Separator>,
+    ContextMenuPrimitive.Separator.Props
+>(function ContextMenuSeparator({ className, ...props }, ref) {
     return (
         <ContextMenuPrimitive.Separator
+            ref={ref}
             data-slot="context-menu-separator"
             className={cn('quill-menu__separator', className)}
             {...props}
         />
     )
-}
+})
 
-function ContextMenuShortcut({ className, ...props }: React.ComponentProps<typeof Kbd>): React.ReactElement {
-    return <Kbd data-slot="context-menu-shortcut" className={cn('quill-menu__shortcut', className)} {...props} />
-}
+const ContextMenuShortcut = React.forwardRef<React.ComponentRef<typeof Kbd>, React.ComponentProps<typeof Kbd>>(
+    function ContextMenuShortcut({ className, ...props }, ref) {
+        return (
+            <Kbd
+                ref={ref}
+                data-slot="context-menu-shortcut"
+                className={cn('quill-menu__shortcut', className)}
+                {...props}
+            />
+        )
+    }
+)
 
 export {
     ContextMenu,

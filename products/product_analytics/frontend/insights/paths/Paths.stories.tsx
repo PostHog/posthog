@@ -7,9 +7,10 @@ import {
     insightSceneMswDecorator,
     insightSceneStoryParameters,
 } from 'scenes/insights/__mocks__/createInsightScene'
-import { InsightVizStory } from 'scenes/insights/__mocks__/createInsightVizStory'
 
 import __userPaths from '~/mocks/fixtures/api/projects/team_id/insights/userPaths.json'
+
+import { InsightVizStory } from 'products/product_analytics/frontend/insights/shared/__mocks__/createInsightVizStory'
 
 import { Paths } from './Paths'
 

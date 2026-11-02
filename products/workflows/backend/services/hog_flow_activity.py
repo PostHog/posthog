@@ -8,10 +8,10 @@ from uuid import UUID
 
 from django.db import models, transaction
 
-from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.models.activity_logging.activity_log import Change, ChangeAction, Detail, changes_between, log_activity
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.workflows.backend.facade.contracts import WorkflowActor
+from products.workflows.backend.facade.contracts import WorkflowActor, WorkflowSchedule
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.services.hog_flow_writes import field_values
 from products.workflows.backend.services.workflow_email_health import resume_email_sending
@@ -54,6 +54,47 @@ def log_workflow_activity(
     except Exception:
         # A failed audit write must not fail the change it describes.
         pass
+
+
+def log_workflow_schedule_activity(
+    *,
+    actor: WorkflowActor,
+    workflow_id: UUID,
+    name: Optional[str],
+    before: Optional[WorkflowSchedule],
+    after: Optional[WorkflowSchedule],
+) -> None:
+    """Log a schedule change as an update of its workflow, so the workflow history shows who moved a send.
+
+    A change that keeps the send times, such as new variables, logs nothing."""
+    previous = _schedule_timing(before)
+    current = _schedule_timing(after)
+    if previous == current:
+        return
+    action: ChangeAction = "created" if previous is None else "deleted" if current is None else "changed"
+    try:
+        log_activity(
+            organization_id=actor.organization_id,
+            team_id=actor.team_id,
+            user=actor.user,
+            was_impersonated=actor.was_impersonated,
+            item_id=str(workflow_id),
+            scope=_SCOPE,
+            activity="updated",
+            detail=Detail(
+                name=name or _SCOPE,
+                changes=[Change(type=_SCOPE, action=action, field="schedule", before=previous, after=current)],
+            ),
+        )
+    except Exception:
+        # A failed audit write must not fail the change it describes.
+        pass
+
+
+def _schedule_timing(schedule: Optional[WorkflowSchedule]) -> Optional[dict[str, str]]:
+    if schedule is None:
+        return None
+    return {"rrule": schedule.rrule, "starts_at": schedule.starts_at.isoformat(), "timezone": schedule.timezone}
 
 
 def resume_workflow_email_sending(*, team_id: int, hog_flow_id: UUID, actor: WorkflowActor) -> datetime | None:

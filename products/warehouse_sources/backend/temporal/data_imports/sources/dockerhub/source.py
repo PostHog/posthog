@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -45,6 +46,8 @@ def _namespace_for_config(config: DockerhubSourceConfig) -> str:
 
 @SourceRegistry.register
 class DockerhubSource(ResumableSource[DockerhubSourceConfig, DockerhubResumeConfig]):
+    codebase_detection = detect(env=("^DOCKERHUB_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"
@@ -67,7 +70,7 @@ class DockerhubSource(ResumableSource[DockerhubSourceConfig, DockerhubResumeConf
             name=ExternalDataSourceType.DOCKERHUB,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Docker Hub",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Docker Hub username and a personal access token to pull your container repositories, tags and organization activity into the PostHog Data warehouse.
 
 You can create a personal access token with **Read** access under **Account settings → Personal access tokens** in [Docker Hub](https://app.docker.com/settings/personal-access-tokens). To import an organization's repositories instead of your own, set the namespace field to the organization name.

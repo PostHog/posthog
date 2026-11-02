@@ -84,6 +84,23 @@ class TestMetaCheckCommand:
         # Should either pass or report missing entries clearly
         assert "bin script" in result.output.lower() or "✓" in result.output
 
+    @pytest.mark.parametrize("ci_env, expect_update", [({"CI": "true"}, False), ({}, True)])
+    def test_manifest_auto_update_skipped_in_ci(
+        self, monkeypatch: pytest.MonkeyPatch, ci_env: dict[str, str], expect_update: bool
+    ) -> None:
+        for var in ("CI", "GITHUB_ACTIONS", "JENKINS_URL", "GITLAB_CI", "CIRCLECI", "BUILDKITE"):
+            monkeypatch.delenv(var, raising=False)
+        for key, value in ci_env.items():
+            monkeypatch.setenv(key, value)
+        monkeypatch.delenv("GIT_DIR", raising=False)
+        monkeypatch.delenv("HUSKY", raising=False)
+
+        with patch("hogli.cli.auto_update_manifest", return_value=set()) as auto_update:
+            result = runner.invoke(cli, ["quickstart"])
+
+        assert result.exit_code == 0
+        assert auto_update.called is expect_update
+
 
 class TestMetaConceptsCommand:
     """Test meta:concepts command."""
@@ -431,7 +448,7 @@ class TestApplyEnvConfig:
                 needs_secrets_commands={"start"},
             ),
         )
-        for k in ("PRELOADED", "HOGLI_SECRETS_WRAPPED"):
+        for k in ("PRELOADED", "HOGLI_SECRETS_WRAPPED", "HOGLI_STDOUT_TTY"):
             monkeypatch.delenv(k, raising=False)
         # Re-exec only fires when hogli owns the process (real CLI entrypoint).
         monkeypatch.setattr("hogli.cli._is_process_entrypoint", True)
@@ -439,10 +456,12 @@ class TestApplyEnvConfig:
         with (
             patch("shutil.which", return_value="/usr/local/bin/op"),
             patch("os.execvp") as mock_exec,
+            patch("sys.stdout.isatty", return_value=True),
         ):
             _apply_env_config("start")
 
         mock_exec.assert_called_once()
+        assert os.environ["HOGLI_STDOUT_TTY"] == "1"
         args, _kwargs = mock_exec.call_args
         binary, argv = args
         assert binary == "op"

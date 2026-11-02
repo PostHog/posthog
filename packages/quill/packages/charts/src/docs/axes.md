@@ -19,6 +19,7 @@ The nested `tooltip` merges key by key, so setting one field keeps `placement: '
 - `showGrid` draws grid lines on every chart, including the time-series wrappers. Grid lines always align to the primary (left) y-axis ticks. A `showGrid` on the primary `yAxis` config wins; on secondary axes it is ignored, because two grids with unaligned ticks would be noise.
 - `showAxisLines` draws the L-axis alongside the grid, which then skips its own frame and category lines. A right-positioned y-axis gets its own right axis line. `{ x, y }` toggles each edge independently. With axis lines on, line strokes are trimmed at the y-axis and floored onto the x-axis so they rest against the axis instead of straddling it.
 - `showTickMarks` draws short canvas tick marks snapped to the same pixel grid as the axis.
+- A chart type built on the `Chart` core draws the same lines by calling `drawGrid` before its marks and `drawAxes` after them. Both are exported from the package. See [CONTRIBUTING.md](./CONTRIBUTING.md#adding-a-new-chart-type).
 - `curve: 'monotone'` smooths line and area series through every point without overshoot.
 
 Theme-side restyle knobs, all optional: `theme.axisLineColor` strokes the baselines and tick marks without changing tick-label color (falls back `axisColor`, then `gridColor`); `theme.gridDashPattern` and `theme.crosshairDashPattern` (`[3, 3]`) dash the interior grid lines and the hover crosshair, while plot-edge frame strokes stay solid.
@@ -27,7 +28,7 @@ Theme-side restyle knobs, all optional: `theme.axisLineColor` strokes the baseli
 
 - Labels must be unique. The x-scale keys positions off the strings, so a duplicate collapses onto the first occurrence and draws the series backwards. On time-series charts pass ISO date strings, never formatted display labels that repeat across years. Set `xAxis.timezone` to format ticks and tooltip headers. The library infers the interval from `allDays` or chart labels; set `interval` only to override it. `tickFormatter` overrides automatic formatting.
 - `xAxis.tickLabelRotation` (`-45` tilts left) fixes the rotation, clamped to `-90..90`. Omit it to keep horizontal labels and the collision behavior.
-- `maxCategoryLabelWidth` truncates category labels with an ellipsis and reveals the full value on hover. It also clamps the axis margin, so a long label cannot push the plot off screen. `MAX_CATEGORY_LABEL_WIDTH` is the exported default.
+- `maxCategoryLabelWidth` truncates category labels with an ellipsis and reveals the full value on hover. It also clamps the axis margin, so a long label cannot push the plot off screen. On horizontal charts the cap grows to 30% of the chart width when that is wider, so a wider chart shows more of each label. `MAX_CATEGORY_LABEL_WIDTH` is the exported default.
 
 ## Y-axis format
 
@@ -44,8 +45,9 @@ Duration formatters accept seconds (`duration`), milliseconds (`duration_ms`), o
 - The y-axis clamps a non-negative axis down to 0 by default. To float it to the data range, set `yAxis.startAtZero: false` on `TimeSeriesLineChart`, or `config.floatBaseline: true` on the lower-level `LineChart`. Ignored on a log scale and applied to the primary axis only. Bar charts always draw from zero.
 - `yAxis.min` and `max` pin either end on `TimeSeriesLineChart` (`config.valueDomain: { min, max }` on `LineChart`, the same option that carries `include`). Both set pins the axis: skips `nice()`, discards `include`, overrides percent layout. One set clamps that end and leaves the other automatic; it runs after `include` folding, the zero clamp, and `nice()`, so only the extreme label is the raw bound while interior ticks stay round. A single clamp is ignored under a percent layout, where the domain is already 0..1.
 - On a log scale a non-positive bound is dropped. A non-finite bound counts as unset, so `{ min: 0, max: Math.max(...[]) }` floors at zero rather than collapsing. An inverted `min >= max` pair falls back to the automatic domain rather than swapping.
+- `TimeSeriesLineChart` also accepts `config.valueDomain` for shared bounds and `include` values. Explicit domain bounds take precedence over `yAxis.min/max`; include values merge with reference-line extents.
 - Overlays positioned off the value scale hide themselves outside a bounded window rather than painting over the chrome: a goal line drops out, and so does the value label of a clipped point. A point sitting exactly on the bound keeps its label.
-- Bar and combo charts ignore `min` and `max` even though they take the same `yAxis` config. A bar encodes magnitude as length from zero, so a bounded baseline misreads it: 10 vs 11 would draw as 1 vs 2. Pin `valueDomain` there instead, which rescales the bars rather than truncating them. `TimeSeriesBarChart` takes `config.valueDomain`; setting both `min` and `max` skips `nice()` and wins over the goal-line stretch. Pin `{ min: 0, max: dataMax }` so the tallest bar reaches the plot top on an axis-less volume chart, where nice-rounded headroom is invisible waste. `include` merges with the goal-line stretch (`mergeValueDomains` in `utils/goal-lines.ts`).
+- Bar and combo charts ignore `min` and `max` even though they take the same `yAxis` config. A bar encodes magnitude as length from zero, so a bounded baseline misreads it: 10 vs 11 would draw as 1 vs 2. Pin `valueDomain` there instead, which rescales the bars rather than truncating them. `TimeSeriesBarChart` and `TimeSeriesComboChart` take `config.valueDomain`; setting both `min` and `max` skips `nice()` and wins over the goal-line stretch. Pin `{ min: 0, max: dataMax }` so the tallest bar reaches the plot top on an axis-less volume chart, where nice-rounded headroom is invisible waste. `include` merges with the goal-line stretch (`mergeValueDomains` in `utils/goal-lines.ts`).
 
 ## Multiple y-axes
 
@@ -63,7 +65,7 @@ A single object stays single-axis.
 
 - Charts fill their container and need a parent with real dimensions. A zero-height flex child renders nothing. Give the wrapper an explicit height (`h-64`, or `flex-1` in a sized column). `Sparkline` alone takes `height` and `width` props.
 - A wrapper that measures under one pixel wide or high does not resize the chart. `useChartCanvas` keeps the last painted frame and waits for the next real size, so a chart whose container collapses for a moment (an ancestor set to `display: none`, Chromium capturing a screenshot taller than the viewport) does not go blank or lay out again.
-- `ChartConfig.margins` (also available on all `TimeSeries*` configs) overrides only the sides it sets. A side left `undefined` keeps the computed margin, so an object built conditionally (`{ top: reserveOrUndefined }`) is safe. `SlopeChart` merges consumer margins over its computed label gutters with the same rule (`applyMarginOverride`). Pass a module-level constant.
+- `ChartConfig.margins` (also available on all `TimeSeries*` configs) overrides only the sides it sets. A side left `undefined` keeps the computed margin, so an object built conditionally (`{ top: reserveOrUndefined }`) is safe. `SlopeChart` merges consumer margins over its computed label gutters with the same rule (`applyMarginOverride`). An inline object is fine: charts compare the four sides, not the object.
 
 ## When the plot is blank
 

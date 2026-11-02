@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -55,6 +56,13 @@ class LemonSqueezySource(
     ResumableSource[LemonSqueezySourceConfig, LemonSqueezyResumeConfig],
     WebhookSource[LemonSqueezySourceConfig],
 ):
+    codebase_detection = detect(
+        env=("^LEMONSQUEEZY_", "^LEMON_SQUEEZY_"),
+        script_hosts=("app.lemonsqueezy.com", "assets.lemonsqueezy.com"),
+        npm=("@lemonsqueezy/lemonsqueezy.js",),
+        composer=("lemonsqueezy/laravel",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.lemonsqueezy.com/api"
 
@@ -107,7 +115,7 @@ class LemonSqueezySource(
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             webhookSetupCaption=(
                 "PostHog tries to register a webhook on each of your Lemon Squeezy stores using "
                 "your API key, with a generated signing secret used to verify deliveries.\n\n"

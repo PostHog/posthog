@@ -3,9 +3,10 @@ import { Server } from 'http'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
+import { JWT, PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PostgresRouter } from '~/common/utils/db/postgres'
-import { getBlockDecryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'
+import { getBlockDecryptor, getBlockEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'
 import { getKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore'
 import { ReplayEventsOutput, SessionFeaturesOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 
@@ -44,6 +45,7 @@ jest.mock('~/ingestion/pipelines/sessionreplay/shared/keystore/cache', () => ({
 
 jest.mock('~/ingestion/pipelines/sessionreplay/shared/crypto', () => ({
     getBlockDecryptor: jest.fn(),
+    getBlockEncryptor: jest.fn(),
 }))
 
 jest.mock('~/common/utils/db/redis', () => ({
@@ -102,9 +104,11 @@ describe('RecordingApi', () => {
             getBlock: jest.fn(),
             listBlocks: jest.fn(),
             deleteRecordings: jest.fn(),
+            encryptBlocks: jest.fn(),
         } as unknown as jest.Mocked<RecordingService>
         ;(getKeyStore as jest.Mock).mockReturnValue(mockKeyStore)
         ;(getBlockDecryptor as jest.Mock).mockReturnValue(mockDecryptor)
+        ;(getBlockEncryptor as jest.Mock).mockReturnValue({ start: jest.fn().mockResolvedValue(undefined) })
         ;(RecordingService as unknown as jest.Mock).mockImplementation(() => mockService)
     })
 
@@ -612,6 +616,109 @@ describe('RecordingApi', () => {
                 expect(res.status).toBe(500)
                 expect(res.body).toEqual({ error: 'Failed to delete recordings' })
             })
+        })
+    })
+
+    describe('encryptBlocks endpoint', () => {
+        const JWT_SECRET = 'recording-api-test-secret'
+        let app: express.Application
+        let server: Server
+
+        const bearer = (op: string, teamId = 1): string =>
+            `Bearer ${new JWT(JWT_SECRET).sign({ team_id: teamId, op }, PosthogJwtAudience.RECORDING_API, { expiresIn: '5m' })}`
+        const body = { blocks: [Buffer.from('block').toString('base64')], retention_days: 365 }
+
+        beforeEach(async () => {
+            const recordingApi = new RecordingApi(
+                {
+                    RECORDING_API_JWT_SECRET: JWT_SECRET,
+                    RECORDING_API_ALLOW_LEGACY_SECRET: false,
+                } as RecordingApiConfig,
+                mockPostgres,
+                mockOutputs
+            )
+            await recordingApi.start(mockService)
+            app = express()
+            app.use(express.json())
+            app.use('/', recordingApi.router())
+            server = app.listen(0, () => {})
+            mockService.encryptBlocks.mockResolvedValue({ ok: true, blocks: [Buffer.from('sealed')] })
+            mockService.deleteRecordings.mockResolvedValue([])
+        })
+
+        afterEach(() => {
+            server.close()
+        })
+
+        it.each([
+            ['encrypt', 'write', 200],
+            ['encrypt', 'delete', 403],
+            ['encrypt', 'read', 403],
+            ['delete', 'write', 403],
+        ])('%s route with a %s token returns %s', async (route, op, expectedStatus) => {
+            const req =
+                route === 'encrypt'
+                    ? supertest(app).post('/api/projects/1/recordings/session-1/encrypt').send(body)
+                    : supertest(app)
+                          .post('/api/projects/1/recordings/delete')
+                          .send({ session_ids: ['session-1'], deleted_by: 'user@example.com' })
+
+            const res = await req.set('Authorization', bearer(op))
+
+            expect(res.status).toBe(expectedStatus)
+        })
+
+        it('accepts the legacy secret while JWT auth is not configured', async () => {
+            const legacyApi = new RecordingApi(
+                {
+                    RECORDING_API_JWT_SECRET: '',
+                    RECORDING_API_ALLOW_LEGACY_SECRET: true,
+                    INTERNAL_API_SECRET: 'legacy-secret',
+                } as RecordingApiConfig,
+                mockPostgres,
+                mockOutputs
+            )
+            await legacyApi.start(mockService)
+            const legacyApp = express()
+            legacyApp.use(express.json())
+            legacyApp.use('/', legacyApi.router())
+            const legacyServer = legacyApp.listen(0, () => {})
+
+            try {
+                const res = await supertest(legacyApp)
+                    .post('/api/projects/1/recordings/session-1/encrypt')
+                    .set('X-Internal-Api-Secret', 'legacy-secret')
+                    .send(body)
+
+                expect(res.status).toBe(200)
+            } finally {
+                legacyServer.close()
+            }
+        })
+
+        it.each([
+            [
+                { ok: true, blocks: [Buffer.from('sealed')] },
+                200,
+                { blocks: [Buffer.from('sealed').toString('base64')] },
+            ],
+            [{ ok: false, error: 'recording_exists' }, 409, { error: 'recording_exists' }],
+            [
+                { ok: false, error: 'deleted', deletedAt: 1700000000, deletedBy: 'user@example.com' },
+                410,
+                { error: 'recording_deleted', deleted_at: 1700000000, deleted_by: 'user@example.com' },
+            ],
+        ])('maps service result %j to %s', async (result, expectedStatus, expectedBody) => {
+            mockService.encryptBlocks.mockResolvedValue(result as any)
+
+            const res = await supertest(app)
+                .post('/api/projects/1/recordings/session-1/encrypt')
+                .set('Authorization', bearer('write'))
+                .send(body)
+
+            expect(res.status).toBe(expectedStatus)
+            expect(res.body).toEqual(expectedBody)
+            expect(mockService.encryptBlocks).toHaveBeenCalledWith('session-1', 1, [Buffer.from('block')], 365)
         })
     })
 })

@@ -12,7 +12,7 @@ import {
     useState,
 } from 'react'
 
-import { IconMinus, IconPlus } from '@posthog/icons'
+import { IconMinus, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { shouldUseMarkdownPaste } from './documentModel'
@@ -111,6 +111,7 @@ export function EditableTableBlock({
     setBlockRef,
     setTableCellRef,
     updateNode,
+    deleteNode,
     handleSelectionChange,
     startTextSelectionPointer,
     restoreSelectionRef,
@@ -120,6 +121,7 @@ export function EditableTableBlock({
     setBlockRef: (element: HTMLElement | null) => void
     setTableCellRef: (position: TableCellPosition, element: HTMLElement | null) => void
     updateNode: (nodeId: string, updater: (node: NotebookBlockNode) => NotebookBlockNode | null) => void
+    deleteNode: () => void
     handleSelectionChange: () => void
     startTextSelectionPointer: (event: TextSelectionPointerStartEvent) => void
     restoreSelectionRef: MutableRefObject<RestoreSelectionRequest | null>
@@ -481,6 +483,7 @@ export function EditableTableBlock({
                                         label={control.label}
                                         tooltip={control.tooltip}
                                         icon={<IconPlus />}
+                                        dataAttr="markdown-notebook-table-add-row"
                                         onClick={() => addTableRowAfter(control.rowIndex, 0)}
                                     />
                                 </div>
@@ -499,6 +502,7 @@ export function EditableTableBlock({
                                         label={control.label}
                                         tooltip={control.tooltip}
                                         icon={<IconPlus />}
+                                        dataAttr="markdown-notebook-table-add-column"
                                         onClick={() => addTableColumnAfter(control.columnIndex)}
                                     />
                                 </div>
@@ -519,6 +523,7 @@ export function EditableTableBlock({
                                             label={`Remove row ${rowIndex + 1}`}
                                             tooltip="Remove row"
                                             icon={<IconMinus />}
+                                            dataAttr="markdown-notebook-table-remove-row"
                                             onClick={() => removeTableRow(rowIndex)}
                                         />
                                     </div>
@@ -540,6 +545,7 @@ export function EditableTableBlock({
                                             label={`Remove column ${columnIndex + 1}`}
                                             tooltip="Remove column"
                                             icon={<IconMinus />}
+                                            dataAttr="markdown-notebook-table-remove-column"
                                             disabledReason={
                                                 columnCount <= 1 ? 'Tables need at least one column' : undefined
                                             }
@@ -548,6 +554,21 @@ export function EditableTableBlock({
                                     </div>
                                 )
                             })}
+                            <div
+                                className="MarkdownNotebook__table-remove-zone MarkdownNotebook__table-delete-zone"
+                                style={tableControlStyle({
+                                    '--table-control-left': `${tableLeft}px`,
+                                    '--table-control-top': `${tableTop}px`,
+                                })}
+                            >
+                                <TableStructureControlButton
+                                    label="Delete table"
+                                    tooltip="Delete table"
+                                    icon={<IconTrash />}
+                                    dataAttr="markdown-notebook-table-delete"
+                                    onClick={deleteNode}
+                                />
+                            </div>
                         </div>
                     ) : null}
                 </div>
@@ -560,12 +581,14 @@ export function TableStructureControlButton({
     label,
     tooltip,
     icon,
+    dataAttr,
     disabledReason,
     onClick,
 }: {
     label: string
     tooltip: string
     icon: JSX.Element
+    dataAttr: string
     disabledReason?: string
     onClick: () => void
 }): JSX.Element {
@@ -573,6 +596,7 @@ export function TableStructureControlButton({
         <LemonButton
             aria-label={label}
             className="MarkdownNotebook__table-structure-control"
+            data-attr={dataAttr}
             disabledReason={disabledReason}
             icon={icon}
             noPadding
@@ -637,7 +661,7 @@ export function EditableTableCellContent({
         // While the caret is inside the cell, the DOM is the source of the latest model state:
         // rewriting innerHTML would destroy the caret mid-typing, so only sync when the live DOM
         // does not already represent the same content.
-        const selection = window.getSelection()
+        const selection = element.firstChild ? window.getSelection() : null
         if (
             selection?.anchorNode &&
             element.contains(selection.anchorNode) &&

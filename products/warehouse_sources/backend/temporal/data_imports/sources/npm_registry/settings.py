@@ -46,6 +46,14 @@ NPM_REGISTRY_ENDPOINTS: dict[str, NpmRegistryEndpointConfig] = {
         description="Published version metadata (publish time, dist-tags, tarball, license) per "
         "configured package, from the npm registry API.",
     ),
+    "VersionDownloads": NpmRegistryEndpointConfig(
+        name="VersionDownloads",
+        primary_keys=["package", "version"],
+        # npm only serves per-version counts as a rolling last-7-days total with no date filter or
+        # date in the response, so each sync replaces the table with the current week's snapshot.
+        description="Downloads per published version over the last 7 days, per configured package, from the "
+        "npm downloads-counts API.",
+    ),
 }
 
 ENDPOINTS = tuple(NPM_REGISTRY_ENDPOINTS.keys())

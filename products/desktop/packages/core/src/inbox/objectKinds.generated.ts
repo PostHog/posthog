@@ -59,7 +59,7 @@ export const OBJECT_KIND_DATA = {
     idPattern: null,
     block: false,
     idIsBody: false,
-    urlAliases: [],
+    urlAliases: ["/error-tracking/{id}"],
   },
   replay: {
     kindLabel: "Session replay",
@@ -73,11 +73,11 @@ export const OBJECT_KIND_DATA = {
   flag: {
     kindLabel: "Feature flag",
     source: "Feature flags",
-    pathTemplate: "/feature_flags/{id}",
+    pathTemplate: "/feature-flags/{id}",
     idPattern: "^\\d+$",
     block: false,
     idIsBody: false,
-    urlAliases: [],
+    urlAliases: ["/feature_flags/{id}"],
   },
   experiment: {
     kindLabel: "Experiment",

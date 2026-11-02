@@ -218,36 +218,46 @@ class TestWebhookTableTransformer:
         assert [row["id"] for row in rows] == ["sr-3"]
 
 
-class TestSignerCapabilityStripping:
-    """`signature_link` (and other capability fields) must never reach the warehouse on any path."""
+class TestCapabilityLinkStripping:
+    """Signing and approval links (capability fields) must never reach the warehouse on any path."""
 
-    def test_signers_fanout_strips_signature_link(self) -> None:
+    @pytest.mark.parametrize(
+        "endpoint, link_field",
+        [("signers", "signature_link"), ("approvers", "approval_link")],
+    )
+    def test_fanout_strips_capability_link(self, endpoint: str, link_field: str) -> None:
         result = _driver().run(
-            "signers",
+            endpoint,
             route(
                 {
                     "/signature_requests": [
                         ScriptedResponse(json={"data": [{"id": "sr-1"}], "meta": {"next_cursor": None}})
                     ],
-                    "/signature_requests/sr-1/signers": [
-                        ScriptedResponse(json=[{"id": "s-1", "status": "signed", "signature_link": "https://sign/abc"}])
+                    f"/signature_requests/sr-1/{endpoint}": [
+                        ScriptedResponse(json=[{"id": "r-1", "status": "notified", link_field: "https://link/abc"}])
                     ],
                 }
             ),
         )
 
         assert result.raised is None
-        assert result.rows[0].get("signature_link") is None
-        assert result.rows[0]["id"] == "s-1"
+        assert result.rows[0].get(link_field) is None
+        assert result.rows[0]["id"] == "r-1"
         assert result.rows[0]["signature_request_id"] == "sr-1"
 
-    def test_signature_requests_strips_embedded_signer_links(self) -> None:
+    def test_signature_requests_strips_embedded_links(self) -> None:
         result = _driver().run(
             "signature_requests",
             [
                 ScriptedResponse(
                     json={
-                        "data": [{"id": "sr-1", "signers": [{"id": "s-1", "signature_link": "https://sign/abc"}]}],
+                        "data": [
+                            {
+                                "id": "sr-1",
+                                "signers": [{"id": "s-1", "signature_link": "https://sign/abc"}],
+                                "approvers": [{"id": "a-1", "approval_link": "https://approve/abc"}],
+                            }
+                        ],
                         "meta": {"next_cursor": None},
                     }
                 )
@@ -257,6 +267,8 @@ class TestSignerCapabilityStripping:
         assert result.raised is None
         assert result.rows[0]["signers"][0].get("signature_link") is None
         assert result.rows[0]["signers"][0]["id"] == "s-1"
+        assert result.rows[0]["approvers"][0].get("approval_link") is None
+        assert result.rows[0]["approvers"][0]["id"] == "a-1"
 
 
 def _hook(endpoint: str = "https://ph/webhook", **extra: Any) -> dict[str, Any]:

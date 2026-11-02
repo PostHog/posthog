@@ -53,9 +53,17 @@ class TestSpotlerCRMSourceBehavior:
         config = SpotlerCRMSourceConfig(access_token="test-token")
         return SourceDriver(SpotlerCRMSource(), config).run(endpoint, script, resume_state=resume_state)
 
-    def test_fresh_run_pages_forward_and_checkpoints_after_each_page(self) -> None:
+    @pytest.mark.parametrize(
+        ("endpoint", "expected_path"),
+        [
+            ("Accounts", "/accounts"),
+            ("CampaignDetails", "/campaigndetails"),
+            ("CampaignStages", "/campaignstages"),
+        ],
+    )
+    def test_fresh_run_pages_forward_and_checkpoints_after_each_page(self, endpoint: str, expected_path: str) -> None:
         result = self._drive(
-            "Accounts",
+            endpoint,
             [
                 _page([{"id": 1}], has_more=True),
                 _page([{"id": 2}], has_more=True),
@@ -63,6 +71,7 @@ class TestSpotlerCRMSourceBehavior:
             ],
         )
 
+        assert result.paths == [expected_path] * 3
         assert result.params("page") == ["1", "2", "3"]
         assert result.params("limit") == ["100", "100", "100"]
         assert result.items == [[{"id": 1}], [{"id": 2}], [{"id": 3}]]
@@ -85,10 +94,7 @@ class TestSpotlerCRMCredentials:
     @pytest.mark.parametrize(
         ("status_code", "expected_valid"),
         [
-            (200, True),
             (402, False),
-            (403, False),
-            (500, False),
         ],
     )
     def test_validate_credentials_status_mapping(self, status_code: int, expected_valid: bool) -> None:

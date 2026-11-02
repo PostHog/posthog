@@ -77,6 +77,7 @@ class ServiceRequest:
         self.successful_authenticator = None
         self.path = "/"
         self.data: dict = {}
+        self.FILES: dict = {}
         self.GET: dict = {}
         self.META: dict = {}
         self.headers: dict = {}
@@ -271,7 +272,6 @@ def parse_actor_property_filters(raw_properties: Optional[str]) -> list[dict]:
 INSIGHT_KINDS = {
     "TrendsQuery",
     "FunnelsQuery",
-    "FunnelCorrelationQuery",
     "RetentionQuery",
     "PathsQuery",
     "PathsV2Query",
@@ -287,8 +287,6 @@ INSIGHT_KINDS = {
 ASYNC_QUERY_KINDS = INSIGHT_KINDS | {
     "TracesQuery",
     "ExperimentQuery",
-    "ExperimentTrendsQuery",
-    "ExperimentFunnelsQuery",
     "ExperimentExposureQuery",
 }
 _EXTRA_ASYNC_KINDS = ASYNC_QUERY_KINDS - INSIGHT_KINDS
@@ -296,7 +294,6 @@ _EXTRA_ASYNC_KINDS = ASYNC_QUERY_KINDS - INSIGHT_KINDS
 INSIGHT_ACTORS_KINDS = {
     "InsightActorsQuery",
     "FunnelsActorsQuery",
-    "FunnelCorrelationActorsQuery",
     "StickinessActorsQuery",
     "PathsV2ActorsQuery",
 }

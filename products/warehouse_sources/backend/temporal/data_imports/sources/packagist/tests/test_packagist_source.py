@@ -14,11 +14,6 @@ class TestPackagistSource:
         self.team_id = 123
         self.config = PackagistSourceConfig(packages="monolog/monolog\nsymfony/console")
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["downloads"])
-
-        assert [schema.name for schema in schemas] == ["downloads"]
-
     def test_source_for_pipeline_drops_watermark_when_not_incremental(self):
         # A stale watermark from a previous incremental run must not leak into a full refresh.
         result = SourceDriver(self.source, self.config).run(

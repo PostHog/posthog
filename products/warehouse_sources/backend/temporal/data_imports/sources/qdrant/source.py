@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -31,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.qdrant.set
     API_VERSION,
     AUTH_ERROR,
     ENDPOINTS,
+    INCREMENTAL_FIELDS,
     PERMISSION_ERROR,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -38,6 +40,20 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class QdrantSource(ResumableSource[QdrantSourceConfig, QdrantResumeConfig]):
+    codebase_detection = detect(
+        env=("^QDRANT_",),
+        npm=("@qdrant/js-client-rest", "@qdrant/qdrant-js"),
+        pypi=("qdrant-client",),
+        cargo=("qdrant-client", "qdrant", "qdrant-edge", "qdrant-rust-stemmers"),
+        go=(
+            "github.com/qdrant/go-client",
+            "github.com/qdrant/qdrant-cloud-buf-plugins",
+            "github.com/qdrant/qdrant-cloud-public-api",
+            "github.com/qdrant/qdrant-helm",
+        ),
+        maven=("io.qdrant:client",),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = (API_VERSION,)
     default_version = API_VERSION
@@ -62,7 +78,8 @@ class QdrantSource(ResumableSource[QdrantSourceConfig, QdrantResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, {}, names)
+        # The metrics window re-reads points before the watermark, so append would duplicate them.
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=INCREMENTAL_FIELDS.keys())
 
     def validate_credentials(
         self,
@@ -82,7 +99,15 @@ class QdrantSource(ResumableSource[QdrantSourceConfig, QdrantResumeConfig]):
         resumable_source_manager: ResumableSourceManager[QdrantResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
-        return qdrant_source(config, inputs.schema_name, inputs.team_id, inputs.job_id, resumable_source_manager)
+        return qdrant_source(
+            config,
+            inputs.schema_name,
+            inputs.team_id,
+            inputs.job_id,
+            resumable_source_manager,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
+        )
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -95,7 +120,7 @@ class QdrantSource(ResumableSource[QdrantSourceConfig, QdrantResumeConfig]):
             caption=(
                 "Import Qdrant Cloud infrastructure metadata. "
                 "Create a Cloud Management Key in the Cloud Console under Access Management > Cloud Management Keys. "
-                "Grant `read:clusters`, `read:backups`, and `read:backup_schedules` for the tables you select. "
+                "Grant `read:clusters`, `read:backups`, `read:backup_schedules`, and `read:payment_information` for the tables you select. "
                 "Copy your account ID from the Cloud Console. Vector data and collections are not included."
             ),
             fields=cast(
@@ -119,5 +144,5 @@ class QdrantSource(ResumableSource[QdrantSourceConfig, QdrantResumeConfig]):
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )
