@@ -234,6 +234,17 @@ def _health_inputs_latest_calculation(calculation: LatestCalculation) -> dict[st
             }
             for failure in calculation.failures
         ],
+        "hours_of_data": calculation.hours_of_data,
+        "zero_metrics": [
+            {
+                "name": metric.name,
+                "role": metric.role,
+                "exposures": metric.exposures,
+                "ratio_side": metric.ratio_side,
+                "stopped_events": list(metric.stopped_events),
+            }
+            for metric in calculation.zero_metrics
+        ],
     }
 
 
