@@ -10,7 +10,6 @@ calls the model spends the tick's daily limit and then the shared daily limit of
 
 import uuid
 import asyncio
-import hashlib
 import datetime
 import dataclasses
 from typing import Any, Literal
@@ -38,6 +37,7 @@ from products.signals.backend.activity_summary.config import read_config as read
 from products.signals.backend.activity_summary.queue import read_enrolled_teams
 from products.signals.backend.facade.api import has_enabled_source, team_ids_with_enabled_source
 from products.signals.backend.models import PersonalInboxRanking, UserActivitySummary, UserActivitySummaryQueueState
+from products.signals.backend.org_rollout import in_rollout, parse_organization_ids
 from products.signals.backend.personal_ranking.build_budget import (
     refund_tick_build,
     spend_shared_build,
@@ -94,7 +94,6 @@ _LIMIT_STOPS: dict[PairStatus, str] = {
 
 # A new salt reorders every organization, so change the version only to start a new rollout order.
 _ROLLOUT_SALT = "personal-inbox-ranking-tick-v1"
-_ROLLOUT_BUCKETS = 10_000
 # The circuit breaker waits for this many model calls, so a few early failures do not stop the tick.
 _MIN_ERROR_RATE_SAMPLE = 10
 
@@ -132,7 +131,6 @@ class TickEnrollment:
 class TickSelection:
     pairs: list[TickPair]
     due_pairs: int = 0
-    # Due pairs with no stored list.
     due_without_list: int = 0
     # Hours since the oldest list of a due pair was built or checked. Null when no due pair has a list.
     oldest_due_hours: float | None = None
@@ -170,7 +168,6 @@ class PersonalRankingTickResult:
     due_without_list: int = 0
     picked: int = 0
     statuses: dict[str, int] = dataclasses.field(default_factory=dict)
-    # Pair activities that raised.
     errored: int = 0
     stop_reason: str | None = None
     oldest_due_hours: float | None = None
@@ -181,32 +178,15 @@ class PersonalRankingTickResult:
     duration_seconds: float = 0.0
 
 
-def organization_rollout_bucket(organization_id: uuid.UUID) -> int:
-    """The organization's fixed place in the percentage rollout, from 0 to `_ROLLOUT_BUCKETS` - 1."""
-    digest = hashlib.sha256(f"{_ROLLOUT_SALT}:{organization_id}".encode()).digest()
-    return int.from_bytes(digest[:8], "big") % _ROLLOUT_BUCKETS
-
-
 def _in_rollout(percentage: float, organization_id: uuid.UUID) -> bool:
-    return organization_rollout_bucket(organization_id) < percentage * _ROLLOUT_BUCKETS / 100
-
-
-def _parse_organization_ids(organization_ids: tuple[str, ...]) -> set[uuid.UUID]:
-    # A UUID parse, so an id in another UUID format still matches, and an invalid id matches nothing.
-    parsed: set[uuid.UUID] = set()
-    for organization_id in organization_ids:
-        try:
-            parsed.add(uuid.UUID(organization_id))
-        except ValueError:
-            continue
-    return parsed
+    return in_rollout(_ROLLOUT_SALT, percentage, organization_id)
 
 
 def _eligible_teams(tick: PersonalRankingTickConfig) -> QuerySet[Team]:
     """Teams with AI data processing approval and a readable activity summary, minus the skip and deny lists."""
     teams = read_enrolled_teams(read_activity_summary_config(), Team.objects.all())
     return teams.exclude(id__in=tick.skip_team_ids).exclude(
-        organization_id__in=_parse_organization_ids(tick.deny_organization_ids)
+        organization_id__in=parse_organization_ids(tick.deny_organization_ids)
     )
 
 
@@ -216,7 +196,7 @@ def enrollment(config: PersonalRankingConfig) -> TickEnrollment:
     if not config.enabled or not tick.enabled:
         return TickEnrollment(team_ids=[], organization_ids=[], qualifying_organization_ids=[])
     teams = _eligible_teams(tick)
-    listed = _parse_organization_ids(tick.organization_ids)
+    listed = parse_organization_ids(tick.organization_ids)
     with_source: dict[int, uuid.UUID] = dict(
         teams.filter(id__in=team_ids_with_enabled_source()).values_list("id", "organization_id")
     )
@@ -243,7 +223,7 @@ def is_team_enrolled(config: PersonalRankingConfig, team: Team) -> bool:
         return False
     if not _eligible_teams(tick).filter(id=team.id).exists():
         return False
-    if team.organization_id in _parse_organization_ids(tick.organization_ids):
+    if team.organization_id in parse_organization_ids(tick.organization_ids):
         return True
     return _in_rollout(tick.self_driving_organization_percentage, team.organization_id) and has_enabled_source(team.id)
 
