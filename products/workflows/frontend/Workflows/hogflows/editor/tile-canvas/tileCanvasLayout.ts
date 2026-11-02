@@ -283,19 +283,13 @@ function buildElkGraph(sizes: Record<string, NodeSize>, edges: VisibleEdge[], fr
     return root
 }
 
-/** Slots edges left to right. ELK can order the arrows from one split into one step freely, so they keep `rank` order. */
+/** Slots edges left to right. Arrows from one split into one step tie, and keep `rank` order, so both ends agree. */
 function slotsBy(
     edges: VisibleEdge[],
-    place: (edge: VisibleEdge) => number,
-    groupOf: (edge: VisibleEdge) => string,
+    compare: (a: VisibleEdge, b: VisibleEdge) => number,
     rank: (edge: VisibleEdge) => number
 ): Map<string, number> {
-    const groupPlace = new Map<string, number>()
-    edges.forEach((edge) =>
-        groupPlace.set(groupOf(edge), Math.min(groupPlace.get(groupOf(edge)) ?? Infinity, place(edge)))
-    )
-    const placeOf = (edge: VisibleEdge): number => groupPlace.get(groupOf(edge)) ?? 0
-    const ordered = [...edges].sort((a, b) => placeOf(a) - placeOf(b) || rank(a) - rank(b))
+    const ordered = [...edges].sort((a, b) => compare(a, b) || rank(a) - rank(b))
     return new Map(ordered.map((edge, slot) => [edge.id, slot]))
 }
 
@@ -308,31 +302,36 @@ function xAt(points: Point[], y: number): number {
 }
 
 /**
- * Arrows that do not cross keep their left-to-right order at every height. So the ports of one step take the order of
- * the arrows just above the nearest target, and the ports into one step the order just below the nearest source.
+ * Two arrows that do not cross keep their left-to-right order at every height they share. So two arrows out of one step
+ * take the order they have just above the nearer of their ends, and two arrows into one step the order just below the
+ * nearer of their starts.
  */
 function portOrderOf(layout: CanvasLayout, edges: VisibleEdge[]): PortOrder {
     const out = new Map<string, number>()
     const into = new Map<string, number>()
     const pointsOf = (edge: VisibleEdge): Point[] => layout.edges[edge.id]?.points ?? []
-    Object.values(groupBy(edges, (edge) => edge.source)).forEach((fromOneStep) => {
-        const nearestEnd = Math.min(...fromOneStep.map((edge) => pointsOf(edge).at(-1)?.y ?? Infinity))
-        slotsBy(
-            fromOneStep,
-            (edge) => xAt(pointsOf(edge), nearestEnd - 1),
-            (edge) => edge.target,
-            (edge) => edge.portIndex
-        ).forEach((slot, id) => out.set(id, slot))
-    })
-    Object.values(groupBy(edges, (edge) => edge.target)).forEach((intoOneStep) => {
-        const nearestStart = Math.max(...intoOneStep.map((edge) => pointsOf(edge)[0]?.y ?? -Infinity))
-        slotsBy(
-            intoOneStep,
-            (edge) => xAt(pointsOf(edge), nearestStart + 1),
-            (edge) => edge.source,
-            (edge) => out.get(edge.id) ?? 0
-        ).forEach((slot, id) => into.set(id, slot))
-    })
+    const endY = (edge: VisibleEdge): number => pointsOf(edge).at(-1)?.y ?? 0
+    const startY = (edge: VisibleEdge): number => pointsOf(edge)[0]?.y ?? 0
+    const xAbove = (a: VisibleEdge, b: VisibleEdge): number => {
+        if (a.target === b.target) {
+            return 0
+        }
+        const y = Math.min(endY(a), endY(b)) - 1
+        return xAt(pointsOf(a), y) - xAt(pointsOf(b), y)
+    }
+    const xBelow = (a: VisibleEdge, b: VisibleEdge): number => {
+        if (a.source === b.source) {
+            return 0
+        }
+        const y = Math.max(startY(a), startY(b)) + 1
+        return xAt(pointsOf(a), y) - xAt(pointsOf(b), y)
+    }
+    Object.values(groupBy(edges, (edge) => edge.source)).forEach((fromOneStep) =>
+        slotsBy(fromOneStep, xAbove, (edge) => edge.portIndex).forEach((slot, id) => out.set(id, slot))
+    )
+    Object.values(groupBy(edges, (edge) => edge.target)).forEach((intoOneStep) =>
+        slotsBy(intoOneStep, xBelow, (edge) => out.get(edge.id) ?? 0).forEach((slot, id) => into.set(id, slot))
+    )
     return { out, in: into }
 }
 

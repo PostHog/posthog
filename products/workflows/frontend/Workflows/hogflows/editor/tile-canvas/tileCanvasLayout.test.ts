@@ -162,6 +162,25 @@ const busyJoin: FlowGraph = {
     ],
 }
 
+const laterCross: FlowGraph = {
+    actions: ['n0', 'n1', 'n2', 'n3', 'n4', 'n5', 'n6', 'n7', 'n8', 'n9'].map((id) =>
+        step(id, id === 'n0' ? 'trigger' : id === 'n9' ? 'function' : 'conditional_branch')
+    ),
+    edges: [
+        { from: 'n0', to: 'n1', type: 'continue' },
+        ...splits([
+            ['n1', ['n2', 'n7', 'n2']],
+            ['n2', ['n3', 'n3', 'n4', 'n3']],
+            ['n3', ['n4', 'n4', 'n9', 'n8']],
+            ['n4', ['n5', 'n5', 'n7', 'n5']],
+            ['n5', ['n6', 'n8', 'n7', 'n6']],
+            ['n6', ['n7', 'n7', 'n8', 'n7']],
+            ['n7', ['n8', 'n8', 'n9', 'n8']],
+            ['n8', ['n9', 'n9', 'n9', 'n9']],
+        ]),
+    ],
+}
+
 type Segment = [Point, Point]
 const segmentsOf = (points: Point[]): Segment[] => points.slice(1).map((end, index) => [points[index], end])
 const span = (a: number, b: number): [number, number] => [Math.min(a, b), Math.max(a, b)]
@@ -232,6 +251,7 @@ describe('layoutTileCanvas', () => {
             ['path:n2:branch:0'],
         ],
         ['an arrow that turns only near its target', longDrop, computePathGroups(longDrop), [] as string[]],
+        ['arrows that cross below the nearest target', laterCross, computePathGroups(laterCross), [] as string[]],
     ])(
         'gives each arrow of a split its own line, with its label on it, for %s',
         async (_, flow, flowGroups, openIds) => {
