@@ -36,6 +36,7 @@ def start_publish_or_record_failure(task_run_id: UUID, task_id: UUID, team_id: i
     from .logic import pull_requests  # noqa: PLC0415 — keeps the GitHub client off the setup import path
     from .temporal import client as temporal_client  # noqa: PLC0415 — keeps temporalio off the setup import path
 
+    pull_requests.claim_publication(task_id, team_id, task_run_id)
     try:
         temporal_client.start_publish(task_run_id, team_id=team_id)
     except Exception as error:

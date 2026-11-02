@@ -9,7 +9,7 @@ from posthog.exceptions_capture import capture_exception
 from products.tasks.backend.facade import api as tasks_facade
 
 from ..settings import WriterSettings
-from .records import JOIN_STATE_KEY, SECTION_STATE_KEY
+from .records import JOIN_STATE_KEY, PUBLICATION_CLAIM_STATE_KEY, SECTION_STATE_KEY, is_publication_claim_live
 
 DAILY_RUN_CAP = 60
 OPEN_PULL_REQUEST_CAP = 10
@@ -41,11 +41,25 @@ class InFlightWriterRuns:
 
 
 def in_flight_writer_runs(writer: WriterSettings) -> InFlightWriterRuns:
-    in_flight_task_ids = tasks_facade.owner_origin_open_task_ids(
+    running_task_ids = tasks_facade.owner_origin_open_task_ids(
         team_id=writer.team_id,
         created_by_id=writer.user_id,
         origin_product=tasks_facade.TaskOriginProduct.KNOWLEDGE_WRITER,
     )
+    claimed_task_ids = tasks_facade.owner_origin_task_ids_with_state_entry(
+        team_id=writer.team_id,
+        created_by_id=writer.user_id,
+        origin_product=tasks_facade.TaskOriginProduct.KNOWLEDGE_WRITER,
+        key=PUBLICATION_CLAIM_STATE_KEY,
+    )
+    publishing_task_ids = {
+        task_id
+        for task_id in claimed_task_ids
+        if is_publication_claim_live(
+            tasks_facade.read_task_state_entry(task_id, writer.team_id, PUBLICATION_CLAIM_STATE_KEY)
+        )
+    }
+    in_flight_task_ids = running_task_ids | publishing_task_ids
     unpublished_runs = 0
     busy_sections: set[str] = set()
     for task_id in in_flight_task_ids:
