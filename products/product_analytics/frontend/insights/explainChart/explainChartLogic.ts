@@ -70,6 +70,9 @@ export interface explainChartLogicActions {
     saveInsightSuccess: () => {
         value: true
     } // insightLogic
+    setActiveCreation: (creation: ActiveCreation) => {
+        creation: ActiveCreation
+    } // runnerPanelLogic
     closeSidePanel: (tab?: SidePanelTab | undefined) => {
         tab: SidePanelTab | undefined
     } // sidePanelStateLogic
@@ -80,9 +83,6 @@ export interface explainChartLogicActions {
         options: string | undefined
         tab: SidePanelTab
     } // sidePanelStateLogic
-    setActiveCreation: (creation: ActiveCreation) => {
-        creation: ActiveCreation
-    } // runnerPanelLogic
     approveConsent: () => {
         value: true
     }
@@ -101,9 +101,9 @@ export interface explainChartLogicActions {
         input: Record<string, unknown> | null,
         output: Record<string, unknown> | null
     ) => {
-        toolCallId: string
         input: Record<string, unknown> | null
         output: Record<string, unknown> | null
+        toolCallId: string
     }
     explainClicked: () => {
         value: true
