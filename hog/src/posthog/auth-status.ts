@@ -18,10 +18,15 @@ export type AuthStatus =
           host: string
           projectId: string
           projectName: string | null
+          kind: 'personal_api_key' | 'oauth'
           source: CredentialSource
           // Set when the source is the store.
           store: 'keychain' | 'file' | null
           credentialsPath: string | null
+          // What an OAuth login may do and when its access token expires (ISO 8601). Null for a
+          // personal API key, which has no expiry and whose scopes PostHog doesn't report.
+          scopes: string[] | null
+          expiresAt: string | null
           // Null when the key lacks the user:read scope, so hog can't tell whose key it is.
           user: { email: string; name: string | null } | null
       }
@@ -34,9 +39,12 @@ export async function checkAuthStatus(ctx: Context): Promise<AuthStatus> {
         if (error instanceof HogError && error.code === 'not_authenticated') {
             return { authenticated: false, next: 'hog auth login' }
         }
+        if (error instanceof HogError && error.code === 'session_expired') {
+            return { authenticated: false, error: error.message, next: 'hog auth login' }
+        }
         throw error
     }
-    const { host, projectId, source, store, path } = credentials
+    const { host, projectId, source, store, path, kind, scopes, expiresAt } = credentials
     const api = await ctx.posthog()
     const [user, project] = await Promise.allSettled([
         api.get<{ email: string; first_name?: string }>('/api/users/@me/'),
@@ -49,7 +57,10 @@ export async function checkAuthStatus(ctx: Context): Promise<AuthStatus> {
             host,
             projectId,
             source,
-            error: 'PostHog rejected the key. Someone may have deleted it.',
+            error:
+                kind === 'oauth'
+                    ? 'PostHog rejected the token. Someone may have revoked it.'
+                    : 'PostHog rejected the key. Someone may have deleted it.',
             next: 'hog auth login',
         }
     }
@@ -63,9 +74,12 @@ export async function checkAuthStatus(ctx: Context): Promise<AuthStatus> {
         host,
         projectId,
         projectName: project.status === 'fulfilled' ? project.value.name : null,
+        kind,
         source,
         store: store ?? null,
         credentialsPath: path ?? null,
+        scopes: scopes ?? null,
+        expiresAt: expiresAt === undefined ? null : new Date(expiresAt).toISOString(),
         user: user.status === 'fulfilled' ? { email: user.value.email, name: user.value.first_name || null } : null,
     }
 }

@@ -1,8 +1,8 @@
-import { clearPending, type ApprovalFlow } from '@/core/approval'
+import { clearPending, type ApprovalFlow, type ApprovalWait } from '@/core/approval'
 import type { Runtime } from '@/core/runtime'
 
-import { FileStore, openStore, probeKeychain, type StoredCredential } from './credential-store'
-import { pollDeviceLogin, startDeviceLogin, type Approval, type PendingLogin } from './device-auth'
+import { FileStore, openStore, probeKeychain, type OAuthCredential, type StoredCredential } from './credential-store'
+import { LOGIN_SCOPES, pollDeviceLogin, startDeviceLogin, type PendingLogin } from './device-auth'
 import { writeLogin } from './logins'
 import { loginFor, readSettings } from './settings'
 
@@ -17,22 +17,26 @@ export interface LoggedIn {
     // Why hog couldn't use the keychain, when it stored the credentials in a file.
     keychainProblem: string | null
     scopes: string[]
+    // Epoch milliseconds, for an OAuth login.
+    expiresAt: number | null
 }
 
-// An agent that retries `hog auth login` for the same host gets the same code back, so the link it
-// already shared keeps working. `host` is only needed to start a new login.
-export function loginFlow(runtime: Runtime, host?: string): ApprovalFlow<PendingLogin, Approval> {
+// What `hog auth login --wait` needs to finish the login a previous run started.
+export function loginWait(runtime: Runtime): ApprovalWait<PendingLogin, OAuthCredential> {
     return {
         command: LOGIN_COMMAND,
         noun: 'login',
-        start: () => {
-            if (host === undefined) {
-                throw new Error('A new login needs a host')
-            }
-            return startDeviceLogin(runtime, host)
-        },
-        reuse: (existing) => existing.host === host,
         poll: (pending, timeoutMs) => pollDeviceLogin(runtime, pending, timeoutMs),
+    }
+}
+
+// An agent that retries `hog auth login` for the same host gets the same code back, so the link it
+// already shared keeps working.
+export function loginFlow(runtime: Runtime, host: string): ApprovalFlow<PendingLogin, OAuthCredential> {
+    return {
+        ...loginWait(runtime),
+        start: () => startDeviceLogin(runtime, host, LOGIN_SCOPES),
+        reuse: (existing) => existing.host === host && existing.scopes?.join(' ') === LOGIN_SCOPES.join(' '),
     }
 }
 
@@ -56,6 +60,7 @@ export async function saveLogin(runtime: Runtime, credential: StoredCredential):
         store: store.kind,
         credentialsPath: store instanceof FileStore ? store.path : null,
         keychainProblem: probe.usable ? null : probe.reason,
-        scopes: [],
+        scopes: credential.type === 'oauth' ? credential.scopes : [],
+        expiresAt: credential.type === 'oauth' ? credential.expiresAt : null,
     }
 }

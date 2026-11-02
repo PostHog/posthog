@@ -4,14 +4,14 @@ import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import { escapeControls } from '@/core/output'
 import type { Prompts } from '@/core/prompts'
+import type { OAuthCredential } from '@/posthog/credential-store'
 import { checkApiKey, checkHost, checkProjectId } from '@/posthog/credentials'
-import type { Approval } from '@/posthog/device-auth'
-import { loginFlow, saveLogin, type LoggedIn } from '@/posthog/login'
+import { loginFlow, loginWait, saveLogin, type LoggedIn } from '@/posthog/login'
 
 const REGIONS = { us: 'https://us.posthog.com', eu: 'https://eu.posthog.com' } as const
 
-// A posthog.json comes with the repository, so it only picks between the PostHog Cloud regions.
-// A login to any other host needs --host, because the key it gets is saved for every project.
+// A posthog.json comes with the repository, so it only picks between the PostHog Cloud regions. A
+// login to any other host needs --host, so a repository can't send a person's login elsewhere.
 function cloudRegion(host: string | undefined): string | undefined {
     if (host === undefined) {
         return undefined
@@ -34,6 +34,9 @@ type LoginResult =
           store: 'keychain' | 'file'
           credentialsPath: string | null
           keychainProblem: string | null
+          scopes: string[]
+          // ISO 8601, for an OAuth login. hog renews the token before then.
+          expiresAt: string | null
           next: string
       }
 
@@ -47,14 +50,22 @@ function nextCommand(scopes: readonly string[]): string {
 }
 
 function loggedInResult(loggedIn: LoggedIn): LoginResult {
-    const { host, projectId, store, credentialsPath, keychainProblem, scopes } = loggedIn
-    return { status: 'logged_in', host, projectId, store, credentialsPath, keychainProblem, next: nextCommand(scopes) }
+    const { host, projectId, store, credentialsPath, keychainProblem, scopes, expiresAt } = loggedIn
+    return {
+        status: 'logged_in',
+        host,
+        projectId,
+        store,
+        credentialsPath,
+        keychainProblem,
+        scopes,
+        expiresAt: expiresAt === null ? null : new Date(expiresAt).toISOString(),
+        next: nextCommand(scopes),
+    }
 }
 
-async function finish(ctx: Context, approval: Approval): Promise<LoginResult> {
-    const { host, apiKey, projectId, scopes } = approval
-    const loggedIn = await saveLogin(ctx.runtime, { type: 'personal_api_key', apiKey, projectId, host })
-    return loggedInResult({ ...loggedIn, scopes })
+async function finish(ctx: Context, credential: OAuthCredential): Promise<LoginResult> {
+    return loggedInResult(await saveLogin(ctx.runtime, credential))
 }
 
 async function keyLogin(ctx: Context, prompts: Prompts): Promise<LoginResult> {
@@ -67,7 +78,7 @@ async function keyLogin(ctx: Context, prompts: Prompts): Promise<LoginResult> {
 }
 
 export default defineCommand({
-    description: 'Log in to PostHog and store a personal API key in the system keychain',
+    description: 'Log in to PostHog in the browser, and keep a token for one project in the system keychain',
     writes: true,
     options: {
         region: {
@@ -79,13 +90,14 @@ export default defineCommand({
         },
         wait: {
             type: 'boolean',
-            description: 'Wait for the login an agent or script started, and save the key once a person approves it',
+            description: 'Wait for the login an agent or script started, and save the token once a person approves it',
         },
     },
     notes: [
         'At a terminal, hog asks where your PostHog account is hosted and opens the browser to approve the login.',
         'Agents and scripts get a link and a code to hand to a person, then finish with `hog auth login --wait`.',
-        'hog stores the key in the system keychain. Where it cannot use one, such as over SSH, it stores the key in a file only you can read.',
+        'The person picks one project, and the token only works there. To use another project, log in again. hog renews the token by itself.',
+        'hog stores the token in the system keychain. Where it cannot use one, such as over SSH, it stores the token in a file only you can read.',
         'In CI, skip login and set HOG_PERSONAL_API_KEY, HOG_PROJECT_ID and HOG_HOST.',
     ].join('\n'),
     examples: ['hog auth login', 'hog auth login --region eu', 'hog auth login --wait'],
@@ -95,7 +107,7 @@ export default defineCommand({
         const prompts = ctx.prompts
 
         if (options.wait) {
-            return finish(ctx, await resumeApproval(ctx, loginFlow(ctx.runtime)))
+            return finish(ctx, await resumeApproval(ctx, loginWait(ctx.runtime)))
         }
 
         if (!prompts && ctx.mode.agent === undefined && isTruthy(env.CI)) {
