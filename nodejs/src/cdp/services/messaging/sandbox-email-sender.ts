@@ -82,10 +82,10 @@ const BLOCKED_EVENT_WINDOW_SECONDS = 3600
 // The send is already decided when this runs, and the worker's batch waits for it, so a stalled
 // store must not hold the invocation open.
 const EVENT_CAPTURE_TIMEOUT_MS = 1000
-// A blocked-event capture that outlives its deadline keeps its Redis connection or pending acquisition.
-// Once this many are stuck, new blocked-event captures are dropped until some settle; captures still
-// inside their deadline never count, so a burst against a healthy store keeps every event.
-const MAX_STALLED_STORE_CAPTURES = 10
+// The deadline cannot cancel a store call, so a stalled call keeps its connection or pending acquisition
+// until the store answers. At most this many run at once; a capture waiting for a slot holds nothing and
+// gives up at its deadline, so a burst against a healthy store keeps every event.
+const MAX_OPEN_STORE_CALLS = 10
 
 function htmlBody(document: DefaultTreeAdapterMap['document']): DefaultTreeAdapterMap['element'] | undefined {
     const root = document.childNodes.find(defaultTreeAdapter.isElementNode)
@@ -220,7 +220,8 @@ function appendHtmlFooter(html: string, footer: string, preheader?: string): str
 
 export class SandboxEmailSender {
     public readonly canSend: boolean
-    private stalledStoreCaptures = 0
+    private openStoreCalls = 0
+    private storeSlotWaiters: (() => void)[] = []
 
     constructor(
         public readonly config: SandboxEmailSenderConfig,
@@ -332,37 +333,53 @@ export class SandboxEmailSender {
         properties: Record<string, string | number | boolean>,
         storeCheck?: () => Promise<boolean>
     ): Promise<void> {
-        if (storeCheck && this.stalledStoreCaptures >= MAX_STALLED_STORE_CAPTURES) {
-            logger.warn('Dropped a sandbox email event: too many captures are stuck on the event store', {
-                teamId,
-                event,
-            })
-            return
-        }
-        let stalled = false
-        const capture = this.captureEventNow(teamId, event, properties, storeCheck).finally(() => {
-            if (stalled) {
-                this.stalledStoreCaptures--
-            }
-        })
         let timer: NodeJS.Timeout | undefined
         const deadline = new Promise<void>((resolve) => {
-            timer = setTimeout(() => {
-                if (storeCheck) {
-                    stalled = true
-                    this.stalledStoreCaptures++
-                }
+            timer = setTimeout(resolve, EVENT_CAPTURE_TIMEOUT_MS)
+        })
+        const captureNow = (): Promise<void> => this.captureEventNow(teamId, event, properties, storeCheck)
+        const capture = storeCheck ? this.withStoreSlot(deadline, captureNow) : captureNow()
+        try {
+            if ((await Promise.race([capture.then(() => true), deadline.then(() => false)])) === false) {
                 logger.warn('Gave up capturing a sandbox email event: the event store did not answer', {
                     teamId,
                     event,
                 })
-                resolve()
-            }, EVENT_CAPTURE_TIMEOUT_MS)
-        })
-        try {
-            await Promise.race([capture, deadline])
+            }
         } finally {
             clearTimeout(timer)
+        }
+    }
+
+    private async withStoreSlot(deadline: Promise<void>, work: () => Promise<void>): Promise<void> {
+        if (this.openStoreCalls < MAX_OPEN_STORE_CALLS) {
+            this.openStoreCalls++
+        } else {
+            const granted = await new Promise<boolean>((resolve) => {
+                const waiter = (): void => resolve(true)
+                this.storeSlotWaiters.push(waiter)
+                void deadline.then(() => {
+                    const index = this.storeSlotWaiters.indexOf(waiter)
+                    if (index !== -1) {
+                        this.storeSlotWaiters.splice(index, 1)
+                        resolve(false)
+                    }
+                })
+            })
+            if (!granted) {
+                return
+            }
+        }
+        try {
+            await work()
+        } finally {
+            // Hand the slot straight to the next waiter, so the open count never drops below what runs.
+            const next = this.storeSlotWaiters.shift()
+            if (next) {
+                next()
+            } else {
+                this.openStoreCalls--
+            }
         }
     }
 
