@@ -2,8 +2,7 @@ import type { PendingApproval, PollOutcome } from '@/core/approval'
 import { HogError } from '@/core/errors'
 import type { Runtime } from '@/core/runtime'
 
-import type { OAuthCredential } from './credential-store'
-import { credentialFromTokens, HOG_CLIENT_ID, oauthPost, type TokenResponse } from './oauth'
+import { HOG_CLIENT_ID, OAuthLogin, oauthPost, type TokenResponse } from './oauth'
 
 const DEVICE_CODE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code'
 
@@ -135,7 +134,7 @@ export async function pollDeviceLogin(
     runtime: Runtime,
     pending: PendingLogin,
     timeoutMs: number
-): Promise<PollOutcome<OAuthCredential>> {
+): Promise<PollOutcome<OAuthLogin>> {
     const response = await oauthPost(
         runtime,
         pending.host,
@@ -162,7 +161,7 @@ export async function pollDeviceLogin(
         }
         return {
             state: 'approved',
-            value: credentialFromTokens(runtime, body, {
+            value: OAuthLogin.fromTokens(runtime, body, {
                 host: pending.host,
                 projectId: String(projectId),
                 refreshToken: body.refresh_token,
@@ -185,18 +184,4 @@ export async function pollDeviceLogin(
         `PostHog rejected the login with HTTP ${response.status}.`,
         'Run `hog auth login` to start again.'
     )
-}
-
-// Revoking the refresh token ends the whole login: PostHog revokes its access tokens with it.
-export async function revokeLogin(runtime: Runtime, credential: OAuthCredential): Promise<boolean> {
-    try {
-        const response = await oauthPost(runtime, credential.host, 'oauth/revoke/', {
-            token: credential.refreshToken,
-            token_type_hint: 'refresh_token',
-            client_id: HOG_CLIENT_ID,
-        })
-        return response.ok
-    } catch {
-        return false
-    }
 }

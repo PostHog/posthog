@@ -184,14 +184,11 @@ export async function credentialAccess(
     connection: ApiConnection,
     options?: { signal?: AbortSignal }
 ): Promise<ApiToolResult<ApiKeyAccess>> {
-    const credentials = await ctx.credentials()
-    if (credentials.kind === 'oauth') {
-        const access = {
-            scopes: credentials.scopes ?? [],
-            scopedTeams: [Number(credentials.projectId)],
-            scopedOrganizations: [],
-        }
-        return { ok: true, value: access }
+    const { credential } = await ctx.credentials()
+    // A credential that knows its scopes is an OAuth login, which works in its one project.
+    const { scopes } = credential.status()
+    if (scopes !== null) {
+        return { ok: true, value: { scopes, scopedTeams: [Number(credential.projectId)], scopedOrganizations: [] } }
     }
     return library.keyAccess(connection, options)
 }

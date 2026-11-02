@@ -1,8 +1,7 @@
 import { clearPending } from '@/core/approval'
 import { defineCommand } from '@/core/command'
 import { escapeControls } from '@/core/output'
-import { PERSONAL_API_KEY_ENV_VAR, legacyCredentialsPath } from '@/posthog/credentials'
-import { revokeLogin } from '@/posthog/device-auth'
+import { PERSONAL_API_KEY_ENV_VAR } from '@/posthog/credentials'
 import { LOGIN_COMMAND } from '@/posthog/login'
 import { readLogin, removeLogin } from '@/posthog/logins'
 import { withLoginLock } from '@/posthog/oauth'
@@ -17,8 +16,6 @@ interface LogoutResult {
     revokeUrl: string | null
     // Variables that still give hog a key after logout.
     stillSet: string[]
-    // The legacy credentials file, which hog still reads and never changes.
-    legacyCredentialsFile: string | null
 }
 
 export default defineCommand({
@@ -27,7 +24,6 @@ export default defineCommand({
     notes: [
         'hog revokes the login on this machine in PostHog. Your hog logins on other machines keep working.',
         'A personal API key you pasted stays valid until you delete it in PostHog under Settings > Personal API keys.',
-        'hog never changes the legacy credentials file in ~/.posthog, so it still reads a key from there after logout.',
     ].join('\n'),
     examples: ['hog auth logout', 'hog auth logout --host https://eu.posthog.com'],
 
@@ -40,29 +36,23 @@ export default defineCommand({
         const host = ctx.globals.host ?? configHost ?? settings.host
         // Under the renewal lock, so a renewal in another hog process can neither restore the login
         // after this removes it, nor rotate the refresh token this revokes.
-        const { stored, revoked, removed } = host
+        const { outcome, removed } = host
             ? await withLoginLock(runtime, host, async () => {
                   const login = await readLogin(runtime, await readSettings(runtime), host)
-                  const [revokeResult, removeResult] = await Promise.all([
-                      login?.credential.type === 'oauth' ? revokeLogin(runtime, login.credential) : null,
+                  const [logoutOutcome, removeResult] = await Promise.all([
+                      login?.credential.logout(runtime),
                       login ? removeLogin(runtime, login) : false,
                   ])
-                  return { stored: login?.credential, revoked: revokeResult, removed: removeResult }
+                  return { outcome: logoutOutcome, removed: removeResult }
               })
-            : { stored: undefined, revoked: null, removed: false }
-        const personalApiKey = stored?.type === 'personal_api_key'
+            : { outcome: undefined, removed: false }
         await clearPending(runtime, LOGIN_COMMAND)
-        const legacyFile = legacyCredentialsPath(runtime)
         return {
             status: removed ? 'logged_out' : 'not_logged_in',
             host: host ?? null,
-            revoked,
-            revokeUrl:
-                personalApiKey && host
-                    ? new URL('settings/user-api-keys', `${host.replace(/\/+$/, '')}/`).toString()
-                    : null,
+            revoked: outcome?.revoked ?? null,
+            revokeUrl: removed ? (outcome?.revokeUrl ?? null) : null,
             stillSet: runtime.env[PERSONAL_API_KEY_ENV_VAR] ? [PERSONAL_API_KEY_ENV_VAR] : [],
-            legacyCredentialsFile: (await runtime.exists(legacyFile)) ? legacyFile : null,
         }
     },
 
@@ -86,11 +76,6 @@ export default defineCommand({
         if (result.stillSet.length > 0) {
             out.line(
                 `${out.style('Still logged in', 'yellow', 'bold')} through ${result.stillSet.join(' and ')}. Unset it to log out fully.`
-            )
-        }
-        if (result.legacyCredentialsFile) {
-            out.line(
-                `${out.style('Still logged in', 'yellow', 'bold')} through the legacy credentials file, ${result.legacyCredentialsFile}. hog never changes that file.`
             )
         }
     },

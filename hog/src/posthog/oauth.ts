@@ -5,9 +5,9 @@ import { withFileLock } from '@/core/file-lock'
 import type { Runtime } from '@/core/runtime'
 
 import { sendRequest, type HttpResponse } from './api'
-import { hostKey, type FileStore, type KeychainStore, type OAuthCredential } from './credential-store'
-import { readLogin, writeLogin } from './logins'
-import { readSettings } from './settings'
+import type { Credential, CredentialStatus, CredentialStorage, LogoutOutcome } from './credential'
+import { hostKey, type OAuthSecret, type StoreChoice } from './credential-store'
+import type { LoginRecord } from './settings'
 
 // hog's CIMD client ID: the URL of its client metadata document, which PostHog fetches.
 export const HOG_CLIENT_ID = 'https://posthog.com/.well-known/oauth/hog/client-metadata.json'
@@ -40,54 +40,17 @@ export function oauthPost(
     })
 }
 
-// Fields the response leaves out keep the values of `previous`, so a refresh that doesn't rotate the
-// refresh token keeps the old one.
-export function credentialFromTokens(
-    runtime: Runtime,
-    body: TokenResponse,
-    previous: Pick<OAuthCredential, 'host' | 'projectId' | 'refreshToken' | 'scopes'> & { loginId?: string }
-): OAuthCredential {
-    if (!body.access_token || body.expires_in === undefined) {
-        throw new HogError(
-            'unexpected_response',
-            'PostHog answered without an access token.',
-            'Run `hog auth login` to log in again.'
-        )
-    }
-    return {
-        type: 'oauth',
-        host: previous.host,
-        projectId: previous.projectId,
-        accessToken: body.access_token,
-        refreshToken: body.refresh_token ?? previous.refreshToken,
-        expiresAt: runtime.now() + body.expires_in * 1000,
-        scopes: body.scope ? body.scope.split(' ').filter(Boolean) : previous.scopes,
-        loginId: previous.loginId ?? randomUUID(),
-    }
-}
-
-async function refresh(runtime: Runtime, credential: OAuthCredential): Promise<OAuthCredential> {
-    const response = await oauthPost(runtime, credential.host, 'oauth/token/', {
-        grant_type: 'refresh_token',
-        refresh_token: credential.refreshToken,
-        client_id: HOG_CLIENT_ID,
-    })
-    const body = (response.json ?? {}) as TokenResponse & { error?: string }
-    if (response.ok) {
-        return credentialFromTokens(runtime, body, credential)
-    }
-    if (body.error === 'invalid_grant') {
-        throw new HogError(
-            'session_expired',
-            'Your hog login expired or was revoked.',
-            'Run `hog auth login` to log in again.'
-        )
-    }
-    throw new HogError(
-        'refresh_failed',
-        `PostHog didn't renew your login: it answered with HTTP ${response.status}.`,
-        'Run the command again. If it keeps failing, run `hog auth login`.'
-    )
+interface OAuthLoginFields {
+    host: string
+    projectId: string
+    accessToken: string
+    refreshToken: string
+    // Epoch milliseconds after which the access token stops working.
+    expiresAt: number
+    scopes: string[]
+    // A random id the login keeps for life. The refresh token changes on each renewal, so it can't
+    // name the login.
+    loginId: string
 }
 
 // Serializes the processes that renew or remove the login to one host.
@@ -97,34 +60,144 @@ export function withLoginLock<T>(runtime: Runtime, host: string, work: () => Pro
     return withFileLock(runtime, `refresh-${name}.lock`, work)
 }
 
-// An access token with time left. When PostHog rotates refresh tokens, it revokes the whole login if
-// a rotated refresh token is used again, so two hog processes must never refresh at once: the
-// refresh runs under a lock file, and re-reads the store inside it to pick up a token another
-// process just stored.
-export async function freshOAuthCredential(
-    runtime: Runtime,
-    store: KeychainStore | FileStore,
-    credential: OAuthCredential
-): Promise<OAuthCredential> {
-    if (credential.expiresAt - runtime.now() > REFRESH_MARGIN_MS) {
-        return credential
+// What `hog auth login` gets from the OAuth device grant. The access token works in one project.
+export class OAuthLogin implements Credential {
+    readonly host: string
+    readonly projectId: string
+    readonly accessToken: string
+    readonly refreshToken: string
+    readonly expiresAt: number
+    readonly scopes: string[]
+    readonly loginId: string
+
+    constructor(fields: OAuthLoginFields) {
+        this.host = fields.host
+        this.projectId = fields.projectId
+        this.accessToken = fields.accessToken
+        this.refreshToken = fields.refreshToken
+        this.expiresAt = fields.expiresAt
+        this.scopes = fields.scopes
+        this.loginId = fields.loginId
     }
-    return withLoginLock(runtime, credential.host, async () => {
-        const current = (await readLogin(runtime, await readSettings(runtime), credential.host))?.credential
-        if (current?.type !== 'oauth') {
-            throw new HogError('not_authenticated', 'You logged out of hog.', 'Run `hog auth login` to log in again.')
+
+    // Fields the response leaves out keep this login's values, so a refresh that doesn't rotate the
+    // refresh token keeps the old one. A new login gets a new id.
+    static fromTokens(
+        runtime: Runtime,
+        body: TokenResponse,
+        previous: Pick<OAuthLoginFields, 'host' | 'projectId' | 'refreshToken' | 'scopes'> & { loginId?: string }
+    ): OAuthLogin {
+        if (!body.access_token || body.expires_in === undefined) {
+            throw new HogError(
+                'unexpected_response',
+                'PostHog answered without an access token.',
+                'Run `hog auth login` to log in again.'
+            )
         }
-        if (current.expiresAt - runtime.now() > REFRESH_MARGIN_MS) {
-            return current
+        return new OAuthLogin({
+            host: previous.host,
+            projectId: previous.projectId,
+            accessToken: body.access_token,
+            refreshToken: body.refresh_token ?? previous.refreshToken,
+            expiresAt: runtime.now() + body.expires_in * 1000,
+            scopes: body.scope ? body.scope.split(' ').filter(Boolean) : previous.scopes,
+            loginId: previous.loginId ?? randomUUID(),
+        })
+    }
+
+    get token(): string {
+        return this.accessToken
+    }
+
+    get loginKey(): string {
+        return this.loginId
+    }
+
+    private hasTimeLeft(runtime: Runtime): boolean {
+        return this.expiresAt - runtime.now() > REFRESH_MARGIN_MS
+    }
+
+    // When PostHog rotates refresh tokens, it revokes the whole login if a rotated refresh token is
+    // used again, so two hog processes must never refresh at once: the refresh runs under a lock
+    // file, and re-reads the stored login inside it to pick up a token another process just stored.
+    async fresh(runtime: Runtime, storage: CredentialStorage): Promise<Credential> {
+        if (this.hasTimeLeft(runtime)) {
+            return this
         }
-        const renewed = await refresh(runtime, current)
+        return withLoginLock(runtime, this.host, async () => {
+            const current = await storage.reread()
+            if (!(current instanceof OAuthLogin)) {
+                throw new HogError(
+                    'not_authenticated',
+                    'You logged out of hog.',
+                    'Run `hog auth login` to log in again.'
+                )
+            }
+            if (current.hasTimeLeft(runtime)) {
+                return current
+            }
+            const renewed = await current.refresh(runtime)
+            try {
+                await storage.save(renewed)
+            } catch {
+                // PostHog already replaced the refresh token, so a lost write ends the login once the
+                // grace period passes. One more try covers a keychain that failed for a moment.
+                await storage.save(renewed)
+            }
+            return renewed
+        })
+    }
+
+    private async refresh(runtime: Runtime): Promise<OAuthLogin> {
+        const response = await oauthPost(runtime, this.host, 'oauth/token/', {
+            grant_type: 'refresh_token',
+            refresh_token: this.refreshToken,
+            client_id: HOG_CLIENT_ID,
+        })
+        const body = (response.json ?? {}) as TokenResponse & { error?: string }
+        if (response.ok) {
+            return OAuthLogin.fromTokens(runtime, body, this)
+        }
+        if (body.error === 'invalid_grant') {
+            throw new HogError(
+                'session_expired',
+                'Your hog login expired or was revoked.',
+                'Run `hog auth login` to log in again.'
+            )
+        }
+        throw new HogError(
+            'refresh_failed',
+            `PostHog didn't renew your login: it answered with HTTP ${response.status}.`,
+            'Run the command again. If it keeps failing, run `hog auth login`.'
+        )
+    }
+
+    status(): CredentialStatus {
+        return { kind: 'oauth', scopes: this.scopes, expiresAt: this.expiresAt }
+    }
+
+    // Revoking the refresh token ends this login: PostHog revokes its access tokens with it.
+    async logout(runtime: Runtime): Promise<LogoutOutcome> {
+        let revoked = false
         try {
-            await writeLogin(runtime, store, renewed)
+            const response = await oauthPost(runtime, this.host, 'oauth/revoke/', {
+                token: this.refreshToken,
+                token_type_hint: 'refresh_token',
+                client_id: HOG_CLIENT_ID,
+            })
+            revoked = response.ok
         } catch {
-            // PostHog already replaced the refresh token, so a lost write ends the login once the
-            // grace period passes. One more try covers a keychain that failed for a moment.
-            await writeLogin(runtime, store, renewed)
+            revoked = false
         }
-        return renewed
-    })
+        return { revoked, revokeUrl: null }
+    }
+
+    secret(): OAuthSecret {
+        return { accessToken: this.accessToken, refreshToken: this.refreshToken }
+    }
+
+    record(store: StoreChoice): LoginRecord {
+        const { projectId, expiresAt, scopes, loginId } = this
+        return { store, type: 'oauth', projectId, expiresAt, scopes, loginId }
+    }
 }

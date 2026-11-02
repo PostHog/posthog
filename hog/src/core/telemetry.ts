@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 
-import { posthogFile, type Credentials } from '@/posthog/credentials'
+import { posthogFile, type ResolvedCredentials } from '@/posthog/credentials'
 import { VERSION } from '@/version'
 
 import type { Mode } from './agent'
@@ -110,7 +110,7 @@ export class Telemetry {
     private enabled: boolean
     readonly invocationId = randomUUID()
     commandName: string | undefined
-    credentials: (() => Promise<Credentials>) | undefined
+    credentials: (() => Promise<ResolvedCredentials>) | undefined
 
     constructor(
         private readonly runtime: Runtime,
@@ -205,7 +205,7 @@ export class Telemetry {
 
     // Looks the user up once per key and keeps the answer for 30 days, or a day when PostHog had
     // none, so most runs send no extra request. A key without the scopes stays anonymous.
-    private async identity(credentials: Credentials): Promise<Identity | undefined> {
+    private async identity(credentials: ResolvedCredentials): Promise<Identity | undefined> {
         if (!isCloudHost(credentials.host)) {
             return undefined
         }
@@ -216,7 +216,7 @@ export class Telemetry {
             return undefined
         }
         const key = createHash('sha256')
-            .update(`${credentials.host}\n${credentials.projectId}\n${credentials.loginKey ?? credentials.token}`)
+            .update(`${credentials.host}\n${credentials.projectId}\n${credentials.credential.loginKey}`)
             .digest('hex')
         let cache: Record<string, CachedIdentity> = {}
         try {
@@ -247,7 +247,7 @@ export class Telemetry {
         return identity
     }
 
-    private async lookup(credentials: Credentials): Promise<Identity> {
+    private async lookup(credentials: ResolvedCredentials): Promise<Identity> {
         const get = async (path: string): Promise<Record<string, any> | undefined> => {
             try {
                 const response = await this.runtime.fetch(new URL(path, credentials.host), {

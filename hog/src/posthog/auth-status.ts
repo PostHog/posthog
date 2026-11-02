@@ -45,7 +45,8 @@ export async function checkAuthStatus(ctx: Context): Promise<AuthStatus> {
         }
         throw error
     }
-    const { host, projectId, source, store, path, kind, scopes, expiresAt } = credentials
+    const { host, projectId, source, store, path, credential } = credentials
+    const { kind, scopes, expiresAt } = credential.status()
     const api = await ctx.posthog()
     const [user, project] = await Promise.allSettled([
         api.get<{ email: string; first_name?: string }>('/api/users/@me/'),
@@ -79,8 +80,8 @@ export async function checkAuthStatus(ctx: Context): Promise<AuthStatus> {
         source,
         store: store ?? null,
         credentialsPath: path ?? null,
-        scopes: scopes ?? null,
-        expiresAt: expiresAt === undefined ? null : new Date(expiresAt).toISOString(),
+        scopes,
+        expiresAt: expiresAt === null ? null : new Date(expiresAt).toISOString(),
         user: user.status === 'fulfilled' ? { email: user.value.email, name: user.value.first_name || null } : null,
     }
 }
