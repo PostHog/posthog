@@ -989,31 +989,28 @@ describe('ToolExecutor', () => {
             } as any)
         }
 
-        it.each([true, false])(
-            'returns the tool error with every scope from the API challenge in _meta when supportsStepUp=%s',
-            async (supportsStepUp) => {
-                stubToolDeniedWith(
-                    new PostHogPermissionError({
-                        detail: "API key missing required scope 'person:read'",
-                        missingScope: 'person:read',
-                        challengeScopes: ['person:read', 'cohort:read'],
-                        url: 'https://us.posthog.com/api/projects/1/persons/cohorts/',
-                        method: 'GET',
-                    })
-                )
+        // The client replays the request after re-consent, so a scope the API reports missing
+        // after the tool started must not become a step-up 403.
+        it('returns the plain tool error to a step-up token when the API reports a missing scope mid-run', async () => {
+            stubToolDeniedWith(
+                new PostHogPermissionError({
+                    detail: "API key missing required scope 'person:read'",
+                    missingScope: 'person:read',
+                    challengeScopes: ['person:read', 'cohort:read'],
+                    url: 'https://us.posthog.com/api/projects/1/persons/cohorts/',
+                    method: 'GET',
+                })
+            )
 
-                const result = (await executor.handleToolCall(
-                    { name: 'mock-tool', arguments: {} },
-                    makeToolExecutorState([{ name: 'mock-tool' }], { supportsStepUp })
-                )) as any
+            const result = (await executor.handleToolCall(
+                { name: 'mock-tool', arguments: {} },
+                makeToolExecutorState([{ name: 'mock-tool' }], { supportsStepUp: true })
+            )) as any
 
-                expect(result.isError).toBe(true)
-                expect(result.content[0].text).toContain("Missing PostHog API scope: 'person:read'")
-                expect(result._meta['mcp/www_authenticate']).toEqual([
-                    'Bearer error="insufficient_scope", scope="person:read cohort:read", error_description="Reconnect PostHog and approve these scopes: person:read cohort:read"',
-                ])
-            }
-        )
+            expect(result.isError).toBe(true)
+            expect(result.content[0].text).toContain("Missing PostHog API scope: 'person:read'")
+            expect(result._meta).toBeUndefined()
+        })
     })
 
     describe('ignored input keys in tools mode', () => {

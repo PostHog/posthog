@@ -27,7 +27,6 @@ import {
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { resolveGatewayTools } from '@/lib/gateway-tools'
 import { findIgnoredInputKeys, withIgnoredInputKeys } from '@/lib/ignored-input-keys'
-import { missingScopeToolResult } from '@/lib/missing-scope'
 import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeErrorToken } from '@/lib/posthog/analytics'
 import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
@@ -631,10 +630,10 @@ export class ToolExecutor {
 
             const sessionUuid = await sessionUuidForError(state)
             return attachGuidanceNotice(
-                toolErrorResult(
+                handleToolError(
                     error,
                     tool.name,
-                    state,
+                    state.distinctId,
                     sessionUuid,
                     state.suppressAnalytics || isPrivateScoutTrialTool(tool.name)
                 ),
@@ -808,10 +807,10 @@ export class ToolExecutor {
             // exception fingerprint point at the real source instead of collapsing every
             // exec-routed failure into one opaque `exec` bucket.
             return attachGuidanceNotice(
-                toolErrorResult(
+                handleToolError(
                     error,
                     metricTool,
-                    state,
+                    state.distinctId,
                     sessionUuid,
                     state.suppressAnalytics ||
                         isPrivateScoutTrialTool(metricTool) ||
@@ -1062,7 +1061,7 @@ export class ToolExecutor {
                 analyticsMeta
             )
             const sessionUuid = await sessionUuidForError(state)
-            return toolErrorResult(error, 'render-ui', state, sessionUuid, state.suppressAnalytics)
+            return handleToolError(error, 'render-ui', state.distinctId, sessionUuid, state.suppressAnalytics)
         }
     }
 }
@@ -1101,18 +1100,6 @@ function classifyToolError(error: unknown, toolName: string): ToolErrorClassific
     const classification = resolveToolErrorClassification(error)
     toolErrorsTotal.inc({ tool: toolName, error_type: classification.errorType })
     return classification
-}
-
-function toolErrorResult(
-    error: unknown,
-    toolName: string,
-    state: ResolvedState,
-    sessionUuid: string | undefined,
-    suppressAnalytics: boolean | undefined
-): CallToolResult {
-    const toolError = handleToolError(error, toolName, state.distinctId, sessionUuid, suppressAnalytics)
-    const requiredScopes = findPostHogPermissionError(error)?.requiredScopes
-    return requiredScopes ? missingScopeToolResult(requiredScopes, toolError) : toolError
 }
 
 function resolveToolErrorClassification(error: unknown): ToolErrorClassification {
