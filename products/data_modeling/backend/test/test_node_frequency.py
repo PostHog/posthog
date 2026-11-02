@@ -176,6 +176,26 @@ class TestBuildFrequencyGraph(BaseTest):
         if not reader_is_managed:
             self.assertEqual(graph.names[floors[str(reader.id)].blocker], "revenue_view")
 
+    @parameterized.expand([("declared_finer_than_source", M15), ("query_time_view", None)])
+    def test_a_managed_view_passes_its_slow_source_on_to_a_user_reader(self, _name, managed_target):
+        dag = DAG.get_or_create_default(self.team)
+        viewset = DataWarehouseManagedViewSet.objects.create(
+            team=self.team, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
+        )
+        source = _warehouse_source_node(self.team, dag, sync_frequency_interval=H6)
+        managed_view = _saved_query_node(self.team, dag, "revenue_view", NodeType.MAT_VIEW)
+        reader = _saved_query_node(self.team, dag, "reader", NodeType.MAT_VIEW)
+        assert managed_view.saved_query is not None
+        managed_view.saved_query.managed_viewset = viewset
+        managed_view.saved_query.save(update_fields=["managed_viewset"])
+        Edge.objects.create(team=self.team, dag=dag, source=source, target=managed_view)
+        Edge.objects.create(team=self.team, dag=dag, source=managed_view, target=reader)
+        set_declared_target(managed_view, managed_target)
+
+        graph = build_frequency_graph(dag)
+
+        self.assertEqual(all_source_floors(graph.edges, graph.source_intervals)[str(reader.id)], H6)
+
     def test_imported_source_floor_makes_a_tighter_descendant_unsatisfiable(self):
         dag = DAG.get_or_create_default(self.team)
         source = _warehouse_source_node(self.team, dag, sync_frequency_interval=H6)
