@@ -22,6 +22,8 @@ from collections.abc import Callable
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
+from products.data_modeling.backend.logic.freshness import SCHEDULABLE_BUCKETS
+
 if TYPE_CHECKING:
     from posthog.hogql.database.models import FieldOrTable
 
@@ -42,13 +44,17 @@ class ProvidedView:
     fields: dict[str, FieldOrTable]
     # Non-materialized views are computed at query time, without a schedule or S3 table.
     materialized: bool = True
-    # One of the schedulable cadence buckets. A cadence the view's sources cannot feed leaves the
-    # view computed at query time.
+    # One of the schedulable cadence buckets, stored as declared: readers never change it, and a run
+    # is never scheduled finer than the view's sources deliver.
     sync_frequency: timedelta = DEFAULT_MANAGED_VIEW_SYNC_FREQUENCY
     # The saved query's ``incremental_config`` blob: a run then upserts the rows past the last
     # watermark instead of rebuilding the table. None keeps every run a full refresh. A dict rather
     # than IncrementalConfig because that class imports Django, which this module must not.
     incremental_config: dict[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        if self.sync_frequency not in SCHEDULABLE_BUCKETS:
+            raise ValueError(f"{self.name}: sync_frequency {self.sync_frequency} is not a schedulable cadence bucket")
 
 
 ExpectedViewsProvider = Callable[["Team"], list[ProvidedView]]
