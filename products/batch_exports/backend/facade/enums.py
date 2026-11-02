@@ -89,6 +89,12 @@ class IncrementalMode(LabeledStrEnum):
 # (we could use common_timezones instead; this has 433 timezones vs 596 for all_timezones)
 TIMEZONES = [(tz, tz) for tz in pytz.all_timezones]
 
+
+# A callable keeps pytz updates that add zones from generating a migration.
+def timezone_choices() -> list[tuple[str, str]]:
+    return TIMEZONES
+
+
 S3_FAMILY_TYPES: frozenset[str] = frozenset(
     {BatchExportDestinationType.AWS_S3, BatchExportDestinationType.S3_COMPATIBLE}
 )
