@@ -952,6 +952,7 @@ export type VisualReviewRunsSnapshotsListParams = {
     include_quarantined?: boolean
     /**
      * Number of results to return per page.
+     * @maximum 10000
      */
     limit?: number
     /**

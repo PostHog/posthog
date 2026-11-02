@@ -59,7 +59,7 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
         slug: 'posthog',
         owner: 'posthog',
         scheme,
-        version: '1.7.0',
+        version: '1.8.0',
         orientation: 'portrait',
         userInterfaceStyle: 'automatic',
         icon: icons.png,
