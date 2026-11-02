@@ -6,5 +6,11 @@
  * a shared constant rather than a literal on each side.
  */
 
-/** The event's team, so a consumer can route or skip a message without parsing the body. */
+/**
+ * The event's team, so a consumer can route or skip a message without parsing the body.
+ *
+ * A producer must take this from the same `team_id` it writes into the body. A missing header is
+ * safe, because a consumer falls back to the body, but a wrong one is not: a consumer may skip the
+ * message on the header alone, and the team the body names would then never see its event.
+ */
 export const TEAM_ID_HEADER = 'team_id'
