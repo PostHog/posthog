@@ -11,8 +11,6 @@ import IconGitLab from 'public/services/gitlab.png'
 import IconJira from 'public/services/jira.svg'
 import IconLinear from 'public/services/linear.png'
 
-import { LinearStatusSyncSetting } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/linear_status_sync/LinearStatusSyncSetting'
-
 const NEXT_URL = urls.settings('environment-error-tracking', 'error-tracking-integrations')
 
 export function ErrorTrackingIntegrations(): JSX.Element {
@@ -25,7 +23,10 @@ export function ErrorTrackingIntegrations(): JSX.Element {
                 </h3>
                 <div className="flex flex-col gap-y-4">
                     <LinearIntegration next={NEXT_URL} />
-                    <LinearStatusSyncSetting />
+                    <p className="m-0 text-xs text-secondary">
+                        PostHog resolves an issue when all of its linked Linear tickets are closed and at least one of
+                        them is done. It reopens the issue when a linked ticket is reopened.
+                    </p>
                 </div>
             </div>
             <div>

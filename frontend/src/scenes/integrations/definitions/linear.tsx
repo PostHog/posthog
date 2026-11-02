@@ -14,6 +14,7 @@ export const Linear = defineIntegration(
         capabilities: [
             'Create Linear issues from error tracking',
             'Link existing Linear issues to PostHog',
+            'Resolve and reopen error tracking issues with their linked tickets',
             'Keep engineering work connected to product signals',
         ],
         docsUrl: 'https://posthog.com/docs/error-tracking/integrations',
