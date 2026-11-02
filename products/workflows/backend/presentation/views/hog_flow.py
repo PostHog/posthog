@@ -297,6 +297,7 @@ from products.workflows.backend.facade.validation import (
     exceeds_unit_cap,
     find_behavioral_cohort_name,
     find_clock_function,
+    find_group_field,
     find_realtime_behavioral_cohort,
     is_duration,
     is_signed_duration,
@@ -407,8 +408,8 @@ def _wait_condition_already_stored(action: dict, context: dict) -> bool:
     True when this wait's condition matches the one already persisted for the same action.
 
     The gate exists to stop *new* clock-based waits, not to make an existing workflow un-editable.
-    Every strict save re-validates the whole actions array, so without this an unrelated edit (or
-    simply resuming a paused flow) would be refused over a condition that was already accepted.
+    Every strict save re-validates the whole actions array, so without this an unrelated edit to an
+    active flow would be refused over a condition that was already accepted.
     """
     stored = context.get("stored_wait_conditions")
     if not stored:
@@ -512,10 +513,12 @@ def _actions_reference_cohorts(actions: Any) -> bool:
 
 def _reject_clock_based_wait(config: dict, team: Team) -> None:
     """
-    Refuse a wait whose condition depends on the clock rather than on something happening.
+    Refuse a wait the subscription matcher could never wake.
 
-    Nothing notifies the matcher when time passes, so such a wait can only be advanced by the
-    periodic re-check. Rejecting it at save time is what allows that re-check to be removed.
+    Two conditions qualify: one that depends on the clock rather than on something happening, and
+    one that reads a group property, which arrives on no stream the matcher keys parked jobs by.
+    Either can only be advanced by the periodic re-check. Rejecting them at save time is what
+    allows that re-check to be removed.
     """
     filters = (config.get("condition") or {}).get("filters")
     if not filters:
@@ -534,6 +537,18 @@ def _reject_clock_based_wait(config: dict, team: Team) -> None:
                 "config": (
                     "This wait's condition could not be read, so we can't tell how it would be woken. "
                     "Check the events, actions and properties it refers to still exist."
+                )
+            }
+        )
+
+    group_field = find_group_field(expr)
+    if group_field:
+        raise serializers.ValidationError(
+            {
+                "config": (
+                    "This wait's condition uses a group property. A group change does not identify the "
+                    "people waiting on it, so nothing can advance this wait and it would run to its "
+                    "maximum wait time. Use a person property, or wait for an event instead."
                 )
             }
         )
@@ -672,6 +687,33 @@ _REPLAY_VISION_STEP_SCOPES = (
 )
 
 
+def _fill_default_push_title(inputs: Any, input_schema: list[dict[str, Any]] | None) -> None:
+    # The title stopped being required so silent pushes can omit it, and the inputs serializer only fills defaults
+    # for required inputs. API callers that leave it out of a visible push still get the template's default title.
+    if not isinstance(inputs, dict) or "title" in inputs:
+        return
+    delivery = inputs.get("delivery")
+    if isinstance(delivery, dict) and delivery.get("value") == "silent":
+        return
+    default = next((schema.get("default") for schema in input_schema or [] if schema.get("key") == "title"), None)
+    if default is not None:
+        inputs["title"] = {"value": default}
+
+
+def _validate_push_action(inputs: Any) -> None:
+    if not isinstance(inputs, dict):
+        return
+
+    def value(key: str) -> Any:
+        entry = inputs.get(key)
+        return entry.get("value") if isinstance(entry, dict) else None
+
+    delivery = value("delivery") or "notification"
+    title = value("title")
+    if delivery != "silent" and not (isinstance(title, str) and title.strip()):
+        raise serializers.ValidationError({"inputs": {"title": "Add a notification title."}})
+
+
 def _strip_replay_vision_code(inputs: Any) -> None:
     # A draft keeps its raw inputs when they fail validation, so client-compiled code or a Liquid template can still
     # be there. The engine would render those instead of the literal value the access checks read.
@@ -721,7 +763,7 @@ def _require_replay_vision_editor_access(request: Request | None, context: dict[
             raise serializers.ValidationError({"variables": error})
 
 
-_REPOSITORY_SHAPE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
+REPOSITORY_SHAPE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 
 MIN_WORKFLOW_TASK_MAX_PARALLEL_TASKS = 1
 MAX_WORKFLOW_TASK_MAX_PARALLEL_TASKS = 100
@@ -1510,6 +1552,9 @@ class HogFlowActionSerializer(serializers.Serializer):
             "function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open "
             "pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, "
             "so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). "
+            "function_push also accepts sensitive?: <bool> (default false) - when true, the notification is "
+            "still sent but PostHog keeps no copy of its title, subtitle, body or image, and the run keeps "
+            "no variables, so it can't be rerun. "
             "Dictionary input values are template strings too — write booleans/numbers as single-expression "
             "templates ('{true}', '{42}'), which evaluate to the typed value. "
             "delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of "
@@ -1702,11 +1747,14 @@ class HogFlowActionSerializer(serializers.Serializer):
                 except WorkflowTaskSkillsInvalid as e:
                     raise serializers.ValidationError({"inputs": {"skills": str(e)}})
 
-        repository = (inputs.get("repository") or {}).get("value")
-        if repository and not _REPOSITORY_SHAPE.fullmatch(repository):
+        repository_value = (inputs.get("repository") or {}).get("value") or []
+        repositories = [repository_value] if isinstance(repository_value, str) else repository_value
+        if not all(REPOSITORY_SHAPE.fullmatch(repository) for repository in repositories):
             raise serializers.ValidationError(
-                {"inputs": {"repository": "Repository must be an organization/repo name like your-org/your-repo."}}
+                {"inputs": {"repository": "Each repository must be an organization/repo name like your-org/your-repo."}}
             )
+        if len({repository.lower() for repository in repositories}) != len(repositories):
+            raise serializers.ValidationError({"inputs": {"repository": "Each repository can only be added once."}})
 
         model_value = (inputs.get("model") or {}).get("value") or {}
         model = model_value.get("model")
@@ -2150,6 +2198,8 @@ class HogFlowActionSerializer(serializers.Serializer):
             else:
                 input_schema = template.inputs_schema
                 inputs = data.get("config", {}).get("inputs", {})
+                if template_id == _FIXED_TEMPLATE_IDS["function_push"]:
+                    _fill_default_push_title(inputs, input_schema)
 
                 function_config_serializer = HogFlowConfigFunctionInputsSerializer(
                     data={
@@ -2199,6 +2249,8 @@ class HogFlowActionSerializer(serializers.Serializer):
                     self._validate_run_scout_action()
                 if strict and template_id == _CLASSIFY_TEMPLATE_ID:
                     self._validate_classify_action(data["config"]["inputs"])
+                if strict and template_id == _FIXED_TEMPLATE_IDS["function_push"]:
+                    _validate_push_action(data["config"]["inputs"])
                 if template_id == _REPLAY_VISION_TEMPLATE_ID:
                     self._validate_replay_vision_action(data["config"].get("inputs") or {}, strict=strict)
                 if template_id == _RUN_SCOUT_TEMPLATE_ID:
@@ -3474,9 +3526,11 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # Wait conditions the live flow already carries, so per-action validation can tell a newly
         # introduced clock condition from one we have been storing all along. Seeded here because
         # nested action validation runs during field processing, before validate() is reached.
+        # Only an active flow's conditions count: a draft's actions come from lenient builder saves,
+        # so exempting them would let enabling a draft skip the check.
         self.context["stored_wait_conditions"] = {
             action["id"]: (action.get("config") or {}).get("condition")
-            for action in ((instance.actions if instance else None) or [])
+            for action in ((instance.actions if instance and instance.status == HogFlowState.ACTIVE else None) or [])
             if isinstance(action, dict) and action.get("id") and action.get("type") == "wait_until_condition"
         }
 

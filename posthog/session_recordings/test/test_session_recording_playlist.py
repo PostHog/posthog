@@ -334,11 +334,11 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         )
 
     def test_can_create_many_playlists_without_n_plus_1(self):
-        with self.assertNumQueries(12 * 50 + 1):
+        with self.assertNumQueries(11 * 50 + 1):
             for i in range(50):
                 self._create_playlist({"name": f"test-{i}", "type": "collection"})
 
-        with self.assertNumQueries(12 * 100):
+        with self.assertNumQueries(11 * 100):
             for i in range(100):
                 self._create_playlist({"name": f"test-{i}", "type": "collection"})
 
@@ -911,6 +911,27 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_200_OK
         assert {x["id"] for x in response.json()["results"]} == set(sessions_newest_first[:2])
+
+    @parameterized.expand(
+        [
+            ("recordings_non_numeric_limit", True, {"limit": "abc"}),
+            ("recordings_negative_offset", True, {"offset": -1}),
+            ("list_non_numeric_limit", False, {"limit": "abc"}),
+            ("list_negative_limit", False, {"limit": -5}),
+            ("list_negative_offset", False, {"offset": -1}),
+        ]
+    )
+    def test_rejects_bad_paging_params(self, _name: str, recordings: bool, params: dict[str, str | int]) -> None:
+        url = f"/api/projects/{self.team.id}/session_recording_playlists"
+        if recordings:
+            playlist = SessionRecordingPlaylist.objects.create(
+                team=self.team, name="collection", created_by=self.user, type="collection"
+            )
+            url = f"{url}/{playlist.short_id}/recordings"
+
+        response = self.client.get(url, data=params)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     @parameterized.expand(
         [

@@ -7,19 +7,18 @@ import { expectLogic } from 'kea-test-utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { REPORT_AI_PANEL } from '~/layout/ai/aiPanelIds'
+import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { SidePanelTab } from '~/types'
-
-import { attachedContextLogic } from 'products/posthog_ai/frontend/api/logics'
 
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import {
     FIX_CI_REQUEST,
     inboxTaskKickoffLogic,
     MERGE_PR_REQUEST,
-    REPORT_AI_PANEL,
     REPORT_DISCUSSION_QUESTION_MAX_LENGTH,
 } from '../../inboxTaskKickoffLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'

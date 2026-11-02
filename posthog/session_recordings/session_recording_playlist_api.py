@@ -664,6 +664,27 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
         return updated_playlist
 
 
+class SessionRecordingPlaylistListQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        required=False,
+        default=SessionRecordingPlaylistPagination.default_limit,
+        min_value=0,
+        help_text=f"Number of playlists to return. Defaults to 100, also for 0. Values above {PLAYLIST_LIST_MAX_LIMIT} are capped.",
+    )
+    offset = serializers.IntegerField(
+        required=False, default=0, min_value=0, help_text="Number of playlists to skip. Defaults to 0."
+    )
+
+
+class SessionRecordingPlaylistRecordingsQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        required=False, default=50, min_value=1, help_text="Number of recordings to return. Defaults to 50."
+    )
+    offset = serializers.IntegerField(
+        required=False, default=0, min_value=0, help_text="Number of recordings to skip. Defaults to 0."
+    )
+
+
 @extend_schema(tags=["replay"])
 class SessionRecordingPlaylistViewSet(
     TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet
@@ -732,6 +753,8 @@ class SessionRecordingPlaylistViewSet(
             sorted_synthetics = self._order_playlists(request, filtered_synthetics)
 
         synth_count = len(sorted_synthetics)
+        # Bad paging input answers 400 rather than a silent fall back to the first page.
+        SessionRecordingPlaylistListQuerySerializer(data=request.GET).is_valid(raise_exception=True)
         span.set_attribute("team_id", self.team.id)
         span.set_attribute("db_count", db_count)
         span.set_attribute("synth_count", synth_count)
@@ -960,8 +983,10 @@ class SessionRecordingPlaylistViewSet(
         tag_queries(team_id=self.team.id, product=Product.REPLAY, feature=Feature.QUERY)
         playlist = self.get_object()
 
-        limit = int(request.GET.get("limit", 50))
-        offset = int(request.GET.get("offset", 0))
+        paging = SessionRecordingPlaylistRecordingsQuerySerializer(data=request.GET)
+        paging.is_valid(raise_exception=True)
+        limit: int = paging.validated_data["limit"]
+        offset: int = paging.validated_data["offset"]
 
         # Handle synthetic playlists differently
         if getattr(playlist, "_is_synthetic", False):
