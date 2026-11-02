@@ -11,6 +11,7 @@ from rest_framework import status
 
 from posthog.api.app_metrics2 import (
     MAX_TREND_BUCKETS,
+    MAX_ZERO_FILLED_CELLS,
     AppMetricsRequestSerializer,
     fetch_app_metric_totals,
     fetch_app_metrics_trends,
@@ -179,25 +180,29 @@ class TestAppMetricsEndpointLimits(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("at_limit", MAX_TREND_BUCKETS - 1, status.HTTP_200_OK),
-            ("over_limit", MAX_TREND_BUCKETS, status.HTTP_400_BAD_REQUEST),
+            ("buckets_at_limit", 0, MAX_TREND_BUCKETS, None),
+            ("buckets_over_limit", 0, MAX_TREND_BUCKETS + 1, "Use a shorter range or a larger interval."),
+            ("cells_at_limit", 50, MAX_ZERO_FILLED_CELLS // 50, None),
+            ("cells_over_limit", 50, MAX_ZERO_FILLED_CELLS // 50 + 1, "Request fewer names or kinds"),
         ]
     )
-    def test_trend_bucket_count_is_capped(self, _name: str, hours_after_start: int, expected_status: int) -> None:
+    def test_trend_size_is_capped(self, _name: str, name_count: int, bucket_count: int, error: str | None) -> None:
         hog_function = HogFunction.objects.create(team=self.team, name="destination", type="destination", hog="")
         after = datetime(2020, 1, 1, tzinfo=UTC)
+        params = {
+            "after": after.isoformat(),
+            "before": (after + timedelta(hours=bucket_count - 1)).isoformat(),
+            "interval": "hour",
+        }
+        if name_count:
+            params |= {"name": ",".join(f"m{i}" for i in range(name_count)), "breakdown_by": "name"}
 
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/hog_functions/{hog_function.id}/metrics/",
-            {
-                "after": after.isoformat(),
-                "before": (after + timedelta(hours=hours_after_start)).isoformat(),
-                "interval": "hour",
-            },
-        )
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{hog_function.id}/metrics/", params)
 
-        assert response.status_code == expected_status, response.json()
-        if expected_status == status.HTTP_200_OK:
-            assert len(response.json()["labels"]) == MAX_TREND_BUCKETS
+        if error is None:
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert len(response.json()["labels"]) == bucket_count
+            assert len(response.json()["series"]) == name_count
         else:
-            assert "Use a shorter range or a larger interval." in response.json()["detail"]
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert error in response.json()["detail"]

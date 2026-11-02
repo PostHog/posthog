@@ -58,6 +58,10 @@ MAX_REQUESTED_BREAKDOWN_VALUES = 50
 # The limit allows hourly ranges of several years, because real callers send ranges that long.
 MAX_TREND_BUCKETS = 100_000
 
+# Each requested name or kind is zero-filled across every bucket, even when ClickHouse returns no rows,
+# so the product of the two must stay bounded too.
+MAX_ZERO_FILLED_CELLS = 1_000_000
+
 TREND_INTERVAL_STEPS: dict[str, timedelta] = {
     "hour": timedelta(hours=1),
     "day": timedelta(days=1),
@@ -158,6 +162,14 @@ def fetch_app_metrics_trends(
             "Use a shorter range or a larger interval."
         )
 
+    requested_breakdown_values = _requested_breakdown_values(breakdown_by, name, kind)
+    if len(requested_breakdown_values) * bucket_count > MAX_ZERO_FILLED_CELLS:
+        raise ValidationError(
+            f"This request asks for {len(requested_breakdown_values)} series over {bucket_count:,} {interval} buckets, "
+            f"more than the limit of {MAX_ZERO_FILLED_CELLS:,} values. "
+            "Request fewer names or kinds, a shorter range, or a larger interval."
+        )
+
     clickhouse_kwargs: dict[str, Any] = {}
 
     # The bucket alias must not be `timestamp`. ClickHouse resolves SELECT aliases inside WHERE, so the
@@ -205,9 +217,7 @@ def fetch_app_metrics_trends(
     response = AppMetricsResponse(labels=[], series=[])
     data_by_breakdown: dict[str, dict[str, int]] = {}
 
-    breakdown_names = dict.fromkeys(
-        [*_requested_breakdown_values(breakdown_by, name, kind), *(row[1] for row in results)]
-    )
+    breakdown_names = dict.fromkeys([*requested_breakdown_values, *(row[1] for row in results)])
 
     for result in results:
         timestamp, breakdown, count = result
