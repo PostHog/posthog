@@ -57,7 +57,8 @@ export function drawLine(drawCtx: DrawContext, series: ResolvedSeries, yValues?:
         return
     }
 
-    for (const { start, end, pattern } of planLineStrokes(series, data.length)) {
+    const isDrawable = drawCtx.connectNulls ? (i: number) => isDrawablePoint(drawCtx, data, i) : undefined
+    for (const { start, end, pattern } of planLineStrokes(series, data.length, isDrawable)) {
         ctx.beginPath()
         ctx.setLineDash(pattern)
         tracePath(drawCtx, data, start, end)
@@ -207,11 +208,18 @@ interface Stroke {
  * Each entry is a contiguous index range drawn with a single dash pattern; adjacent strokes
  * share their boundary index so the visual seam between them is invisible.
  */
-function planLineStrokes(series: ResolvedSeries, length: number): Stroke[] {
+function planLineStrokes(series: ResolvedSeries, length: number, isDrawable?: (i: number) => boolean): Stroke[] {
     const basePattern = series.stroke?.pattern ?? []
     const partialPattern = series.stroke?.partial?.pattern ?? [10, 10]
-    const from = resolvePartialIndex(series.stroke?.partial?.fromIndex, length)
-    const to = resolvePartialIndex(series.stroke?.partial?.toIndex, length)
+    let from = resolvePartialIndex(series.stroke?.partial?.fromIndex, length)
+    let to = resolvePartialIndex(series.stroke?.partial?.toIndex, length)
+    // A boundary on a bridged missing value moves to the nearest drawn point, so the bridge is dashed like the area.
+    while (isDrawable && from !== null && from > 1 && !isDrawable(from - 1)) {
+        from--
+    }
+    while (isDrawable && to !== null && to < length - 1 && !isDrawable(to)) {
+        to++
+    }
 
     // No partial dashing — one stroke covering the whole line.
     if (from === null && to === null) {
@@ -246,10 +254,6 @@ function planLineStrokes(series: ResolvedSeries, length: number): Stroke[] {
  *  separate subpaths. Caller owns beginPath/stroke. */
 function tracePath(drawCtx: DrawContext, data: number[], start: number, end: number): void {
     const { ctx, xScale, yScale, labels, smooth, yFloor, connectNulls } = drawCtx
-    // A dash boundary inside a bridged gap starts its stroke at the last drawn point, or the bridge is lost.
-    while (connectNulls && start > 0 && !isDrawablePoint(drawCtx, data, start)) {
-        start--
-    }
     if (smooth) {
         traceSmoothPath(drawCtx, data, start, end)
         return

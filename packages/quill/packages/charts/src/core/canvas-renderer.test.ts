@@ -427,14 +427,16 @@ describe('hog-charts canvas-renderer', () => {
         })
 
         it.each([
-            { smooth: false, segment: 'lineTo' as const },
-            { smooth: true, segment: 'bezierCurveTo' as const },
-        ])('keeps a bridged gap that falls on the dash boundary (smooth: $smooth)', ({ smooth, segment }) => {
+            { smooth: false, segment: 'lineTo' as const, partial: { fromIndex: 2 } },
+            { smooth: true, segment: 'bezierCurveTo' as const, partial: { fromIndex: 2 } },
+            { smooth: false, segment: 'lineTo' as const, partial: { toIndex: 1 } },
+        ])('dashes a bridged gap on the dash boundary ($partial, smooth: $smooth)', ({ smooth, segment, partial }) => {
             const ctx = mockCanvasContext()
-            const series = makeSeries({ key: 's1', data: [10, 50, 30], stroke: { partial: { fromIndex: 2 } } })
+            const series = makeSeries({ key: 's1', data: [10, 50, 30], stroke: { partial } })
             const drawCtx = makeDrawContextWithGaps(ctx, ['a', 'b', 'c'], new Set([50]))
             drawLine({ ...drawCtx, smooth, connectNulls: true }, series)
             expect(ctx[segment]).toHaveBeenCalledTimes(1)
+            expect(dashCalls(ctx)).toEqual([[10, 10], []])
         })
 
         it('applies partial dashing against the yValues override length, not series.data', () => {
