@@ -54,7 +54,7 @@ class TopicPreferencesSerializer(serializers.Serializer):
     topics = serializers.DictField(
         child=serializers.BooleanField(),
         help_text="Topic key to `false` (opted out) or `true` (opted in), for every topic the recipient chose. "
-        "A topic without a choice is not listed, and its messages reach the recipient.",
+        "A topic without a choice is not listed.",
     )
 
 

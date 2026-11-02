@@ -107,6 +107,8 @@ def set_preferences(
     if unknown:
         raise TopicsNotFound(unknown)
 
+    saved: dict[str, Any] = {}
+
     def apply(stored: dict[str, Any]) -> dict[str, Any]:
         preferences = dict(stored)
         if all_marketing is not None:
@@ -115,12 +117,13 @@ def set_preferences(
             if opted_in:
                 _lift_global_opt_out(team_id, preferences, categories[key])
             preferences[str(categories[key].id)] = _status(opted_in)
+        saved.update(preferences)
         return preferences
 
     transition_preferences(team_id, identifier, apply, touch_updated_at=True)
     _sync_after_commit(team_id, identifier)
-    recipient = recipient_or_none(team_id, identifier)
-    return dict(recipient.preferences or {}) if recipient else {}
+    # The written snapshot, not a reread that a lagging replica could answer with old preferences.
+    return saved
 
 
 def _status(opted_in: bool) -> str:

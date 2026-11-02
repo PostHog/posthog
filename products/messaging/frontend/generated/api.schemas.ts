@@ -67,7 +67,7 @@ export interface SetPreferencesApi {
 }
 
 /**
- * Topic key to `false` (opted out) or `true` (opted in), for every topic the recipient chose. A topic without a choice is not listed, and its messages reach the recipient.
+ * Topic key to `false` (opted out) or `true` (opted in), for every topic the recipient chose. A topic without a choice is not listed.
  */
 export type TopicPreferencesApiTopics = { [key: string]: boolean }
 
@@ -79,7 +79,7 @@ export interface TopicPreferencesApi {
      * @nullable
      */
     all_marketing: boolean | null
-    /** Topic key to `false` (opted out) or `true` (opted in), for every topic the recipient chose. A topic without a choice is not listed, and its messages reach the recipient. */
+    /** Topic key to `false` (opted out) or `true` (opted in), for every topic the recipient chose. A topic without a choice is not listed. */
     topics: TopicPreferencesApiTopics
 }
 
