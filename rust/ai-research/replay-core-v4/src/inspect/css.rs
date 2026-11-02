@@ -5,6 +5,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use url::Url;
 
+use super::dom::{RemoteKind, RemoteUrl};
+use crate::fonts::bundled_font;
 use crate::url_policy::{
     is_fetched_image_type, is_protocol_relative, is_remote, try_canonicalize, MAX_URL_LEN,
 };
@@ -28,6 +30,8 @@ pub enum CssUrl<'a> {
         url: &'a str,
         family: Option<&'a str>,
     },
+    /// A resolved root-relative font URL of a family that the renderer does not ship.
+    ResolvedFont(&'a str),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,8 +39,8 @@ pub struct CssRewrite {
     pub text: String,
     pub replacement: String,
     pub dropped: Vec<String>,
-    /// The URL that `replacement` holds in place of a relative one, for the writer to replace with its reference.
-    pub resolved: Option<String>,
+    /// The URL that `replacement` holds in place of a relative one, for the writer to replace with the reference of its kind.
+    pub resolved: Option<RemoteUrl>,
 }
 
 /// The origin that a root-relative URL on `page_url` resolves against, as `https` because the fetcher loads nothing else.
@@ -170,11 +174,26 @@ pub fn urls(css: &str, resolver: &mut Resolver<'_>, found: &mut impl FnMut(CssUr
             DeclarationKind::Image => value_urls(value, resolver, found),
             DeclarationKind::FontSrc(face) => {
                 let family = families.get(face).copied().flatten();
-                // A resolved URL would be named as an image, so a root-relative font URL stays as the page wrote it.
-                value_urls(value, &mut Resolver::default(), &mut |url| {
-                    if let CssUrl::Image(url) = url {
-                        found(CssUrl::Font { url, family });
+                let resolved_kind = match family.and_then(bundled_font) {
+                    Some(slug) => RemoteKind::BundledFont(slug),
+                    None => RemoteKind::Font,
+                };
+                value_urls(value, resolver, &mut |url| match url {
+                    CssUrl::Image(url) => found(CssUrl::Font { url, family }),
+                    CssUrl::Resolved(url) if resolved_kind == RemoteKind::Font => {
+                        found(CssUrl::ResolvedFont(url))
                     }
+                    CssUrl::Rewrite(mut rewrite) => {
+                        if let Some(resolved) = &mut rewrite.resolved {
+                            resolved.kind = resolved_kind;
+                        }
+                        found(CssUrl::Rewrite(rewrite));
+                    }
+                    CssUrl::Unresolved(text) => found(CssUrl::Unresolved(text)),
+                    CssUrl::Resolved(_)
+                    | CssUrl::Unshown(_)
+                    | CssUrl::Font { .. }
+                    | CssUrl::ResolvedFont(_) => {}
                 });
             }
             DeclarationKind::FontFamily(_) => {}
@@ -465,7 +484,10 @@ fn url_function_urls(
                 text: function.to_owned(),
                 replacement: url_function(&absolute),
                 dropped: Vec::new(),
-                resolved: Some(absolute),
+                resolved: Some(RemoteUrl {
+                    url: absolute,
+                    kind: RemoteKind::Image,
+                }),
             }));
         }
         None if is_root_relative(source) => found(CssUrl::Unresolved(function)),
@@ -568,7 +590,10 @@ fn image_set_urls(
             text: function.to_owned(),
             replacement: format!("{}({candidate})", &function[..name_len]),
             dropped,
-            resolved,
+            resolved: resolved.map(|url| RemoteUrl {
+                url,
+                kind: RemoteKind::Image,
+            }),
         }));
     }
 }
@@ -824,6 +849,7 @@ mod tests {
                     rewrite.text, rewrite.replacement, rewrite.dropped
                 ),
                 CssUrl::Font { url, family } => format!("font {url} {family:?}"),
+                CssUrl::ResolvedFont(url) => format!("resolved font {url}"),
             })
         });
         found
@@ -845,6 +871,8 @@ mod tests {
                 "font https://cdn.example.com/brand.woff Some(\"'Brand Sans'\")",
                 "font https://cdn.example.com/print.woff2 Some(\"Print\")",
                 "font https://cdn.example.com/nameless.woff2 None",
+                "resolved font https://app.example.com/fonts/self.woff2",
+                "rewrite url(/fonts/self.woff2) => url(\"https://app.example.com/fonts/self.woff2\") dropping []",
                 "image https://cdn.example.com/a.png",
             ]
         );

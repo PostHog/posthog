@@ -33,6 +33,33 @@ pub fn declined_marker(reason: &str) -> String {
     declined_url_ref(UrlAsset::Image, reason)
 }
 
+/// The text that replaces `url` in the block, and the policy's reason when it declines the URL.
+fn named_as(
+    url: &str,
+    kind: RemoteKind,
+    team_id: i64,
+    key_month: &str,
+    url_key: &[u8; 32],
+) -> (String, Option<&'static str>) {
+    let asset = match kind {
+        RemoteKind::Image => UrlAsset::Image,
+        RemoteKind::Font | RemoteKind::BundledFont(_) => UrlAsset::Font,
+    };
+    match kind {
+        // The marker names no URL, so a URL that the policy would decline leaves the block too.
+        RemoteKind::BundledFont(slug) => (bundled_font_ref(slug), None),
+        RemoteKind::Image | RemoteKind::Font => {
+            match url_reference(url, asset, team_id, key_month, url_key) {
+                Ok((_, reference)) => (reference, None),
+                Err(decline) => (
+                    declined_url_ref(asset, decline.label()),
+                    Some(decline.label()),
+                ),
+            }
+        }
+    }
+}
+
 /// A byte that a URL can go on with. A match next to one is part of a longer URL, so it stays as it is. A comma, a
 /// parenthesis or a quote can be in a URL too, but in a srcset or a CSS `url()` it ends one.
 fn continues_url(byte: u8) -> bool {
@@ -334,24 +361,12 @@ impl UrlRewrite {
         for RemoteUrl { url, kind } in urls {
             // The block holds the URL as a JSON string holds it.
             patterns.push(json_string_contents(url));
-            let (asset, kind_label) = match kind {
-                RemoteKind::Image => (UrlAsset::Image, "image"),
-                RemoteKind::Font => (UrlAsset::Font, "font"),
-                RemoteKind::BundledFont(_) => (UrlAsset::Font, "bundled_font"),
+            let kind_label = match kind {
+                RemoteKind::Image => "image",
+                RemoteKind::Font => "font",
+                RemoteKind::BundledFont(_) => "bundled_font",
             };
-            let (replacement, declined) = match kind {
-                // The marker names no URL, so a URL that the policy would decline leaves the block too.
-                RemoteKind::BundledFont(slug) => (bundled_font_ref(slug), None),
-                RemoteKind::Image | RemoteKind::Font => {
-                    match url_reference(url, asset, team_id, key_month, &url_key) {
-                        Ok((_, reference)) => (reference, None),
-                        Err(decline) => (
-                            declined_url_ref(asset, decline.label()),
-                            Some(decline.label()),
-                        ),
-                    }
-                }
-            };
+            let (replacement, declined) = named_as(url, *kind, team_id, key_month, &url_key);
             targets.push(Target {
                 url: url.clone(),
                 kind_label,
@@ -420,17 +435,14 @@ impl UrlRewrite {
             .map(|rewrite| {
                 let mut covers = Vec::new();
                 let resolved = match &rewrite.resolved {
-                    Some(absolute) => {
-                        let reference = match url_reference(
-                            absolute,
-                            UrlAsset::Image,
-                            team_id,
-                            key_month,
-                            &url_key,
-                        ) {
-                            Ok((_, reference)) => reference,
-                            Err(decline) => declined_marker(decline.label()),
-                        };
+                    Some(RemoteUrl {
+                        url: absolute,
+                        kind,
+                    }) => {
+                        let kind = url_targets
+                            .get(absolute)
+                            .map_or(*kind, |&index| urls[index].kind.max(*kind));
+                        let (reference, _) = named_as(absolute, kind, team_id, key_month, &url_key);
                         rewrite.replacement.replacen(
                             &format!("\"{absolute}\""),
                             &format!("\"{reference}\""),

@@ -698,9 +698,9 @@ The recorder reads the `src` URLs of `@font-face` rules in `<style>` text, `_css
 - The recorder compares family names without case, and reads a run of spaces as one space. A family it does not know, for example a name that a build tool made, is fetched.
 - A font reference uses the same hash, image URL key and URL policy as an image URL reference. A font job goes to the `ai_research_v4_image_fetch` topic in the same shape, keyed by registrable domain, so fonts share the image jobs' partitions, politeness limits and crawl history rules. A record holds only font jobs or only image jobs.
 - An Embedded OpenType or SVG font file gets a reference but no fetch job, because Chromium loads neither format.
-- A relative font URL stays as the page wrote it. A root-relative CSS URL resolves only in an image slot, so `src:url(/fonts/a.woff2)` gets no reference.
+- A root-relative font URL, such as `src:url(/fonts/a.woff2)`, resolves as a root-relative image URL does, and gets the font reference of the absolute URL. A path-relative font URL stays as the page wrote it.
 - When one URL is both an image and a font, the block holds its image reference.
-- Font URLs have their own budget per block: 4,096 URLs and 256 KiB. Past it, a font URL stays as the page wrote it. Font URLs never count toward the image URL limits above.
+- Font URLs have their own budget per block: 4,096 URLs and 256 KiB. Font URLs never count toward the image URL limits above. Past the font budget, the recorder still names image URLs, and replaces every remote URL token it did not name with `imageurl:v4:declined:unchecked`, as past an image URL limit. It counts these as `url_fallbacks_total{reason="too_many_font_urls"|"too_many_font_url_bytes"}`.
 
 The fetcher reads the asset from the reference prefix. For a font it sends `Accept: font/woff2, font/woff, font/ttf, font/otf, */*;q=0.1`. It takes a response whose media type is a `font/*` type, a legacy font type such as `application/x-font-woff`, or `application/octet-stream`, because many servers label fonts with a generic type. The decoded bytes must start with a WOFF2, WOFF, OpenType, TrueType or font collection signature. It stores the font as fetched under `fonts/url/`, sealed under the team month key with `kind: "font-url"`.
 

@@ -95,7 +95,7 @@ impl BlockInspection {
             moments: self.moments,
             image_urls: self.image_urls,
             font_urls: self.font_urls,
-            url_limit: self.remote_urls.limit,
+            url_limit: self.remote_urls.url_limit(),
             srcsets: self.remote_urls.take_srcsets(),
             css_rewrites: self.remote_urls.take_css_rewrites(),
             remote_urls: self.remote_urls.into_urls(),

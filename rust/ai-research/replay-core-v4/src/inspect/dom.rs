@@ -36,7 +36,7 @@ pub const MAX_ATTRIBUTE_ITEMS: usize = MAX_TRACKED_NODES;
 /// the build takes memory in proportion to their bytes.
 pub const MAX_BLOCK_REMOTE_URLS: usize = 10_000;
 pub const MAX_BLOCK_REMOTE_URL_BYTES: usize = 2 * 1024 * 1024;
-/// Font URLs have a budget of their own and never set the block's URL limit, so many font faces never make the writer scrub the block's unnamed remote URLs.
+/// Font URLs have a budget of their own, so that many font faces never stop the naming of image URLs. Past it the writer scrubs the block's unnamed remote URLs, as past an image limit.
 pub const MAX_BLOCK_FONT_URLS: usize = 4096;
 pub const MAX_BLOCK_FONT_URL_BYTES: usize = 256 * 1024;
 /// Windows tracked per session. A new window past this evicts the window used least recently.
@@ -188,13 +188,15 @@ struct WindowDom {
     page_base: Option<Arc<Url>>,
 }
 
-/// Why the inspector stopped naming a block's remote image URLs. The writer replaces only the URLs it is given, so it
-/// scrubs every other remote URL token in the block.
+/// Why the inspector stopped naming a block's remote image or font URLs. The writer replaces only the URLs it is given,
+/// so it scrubs every other remote URL token in the block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UrlLimit {
     UrlCount,
     UrlBytes,
     AttributeItems,
+    FontUrlCount,
+    FontUrlBytes,
 }
 
 impl UrlLimit {
@@ -204,6 +206,8 @@ impl UrlLimit {
             UrlLimit::UrlCount => "too_many_urls",
             UrlLimit::UrlBytes => "too_many_url_bytes",
             UrlLimit::AttributeItems => "too_many_attribute_items",
+            UrlLimit::FontUrlCount => "too_many_font_urls",
+            UrlLimit::FontUrlBytes => "too_many_font_url_bytes",
         }
     }
 }
@@ -222,8 +226,9 @@ pub struct RemoteUrl {
     pub kind: RemoteKind,
 }
 
-/// Distinct remote image URLs within [`MAX_BLOCK_REMOTE_URLS`] and
-/// [`MAX_BLOCK_REMOTE_URL_BYTES`]. Past a limit it keeps no more, and `limit` says why.
+/// Distinct remote image URLs within [`MAX_BLOCK_REMOTE_URLS`] and [`MAX_BLOCK_REMOTE_URL_BYTES`], and font URLs within
+/// [`MAX_BLOCK_FONT_URLS`] and [`MAX_BLOCK_FONT_URL_BYTES`]. Past a budget it keeps no more of that kind, and
+/// [`RemoteUrls::url_limit`] says why.
 #[derive(Debug, Default)]
 pub struct RemoteUrls {
     urls: HashMap<String, RemoteKind>,
@@ -231,6 +236,7 @@ pub struct RemoteUrls {
     font_urls: u16,
     font_bytes: u32,
     pub limit: Option<UrlLimit>,
+    font_limit: Option<UrlLimit>,
     /// Each image-slot srcset value, and whether it belongs to a source of a type the fetcher does not store. The
     /// writer rebuilds each from the candidates it keeps, and it builds one matcher over them as over `urls`, so they
     /// share the byte budget of `urls`. Past it this keeps no more, which is safe: the writer still replaces each URL
@@ -272,9 +278,11 @@ impl RemoteUrls {
         }
         if kind != RemoteKind::Image {
             let font_bytes = self.font_bytes as usize + url.len();
-            if usize::from(self.font_urls) < MAX_BLOCK_FONT_URLS
-                && font_bytes <= MAX_BLOCK_FONT_URL_BYTES
-            {
+            if usize::from(self.font_urls) >= MAX_BLOCK_FONT_URLS {
+                self.font_limit = self.font_limit.or(Some(UrlLimit::FontUrlCount));
+            } else if font_bytes > MAX_BLOCK_FONT_URL_BYTES {
+                self.font_limit = self.font_limit.or(Some(UrlLimit::FontUrlBytes));
+            } else {
                 self.font_urls += 1;
                 self.font_bytes = font_bytes as u32;
                 self.urls.insert(url.to_owned(), kind);
@@ -322,6 +330,11 @@ impl RemoteUrls {
                 != rewrite.as_ref().map(|rewrite| &rewrite.replacement)
             {
                 *known = None;
+            } else if let (Some(known), Some(resolved)) = (
+                known.as_mut().and_then(|known| known.resolved.as_mut()),
+                rewrite.and_then(|rewrite| rewrite.resolved),
+            ) {
+                known.kind = known.kind.max(resolved.kind);
             }
             return;
         }
@@ -329,7 +342,10 @@ impl RemoteUrls {
             + rewrite.as_ref().map_or(0, |rewrite| {
                 rewrite.replacement.len()
                     + rewrite.dropped.iter().map(String::len).sum::<usize>()
-                    + rewrite.resolved.as_ref().map_or(0, String::len)
+                    + rewrite
+                        .resolved
+                        .as_ref()
+                        .map_or(0, |resolved| resolved.url.len())
             });
         if rewrites.values.len() < MAX_BLOCK_REMOTE_URLS
             && rewrites.bytes + bytes <= MAX_BLOCK_REMOTE_URL_BYTES
@@ -345,12 +361,18 @@ impl RemoteUrls {
             self.insert(url, kind);
         }
         self.limit = self.limit.or(other.limit);
+        self.font_limit = self.font_limit.or(other.font_limit);
         for (raw, (text, unfetched_type)) in other.srcsets.iter().flat_map(|s| &s.values) {
             self.insert_srcset(raw, text, *unfetched_type);
         }
         for (text, rewrite) in other.css_rewrites.into_iter().flat_map(|r| r.values) {
             self.insert_css_rewrite(text, rewrite);
         }
+    }
+
+    /// Why the writer scrubs the block. Past a font limit, unlike past `limit`, the inspector still names image URLs.
+    pub fn url_limit(&self) -> Option<UrlLimit> {
+        self.limit.or(self.font_limit)
     }
 
     pub fn take_css_rewrites(&mut self) -> Vec<CssRewrite> {
@@ -467,6 +489,7 @@ impl Urls {
                 .remote
                 .insert_css_rewrite(rewrite.text.clone(), Some(rewrite)),
             CssUrl::Font { url, family } => self.push_font(url, family),
+            CssUrl::ResolvedFont(url) => self.queue_font(url),
         }
     }
 
@@ -2252,6 +2275,8 @@ mod tests {
             face("Brand Inter", &format!("url({})", font("shared.woff2"))),
             format!(".logo{{background:url({})}}", font("logo.png")),
             face("Logo", &format!("url({})", font("logo.png"))),
+            face("Brand Serif", "url(/fonts/serif.woff2)"),
+            face("Roboto", "url(/fonts/roboto.woff2)"),
         ]
         .concat();
         let snapshot = json!({"node": {"type": 0, "childNodes": [element(2, "html", json!({}), json!([
@@ -2264,12 +2289,32 @@ mod tests {
         let (mut dom, _) = observe_all(&message, "w");
         let mut fetched = dom.take_font_urls();
         fetched.sort();
+        let mut expected = ["brand.woff2", "icons.woff", "logo.png", "shared.woff2"]
+            .map(font)
+            .to_vec();
+        expected.insert(0, "https://app.example.com/fonts/serif.woff2".to_owned());
+        assert_eq!(fetched, expected);
+        let mut named = dom.take_remote_urls();
+        let mut resolved: Vec<RemoteUrl> = named
+            .take_css_rewrites()
+            .into_iter()
+            .filter_map(|rewrite| rewrite.resolved)
+            .collect();
+        resolved.sort_by(|a, b| a.url.cmp(&b.url));
         assert_eq!(
-            fetched,
-            ["brand.woff2", "icons.woff", "logo.png", "shared.woff2"].map(font)
+            resolved,
+            [
+                RemoteUrl {
+                    url: "https://app.example.com/fonts/roboto.woff2".to_owned(),
+                    kind: RemoteKind::BundledFont("roboto"),
+                },
+                RemoteUrl {
+                    url: "https://app.example.com/fonts/serif.woff2".to_owned(),
+                    kind: RemoteKind::Font,
+                },
+            ]
         );
-        let mut remote: Vec<(String, RemoteKind)> = dom
-            .take_remote_urls()
+        let mut remote: Vec<(String, RemoteKind)> = named
             .into_urls()
             .into_iter()
             .map(|remote| (remote.url, remote.kind))
@@ -2345,12 +2390,16 @@ mod tests {
         ] {
             assert_eq!(limit(&mut urls.into_iter()), expected);
         }
-        // A page full of fonts never stops the naming of its images.
+        // A page full of fonts never stops the naming of its images, but the writer scrubs the fonts past the budget.
         let mut remote = RemoteUrls::default();
         (0..=MAX_BLOCK_FONT_URLS).for_each(|i| remote.insert(&url(i, 40), RemoteKind::Font));
         remote.insert(&url(MAX_BLOCK_FONT_URLS + 1, 40), RemoteKind::Image);
         assert_eq!(remote.limit, None);
+        assert_eq!(remote.url_limit(), Some(UrlLimit::FontUrlCount));
         assert_eq!(remote.into_urls().len(), MAX_BLOCK_FONT_URLS + 1);
+        let mut remote = RemoteUrls::default();
+        remote.insert(&url(0, MAX_BLOCK_FONT_URL_BYTES + 1), RemoteKind::Font);
+        assert_eq!(remote.url_limit(), Some(UrlLimit::FontUrlBytes));
 
         // Srcset values share the byte budget, past which the writer falls back to replacing each URL.
         let mut remote = RemoteUrls::default();

@@ -715,7 +715,9 @@ mod tests {
 
     use super::*;
     use crate::batch::{Origin, Tp};
-    use replay_core_v4::inspect::dom::{RemoteKind, RemoteUrl, MAX_BLOCK_REMOTE_URLS};
+    use replay_core_v4::inspect::dom::{
+        RemoteKind, RemoteUrl, MAX_BLOCK_FONT_URLS, MAX_BLOCK_REMOTE_URLS,
+    };
     use replay_core_v4::refs::UrlAsset;
 
     #[derive(Default)]
@@ -934,23 +936,30 @@ mod tests {
 
     #[test]
     fn keeps_a_block_past_the_url_limit_without_a_url_it_did_not_check() {
-        let urls = MAX_BLOCK_REMOTE_URLS + 1;
-        let nodes: Vec<_> = (0..urls)
+        let images: Vec<_> = (0..=MAX_BLOCK_REMOTE_URLS)
             .map(|i| json!({"type": 2, "tagName": "img", "attributes": {"src": format!("https://cdn.example.com/{i}.png")}, "childNodes": [], "id": i + 2}))
             .collect();
-        let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": nodes}}}]).to_string();
-        let lines = stored_lines(&events, &[]);
-        // The inspector named the first URLs, which keep their references; the fallback scrubbed the rest.
-        assert!(
-            lines.contains("imageurl:v4:7:2026-10:"),
-            "named URLs keep their references"
-        );
-        assert!(lines.contains(crate::scrub::UNCHECKED_MARKER));
-        assert!(!lines.contains("https://"));
+        let faces: String = (0..=MAX_BLOCK_FONT_URLS)
+            .map(|i| format!("@font-face{{font-family:Brand{i};src:url(https://fonts.example.com/{i}.woff2)}}"))
+            .collect();
+        let fonts = vec![
+            json!({"type": 2, "tagName": "style", "attributes": {"_cssText": faces}, "childNodes": [], "id": 2}),
+        ];
+        for (nodes, named) in [
+            (images, "imageurl:v4:7:2026-10:"),
+            (fonts, "fonturl:v4:7:2026-10:"),
+        ] {
+            let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": nodes}}}]).to_string();
+            let lines = stored_lines(&events, &[]);
+            // The inspector named the first URLs, which keep their references; the fallback scrubbed the rest.
+            assert!(lines.contains(named), "named URLs keep their references");
+            assert!(lines.contains(crate::scrub::UNCHECKED_MARKER));
+            assert!(!lines.contains("https://"));
+        }
     }
 
     #[test]
-    fn leaves_css_only_images_an_offline_render_can_load() {
+    fn leaves_css_only_images_and_fonts_an_offline_render_can_load() {
         let compressed: String = replay_core_v4::compression::gzip(
             json!([{"rule": ".a{background:url(/img/a.png)} .q{content:\"url(/img/a.png)\"} .b{background-image:image-set(url(https://cdn.example.com/1x.png) 1x, url(https://cdn.example.com/2x.png) 2x)} .c{background:url(/c.png?X-Amz-Signature=abc123)} .bg-\\[url\\(https\\:\\/\\/cdn\\.example\\.com\\/t\\.png\\)\\]{background-image:url(https://cdn.example.com/t.png)} .s-\\[url\\(https\\:\\/\\/cdn\\.example\\.com\\/s\\.png\\?X-Amz-Signature\\=abc123\\)\\]{background-image:url(https://cdn.example.com/s.png?X-Amz-Signature=abc123)}", "index": 0}])
                 .to_string()
@@ -965,6 +974,7 @@ mod tests {
             {"type": 3, "timestamp": 2, "cv": "2024-10", "data": {"source": 8, "id": 3, "adds": compressed}},
             {"type": 3, "timestamp": 3, "data": {"source": 0, "adds": [], "removes": [], "texts": [], "attributes": [{"id": 9, "attributes": {"class": "bg-[url(/img/a.png)]"}}, {"id": 10, "attributes": {"class": "bg-[url(https://cdn.example.com/t.png)]"}}]}},
             {"type": 3, "timestamp": 4, "data": {"source": 8, "id": 3, "replaceSync": ".\\/\\/cdn\\.example\\.com\\/p\\.png\\?X-Amz-Signature\\=abc123{background:url(//cdn.example.com/p.png?X-Amz-Signature=abc123)}"}},
+            {"type": 3, "timestamp": 5, "data": {"source": 8, "id": 4, "replaceSync": "@font-face{font-family:Brand;src:url(/fonts/brand.woff2)}@font-face{font-family:Roboto;src:url(/fonts/roboto.woff2)}"}},
         ]);
         let lines = stored_lines(&events.to_string(), &[]);
         let reference = |url: &str| {
@@ -991,6 +1001,19 @@ mod tests {
                 r#"url(\"{}\")"#,
                 crate::rewrite::declined_marker("credential")
             ),
+            format!(
+                r#"src:url(\"{}\")"#,
+                crate::urls::url_reference(
+                    "https://app.example.com/fonts/brand.woff2",
+                    UrlAsset::Font,
+                    7,
+                    "2026-10",
+                    &replay_core_v4::seal::image_url_key(&[6; 32]),
+                )
+                .unwrap()
+                .1
+            ),
+            r#"src:url(\"fonturl:v4:bundled:roboto\")"#.to_owned(),
         ] {
             assert!(lines.contains(&expected), "{expected} in {lines}");
         }
@@ -1007,7 +1030,7 @@ mod tests {
         ] {
             assert!(lines.contains(&expected), "{expected} in {lines}");
         }
-        for gone in [":url(/img/a.png)", "1x.png", "1x,", "Signature"] {
+        for gone in [":url(/img/a.png)", "1x.png", "1x,", "Signature", "/fonts/"] {
             assert!(!lines.contains(gone), "{gone} in {lines}");
         }
     }
