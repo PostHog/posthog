@@ -23,6 +23,8 @@ export const SIMULATION_NEEDS_UNGROUPED =
 
 export const MAX_INSTANCES_LIMIT = 100
 
+export const GROUP_BY_NOT_AVAILABLE = "Grouping by other fields isn't available for this project yet."
+
 const GROUP_BY_KEYS: Record<LogsAlertGroupBy, string[]> = {
     none: [],
     service: ['service_name'],
@@ -77,16 +79,21 @@ export function isRegroup(alert: LogsAlertConfigurationApi | null, groupBy: Logs
 
 /**
  * Only an alert the alerts platform evaluates can group. A new alert goes to the platform once the
- * team has any logs alert there, which mirrors the backend's cutover check.
+ * team has any logs alert there, which mirrors the backend's cutover check. An alert that already
+ * groups keeps the field even with the flag off, so its grouping stays visible and can be removed.
  */
 export function canGroupAlert(
     alert: LogsAlertConfigurationApi | null,
-    teamAlerts: LogsAlertConfigurationApi[]
+    teamAlerts: LogsAlertConfigurationApi[],
+    groupingFlagEnabled: boolean
 ): boolean {
-    if (!alert) {
-        return teamAlerts.some((candidate) => candidate.platform_owned)
+    if (alert?.grouping?.mode === GroupingModeEnumApi.ByResultLabels) {
+        return true
     }
-    return alert.platform_owned || alert.grouping?.mode === GroupingModeEnumApi.ByResultLabels
+    if (!groupingFlagEnabled) {
+        return false
+    }
+    return alert ? alert.platform_owned : teamAlerts.some((candidate) => candidate.platform_owned)
 }
 
 /** What a save that changes the grouping does to the state the alert tracks now. */
