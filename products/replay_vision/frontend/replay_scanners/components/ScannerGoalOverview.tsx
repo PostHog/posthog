@@ -3,18 +3,11 @@ import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
 import { TextMorph } from 'torph/react'
 
-import { IconInfo, IconSparkles, IconWarning } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonCollapse,
-    LemonSkeleton,
-    LemonSnack,
-    LemonTag,
-    Spinner,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import * as researchPng from '@posthog/brand/hoggies/png/research'
+import { IconChevronDown, IconChevronRight, IconInfo, IconSparkles, IconWarning } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonSkeleton, LemonSnack, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
@@ -65,6 +58,46 @@ function activityFilterLabel(mode: string): string {
         return 'Only most active'
     }
     return 'All recordings'
+}
+
+const HedgehogResearch = pngHoggie(researchPng)
+
+/** Says the overview is a draft to check, with the agent's reasoning one click away. */
+function DraftReviewHeader({ rationale }: { rationale?: string }): JSX.Element {
+    // Closed by default: the reasoning mostly restates the goal, and the sections to review come first.
+    const [showRationale, setShowRationale] = useState(false)
+    return (
+        <div className="flex items-start gap-3 pb-1">
+            <HedgehogResearch className="h-16 w-auto shrink-0" />
+            <div className="min-w-0 flex-1 space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-base font-semibold">Review your draft scanner</span>
+                    <LemonTag type="highlight">Draft</LemonTag>
+                </div>
+                <div className="text-sm text-muted">
+                    The agent drafted this from your goal. Check each section and edit anything that is not right.
+                    Nothing runs until you click Create scanner.
+                </div>
+                {rationale ? (
+                    <>
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            noPadding
+                            sideIcon={showRationale ? <IconChevronDown /> : <IconChevronRight />}
+                            onClick={() => setShowRationale(!showRationale)}
+                            data-attr="vision-goal-overview-rationale"
+                        >
+                            Why the agent chose this setup
+                        </LemonButton>
+                        {showRationale ? (
+                            <div className="text-sm text-secondary border-l-2 pl-3">{rationale}</div>
+                        ) : null}
+                    </>
+                ) : null}
+            </div>
+        </div>
+    )
 }
 
 /** One label:value row in the eligible-recordings and sampling blocks. */
@@ -373,28 +406,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
 
     return (
         <div className="flex flex-col gap-3">
-            <LemonBanner type="info" alignItems="start">
-                <div className="font-semibold">Review this draft before you create it</div>
-                <div className="font-normal">
-                    The agent drafted this scanner from your goal. Check each section and edit anything that is not
-                    right. Nothing runs until you click Create scanner.
-                </div>
-            </LemonBanner>
-
-            {/* Closed by default: the reasoning mostly restates the goal, and the sections to review come first. */}
-            {rationale ? (
-                <LemonCollapse
-                    className="bg-bg-light"
-                    panels={[
-                        {
-                            key: 'rationale',
-                            header: 'Why the agent chose this setup',
-                            content: <div className="text-sm">{rationale}</div>,
-                            dataAttr: 'vision-goal-overview-rationale',
-                        },
-                    ]}
-                />
-            ) : null}
+            <DraftReviewHeader rationale={rationale} />
 
             <OverviewSection label="Name" editStep="details" scannerId={scannerId}>
                 <div className="text-sm font-medium">{scanner.name}</div>
