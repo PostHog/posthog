@@ -644,7 +644,9 @@ describe('EmailService', () => {
                     const now = Date.now()
                     const clock = jest.spyOn(Date, 'now').mockReturnValue(now)
                     try {
-                        service = createSandboxService(true)
+                        service = createSandboxService(true, {
+                            senderSettings: { dailyTeamCap: '2', dailyRecipientCap: '2' },
+                        })
                         await sendAt(now)
                         expect(sendEmailSpy).toHaveBeenCalledTimes(1)
 
@@ -663,12 +665,21 @@ describe('EmailService', () => {
                         )
                         expectBlockedEvent('organization_blocked', isTest, 0)
 
+                        const sandboxParams = invocation.queueParameters
+                        invocation.queueParameters = createEmailParams({ from: { integrationId: 1 } })
+                        const ownSender = await sendAt(now + 61_000)
+                        invocation.queueParameters = sandboxParams
+
+                        expect(ownSender.error).toBeUndefined()
+                        expect(ownSender.skipped).not.toBe(true)
+                        expect(sendEmailSpy).toHaveBeenCalledTimes(2)
+
                         await setBlocked(false)
                         const unblocked = await sendAt(now + 122_000)
 
                         expect(unblocked.error).toBeUndefined()
                         expect(unblocked.skipped).not.toBe(true)
-                        expect(sendEmailSpy).toHaveBeenCalledTimes(2)
+                        expect(sendEmailSpy).toHaveBeenCalledTimes(3)
                     } finally {
                         clock.mockRestore()
                         await setBlocked(false)
