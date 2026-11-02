@@ -11,6 +11,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.fields import JSONTolerantListField
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import (
@@ -34,7 +35,6 @@ from products.signals.backend.activity_summary.search import (
     SemanticSearchUnavailable,
 )
 from products.signals.backend.facade import api as signals_facade
-from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
 
 READ_EVENT = "activity summary read"
@@ -311,7 +311,7 @@ class ActivitySummarySearchQuerySerializer(serializers.Serializer):
         required=False,
         help_text="Only members who work in or visit this product.",
     )
-    exclude_user_uuids = serializers.ListField(
+    exclude_user_uuids = JSONTolerantListField(
         child=serializers.UUIDField(),
         required=False,
         default=list,
@@ -394,8 +394,6 @@ class ActivitySummaryMembersViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission, ScoutCanonicalTeamAccessPermission]
     scope_object = "signal_scout_internal"
-    # No team-scoped model backs this endpoint. The team/org viewset mixin needs a queryset, and `search` never reads it.
-    queryset = SignalScoutConfig.objects.unscoped()
     pagination_class = None
 
     @validated_request(
@@ -410,7 +408,7 @@ class ActivitySummaryMembersViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
     @action(detail=False, methods=["GET"], required_scopes=["signal_scout_internal:read"])
     def search(self, request: ValidatedRequest, *args: object, **kwargs: object) -> Response:
         query = request.validated_query_data
-        team = self.team.parent_team or self.team
+        team = self.team
         properties = {
             "search_mode": query["search_mode"],
             "has_query": bool((query.get("query") or "").strip()),

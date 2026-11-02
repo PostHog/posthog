@@ -1,3 +1,4 @@
+import json
 import datetime
 import dataclasses
 from typing import Any
@@ -347,15 +348,19 @@ class TestActivitySummarySearchAPI(APIBaseTest):
             assert response.json()["semantic_used"] is False
             assert [hit["user_uuid"] for hit in response.json()["results"]] == [str(self.reader.uuid)]
 
-    def test_excluded_members_and_other_products_drop_out(self) -> None:
+    @parameterized.expand([("repeated_params", False), ("mcp_json_array", True)])
+    def test_excluded_members_and_other_products_drop_out(self, _name: str, json_encoded: bool) -> None:
         self._summary(self.user, "Builds onboarding funnels.")
         self._summary(self.reader, "Watches onboarding.")
+        excluded = [str(self.user.uuid)]
+        exclude_user_uuids = json.dumps(excluded) if json_encoded else excluded
 
         response = self._search(
-            query="onboarding", search_mode="keyword", exclude_user_uuids=[str(self.user.uuid)], product="surveys"
+            query="onboarding", search_mode="keyword", exclude_user_uuids=exclude_user_uuids, product="surveys"
         )
         assert response.json()["results"] == []
-        response = self._search(query="onboarding", search_mode="keyword", exclude_user_uuids=[str(self.user.uuid)])
+        response = self._search(query="onboarding", search_mode="keyword", exclude_user_uuids=exclude_user_uuids)
+        assert response.status_code == 200, response.content
         assert [hit["user_uuid"] for hit in response.json()["results"]] == [str(self.reader.uuid)]
 
     @parameterized.expand([("flag_off", True), ("not_enrolled", False)])

@@ -15,6 +15,7 @@ from collections.abc import Iterable, Sequence
 from typing import Any, cast
 
 from django.db import models
+from django.db.models import prefetch_related_objects
 
 import structlog
 
@@ -47,6 +48,8 @@ MAX_LIMIT = 25
 # agreement between the two rankings.
 RRF_K = 60
 EMBEDDING_TIMEOUT_S = 10.0
+# A stalled read must end inside the MCP request deadline, so that a hybrid search can still return its keyword ranking.
+VECTOR_READ_MAX_EXECUTION_S = 10
 MIN_TERM_CHARS = 2
 SNIPPET_RADIUS = 60
 
@@ -172,15 +175,7 @@ def search_summaries(
     if config is None or not search_enabled(team):
         return None
     limit = max(1, min(limit, MAX_LIMIT))
-    # Deferred: resolve_reviewers imports the engineering_analytics facade, which imports the signals facade.
-    from products.signals.backend.report_generation.resolve_reviewers import (  # noqa: PLC0415
-        _github_identity_prefetches,
-    )
-
-    members = {
-        user.id: user
-        for user in team.all_users_with_access().prefetch_related(*_github_identity_prefetches()).order_by("id")
-    }
+    members = {user.id: user for user in team.all_users_with_access().order_by("id")}
     # Two queries, not a join: the summary's user FK has no database constraint.
     rows = UserActivitySummary.objects.for_team(team.id).filter(user_id__in=members.keys())
     excluded = {str(value) for value in exclude_user_uuids}
@@ -203,7 +198,9 @@ def search_summaries(
             key=lambda c: c.view.generated_at or datetime.datetime.min.replace(tzinfo=datetime.UTC),
             reverse=True,
         )
-        hits = [_hit(c, score=None, matches=(), include_profile=include_profile) for c in ordered[:limit]]
+        selected = ordered[:limit]
+        _prefetch_github_identities(selected)
+        hits = [_hit(c, score=None, matches=(), include_profile=include_profile) for c in selected]
         return ActivitySummarySearchResult(results=tuple(hits), semantic_used=False, not_ready_count=not_ready_count)
 
     keyword_ranking: list[int] = []
@@ -224,6 +221,8 @@ def search_summaries(
 
     scores = _fuse([keyword_ranking, semantic_ranking])
     semantic_ids = set(semantic_ranking)
+    top_scores = sorted(scores.items(), key=lambda item: (-item[1], item[0]))[:limit]
+    _prefetch_github_identities([candidates[user_id] for user_id, _ in top_scores])
     hits = [
         _hit(
             candidates[user_id],
@@ -234,11 +233,20 @@ def search_summaries(
             ),
             include_profile=include_profile,
         )
-        for user_id, score in sorted(scores.items(), key=lambda item: (-item[1], item[0]))[:limit]
+        for user_id, score in top_scores
     ]
     return ActivitySummarySearchResult(
         results=tuple(hits), semantic_used=semantic_used, not_ready_count=not_ready_count
     )
+
+
+def _prefetch_github_identities(candidates: Sequence[_Candidate]) -> None:
+    # Deferred: resolve_reviewers imports the engineering_analytics facade, which imports the signals facade.
+    from products.signals.backend.report_generation.resolve_reviewers import (  # noqa: PLC0415
+        _github_identity_prefetches,
+    )
+
+    prefetch_related_objects([candidate.user for candidate in candidates], *_github_identity_prefetches())
 
 
 def _uses_product(computed: dict[str, Any], product: str) -> bool:
@@ -325,6 +333,7 @@ def _semantic_ranking(team: Team, query: str, user_ids: Iterable[int], *, limit:
                 "dimensions": EMBEDDING_DIMENSIONS,
                 "limit": limit,
             },
+            settings={"max_execution_time": VECTOR_READ_MAX_EXECUTION_S, "timeout_overflow_mode": "throw"},
             # A scout run calls this, and no person waits on the result.
             workload=Workload.OFFLINE,
             team_id=team.id,
