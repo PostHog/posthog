@@ -1,3 +1,4 @@
+import { type ElicitRequestFormParams, ElicitResultSchema } from '@modelcontextprotocol/sdk/types.js'
 import { z } from 'zod'
 
 const OPTION_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/
@@ -23,28 +24,13 @@ export const DecisionRequestInputSchema = z.object({
         .refine((options) => new Set(options.map((option) => option.id)).size === options.length, {
             message: 'Option ids must be unique.',
         })
-        .describe('The choices. The agent must handle every option, plus a decline and an expiry.'),
+        .describe('The choices. The agent must handle every option, plus a decline or dismissal.'),
     context: z
         .string()
         .trim()
         .max(2000)
         .optional()
         .describe('Evidence the human needs to decide: what was found, what is at stake.'),
-    expires_in_seconds: z
-        .number()
-        .int()
-        .min(60)
-        .max(7 * 24 * 60 * 60)
-        .default(15 * 60)
-        .describe(
-            'How long the question stays answerable. An unanswered question expires and never defaults to an option.'
-        ),
-    idempotency_key: z
-        .string()
-        .min(1)
-        .max(128)
-        .optional()
-        .describe('Repeat the same key to get the same request back after a retry or resume.'),
 })
 
 export type DecisionRequestInput = z.infer<typeof DecisionRequestInputSchema>
@@ -55,20 +41,7 @@ export type DecisionOutcome =
     | { outcome: 'cancelled' }
     | { outcome: 'invalid'; reason: string }
 
-export interface DecisionElicitationParams {
-    mode: 'form'
-    message: string
-    requestedSchema: {
-        type: 'object'
-        properties: {
-            choice: { type: 'string'; title: string; oneOf: Array<{ const: string; title: string }> }
-            note: { type: 'string'; title: string; maxLength: number }
-        }
-        required: ['choice']
-    }
-}
-
-export function buildDecisionElicitation(input: DecisionRequestInput): DecisionElicitationParams {
+export function buildDecisionElicitation(input: DecisionRequestInput): ElicitRequestFormParams {
     return {
         mode: 'form',
         message: input.context ? `${input.question}\n\n${input.context}` : input.question,
@@ -89,11 +62,6 @@ export function buildDecisionElicitation(input: DecisionRequestInput): DecisionE
         },
     }
 }
-
-const ElicitResultSchema = z.object({
-    action: z.enum(['accept', 'decline', 'cancel']),
-    content: z.record(z.string(), z.unknown()).optional(),
-})
 
 /** The client renders the form, so an accepted answer is still untrusted input until it matches a requested option. */
 export function parseDecisionResponse(input: DecisionRequestInput, response: unknown): DecisionOutcome {
