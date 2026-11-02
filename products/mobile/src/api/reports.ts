@@ -206,40 +206,31 @@ function isInboxPullRequest(value: unknown): boolean {
     )
 }
 
+const INBOX_REPORT_FIELDS = {
+    id: (value) => typeof value === 'string' && value.trim() !== '',
+    title: isOptionalString,
+    status: (value) => typeof value === 'string',
+    source_products: (value) => Array.isArray(value) && value.every((source) => typeof source === 'string'),
+    created_at: isReportDate,
+    updated_at: isReportDate,
+    signal_count: (value) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0,
+    is_suggested_reviewer: (value) => value === undefined || typeof value === 'boolean',
+    implementation_pr_url: isOptionalString,
+    pull_requests: (value) => Array.isArray(value) && value.every(isInboxPullRequest),
+    assignee: (value) => value == null || (isRecord(value) && typeof value.kind === 'string'),
+    ranking: (value) => {
+        if (value == null) return true
+        if (!isRecord(value)) return false
+        const scores = value.scores
+        if (scores == null) return true
+        if (!isRecord(scores)) return false
+        const score = scores.pr_merged
+        return score == null || (typeof score === 'number' && Number.isFinite(score))
+    },
+} satisfies Partial<Record<keyof SignalReportApi, (value: unknown) => boolean>>
+
 function isInboxReport(value: unknown): boolean {
-    if (
-        !isRecord(value) ||
-        typeof value.id !== 'string' ||
-        !value.id.trim() ||
-        !isOptionalString(value.title) ||
-        typeof value.status !== 'string' ||
-        !Array.isArray(value.source_products) ||
-        !value.source_products.every((source) => typeof source === 'string') ||
-        !isReportDate(value.created_at) ||
-        !isReportDate(value.updated_at) ||
-        typeof value.signal_count !== 'number' ||
-        !Number.isSafeInteger(value.signal_count) ||
-        value.signal_count < 0 ||
-        (value.is_suggested_reviewer !== undefined && typeof value.is_suggested_reviewer !== 'boolean') ||
-        !isOptionalString(value.implementation_pr_url) ||
-        !Array.isArray(value.pull_requests) ||
-        !value.pull_requests.every(isInboxPullRequest)
-    ) {
-        return false
-    }
-    if (value.assignee != null && (!isRecord(value.assignee) || typeof value.assignee.kind !== 'string')) {
-        return false
-    }
-    if (value.ranking != null) {
-        if (!isRecord(value.ranking)) return false
-        const scores = value.ranking.scores
-        if (scores != null) {
-            if (!isRecord(scores)) return false
-            const score = scores.pr_merged
-            if (score != null && (typeof score !== 'number' || !Number.isFinite(score))) return false
-        }
-    }
-    return true
+    return isRecord(value) && Object.entries(INBOX_REPORT_FIELDS).every(([field, validate]) => validate(value[field]))
 }
 
 export async function fetchInboxPage(offset: number, signal?: AbortSignal): Promise<InboxPageApi> {
