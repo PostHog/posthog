@@ -1090,11 +1090,12 @@ class TestDevboxWorktreeCommand:
         assert str(worktree_root) not in devbox_config.load_worktree_boxes()
 
     @pytest.mark.parametrize(
-        "recorded_id, live_boxes, expected_exit",
+        "recorded_id, live_boxes, dry_run, expected_exit",
         [
-            pytest.param("box-1", [{"name": "wt-feat", "id": "box-1"}], 1, id="live-box-blocks-the-switch"),
-            pytest.param(None, [{"name": "wt-feat", "id": "box-1"}], 1, id="live-box-with-unrecorded-id-blocks"),
-            pytest.param("box-1", [], 0, id="deleted-box-switches-and-drops-its-mirror"),
+            pytest.param("box-1", [{"name": "wt-feat", "id": "box-1"}], False, 1, id="live-box-blocks-the-switch"),
+            pytest.param(None, [{"name": "wt-feat", "id": "box-1"}], False, 1, id="live-box-with-unrecorded-id-blocks"),
+            pytest.param("box-1", [], False, 0, id="deleted-box-switches-and-drops-its-mirror"),
+            pytest.param("box-1", [], True, 0, id="dry-run-keeps-registration-and-mirror"),
         ],
     )
     def test_switching_provider_away_from_hogland(
@@ -1103,6 +1104,7 @@ class TestDevboxWorktreeCommand:
         worktree_root: Path,
         recorded_id: str | None,
         live_boxes: list[dict[str, str]],
+        dry_run: bool,
         expected_exit: int,
     ) -> None:
         devbox_config.record_worktree_box(
@@ -1120,12 +1122,15 @@ class TestDevboxWorktreeCommand:
         terminated: list[str] = []
         monkeypatch.setattr(devbox_worktree.mutagen, "sync_terminate", terminated.append)
 
-        result = runner.invoke(cli, ["devbox:worktree", "--provider", "coder", "--label", "feat"])
+        result = runner.invoke(
+            cli, ["devbox:worktree", "--provider", "coder", "--label", "feat", *(["--dry-run"] if dry_run else [])]
+        )
 
         assert result.exit_code == expected_exit, result.output
-        expected_record = "wt-feat" if expected_exit else "devbox-test-user-feat"
+        switched = expected_exit == 0 and not dry_run
+        expected_record = "devbox-test-user-feat" if switched else "wt-feat"
         assert devbox_config.load_worktree_boxes()[str(worktree_root)].workspace == expected_record
-        assert terminated == ([] if expected_exit else [devbox_worktree.mutagen.workspace_label_selector("wt-feat")])
+        assert terminated == ([devbox_worktree.mutagen.workspace_label_selector("wt-feat")] if switched else [])
 
 
 class TestWorkspaceRegion:
@@ -4947,6 +4952,15 @@ class TestHoglandEndpoint:
 
         assert run.called is key_reset
         assert (tmp_path / "hosts" / "wt-feat.box-id").read_text() == box_id
+
+    @pytest.mark.parametrize(
+        "label",
+        ["feat\n    HostName 192.0.2.99", "../escape", "Feat", "-feat"],
+        ids=["newline-injects-ssh-directive", "path-traversal", "uppercase", "leading-hyphen"],
+    )
+    def test_unsafe_label_is_refused(self, label: str) -> None:
+        with pytest.raises(SystemExit):
+            devbox_hogland.name_for_label(label)
 
     def test_box_without_ssh_fails(self) -> None:
         with pytest.raises(SystemExit):

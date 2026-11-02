@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .coder import _fail
+from .coder import _LABEL_RE, _fail
 
 REMOTE_REPO_PATH = "/home/hog/posthog"
 NAME_PREFIX = "wt-"
@@ -36,6 +36,8 @@ def ssh_alias(name: str) -> str:
 
 
 def name_for_label(label: str) -> str:
+    if not _LABEL_RE.match(label):
+        _fail(f"Invalid devbox label '{label}'. Use lowercase letters, digits and hyphens.")
     return f"{NAME_PREFIX}{label}"
 
 

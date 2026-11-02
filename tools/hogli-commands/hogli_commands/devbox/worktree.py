@@ -153,6 +153,7 @@ def _app_url(workspace_name: str) -> str:
 class _WorktreeTarget:
     workspace_name: str
     label: str
+    abandoned_mirror: str | None = None
 
 
 @dataclass(frozen=True)
@@ -201,7 +202,6 @@ def _fail_if_other_provider_box_exists(record: WorktreeBoxRecord) -> None:
             f"This worktree already has the {record.provider} devbox '{record.workspace}'. "
             f"Remove it with `{command}` before you switch providers."
         )
-    mutagen.sync_terminate(mutagen.workspace_label_selector(record.workspace))
 
 
 def _resolve_target(
@@ -222,8 +222,10 @@ def _resolve_target(
     registered = boxes.get(str(root))
     if registered is not None and registered.worktree_id is not None and not registered.tracks_worktree(_git_dir(root)):
         registered = None
+    abandoned_mirror = None
     if registered is not None and registered.provider != provider:
         _fail_if_other_provider_box_exists(registered)
+        abandoned_mirror = registered.workspace
         registered = None
     registered_box = get_workspace(registered.workspace, workspaces) if registered is not None else None
     if registered is not None and registered_box is not None and not registered.may_adopt(registered_box):
@@ -255,7 +257,7 @@ def _resolve_target(
             f"A devbox named '{name}' already exists and is not tied to this worktree. "
             f"Pass `--label {resolved_label}` to use it anyway, or `--label <other>` for a new box."
         )
-    return _WorktreeTarget(workspace_name=name, label=resolved_label)
+    return _WorktreeTarget(workspace_name=name, label=resolved_label, abandoned_mirror=abandoned_mirror)
 
 
 def _list_workspaces_or_fail() -> list[dict[str, Any]]:
@@ -376,6 +378,7 @@ def devbox_worktree(
     if not _print_plan(root, box_step, sync_step, on_clean, dry_run):
         return
     git_dir, worktree_id = _claim_box(root, target, existing, on_clean, "coder")
+    _drop_abandoned_mirror(target)
 
     region = region_from_workspace_name(target.workspace_name)
     if existing is None and cloning:
@@ -439,6 +442,11 @@ def _claim_box(
     return git_dir, worktree_id
 
 
+def _drop_abandoned_mirror(target: _WorktreeTarget) -> None:
+    if target.abandoned_mirror is not None:
+        mutagen.sync_terminate(mutagen.workspace_label_selector(target.abandoned_mirror))
+
+
 def _hogland_worktree(root: Path, label: str | None, on_clean: str | None, dry_run: bool, verbose: bool) -> None:
     hogland.ensure_cli()
     devboxes = hogland.fetch_devboxes()
@@ -461,6 +469,7 @@ def _hogland_worktree(root: Path, label: str | None, on_clean: str | None, dry_r
     if not _print_plan(root, box_step, sync_step, on_clean, dry_run):
         return
     git_dir, worktree_id = _claim_box(root, target, existing, on_clean, "hogland")
+    _drop_abandoned_mirror(target)
 
     click.echo(f"Bringing up Hogland devbox '{name}'...")
     endpoint = hogland.up(name, _checked_out_branch(root))
