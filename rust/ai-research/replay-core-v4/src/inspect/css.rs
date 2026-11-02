@@ -473,7 +473,7 @@ fn value_urls(
                     match collectable(source) {
                         Some(source) => url_function_urls(function, source, resolver, found),
                         None if escaped == EscapedSources::Decoded => {
-                            escaped_url_function_urls(function, source, resolver, found)
+                            escaped_url_function_urls(function, name_len, source, resolver, found)
                         }
                         None => {}
                     }
@@ -518,6 +518,7 @@ fn url_function_urls(
 /// The block does not hold the URL a browser reads from an escaped source, so the rewrite replaces the whole `url()`.
 fn escaped_url_function_urls(
     function: &str,
+    name_len: usize,
     source: &str,
     resolver: &mut Resolver<'_>,
     found: &mut impl FnMut(CssUrl<'_>),
@@ -526,7 +527,10 @@ fn escaped_url_function_urls(
     if !source.contains('\\') {
         return;
     }
-    let Some(decoded) = unescape_css(source) else {
+    let quoted = function[name_len + 1..]
+        .trim_start_matches(|c: char| c.is_ascii_whitespace())
+        .starts_with(['"', '\'']);
+    let Some(decoded) = unescape_css(source, quoted) else {
         return;
     };
     if is_root_relative(&decoded) {
@@ -557,8 +561,9 @@ fn escaped_url_function_urls(
     }));
 }
 
-/// `None` for an escaped newline, which a URL cannot hold.
-fn unescape_css(text: &str) -> Option<String> {
+/// A quoted URL drops an escaped newline, as a line continuation. An unquoted URL with one is a bad URL, which no browser
+/// loads, so it is `None`.
+fn unescape_css(text: &str, quoted: bool) -> Option<String> {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
     while let Some(at) = rest.find('\\') {
@@ -570,10 +575,17 @@ fn unescape_css(text: &str) -> Option<String> {
             .take_while(u8::is_ascii_hexdigit)
             .count();
         if digits == 0 {
-            let escaped = escape.chars().next().unwrap_or('\u{FFFD}');
-            if matches!(escaped, '\n' | '\r' | '\x0c') {
-                return None;
+            if let Some(after) = escape
+                .strip_prefix("\r\n")
+                .or_else(|| escape.strip_prefix(['\n', '\r', '\x0c']))
+            {
+                if !quoted {
+                    return None;
+                }
+                rest = after;
+                continue;
             }
+            let escaped = escape.chars().next().unwrap_or('\u{FFFD}');
             out.push(escaped);
             rest = &escape[escaped.len_utf8().min(escape.len())..];
         } else {
@@ -1073,6 +1085,8 @@ mod tests {
             "@font-face{font-family:Function;src:\\75 rl(https://cdn.example.com/function.woff2)}",
             "@font-face{font-family:Source;src:url(https://cdn.example.com/source\\2e woff2)}",
             "@font-face{font-family:Relative;src:url(//cdn.example.com/relative\\2e woff2)}",
+            "@font-face{font-family:Continued;src:url(\"https://cdn.example.com/continued.\\\nwoff2\")}",
+            "@font-face{font-family:Broken;src:url(https://cdn.example.com/broken.\\\nwoff2)}",
         );
         assert_eq!(
             found(css, Some("https://app.example.com/")),
@@ -1093,6 +1107,8 @@ mod tests {
                 "rewrite url(https://cdn.example.com/source\\2e woff2) => url(\"https://cdn.example.com/source.woff2\") dropping []",
                 "resolved font https://cdn.example.com/relative.woff2",
                 "rewrite url(//cdn.example.com/relative\\2e woff2) => url(\"https://cdn.example.com/relative.woff2\") dropping []",
+                "resolved font https://cdn.example.com/continued.woff2",
+                "rewrite url(\"https://cdn.example.com/continued.\\\nwoff2\") => url(\"https://cdn.example.com/continued.woff2\") dropping []",
             ]
         );
     }
