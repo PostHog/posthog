@@ -127,6 +127,29 @@ class TestMarketingRecommendations(SimpleTestCase):
         assert [step.copyValue for step in leak.steps or [] if step.copyValue] == ["Generic", '"example"']
         assert not any(rec.rule == "scale_campaign" and rec.subject == "Generic" for rec in recs)
 
+    def test_review_campaign_steps_start_with_the_searches_that_waste_spend(self) -> None:
+        good = _campaign(id="c1", name="Good", cost=1000, conversions=10)
+        costly = _campaign(id="c2", name="Costly", cost=2000, conversions=2)
+        terms = (
+            _term("product analytics", "c1", cost=1000, conversions=10),
+            _term("drain small", "c2", cost=300, conversions=0),
+            _term("drain big", "c2", cost=400, conversions=0),
+            _term("drain too small", "c2", cost=20, conversions=0),
+            replace(_term("already a keyword", "c2", cost=500, conversions=0), status="ADDED"),
+            _term("example login", "c2", cost=600, conversions=0),
+            _term("cheap keeper", "c2", cost=50, conversions=1),
+            replace(_term("cheap but excluded", "c2", cost=40, conversions=1), status="EXCLUDED"),
+            _term("costly converter", "c2", cost=300, conversions=1),
+        )
+
+        review = next(rec for rec in recommend(_inputs((good, costly), terms)) if rec.rule == "review_campaign")
+
+        steps = review.steps or []
+        assert review.subject == "Costly"
+        assert [step.copyValue for step in steps if step.copyValue] == ["Costly", "[drain big]\n[drain small]"]
+        assert '"cheap keeper"' in steps[2].text
+        assert "costly converter" not in steps[2].text and "cheap but excluded" not in steps[2].text
+
     @parameterized.expand(
         [
             ("another_ad_often_shows_above", 0.6, "keep", "Keep the ad"),
