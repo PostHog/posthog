@@ -1613,6 +1613,18 @@ export interface CanvasStateEntryApi {
 export interface CanvasStateResponseApi {
     /** The canvas's shared entries plus the caller's own user-scoped entries. */
     entries: CanvasStateEntryApi[]
+    /** Number of entries in the whole selection, across all pages. */
+    count: number
+    /**
+     * URL of the next page, or null when complete. It pages the same way as this request: by cursor when the request used a cursor, otherwise by offset.
+     * @nullable
+     */
+    next: string | null
+    /**
+     * URL of the previous page by offset, or null on the first page and for a cursor request.
+     * @nullable
+     */
+    previous: string | null
     /**
      * Next entry offset, or null when complete. Null when the request used a cursor.
      * @nullable
@@ -1911,6 +1923,7 @@ export type CanvasesListParams = {
     kind?: CanvasesListKind
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2109,6 +2122,7 @@ export const CanvasesStateValueRetrieveScope = {
 export type CanvasesVersionsRetrieveParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
