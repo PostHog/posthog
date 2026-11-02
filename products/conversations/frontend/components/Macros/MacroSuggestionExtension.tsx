@@ -42,6 +42,9 @@ function MacroSuggestionPanel({ range, query, editor, onInsert, onClose }: Macro
                             <span className="truncate">
                                 {macro.name}
                                 {macro.shortcut ? <span className="text-muted"> /{macro.shortcut}</span> : null}
+                                {macro.visibility === 'personal' ? (
+                                    <span className="text-muted"> · Only you</span>
+                                ) : null}
                             </span>
                             <span className="max-w-full truncate text-xs text-muted">{macroPreview(macro.body)}</span>
                         </span>

@@ -20,6 +20,10 @@ def handle_ticket_macro_change(
     macro = after_update if after_update is not None else before_update
     if macro is None:
         return
+    # The team reads the activity log, so a macro that stays personal keeps its content out of it.
+    personal = TicketMacro.Visibility.PERSONAL
+    if all(m is None or m.visibility == personal for m in (before_update, after_update)):
+        return
     # Usage bumps go through QuerySet.update, which never reaches this receiver. usage_count and
     # last_used_at are also in signal_exclusions, so a save that only touches them stays quiet.
     log_activity(
