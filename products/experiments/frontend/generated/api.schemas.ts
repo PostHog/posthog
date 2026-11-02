@@ -547,7 +547,7 @@ export interface ExperimentSavedMetricApi {
      * @nullable
      */
     description?: string | null
-    /** ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics. */
+    /** ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns and sequential testing are not supported), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics. */
     query: unknown
     readonly created_by: UserBasicApi
     readonly created_at: string
@@ -587,7 +587,7 @@ export interface PatchedExperimentSavedMetricApi {
      * @nullable
      */
     description?: string | null
-    /** ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics. */
+    /** ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns and sequential testing are not supported), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics. */
     query?: unknown
     readonly created_by?: UserBasicApi
     readonly created_at?: string
@@ -2056,11 +2056,46 @@ export interface ExperimentRetentionMetricApi {
     version?: number | null
 }
 
+export type ExperimentQuantileMetricApiMetricType =
+    (typeof ExperimentQuantileMetricApiMetricType)[keyof typeof ExperimentQuantileMetricApiMetricType]
+
+export const ExperimentQuantileMetricApiMetricType = {
+    Quantile: 'quantile',
+} as const
+
+export type ExperimentQuantileMetricApiResponse = { [key: string]: unknown } | null
+
+export interface ExperimentQuantileMetricApi {
+    breakdownFilter?: BreakdownFilterApi | null
+    conversion_window?: number | null
+    conversion_window_unit?: FunnelConversionWindowTimeUnitApi | null
+    fingerprint?: string | null
+    goal?: ExperimentMetricGoalApi | null
+    isSharedMetric?: boolean | null
+    kind?: 'ExperimentMetric'
+    metric_type: ExperimentQuantileMetricApiMetricType
+    name?: string | null
+    /**
+     * Quantile level, for example 0.9 for p90.
+     * @minimum 0.01
+     * @maximum 0.99
+     */
+    quantile: number
+    response?: ExperimentQuantileMetricApiResponse
+    sharedMetricId?: number | null
+    /** Must set `math_property`, the numeric property to take the quantile of. `math` is ignored. */
+    source: EventsNodeApi | ActionsNodeApi
+    uuid?: string | null
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
 export type ExperimentMetricApi =
     | ExperimentMeanMetricApi
     | ExperimentFunnelMetricApi
     | ExperimentRatioMetricApi
     | ExperimentRetentionMetricApi
+    | ExperimentQuantileMetricApi
 
 /**
  * A shared metric's link to one experiment, as the experiment API returns it.
@@ -2218,6 +2253,7 @@ export const ExperimentMetricTypeApi = {
     Mean: 'mean',
     Ratio: 'ratio',
     Retention: 'retention',
+    Quantile: 'quantile',
 } as const
 
 export type Kind3Api = (typeof Kind3Api)[keyof typeof Kind3Api]
@@ -2280,12 +2316,14 @@ export interface ExperimentApiMetricApi {
     numerator?: ExperimentApiEventSourceApi | null
     /** For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds. */
     numerator_outlier_handling?: ExperimentMetricOutlierHandlingApi | null
+    /** For quantile metrics: the quantile level, for example 0.9 for p90. The metric takes this quantile of `source.math_property` over all qualifying events of a variant. */
+    quantile?: number | null
     retention_window_end?: number | null
     retention_window_start?: number | null
     retention_window_unit?: FunnelConversionWindowTimeUnitApi | null
     /** For funnel metrics: array of EventsNode/ActionsNode steps. */
     series?: ExperimentApiEventSourceApi[] | null
-    /** For mean metrics: event source. */
+    /** For mean and quantile metrics: event source. Quantile metrics need `math_property`. */
     source?: ExperimentApiEventSourceApi | null
     /** For retention metrics: start event. Pass {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event; a conversion window or 'last_seen' start_handling is rejected then, because the start is always the user's first exposure. */
     start_event?: ExperimentApiRetentionStartApi | null
@@ -2821,7 +2859,7 @@ export interface ExperimentWriteApi {
     type?: ExperimentTypeEnumApi | null
     /** Exposure configuration including filter test accounts and custom exposure events. */
     exposure_criteria?: ExperimentApiExposureCriteriaApi | null
-    /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event; pass start_event {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
+    /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns and sequential testing are not supported), or 'retention' (set start_event and completion_event; pass start_event {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
     metrics?: _ExperimentApiMetricsListApi | null
     /** Secondary metrics for additional measurements. Same format as primary metrics. */
     metrics_secondary?: _ExperimentApiMetricsListApi | null
@@ -2974,7 +3012,7 @@ export interface ExperimentApi {
     type?: ExperimentTypeEnumApi | null
     /** Exposure configuration including filter test accounts and custom exposure events. */
     exposure_criteria?: ExperimentApiExposureCriteriaApi | null
-    /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event; pass start_event {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
+    /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns and sequential testing are not supported), or 'retention' (set start_event and completion_event; pass start_event {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
     metrics?: _ExperimentApiMetricsListApi | null
     /** Secondary metrics for additional measurements. Same format as primary metrics. */
     metrics_secondary?: _ExperimentApiMetricsListApi | null
@@ -3123,7 +3161,7 @@ export interface PatchedExperimentWriteApi {
     type?: ExperimentTypeEnumApi | null
     /** Exposure configuration including filter test accounts and custom exposure events. */
     exposure_criteria?: ExperimentApiExposureCriteriaApi | null
-    /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event; pass start_event {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
+    /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns and sequential testing are not supported), or 'retention' (set start_event and completion_event; pass start_event {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
     metrics?: _ExperimentApiMetricsListApi | null
     /** Secondary metrics for additional measurements. Same format as primary metrics. */
     metrics_secondary?: _ExperimentApiMetricsListApi | null
@@ -5224,7 +5262,7 @@ export type _ExperimentSetupStoredPropertyFilterListApi = (
 )[]
 
 export interface ExperimentSetupOutcomeApi {
-    /** metric_type of the metric this outcome describes: 'funnel', 'mean', 'ratio' or 'retention'. */
+    /** metric_type of the metric this outcome describes: 'funnel', 'mean', 'ratio', 'retention' or 'quantile'. */
     metric_type: string
     /**
      * Units the result counted across all variants. What a unit is depends on metric_type, so read analyzed_exposures where you need exposures. Null when the result stores no sample counts.
@@ -5349,7 +5387,7 @@ export interface ExperimentSetupPreviousExperimentApi {
     secondary_metric_count: number
     /** Shared metrics attached to the experiment. */
     shared_metric_count: number
-    /** metric_type of each primary metric, for example 'mean', 'funnel', 'ratio' or 'retention'. */
+    /** metric_type of each primary metric, for example 'mean', 'funnel', 'ratio', 'retention' or 'quantile'. */
     primary_metric_types: string[]
     /** Event names the primary metrics count. */
     primary_metric_events: string[]
@@ -5422,7 +5460,7 @@ export interface ExperimentSetupSharedMetricApi {
     /** Shared metric name. */
     name: string
     /**
-     * 'mean', 'funnel', 'ratio' or 'retention', or null for older metrics.
+     * 'mean', 'funnel', 'ratio', 'retention' or 'quantile', or null for older metrics.
      * @nullable
      */
     metric_type: string | null
@@ -5445,7 +5483,7 @@ export interface ExperimentSetupSharedMetricApi {
      */
     matches_metric_event: boolean | null
     /**
-     * Where metric_event sits in the metric: 'funnel_step' and 'funnel_final_step' for a funnel, 'mean_source', 'ratio_numerator', 'ratio_denominator', 'retention_start' or 'retention_completion'. A metric that only starts from the event is a different precedent from one that converts on it. Empty when the metric does not count it, and null when no metric_event was passed.
+     * Where metric_event sits in the metric: 'funnel_step' and 'funnel_final_step' for a funnel, 'mean_source', 'quantile_source', 'ratio_numerator', 'ratio_denominator', 'retention_start' or 'retention_completion'. A metric that only starts from the event is a different precedent from one that converts on it. Empty when the metric does not count it, and null when no metric_event was passed.
      * @nullable
      */
     metric_event_roles: string[] | null
