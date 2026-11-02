@@ -20,6 +20,11 @@ class TestTextFromHtml(SimpleTestCase):
                 "Reset password (https://example.com/reset?t=1)",
             ),
             (
+                "template_link_keeps_its_placeholder",
+                "<a href='{{ variables.link }}'>Reset</a>",
+                "Reset ({{ variables.link }})",
+            ),
+            (
                 "link_that_shows_its_address",
                 '<a href="https://example.com">https://example.com</a>',
                 "https://example.com",

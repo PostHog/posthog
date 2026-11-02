@@ -11,6 +11,7 @@ from posthog.api.tagged_item import current_tag_names
 from posthog.dataclasses import frozen
 
 from products.messaging.backend.facade.contracts import (
+    ContentHashState,
     TemplateManagedBy,
     TemplateUpload,
     TemplateUploadResult,
@@ -24,6 +25,7 @@ from products.messaging.backend.services import (
     template_saves,
     template_uploads,
 )
+from products.messaging.backend.services.content_hash import sent_hash_state
 from products.messaging.backend.services.lazy_list import LazyList
 
 
@@ -66,6 +68,12 @@ class UploadedTemplate:
     template: MessageTemplateRow
 
 
+@frozen
+class TemplateToSend:
+    template: MessageTemplateRow
+    hash_state: ContentHashState
+
+
 def _to_contract(row: MessageTemplate) -> MessageTemplateRow:
     return MessageTemplateRow(
         id=row.id,
@@ -101,6 +109,15 @@ def get_template(team_id: int, template_id: UUID | str) -> MessageTemplateRow:
         return _to_contract(templates_service.team_template(team_id, template_id))
     except (MessageTemplate.DoesNotExist, ValidationError, ValueError, TypeError) as e:
         raise MessageTemplateMissing() from e
+
+
+def find_template_to_send(team_id: int, key: str, sent_hash: str | None) -> TemplateToSend:
+    try:
+        template = templates_service.team_template_with_key(team_id, key)
+    except MessageTemplate.DoesNotExist as e:
+        raise MessageTemplateMissing() from e
+    hash_state = sent_hash_state(sent_hash, template.content_hash, template.superseded_content_hashes or [])
+    return TemplateToSend(template=_to_contract(template), hash_state=hash_state)
 
 
 def team_category_id(team_id: int, category_id: Any) -> UUID:

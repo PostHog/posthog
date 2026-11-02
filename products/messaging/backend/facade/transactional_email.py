@@ -6,6 +6,8 @@ from products.messaging.backend.facade.contracts import (
     EmailDeliveryStatus,
     EmailStatus,
     QueuedEmail,
+    TemplateOutdated,
+    TemplateSendOptions,
     TransactionalEmailError,
 )
 from products.messaging.backend.services.transactional_email import (
@@ -31,6 +33,8 @@ __all__ = [
     "EmailDeliveryStatus",
     "EmailStatus",
     "QueuedEmail",
+    "TemplateOutdated",
+    "TemplateSendOptions",
     "TransactionalEmailError",
     "TransactionalEmailStage",
     "get_email_status",

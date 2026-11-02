@@ -103,12 +103,23 @@ class SenderNotVerified(TransactionalEmailError):
     code = "sender_not_verified"
 
 
+class TemplateOutdated(TransactionalEmailError):
+    code = "template_outdated"
+
+
 @frozen
 class CodeEmail:
     key: str
     subject: str
     html: str
     text: str
+    sender: str | None
+    reply_to: tuple[str, ...]
+    capture_engagement: bool
+
+
+@frozen
+class TemplateSendOptions:
     sender: str | None
     reply_to: tuple[str, ...]
     capture_engagement: bool

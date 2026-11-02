@@ -5,7 +5,7 @@ from bs4 import BeautifulSoup, NavigableString, Tag
 PARAGRAPH_TAGS = frozenset({"p", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "table", "blockquote", "pre", "hr"})
 LINE_TAGS = frozenset({"div", "li", "tr", "section", "article", "header", "footer", "dd", "dt"})
 HIDDEN_TAGS = frozenset({"head", "title", "style", "script", "template"})
-LINK_SCHEMES = ("http://", "https://", "mailto:")
+LINK_SCHEMES = ("http://", "https://", "mailto:", "{{")
 BLANK_LINES = re.compile(r"\n{3,}")
 WHITESPACE = re.compile(r"\s+")
 

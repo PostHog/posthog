@@ -122,6 +122,20 @@ class TestTemplateUpload(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("html_only", {}, "Hi {{ variables.first_name }}"),
+            ("blank_text", {"text": ""}, "Hi {{ variables.first_name }}"),
+            ("single_image", {"html": "<img src='https://example.com/banner.png'>"}, ""),
+        ]
+    )
+    def test_an_upload_without_text_sends_the_text_its_html_holds(
+        self, _post, _flag, _capture, _name, fields, expected_text
+    ):
+        uploaded = self._upload({**WELCOME, **fields})
+
+        assert self._sent_email(uploaded["transactional_hog_flow_id"])["text"] == expected_text
+
+    @parameterized.expand(
+        [
             ("same_text", WELCOME, WELCOME, WELCOME_HASH),
             ("other_line_endings", {**GREETING, "html": "<p>ä</p>\r\n"}, GREETING, GREETING_HASH),
         ]
@@ -173,16 +187,24 @@ class TestTemplateUpload(APIBaseTest):
             ),
         ]
     )
-    def test_an_upload_repairs_what_no_longer_matches_the_uploaded_content(self, _post, _flag, _capture, _name, drift):
+    def test_an_upload_repairs_what_no_longer_matches_the_uploaded_content(self, post, _flag, _capture, _name, drift):
+        post.return_value = MagicMock(status_code=202, json=lambda: {"invocation_id": "invocation-1"})
         first = self._upload(WELCOME)
         drift(self, first)
 
         repaired = self._upload(WELCOME)
+        sent = self.psak.post(
+            f"/api/projects/{self.team.id}/messaging/send/email/",
+            {"template": {"key": "welcome", "hash": WELCOME_HASH}, "to": "user@example.com"},
+            format="json",
+        )
 
         assert (repaired["result"], repaired["content_hash"]) == ("updated", WELCOME_HASH)
         assert self._template(first["id"])["content_hash"] == WELCOME_HASH
         assert self._sent_email(first["transactional_hog_flow_id"])["html"] == WELCOME["html"]
         assert self._sent_email(first["transactional_hog_flow_id"])["to"]["email"] == "{{ event.properties.to | raw }}"
+        assert sent.status_code == status.HTTP_202_ACCEPTED, sent.json()
+        assert "warnings" not in sent.json()
 
     @patch("products.messaging.backend.services.transactional_email.reload_hog_flows_on_workers")
     def test_a_changed_upload_is_what_the_next_send_delivers(self, _reload, post: MagicMock, _flag, _capture):
@@ -559,6 +581,44 @@ class TestTemplateUpload(APIBaseTest):
         assert uploaded["content_hash"] == template["content_hash"]
         assert (template["content"]["email"]["subject"], template["source_ref"]) == (expected_subject, expected_ref)
         assert self._workflow(newer["transactional_hog_flow_id"])["version"] == expected_version
+
+    @parameterized.expand(
+        [
+            ("current", None, status.HTTP_202_ACCEPTED, []),
+            ("superseded", WELCOME_HASH, status.HTTP_202_ACCEPTED, ["template_superseded"]),
+            ("outdated", f"v1:{'0' * 64}", status.HTTP_409_CONFLICT, None),
+        ]
+    )
+    @patch("products.messaging.backend.services.transactional_email.reload_hog_flows_on_workers")
+    def test_a_send_by_key_with_a_hash_only_ever_sends_the_published_content(
+        self, hash_state, sent_hash, expected_status, expected_warnings, _reload, post: MagicMock, _flag, capture
+    ):
+        post.return_value = MagicMock(status_code=202, json=lambda: {"invocation_id": "invocation-1"})
+        self._upload(WELCOME)
+        published = self._upload({**WELCOME, "subject": "Welcome aboard, {{ variables.first_name }}"})
+        hog_flow_id = published["transactional_hog_flow_id"]
+
+        response = self.psak.post(
+            f"/api/projects/{self.team.id}/messaging/send/email/",
+            {
+                "template": {"key": "welcome", "hash": sent_hash or published["content_hash"]},
+                "to": "jane@example.com",
+                "message_data": {"first_name": "Jane"},
+            },
+            format="json",
+        )
+
+        assert response.status_code == expected_status, response.json()
+        assert capture.call_args.kwargs["properties"]["hash_state"] == hash_state
+        if expected_warnings is None:
+            assert response.json()["code"] == "template_outdated"
+            post.assert_not_called()
+        else:
+            assert [warning["code"] for warning in response.json().get("warnings", [])] == expected_warnings
+            assert post.call_args.args[0].endswith(f"/hog_flows/{hog_flow_id}/transactional_email")
+        assert self._template(published["id"])["content_hash"] == published["content_hash"]
+        assert self._sent_email(hog_flow_id)["subject"] == "Welcome aboard, {{ variables.first_name }}"
+        assert self._workflow(hog_flow_id)["version"] == 2
 
     def _template_that_is(self, state: str) -> str | None:
         if state == "new":

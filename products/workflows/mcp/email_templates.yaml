@@ -241,9 +241,10 @@ tools:
             properties. The first upload creates the template and makes it sendable over the transactional email API
             with the project's default verified sender, so verify a sender first. Later uploads publish changed content
             at once and answer unchanged when nothing changed. Uploading replaces edits made in PostHog. Set
-            if_not_superseded when an older copy of the file must not replace newer content: an answer of superseded
-            means newer content is already published and nothing changed. The check covers the last 100 different
-            contents the template replaced; content outside those 100 publishes. Leave it out to publish this content
-            even when newer content replaced it, such as to roll back. A 404 with code not_found means sending email
-            from code is not enabled for this project, or the project does not exist: stop and tell the user.
+            if_not_superseded when an older copy of the file must not replace newer content, such as when you upload
+            only because a send answered template_outdated: an answer of superseded means newer content is already
+            published and nothing changed. The check covers the last 100 different contents the template replaced;
+            content outside those 100 publishes. Leave it out to publish this content even when newer content replaced
+            it, such as to roll back. A 404 with code not_found means sending email from code is not enabled for this
+            project, or the project does not exist: stop and tell the user.
         feature_flag: workflows-email-from-code

@@ -39,8 +39,10 @@ from products.messaging.backend.facade.contracts import (
     SenderUnavailable,
     SendingPaused,
     SendingSuspended,
+    TemplateManagedBy,
     TemplateNotSendable,
     TemplateNotTransactional,
+    TemplateSendOptions,
     TransactionalEmailError,
     TransactionalEmailPaused,
 )
@@ -230,7 +232,7 @@ def transactional_email_content(template: MessageTemplate) -> TransactionalEmail
         subject=email["subject"],
         preheader=email.get("preheader") or "",
         html=email.get("html") or "",
-        text=email.get("text") or "",
+        text=_sent_text(template, email),
         # Templates made transactional before they stored a sender keep their workflow's sender.
         from_integration_id=sender.get("integrationId"),
         message_category_id=template.message_category_id,
@@ -239,6 +241,13 @@ def transactional_email_content(template: MessageTemplate) -> TransactionalEmail
         from_name=sender.get("name") or "",
         reply_to=email.get("replyTo") or "",
     )
+
+
+def _sent_text(template: MessageTemplate, email: dict[str, Any]) -> str:
+    text = email.get("text") or ""
+    if text or template.managed_by != TemplateManagedBy.CODE:
+        return text
+    return text_from_html(email.get("html") or "")
 
 
 def make_transactional(
@@ -432,12 +441,18 @@ def send_transactional_email(
     message_data: dict[str, Any],
     idempotency_key: str | None = None,
     timeout: float = 10,
+    options: TemplateSendOptions | None = None,
 ) -> QueuedEmail:
     _check_send_request(to, idempotency_key)
     with transactional_email_stage("workflow_lookup"):
         hog_flow_id = _transactional_workflow_id(team.id, template_id)
     payload = _send_payload(to, distinct_id, message_data, idempotency_key)
-    return _queue(team.id, hog_flow_id, payload, run_transactional_workflow, timeout=timeout)
+    if options is None:
+        return _queue(team.id, hog_flow_id, payload, run_transactional_workflow, timeout=timeout)
+    accepted_send = _accepted_template_send(team.id, options)
+    return _queue(
+        team.id, hog_flow_id, {**payload, "send": accepted_send}, send_accepted_transactional_email, timeout=timeout
+    )
 
 
 def send_code_email(
@@ -491,6 +506,15 @@ def _accepted_send(team_id: int, email: CodeEmail) -> dict[str, Any]:
     }
     if email.reply_to:
         accepted["replyTo"] = list(email.reply_to)
+    return accepted
+
+
+def _accepted_template_send(team_id: int, options: TemplateSendOptions) -> dict[str, Any]:
+    accepted: dict[str, Any] = {"tracking": {"captureEngagement": options.capture_engagement}}
+    if options.sender:
+        accepted["from"] = _without_empty(_code_send_sender(team_id, options.sender))
+    if options.reply_to:
+        accepted["replyTo"] = list(options.reply_to)
     return accepted
 
 

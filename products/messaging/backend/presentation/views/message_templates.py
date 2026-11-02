@@ -1,5 +1,5 @@
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import fields as dataclass_fields
 from email.utils import parseaddr
@@ -49,6 +49,7 @@ from products.messaging.backend.facade.api import (
 )
 from products.messaging.backend.facade.contracts import (
     TEMPLATE_KEY_MAX_LENGTH,
+    ContentHashState,
     TemplateEditedInPostHog,
     TemplateManagedBy,
     TemplateManagedByCode,
@@ -68,6 +69,7 @@ from products.messaging.backend.facade.templates import (
     check_template_key_write,
     check_template_write,
     create_template,
+    find_template_to_send,
     get_template,
     is_adoption,
     is_release,
@@ -86,6 +88,8 @@ from products.messaging.backend.facade.transactional_email import (
     CodeEmail,
     DeliveryUnavailable,
     QueuedEmail,
+    TemplateOutdated,
+    TemplateSendOptions,
     TransactionalEmailError,
     TransactionalEmailStage,
     make_transactional,
@@ -507,11 +511,43 @@ class SendTransactionalEmailSerializer(serializers.Serializer):
 
 class SendEmailTemplateSerializer(serializers.Serializer):
     id = serializers.UUIDField(
-        help_text="ID of the email template to send. The template must be made transactional first."
+        required=False,
+        help_text="ID of the email template to send. The template must be made transactional first. Give either "
+        "`id` or `key`.",
+    )
+    key = serializers.RegexField(
+        r"^[a-zA-Z0-9_-]+$",
+        max_length=TEMPLATE_KEY_MAX_LENGTH,
+        required=False,
+        help_text="Key of the email template to send, as uploaded with `PUT "
+        "/api/projects/@current/messaging_templates/by_key/{key}/`. Give either `id` or `key`.",
+    )
+    hash = serializers.RegexField(
+        r"^v1:[0-9a-f]{64}$",
+        required=False,
+        error_messages={
+            "invalid": "Send the hash as `v1:` and 64 lowercase hex characters, as an upload's `content_hash`."
+        },
+        help_text="Content hash of the template you hold, as an upload's `content_hash`. When PostHog doesn't hold "
+        "that content as the current content or one of the last 100 contents it replaced, the send answers `409 "
+        "template_outdated` and sends nothing. Only with `key`.",
     )
 
+    def to_internal_value(self, data: Any) -> dict[str, Any]:
+        if isinstance(data, Mapping) and "key" in data:
+            refuse_unknown_fields(data, self.fields)
+        return super().to_internal_value(data)
 
-CODE_SEND_FIELDS = ("template_key", "subject", "html", "text", "from", "reply_to", "capture_engagement")
+
+def refuse_unknown_fields(sent: Iterable[str], known: Mapping[str, Any]) -> None:
+    if unknown := next((field for field in sorted(sent) if field not in known), None):
+        raise serializers.ValidationError(
+            {unknown: "PostHog doesn't take this field, so it doesn't send the email without it."}
+        )
+
+
+RENDERED_CONTENT_FIELDS = ("subject", "html", "text")
+TEMPLATE_ID_REFUSED_FIELDS = ("template_key", *RENDERED_CONTENT_FIELDS, "from", "reply_to")
 
 
 class SendEmailSerializer(SendTransactionalEmailSerializer):
@@ -550,22 +586,23 @@ class SendEmailSerializer(SendTransactionalEmailSerializer):
     )
     from_address = serializers.CharField(
         required=False,
-        help_text="Sender of the email your code rendered, as `security@example.com` or "
-        "`Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from "
-        "the project's default sender.",
+        help_text="Sender of the email, as `security@example.com` or `Example <security@example.com>`, on a verified "
+        "domain of the project. Without it, a send with `template_key` goes out from the project's default sender, "
+        "and a send by `template.key` from its template's sender. A send by `template.id` doesn't take it.",
     )
     reply_to = serializers.ListField(
         child=serializers.EmailField(),
         required=False,
         allow_empty=False,
         max_length=10,
-        help_text="Addresses replies to the email your code rendered go to.",
+        help_text="Addresses replies to the email go to. A send by `template.id` doesn't take it.",
     )
     capture_engagement = serializers.BooleanField(
         required=False,
-        help_text="Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code "
-        "rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned "
-        "engagement capture off captures nothing, whatever the send says.",
+        help_text="Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email are "
+        "captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement "
+        "capture off captures nothing, whatever the send says. A send by `template.id` takes it only in the beta "
+        "for sending email from code.",
     )
 
     def get_fields(self) -> dict[str, serializers.Field]:
@@ -584,13 +621,11 @@ class SendEmailSerializer(SendTransactionalEmailSerializer):
         if ("template" in data) == ("template_key" in data):
             raise serializers.ValidationError({"template": "Send either `template` or `template_key`."})
         if "template" in data:
-            if code_field := next((field for field in CODE_SEND_FIELDS if field in sent), None):
-                raise serializers.ValidationError({code_field: "Only a send with `template_key` takes this field."})
+            if "key" in data["template"]:
+                refuse_unknown_fields(sent, self.fields)
+            self._validate_template(data["template"], sent)
             return data
-        if unknown := next((field for field in sorted(sent) if field not in self.fields), None):
-            raise serializers.ValidationError(
-                {unknown: "PostHog doesn't take this field, so it doesn't send the email without it."}
-            )
+        refuse_unknown_fields(sent, self.fields)
         if "message_data" in sent:
             raise serializers.ValidationError(
                 {"message_data": "A send with `template_key` carries content your code rendered, not `message_data`."}
@@ -600,6 +635,25 @@ class SendEmailSerializer(SendTransactionalEmailSerializer):
         if not (data.get("html") or data.get("text")):
             raise serializers.ValidationError({"html": "A send with `template_key` needs `html`, `text` or both."})
         return data
+
+    @staticmethod
+    def _validate_template(template: Mapping[str, Any], sent: set[str]) -> None:
+        if ("id" in template) == ("key" in template) or ("hash" in template and "id" in template):
+            raise serializers.ValidationError(
+                {"template": "Name the template with either `key`, and an optional `hash`, or `id`."}
+            )
+        refused = TEMPLATE_ID_REFUSED_FIELDS if "id" in template else RENDERED_CONTENT_FIELDS
+        if field := next((field for field in refused if field in sent), None):
+            raise serializers.ValidationError({field: _refusal_on_a_template_send(field)})
+
+
+def _refusal_on_a_template_send(field: str) -> str:
+    if field in ("from", "reply_to"):
+        return (
+            "A template made in PostHog sends with its own settings. Send by `template.key` to set this field on a "
+            "template uploaded from code."
+        )
+    return "Only a send with `template_key` takes this field."
 
 
 def _is_sender_address(address: str) -> bool:
@@ -631,8 +685,35 @@ class SendTransactionalEmailResponseSerializer(serializers.Serializer):
     )
 
 
+class SendEmailWarningSerializer(serializers.Serializer):
+    code = serializers.CharField(help_text="Stable code of the warning, such as `template_superseded`.")
+    detail = serializers.CharField(help_text="What happened.")
+    fix = serializers.CharField(help_text="What you can change, if the warning isn't what you want.")
+
+
+class SendEmailResponseSerializer(SendTransactionalEmailResponseSerializer):
+    warnings = SendEmailWarningSerializer(
+        many=True, required=False, help_text="Things to know about the queued email. Left out when there are none."
+    )
+
+
+TEMPLATE_SUPERSEDED_WARNING = {
+    "code": "template_superseded",
+    "detail": "The email went out with the template's current content, because newer content replaced the content "
+    "you hold.",
+    "fix": "Deploy the newer file, or upload yours to publish it again.",
+}
+
+
+class TemplateKeyNotFound(exceptions.NotFound):
+    default_detail = "No template in this project has this key, so nothing was sent. Upload the template, then send "
+    "again."
+    default_code = "template_not_found"
+
+
 class TransactionalEmailRejected(exceptions.APIException):
     STATUS_BY_CODE = {
+        "template_outdated": 409,
         "quota_limited": 429,
         "idempotency_key_in_flight": 409,
         "idempotency_key_reused": 422,
@@ -694,14 +775,20 @@ def require_email_from_code(team: Any) -> None:
 
 
 def _require_flag(team: Any, flag: str) -> None:
-    if not posthoganalytics.feature_enabled(
-        flag,
-        str(team.uuid),
-        groups={"organization": str(team.organization_id)},
-        group_properties={"organization": {"id": str(team.organization_id)}},
-        send_feature_flag_events=False,
-    ):
+    if not _flag_enabled(team, flag):
         raise NotFound()
+
+
+def _flag_enabled(team: Any, flag: str) -> bool:
+    return bool(
+        posthoganalytics.feature_enabled(
+            flag,
+            str(team.uuid),
+            groups={"organization": str(team.organization_id)},
+            group_properties={"organization": {"id": str(team.organization_id)}},
+            send_feature_flag_events=False,
+        )
+    )
 
 
 class TemplateUploadBurstThrottle(TransactionalEmailBurstThrottle):
@@ -746,7 +833,10 @@ SEND_RESPONSES: dict[int, ResponseDeclaration] = {
         "verified, the recipient can't be used, or the Idempotency-Key is invalid"
     ),
     404: OpenApiResponse(description="Template not found"),
-    409: OpenApiResponse(description="A request with the same Idempotency-Key is still in progress"),
+    409: OpenApiResponse(
+        description="A request with the same Idempotency-Key is still in progress, or PostHog doesn't hold the "
+        "content `template.hash` describes"
+    ),
     422: OpenApiResponse(
         description="The email can't go out: the recipient is suppressed or can't receive email, sending is "
         "suspended for the project or paused for this transactional email, or the Idempotency-Key was already "
@@ -810,7 +900,9 @@ class TransactionalEmailSendMixin:
     def _require_transactional_email_flag(self) -> None:
         require_transactional_email_api(self.team)
 
-    def _queue_transactional_email(self, request: Any, template: MessageTemplateRow, *, route: str) -> Response:
+    def _queue_transactional_email(
+        self, request: Any, template: MessageTemplateRow, *, route: str, options: TemplateSendOptions | None = None
+    ) -> Response:
         with transactional_email_stage("workflow_access"):
             if template.transactional_hog_flow_id:
                 self._require_workflow_editor(template.transactional_hog_flow_id)
@@ -824,6 +916,7 @@ class TransactionalEmailSendMixin:
                 distinct_id=_distinct_id(data),
                 message_data=data["message_data"],
                 idempotency_key=idempotency_key,
+                options=options,
             ),
             route=route,
             addressed={"template_id": str(template.id)},
@@ -837,6 +930,7 @@ class TransactionalEmailSendMixin:
         route: str,
         addressed: dict[str, str],
         unavailable: type[TransactionalEmailUnavailable] = TransactionalEmailUnavailable,
+        warnings: Sequence[dict[str, str]] = (),
     ) -> Response:
         idempotency_key = request.headers.get("Idempotency-Key")
         outcome: dict[str, Any] = {
@@ -856,10 +950,8 @@ class TransactionalEmailSendMixin:
         finally:
             with transactional_email_stage("usage_event"):
                 self._report_transactional_email_send(request, {**addressed, **outcome})
-        return Response(
-            SendTransactionalEmailResponseSerializer(queued).data,
-            status=status.HTTP_202_ACCEPTED,
-        )
+        data = SendTransactionalEmailResponseSerializer(queued).data
+        return Response({**data, "warnings": list(warnings)} if warnings else data, status=status.HTTP_202_ACCEPTED)
 
     def _require_workflow_editor(self, hog_flow_id: Any) -> None:
         # The template's own access rules don't cover the workflow it sends through, which can carry its own.
@@ -960,7 +1052,8 @@ class UploadTemplateSerializer(serializers.Serializer):
         required=False,
         default=False,
         help_text="Set it on uploads a program makes on its own, such as a sync that may hold an older copy of the "
-        "file. When newer content already replaced this content, the upload changes nothing and answers `superseded`. "
+        "file, or an upload after a send answered `template_outdated`. When newer content already replaced this content, "
+        "the upload changes nothing and answers `superseded`. "
         "The check covers the last 100 different contents the template replaced. Content outside those 100 "
         "publishes. Leave it out to publish the content in any case, such as to roll back to earlier content.",
     )
@@ -994,8 +1087,9 @@ class UploadTemplateResponseSerializer(serializers.Serializer):
         "set `if_not_superseded` and newer content already replaced this content, so nothing was published.",
     )
     content_hash = serializers.CharField(
-        help_text="Hash of the published content, as `v1:` and 64 hex characters. After `superseded` it is the hash "
-        "of the newer content."
+        help_text="Hash of the published content, as `v1:` and 64 hex characters. Send it with an email as "
+        "`template.hash` to check PostHog holds the content you hold. After `superseded` it is the hash of the newer "
+        "content."
     )
     managed_by = serializers.ChoiceField(
         choices=TemplateManagedBy.choices,
@@ -1493,11 +1587,15 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
 
     @validated_request(
         SendEmailSerializer,
-        responses=SEND_RESPONSES,
+        responses={
+            **SEND_RESPONSES,
+            202: OpenApiResponse(response=SendEmailResponseSerializer, description="Email queued"),
+        },
         summary="Send a transactional email",
         description=(
-            "Send one transactional email to one recipient. Name a template made transactional in `template.id`, "
-            "and `message_data` fills its `{{ variables.* }}` placeholders. Or send content your code rendered with "
+            "Send one transactional email to one recipient. Name a template made transactional in `template.id`, or "
+            "one uploaded from code in `template.key`, and `message_data` fills its `{{ variables.* }}` placeholders. "
+            "Or send content your code rendered with "
             "a `template_key`, a `subject` and `html` or `text`: PostHog sends it as is, and its metrics and run "
             "history group under the key. Transactional emails skip opt-outs and frequency caps. Send an "
             "`Idempotency-Key` header to retry safely without sending the email twice."
@@ -1509,15 +1607,69 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
         self._end_request_validation()
         if "template_key" in request.validated_data:
             return self._send_code_email(request)
+        if "key" in request.validated_data["template"]:
+            return self._send_template_by_key(request)
         with transactional_email_stage("feature_flag"):
             self._require_transactional_email_flag()
+            self._refuse_engagement_capture_outside_the_beta(request.data)
         with transactional_email_stage("template_lookup"):
             try:
                 template = get_template(self.team_id, request.validated_data["template"]["id"])
             except MessageTemplateMissing:
                 raise NotFound()
             self.check_object_permissions(request, template)
-        return self._queue_transactional_email(request, template, route="send_email")
+        return self._queue_transactional_email(
+            request, template, route="send_email", options=_template_send_options(request.data, request.validated_data)
+        )
+
+    def _refuse_engagement_capture_outside_the_beta(self, sent: Mapping[str, Any]) -> None:
+        if "capture_engagement" in sent and not _flag_enabled(self.team, EMAIL_FROM_CODE_FLAG):
+            raise serializers.ValidationError({"capture_engagement": ENGAGEMENT_CAPTURE_OUTSIDE_THE_BETA})
+
+    def _send_template_by_key(self, request: Any) -> Response:
+        with transactional_email_stage("feature_flag"):
+            require_email_from_code(self.team)
+        data = request.validated_data
+        reference = data["template"]
+        with transactional_email_stage("template_lookup"):
+            try:
+                found = find_template_to_send(self.team_id, reference["key"], reference.get("hash"))
+            except MessageTemplateMissing:
+                if "hash" in reference:
+                    raise TransactionalEmailRejected(TemplateOutdated(TEMPLATE_OUTDATED_DETAIL)) from None
+                raise TemplateKeyNotFound() from None
+            self.check_object_permissions(request, found.template)
+        template = found.template
+        with transactional_email_stage("workflow_access"):
+            if template.transactional_hog_flow_id:
+                self._require_workflow_editor(template.transactional_hog_flow_id)
+        options = _template_send_options(request.data, data)
+
+        def send(idempotency_key: str | None) -> QueuedEmail:
+            if found.hash_state == ContentHashState.OUTDATED:
+                raise TemplateOutdated(TEMPLATE_OUTDATED_DETAIL)
+            return send_transactional_email(
+                self.team,
+                template.id,
+                to=data["to"],
+                distinct_id=_distinct_id(data),
+                message_data=data["message_data"],
+                idempotency_key=idempotency_key,
+                options=options,
+            )
+
+        return self._queue_send(
+            request,
+            send,
+            route="send_email",
+            addressed={
+                "addressed_by": "template.key",
+                "template_id": str(template.id),
+                "hash_state": str(found.hash_state),
+            },
+            unavailable=UnconfirmedEmailSend,
+            warnings=[TEMPLATE_SUPERSEDED_WARNING] if found.hash_state == ContentHashState.SUPERSEDED else [],
+        )
 
     def _send_code_email(self, request: Any) -> Response:
         with transactional_email_stage("feature_flag"):
@@ -1553,6 +1705,27 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             addressed={"addressed_by": "template_key"},
             unavailable=UnconfirmedEmailSend,
         )
+
+
+TEMPLATE_OUTDATED_DETAIL = (
+    "PostHog doesn't hold the content `template.hash` describes, so nothing was sent. Upload the template, then send "
+    "again."
+)
+TEMPLATE_SEND_OPTION_FIELDS = ("from", "reply_to", "capture_engagement")
+ENGAGEMENT_CAPTURE_OUTSIDE_THE_BETA = (
+    "A send by `template.id` takes this field only in the beta for sending email from code. Remove it to send the "
+    "email."
+)
+
+
+def _template_send_options(sent: Any, data: Mapping[str, Any]) -> TemplateSendOptions | None:
+    if not isinstance(sent, Mapping) or not any(field in sent for field in TEMPLATE_SEND_OPTION_FIELDS):
+        return None
+    return TemplateSendOptions(
+        sender=data.get("from"),
+        reply_to=tuple(data.get("reply_to", ())),
+        capture_engagement=data.get("capture_engagement", True),
+    )
 
 
 def _distinct_id(data: Mapping[str, Any]) -> str | None:
