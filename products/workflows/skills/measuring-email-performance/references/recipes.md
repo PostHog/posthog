@@ -176,7 +176,7 @@ LIMIT 500
 
 `clicks` are occurrences. Link positions number the links in the email's HTML in order, from 0. An empty `link_index` holds clicks on links the email did not number. Report them as unnumbered links.
 The recipe returns no URLs, because the counter keeps short path segments and `mailto:` links unchanged, so a URL can hold a name or an address.
-A version can add, move or change a link, so name the positions of each version from its own email content: `posthog:workflows-get` for the live version, and `posthog:workflows-get-revision` for an older one. A version from before version history began has no stored content, so report its positions by number.
+A version can add, move or change a link, so name the positions of each version from its own email content: `posthog:workflows-get` for the live version, and `posthog:workflows-get-revision` for an older one. Only a version replaced before version history began has no stored content, so report its positions by number.
 The recipe reads the versioned series, so clicks whose message carried no version are missing. Start the window on or after the engagement start date in "Versioned counters have start dates" in the skill. For one broadcast or batch run, read the run's window, and say that the read also counts clicks of other runs in that window.
 For people per link position, count distinct `person_id` on `$workflows_email_link_clicked` grouped by `$workflow_version` and `$link_index`. Clickers overlap across positions, so never add them up into a count of people who clicked.
 
