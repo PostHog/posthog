@@ -40,10 +40,8 @@ from products.messaging.backend.facade.contracts import (
     SenderUnavailable,
     SendingPaused,
     SendingSuspended,
-    TemplateManagedBy,
     TemplateNotSendable,
     TemplateNotTransactional,
-    TemplateSendOptions,
     TransactionalEmailError,
     TransactionalEmailPaused,
 )
@@ -225,7 +223,7 @@ def _template_sender(email: dict[str, Any]) -> dict[str, Any]:
     return sender if isinstance(sender, dict) else {}
 
 
-def transactional_email_content(template: MessageTemplate) -> TransactionalEmailContent:
+def _content(template: MessageTemplate) -> TransactionalEmailContent:
     email = template.content["email"]
     sender = _template_sender(email)
     return TransactionalEmailContent(
@@ -234,7 +232,7 @@ def transactional_email_content(template: MessageTemplate) -> TransactionalEmail
         subject=email["subject"],
         preheader=email.get("preheader") or "",
         html=email.get("html") or "",
-        text=_sent_text(template, email),
+        text=email.get("text") or "",
         # Templates made transactional before they stored a sender keep their workflow's sender.
         from_integration_id=sender.get("integrationId"),
         message_category_id=template.message_category_id,
@@ -243,13 +241,6 @@ def transactional_email_content(template: MessageTemplate) -> TransactionalEmail
         from_name=sender.get("name") or "",
         reply_to=email.get("replyTo") or "",
     )
-
-
-def _sent_text(template: MessageTemplate, email: dict[str, Any]) -> str:
-    text = email.get("text") or ""
-    if text or template.managed_by != TemplateManagedBy.CODE:
-        return text
-    return text_from_html(email.get("html") or "")
 
 
 def make_transactional(
@@ -280,7 +271,7 @@ def make_transactional(
                 raise TemplateNotSendable(address_error)
             template.content = {**template.content, "email": {**email, "from": sender}}
             hog_flow_id = create_transactional_email_workflow(
-                team_id=team_id, user_id=user_id, content=transactional_email_content(template)
+                team_id=team_id, user_id=user_id, content=_content(template)
             )
         except TransactionalEmailSenderUnavailable as e:
             raise SenderUnavailable(
@@ -299,20 +290,31 @@ def _workflow_exists(team_id: int, hog_flow_id: UUID) -> bool:
     return True
 
 
-def is_transactional(template: MessageTemplate) -> bool:
-    return template.transactional_hog_flow_id is not None and _workflow_exists(
-        template.team_id, template.transactional_hog_flow_id
+def lock_transactional_workflow_id(team_id: int, template_id: UUID) -> UUID | None:
+    """Lock the template row for the rest of the transaction and return its workflow id. Holding the lock
+    keeps make_transactional from linking a workflow between this read and the update that follows."""
+    return (
+        MessageTemplate.objects.select_for_update()
+        .filter(team_id=team_id, id=template_id)
+        .values_list("transactional_hog_flow_id", flat=True)
+        .get()
     )
 
 
-def check_still_sendable(template: MessageTemplate) -> None:
-    if template.deleted or not is_transactional(template):
+def check_transactional_update(template_id: UUID, team_id: int, fields: dict[str, Any]) -> None:
+    """Raise when an update would leave a transactional template unable to send. `fields` are validated
+    serializer fields, where `message_category` holds a category id."""
+    template = MessageTemplate.objects.get(team_id=team_id, id=template_id)
+    if not template.transactional_hog_flow_id or fields.get("deleted"):
+        return
+    # A link to a deleted workflow no longer restricts the template. The sync after the update clears it.
+    if not _workflow_exists(team_id, template.transactional_hog_flow_id):
         return
     check_sendable(
-        template.team_id,
-        template_type=template.type,
-        content=template.content,
-        message_category_id=template.message_category_id,
+        team_id,
+        template_type=fields.get("type", template.type),
+        content=fields.get("content", template.content),
+        message_category_id=fields.get("message_category", template.message_category_id),
     )
 
 
@@ -340,7 +342,7 @@ def sync_transactional_workflow(team_id: int, template_id: UUID, *, user_id: int
             team_id=team_id,
             user_id=user_id,
             hog_flow_id=hog_flow_id,
-            content=transactional_email_content(template),
+            content=_content(template),
         )
         # The save already told the workers to reload, but before the caller's transaction committed, so a
         # worker can cache the old version. This reload runs once the new version is visible.
@@ -378,17 +380,17 @@ def _require_active(team_id: int, hog_flow_id: UUID) -> None:
         raise TransactionalEmailPaused("The template's transactional email isn't active.")
 
 
-def _template_an_upload_claimed(team_id: int, key: str) -> MessageTemplate | None:
-    return MessageTemplate.objects.filter(team_id=team_id, key=key, deleted=False, managed_by__isnull=False).first()
-
-
 def _code_email_workflow_id(team_id: int, key: str) -> UUID:
-    template = _template_an_upload_claimed(team_id, key)
-    if template is not None:
-        return _transactional_workflow_id(team_id, template.id)
+    template_id = _template_id_for_key(team_id, key)
+    if template_id is not None:
+        return _transactional_workflow_id(team_id, template_id)
     hog_flow_id = _key_workflow_id(team_id, key)
     _require_active(team_id, hog_flow_id)
     return hog_flow_id
+
+
+def _template_id_for_key(team_id: int, key: str) -> UUID | None:
+    return MessageTemplate.objects.filter(team_id=team_id, key=key, deleted=False).values_list("id", flat=True).first()
 
 
 def known_key(team_id: int, key: str) -> TransactionalEmailKey | None:
@@ -448,7 +450,7 @@ def require_code_email_access(
     require_workflow_editor: Callable[[UUID], None],
     require_workflow_create: Callable[[], None],
 ) -> None:
-    template = _template_an_upload_claimed(team_id, key)
+    template = MessageTemplate.objects.filter(team_id=team_id, key=key, deleted=False).first()
     if template is not None:
         if template.transactional_hog_flow_id is not None:
             require_workflow_editor(template.transactional_hog_flow_id)
@@ -471,18 +473,12 @@ def send_transactional_email(
     message_data: dict[str, Any],
     idempotency_key: str | None = None,
     timeout: float = 10,
-    options: TemplateSendOptions | None = None,
 ) -> QueuedEmail:
     _check_send_request(to, idempotency_key)
     with transactional_email_stage("workflow_lookup"):
         hog_flow_id = _transactional_workflow_id(team.id, template_id)
     payload = _send_payload(to, distinct_id, message_data, idempotency_key)
-    if options is None:
-        return _queue(team.id, hog_flow_id, payload, run_transactional_workflow, timeout=timeout)
-    accepted_send = _accepted_template_send(team.id, options)
-    return _queue(
-        team.id, hog_flow_id, {**payload, "send": accepted_send}, send_accepted_transactional_email, timeout=timeout
-    )
+    return _queue(team.id, hog_flow_id, payload, run_transactional_workflow, timeout=timeout)
 
 
 def send_code_email(
@@ -536,15 +532,6 @@ def _accepted_send(team_id: int, email: CodeEmail) -> dict[str, Any]:
     }
     if email.reply_to:
         accepted["replyTo"] = list(email.reply_to)
-    return accepted
-
-
-def _accepted_template_send(team_id: int, options: TemplateSendOptions) -> dict[str, Any]:
-    accepted: dict[str, Any] = {"tracking": {"captureEngagement": options.capture_engagement}}
-    if options.sender:
-        accepted["from"] = _without_empty(_code_send_sender(team_id, options.sender))
-    if options.reply_to:
-        accepted["replyTo"] = list(options.reply_to)
     return accepted
 
 

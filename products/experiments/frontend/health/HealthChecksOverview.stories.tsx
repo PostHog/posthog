@@ -142,6 +142,30 @@ export const RunningWithSignificanceOnASmallSample: Story = {
     },
 }
 
+export const RunningWithMetricWindowsNotComplete: Story = {
+    args: {
+        checks: [
+            ...FLAG_SETUP_CHECKS,
+            passed('no_metric', 'Metrics not set up'),
+            found('metrics_not_matured', 'Metric windows not complete yet'),
+        ],
+        findings: [
+            {
+                code: 'metrics_not_matured',
+                subcode: null,
+                reason: null,
+                severity: 'info',
+                title: "No results yet because the metric windows aren't complete",
+                detail: 'The Exposures panel counts users without waiting for these windows. A metric counts a user only after its conversion or retention window has passed, so no primary metric has results yet. The first users can count for "Checkout" on October 5, 2026 at 2:00 PM CEST and for "Return visits" on October 15, 2026 at 2:00 PM CEST. To see results sooner, turn off "Require completed conversion or retention window" in the experiment\'s Settings tab. Users whose window is still open then count too.',
+                evidence: { hours_since_launch: 72, first_users_count_at: '2026-10-05T12:00:00+00:00' },
+                actions: [],
+            },
+        ],
+        isDraft: false,
+        exposureChecksMissing: false,
+    },
+}
+
 export const ChecksThatCouldNotRun: Story = {
     args: {
         checks: [

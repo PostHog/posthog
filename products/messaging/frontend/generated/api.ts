@@ -32,19 +32,16 @@ import type {
     PaginatedOptOutsApi,
     PatchedDesignPatchApi,
     PatchedMessageCategoryApi,
-    PatchedMessageTemplateUpdateApi,
+    PatchedMessageTemplateApi,
     PatchedSupabaseAuthEmailSettingsUpdateApi,
     PreferencesLinkApi,
     ProviderImportRunApi,
     RemoveOptOutRequestApi,
     SendEmailApi,
-    SendEmailResponseApi,
     SendTransactionalEmailApi,
     SendTransactionalEmailResponseApi,
     StartProviderImportApi,
     SupabaseAuthEmailSettingsApi,
-    UploadTemplateApi,
-    UploadTemplateResponseApi,
     WebhookUrlApi,
 } from './api.schemas'
 
@@ -89,15 +86,15 @@ export const getMessagingSendEmailCreateUrl = (projectId: string) => {
 }
 
 /**
- * Send one transactional email to one recipient. Name a template made transactional in `template.id`, or one uploaded from code in `template.key`, and `message_data` fills its `{{ variables.* }}` placeholders. Or send content your code rendered with a `template_key`, a `subject` and `html` or `text`: PostHog sends it as is, and its metrics and run history group under the key. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice.
+ * Send one transactional email to one recipient. Name a template made transactional in `template_id`, and `message_data` fills its `{{ variables.* }}` placeholders. Or send content your code rendered with a `template_key`, a `subject` and `html` or `text`: PostHog sends it as is, and its metrics and run history group under the key. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice.
  * @summary Send a transactional email
  */
 export const messagingSendEmailCreate = async (
     projectId: string,
     sendEmailApi: SendEmailApi,
     options?: RequestInit
-): Promise<SendEmailResponseApi> => {
-    return apiMutator<SendEmailResponseApi>(getMessagingSendEmailCreateUrl(projectId), {
+): Promise<SendTransactionalEmailResponseApi> => {
+    return apiMutator<SendTransactionalEmailResponseApi>(getMessagingSendEmailCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -890,14 +887,14 @@ export const getMessagingTemplatesPartialUpdateUrl = (projectId: string, id: str
 export const messagingTemplatesPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedMessageTemplateUpdateApi?: NonReadonly<PatchedMessageTemplateUpdateApi>,
+    patchedMessageTemplateApi?: NonReadonly<PatchedMessageTemplateApi>,
     options?: RequestInit
 ): Promise<MessageTemplateApi> => {
     return apiMutator<MessageTemplateApi>(getMessagingTemplatesPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedMessageTemplateUpdateApi),
+        body: JSON.stringify(patchedMessageTemplateApi),
     })
 }
 
@@ -978,27 +975,5 @@ export const messagingTemplatesSendCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sendTransactionalEmailApi),
-    })
-}
-
-export const getMessagingTemplatesByKeyUpdateUrl = (projectId: string, key: string) => {
-    return `/api/projects/${projectId}/messaging_templates/by_key/${key}/`
-}
-
-/**
- * Create or update the email template with this key from HTML, for templates kept as files in a repository. The first upload creates the template and makes it transactional with the project's default verified sender. A later upload publishes changed content at once, and answers `unchanged` when the content is the same. With `if_not_superseded`, an upload of content that is one of the last 100 different contents the template replaced changes nothing and answers `superseded`. With `if_code_managed`, an upload to a template edited in PostHog changes nothing and answers `409`. An upload keeps the template's sender and never turns a paused template back on.
- * @summary Upload a template by key
- */
-export const messagingTemplatesByKeyUpdate = async (
-    projectId: string,
-    key: string,
-    uploadTemplateApi: UploadTemplateApi,
-    options?: RequestInit
-): Promise<UploadTemplateResponseApi> => {
-    return apiMutator<UploadTemplateResponseApi>(getMessagingTemplatesByKeyUpdateUrl(projectId, key), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(uploadTemplateApi),
     })
 }

@@ -1,5 +1,6 @@
 import json
 import uuid
+import hashlib
 import dataclasses
 from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime, timedelta
@@ -60,6 +61,10 @@ from products.signals.backend.briefing_reports import (
 )
 from products.signals.backend.contracts import DIRECT_STEERABLE_SOURCES, SIGNAL_VARIANT_LOOKUP, SignalRemediation
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
+from products.signals.backend.facade.source_scouts import (
+    SOURCE_TEMPLATE_HASH_METADATA_KEY,
+    SOURCE_TEMPLATE_METADATA_KEY,
+)
 from products.signals.backend.inbox_summary import (
     INBOX_SUMMARY_PERIOD as INBOX_SUMMARY_PERIOD,
     generated_pull_requests,
@@ -1483,6 +1488,103 @@ def scouts_for_source(
             "id", "skill_name", "enabled", "created_at"
         )
     ]
+
+
+def source_scout_body_hash(body: str) -> str:
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
+@frozen
+class SourceScoutSkill:
+    """A source-owned scout's live skill text, for the source product to keep in step with its templates."""
+
+    team_id: int
+    skill_name: str
+    source_id: str
+    body: str
+    version: int
+    # What the source product recorded with `set_source_scout_template`, or None for a scout it never claimed.
+    template: str | None
+    template_hash: str | None
+
+
+def source_scout_skill(team_id: int, skill_name: str) -> SourceScoutSkill | None:
+    """A source-owned scout's latest live skill text, or None when the scout or its skill is gone."""
+    from products.skills.backend.models.skills import (
+        LLMSkill,  # noqa: PLC0415 — keeps the skills models off the facade's import path
+    )
+
+    source_id = (
+        SignalScoutConfig.objects.for_team(team_id)
+        .filter(skill_name=skill_name)
+        .values_list("source_id", flat=True)
+        .first()
+    )
+    skill = (
+        LLMSkill.objects.filter(team_id=team_id, name=skill_name, is_latest=True, deleted=False)
+        .only("team_id", "name", "body", "version", "metadata")
+        .first()
+    )
+    if not source_id or skill is None:
+        return None
+    return SourceScoutSkill(
+        team_id=team_id,
+        skill_name=skill_name,
+        source_id=source_id,
+        body=skill.body,
+        version=skill.version,
+        template=(skill.metadata or {}).get(SOURCE_TEMPLATE_METADATA_KEY),
+        template_hash=(skill.metadata or {}).get(SOURCE_TEMPLATE_HASH_METADATA_KEY),
+    )
+
+
+def set_source_scout_template(*, team_id: int, skill_name: str, version: int, template: str) -> bool:
+    """Record that a scout's text at `version` is `template`'s, without a new version. False when it moved on."""
+    from products.skills.backend.models.skills import (
+        LLMSkill,  # noqa: PLC0415 — keeps the skills models off the facade's import path
+    )
+
+    with transaction.atomic():
+        skill = (
+            LLMSkill.objects.select_for_update()
+            .filter(team_id=team_id, name=skill_name, version=version, is_latest=True, deleted=False)
+            .first()
+        )
+        if skill is None:
+            return False
+        skill.metadata = {
+            **(skill.metadata or {}),
+            SOURCE_TEMPLATE_METADATA_KEY: template,
+            SOURCE_TEMPLATE_HASH_METADATA_KEY: source_scout_body_hash(skill.body),
+        }
+        skill.save(update_fields=["metadata", "updated_at"])
+    return True
+
+
+def publish_source_scout_body(*, team_id: int, skill_name: str, base_version: int, body: str, template: str) -> bool:
+    """Publish new template text as the scout's next skill version, unless someone published since `base_version`."""
+    from products.skills.backend.api.skill_services import (  # noqa: PLC0415 — keeps the API surface off the import path
+        LLMSkillNotFoundError,
+        LLMSkillVersionConflictError,
+        publish_skill_version,
+    )
+
+    try:
+        publish_skill_version(
+            Team.objects.get(pk=team_id),
+            user=None,
+            skill_name=skill_name,
+            body=body,
+            base_version=base_version,
+            version_description="Updated to the latest template",
+            system_metadata={
+                SOURCE_TEMPLATE_METADATA_KEY: template,
+                SOURCE_TEMPLATE_HASH_METADATA_KEY: source_scout_body_hash(body),
+            },
+        )
+    except (LLMSkillNotFoundError, LLMSkillVersionConflictError):
+        return False
+    return True
 
 
 def latest_structured_output_for_source(

@@ -14,7 +14,7 @@
 
 <!-- If there are frontend changes, please include screenshots. For a new interaction that one screenshot cannot show, a short GIF or animated WebP of the flow can replace the after screenshot. -->
 <!-- For frontend or user-facing changes under products/mobile/, before-and-after screenshots from physical iOS AND Android devices are required. Prefer multiple screen sizes. See products/mobile/AGENTS.md for capture and device coverage requirements. -->
-<!-- PostHog employees: `hogli pr:upload-image <file>` uploads to the public PostHog/pr-assets repo and prints markdown to paste here. Never upload customer data, secrets, or internal info. -->
+<!-- PostHog employees: `hogli pr:upload-image <file>` attaches a screenshot to this description once the PR exists, or prints markdown to paste here. Never upload customer data, secrets, or internal info. -->
 
 <!-- If a reference design was involved, include a link to the relevant Figma frame! -->
 
