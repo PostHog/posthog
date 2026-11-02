@@ -195,6 +195,44 @@ class EmailStatus:
     reason: str | None = None
 
 
+TEMPLATE_KEY_PATTERN = r"^[a-zA-Z0-9_-]+$"
+TEMPLATE_KEY_MAX_LENGTH = 400
+
+
 class TemplateManagedBy(LabeledStrEnum):
     GUI = "gui", "GUI"
     CODE = "code", "Code"
+
+
+class TemplateUploadResult(LabeledStrEnum):
+    CREATED = "created", "Created"
+    UPDATED = "updated", "Updated"
+    UNCHANGED = "unchanged", "Unchanged"
+    SUPERSEDED = "superseded", "Superseded"
+
+
+class ContentHashState(LabeledStrEnum):
+    NONE = "none", "None"
+    CURRENT = "current", "Current"
+    SUPERSEDED = "superseded", "Superseded"
+    OUTDATED = "outdated", "Outdated"
+
+
+@frozen
+class TemplateSource:
+    repository: str | None
+    path: str | None
+    ref: str | None
+
+
+@frozen
+class TemplateUpload:
+    key: str
+    name: str
+    subject: str
+    html: str
+    text: str
+    preheader: str
+    design: dict[str, Any]
+    source: TemplateSource | None
+    if_not_superseded: bool

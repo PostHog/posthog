@@ -1,0 +1,79 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "html": {
+            "description": "Email body as HTML, stored as sent. Supports Liquid, such as `{{ variables.first_name }}`.",
+            "type": "string"
+        },
+        "if_not_superseded": {
+            "default": false,
+            "description": "Set it on uploads a program makes on its own, such as a sync that may hold an older copy of the file. When newer content already replaced this content, the upload changes nothing and answers `superseded`. The check covers the last 100 different contents the template replaced. Content outside those 100 publishes. Leave it out to publish the content in any case, such as to roll back to earlier content.",
+            "type": "boolean"
+        },
+        "key": {
+            "description": "Key of the template, chosen by you. Letters, digits, hyphens (-) and underscores (_), at most 400 characters. The same key names the template in every project.",
+            "type": "string"
+        },
+        "name": {
+            "description": "Template name shown in the template library.",
+            "maxLength": 400,
+            "type": "string"
+        },
+        "preheader": {
+            "description": "Inbox preview text shown after the subject. Leaving it out removes the stored one.",
+            "type": "string"
+        },
+        "source": {
+            "description": "Where the template file lives, so people in PostHog can find it. Leaving it out, or a part of it, keeps what is stored.",
+            "properties": {
+                "path": {
+                    "anyOf": [
+                        {
+                            "maxLength": 400,
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Path of the template file in the repository, such as `emails/welcome.html`."
+                },
+                "ref": {
+                    "anyOf": [
+                        {
+                            "maxLength": 400,
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Commit or branch the file was uploaded from."
+                },
+                "repository": {
+                    "anyOf": [
+                        {
+                            "maxLength": 400,
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Host and path of the repository the file is in, such as `github.com/example/app`."
+                }
+            },
+            "type": "object"
+        },
+        "subject": {
+            "description": "Email subject line. Supports Liquid, such as `{{ variables.first_name }}`.",
+            "type": "string"
+        },
+        "text": {
+            "description": "Plain-text body for email clients that can't show HTML. Leaving it out removes the stored one.",
+            "type": "string"
+        }
+    },
+    "required": ["key", "name", "subject", "html"],
+    "type": "object"
+}

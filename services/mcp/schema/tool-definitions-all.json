@@ -18207,6 +18207,22 @@
             "readOnlyHint": false
         }
     },
+    "workflows-upload-email-template": {
+        "description": "Upload an email template kept as an HTML file in a repository, by a key you choose (such as welcome or password-reset). Use this for templates that live in code; use workflows-create-email-template for templates designed in PostHog. Send name, subject, html, and optionally text, preheader and source (repository, path, ref of the file). Use {{ variables.* }} for every value the email needs; templates can't read person properties. The first upload creates the template and makes it sendable over the transactional email API with the project's default verified sender, so verify a sender first. Later uploads publish changed content at once and answer unchanged when nothing changed. Uploading replaces edits made in PostHog. Set if_not_superseded when an older copy of the file must not replace newer content: an answer of superseded means newer content is already published and nothing changed. The check covers the last 100 different contents the template replaced; content outside those 100 publishes. Leave it out to publish this content even when newer content replaced it, such as to roll back. A 404 with code not_found means sending email from code is not enabled for this project, or the project does not exist: stop and tell the user.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Upload email template by key",
+        "title": "Upload email template by key",
+        "required_scopes": ["hog_flow:write"],
+        "api_operations": ["PUT /api/projects/{project_id}/messaging_templates/by_key/{key}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "workflows-email-from-code"
+    },
     "workflows-version-stats": {
         "description": "Execution stats for a single published version of a workflow, in the same shape as workflows-stats. That is how you tell whether a change helped: compare the version before it with the version after it. The unversioned read in workflows-stats keys batch and broadcast runs on the run rather than the workflow, so it is not the sum of the versions - compare versions with each other, not with it. Set instance_id to the step you are reading, or several steps share one denominator.",
         "category": "Workflows",
