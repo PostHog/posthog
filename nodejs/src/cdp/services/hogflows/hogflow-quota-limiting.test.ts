@@ -273,7 +273,7 @@ describe('HogFlow Quota Limiting', () => {
             [
                 'an email send on the email quota',
                 'workflow_emails',
-                'function_email',
+                ['function_email'],
                 [
                     [
                         teamId,
@@ -282,8 +282,20 @@ describe('HogFlow Quota Limiting', () => {
                     ],
                 ],
             ],
-            ['a webhook on the destination quota', 'workflow_destinations_dispatched', 'function', []],
-        ] as const)('should block %s and emit metrics', async (_name, limitedResource, billableActionType, reports) => {
+            ['a webhook on the destination quota', 'workflow_destinations_dispatched', ['function'], []],
+            [
+                'an email send next to a webhook on the destination quota',
+                'workflow_destinations_dispatched',
+                ['function_email', 'function'],
+                [
+                    [
+                        teamId,
+                        'workflows send blocked',
+                        { reason: 'quota_limited', channel: 'email', workflow_id: 'test-flow-id' },
+                    ],
+                ],
+            ],
+        ] as const)('should block %s and emit metrics', async (_name, limitedResource, actionTypes, reports) => {
             mockQuotaLimiting.isTeamQuotaLimited.mockImplementation((_teamId, resource) => {
                 return Promise.resolve(resource === limitedResource)
             })
@@ -292,7 +304,7 @@ describe('HogFlow Quota Limiting', () => {
                 ...baseItem,
                 hogFlow: {
                     ...baseItem.hogFlow,
-                    billable_action_types: [billableActionType],
+                    billable_action_types: [...actionTypes],
                 },
             }
 
@@ -318,7 +330,7 @@ describe('HogFlow Quota Limiting', () => {
             expect(mockWorkflowsActivationReporter.report.mock.calls).toEqual(reports)
         })
 
-        it('should not report a blocked email send when only a webhook next to transactional emails is limited', async () => {
+        it('should report a blocked email send when the destination quota stops transactional emails next to a webhook', async () => {
             mockQuotaLimiting.isTeamQuotaLimited.mockResolvedValue(true)
 
             const item: CyclotronJobInvocationHogFlow = {
@@ -340,7 +352,11 @@ describe('HogFlow Quota Limiting', () => {
             })
 
             expect(result).toBe(true)
-            expect(mockWorkflowsActivationReporter.report).not.toHaveBeenCalled()
+            expect(mockWorkflowsActivationReporter.report).toHaveBeenCalledWith(teamId, 'workflows send blocked', {
+                reason: 'quota_limited',
+                channel: 'email',
+                workflow_id: 'test-flow-id',
+            })
         })
 
         it('should handle workflow with no billable actions', async () => {
