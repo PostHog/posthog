@@ -29,8 +29,6 @@ BULK_SET_REFUSED = (
     "event definition. Use `add` or `remove`."
 )
 
-_UPDATE_ACTIONS = frozenset({"update", "partial_update"})
-
 
 def refuse_scout_taxonomy_write(is_scout_caller: bool) -> None:
     """Refuse a scout's write to a view that shares the `event_definition` scope but has no tags.
@@ -46,13 +44,15 @@ def refuse_scout_taxonomy_write(is_scout_caller: bool) -> None:
 def check_scout_event_definition_write(is_scout_caller: bool, *, action: str | None, data: Any) -> None:
     """Refuse a scout's event definition write unless it changes tags and nothing else.
 
-    An update may carry `tags` alone. The field replaces the whole list, so the scout has to read
-    the current tags and send them back with its change. A bulk change may add or remove tags but
-    not set them, because one `set` call replaces the tags on every listed definition.
+    A partial update may carry `tags` alone. The field replaces the whole list, so the scout has to
+    read the current tags and send them back with its change. A full update is refused, because DRF
+    fills a field a form leaves out with its empty value, which would unverify the definition. A
+    bulk change may add or remove tags but not set them, because one `set` call replaces the tags
+    on every listed definition.
     """
     if not is_scout_caller:
         return
-    if action in _UPDATE_ACTIONS and isinstance(data, Mapping) and set(data) <= {"tags"}:
+    if action == "partial_update" and isinstance(data, Mapping) and set(data) <= {"tags"}:
         return
     if action == "bulk_update_tags" and isinstance(data, Mapping):
         if data.get("action") == BulkUpdateTagsAction.SET:

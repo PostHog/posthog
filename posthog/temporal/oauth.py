@@ -270,8 +270,8 @@ CONTEXT_LAYER_INTERNAL_SCOPE = "context_layer_internal:write"
 #                          hiding, and deleting a definition, its owner and schema enforcement, and
 #                          the property groups and media previews attached to it. Delete is
 #                          PERMANENT and a schema can make ingestion reject events, so
-#                          `posthog/taxonomy/scout_writes.py` refuses all of that for scouts. An
-#                          update may carry `tags` alone, and it replaces the whole list, so a scout
+#                          `posthog/taxonomy/scout_writes.py` refuses all of that for scouts. A
+#                          PATCH may carry `tags` alone, and it replaces the whole list, so a scout
 #                          reads the current tags first. A bulk tag change may add or remove, but
 #                          not set. Every change is in the definition's activity history.
 #

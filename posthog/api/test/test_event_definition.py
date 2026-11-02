@@ -1024,6 +1024,7 @@ class TestScoutEventDefinitionWrites(APIBaseTest):
     @parameterized.expand(
         [
             ("tags", True, "patch", "detail", {"tags": ["governance:no-description"]}, status.HTTP_200_OK),
+            ("tags_put", True, "put", "detail", {"tags": ["governance:no-description"]}, status.HTTP_403_FORBIDDEN),
             ("description", True, "patch", "detail", {"description": "A purchase"}, status.HTTP_403_FORBIDDEN),
             ("tags_and_verified", True, "patch", "detail", {"tags": [], "verified": True}, status.HTTP_403_FORBIDDEN),
             ("hidden", True, "patch", "detail", {"hidden": True}, status.HTTP_403_FORBIDDEN),
