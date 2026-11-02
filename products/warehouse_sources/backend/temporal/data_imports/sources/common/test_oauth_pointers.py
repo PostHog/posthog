@@ -1,3 +1,4 @@
+import copy
 from typing import Any, cast
 
 from django.test import SimpleTestCase
@@ -16,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.oau
     OAuthPointerShapeError,
     declared_oauth_pointer_paths,
     find_in_use_oauth_pointer,
+    with_pointer_at,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -204,3 +206,73 @@ class TestInUseOAuthPointer(SimpleTestCase):
 
     def test_switch_group_paths(self) -> None:
         assert declared_oauth_pointer_paths(_SWITCH_GROUP_FIELDS) == {("use_app", "app_integration_id")}
+
+
+class TestInUseOAuthSlot(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("top_level_without_value", T.HUBSPOT, {}, ("hubspot_integration_id",)),
+            (
+                "nested_selected_without_value",
+                T.GITHUB,
+                {"auth_method": {"selection": "oauth"}},
+                ("auth_method", "github_integration_id"),
+            ),
+            (
+                "nested_typed_in_selected",
+                T.GITHUB,
+                {"auth_method": {"selection": "pat", "personal_access_token": "fake"}},
+                None,
+            ),
+            (
+                "bigquery_service_account",
+                T.BIGQUERY,
+                {"auth_type": {"selection": "service_account"}},
+                ("auth_type", "google_cloud_service_account_integration_id"),
+            ),
+            ("slack_without_token", T.SLACK, {}, ("slack_integration_id",)),
+            ("slack_with_token", T.SLACK, {"slack_access_token": "fake-token"}, None),
+            ("typed_in_only", T.POSTGRES, {"host": "db.example.com"}, None),
+        ]
+    )
+    def test_finds_where_the_in_use_pointer_goes(
+        self, _name: str, source_type: ExternalDataSourceType, inputs: dict[str, Any], expected: tuple[str, ...] | None
+    ) -> None:
+        assert SourceRegistry.get_source(source_type).in_use_oauth_slot(inputs) == expected
+
+    @parameterized.expand(
+        [
+            ("top_level_set", {"a": 1}, ("hubspot_integration_id",), 7, {"a": 1, "hubspot_integration_id": 7}),
+            ("top_level_removed", {"a": 1, "hubspot_integration_id": "7"}, ("hubspot_integration_id",), None, {"a": 1}),
+            (
+                "nested_set",
+                {"auth_method": {"selection": "oauth"}},
+                ("auth_method", "github_integration_id"),
+                7,
+                {"auth_method": {"selection": "oauth", "github_integration_id": 7}},
+            ),
+            (
+                "nested_removed",
+                {"auth_method": {"selection": "oauth", "github_integration_id": "7"}},
+                ("auth_method", "github_integration_id"),
+                None,
+                {"auth_method": {"selection": "oauth"}},
+            ),
+        ]
+    )
+    def test_with_pointer_at_copies_the_inputs(
+        self,
+        _name: str,
+        inputs: dict[str, Any],
+        path: tuple[str, ...],
+        integration_id: int | None,
+        expected: dict[str, Any],
+    ) -> None:
+        before = copy.deepcopy(inputs)
+
+        assert with_pointer_at(inputs, path, integration_id) == expected
+        assert inputs == before
+
+    def test_with_pointer_at_refuses_a_group_that_is_not_a_mapping(self) -> None:
+        with self.assertRaises(OAuthPointerShapeError):
+            with_pointer_at({"auth_method": "oauth"}, ("auth_method", "github_integration_id"), 7)

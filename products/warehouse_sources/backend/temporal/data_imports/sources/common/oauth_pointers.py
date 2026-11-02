@@ -47,6 +47,18 @@ def declared_oauth_pointer_paths(fields: Iterable[SourceFieldConfig]) -> frozens
     return frozenset(path for path, _field in _oauth_fields(fields, ()))
 
 
+def find_in_use_oauth_slot(fields: Sequence[SourceFieldConfig], job_inputs: Mapping[str, Any]) -> PointerPath | None:
+    """The path of the OAuth field under the selected options of ``job_inputs``, with or without a value.
+    None when the selected options hold no OAuth field.
+
+    Raises `OAuthPointerShapeError` when the inputs cannot tell which OAuth field is in use.
+    """
+    slots = list(_in_use_slots(fields, job_inputs, (), job_inputs))
+    if len(slots) > 1:
+        raise OAuthPointerShapeError("The selected options hold more than one OAuth field")
+    return slots[0] if slots else None
+
+
 def find_in_use_oauth_pointer(
     fields: Sequence[SourceFieldConfig], job_inputs: Mapping[str, Any]
 ) -> OAuthPointer | None:
@@ -54,10 +66,36 @@ def find_in_use_oauth_pointer(
 
     Raises `OAuthPointerShapeError` when the inputs cannot tell which pointer is in use.
     """
-    found = list(_in_use(fields, job_inputs, (), job_inputs))
-    if len(found) > 1:
-        raise OAuthPointerShapeError("The inputs hold more than one OAuth pointer in use")
-    return found[0] if found else None
+    return pointer_at(job_inputs, find_in_use_oauth_slot(fields, job_inputs))
+
+
+def pointer_at(job_inputs: Mapping[str, Any], path: PointerPath | None) -> OAuthPointer | None:
+    """The pointer that ``job_inputs`` hold at ``path``, or None when the path holds no value."""
+    if path is None:
+        return None
+    value: Any = job_inputs
+    for key in path:
+        value = value.get(key) if isinstance(value, Mapping) else None
+    integration_id = parse_integration_id(value)
+    return None if integration_id is None else OAuthPointer(path=path, integration_id=integration_id)
+
+
+def with_pointer_at(job_inputs: Mapping[str, Any], path: PointerPath, integration_id: int | None) -> dict[str, Any]:
+    """A copy of ``job_inputs`` with ``integration_id`` at ``path``, or without the key when it is None.
+
+    The groups on the path must exist as mappings: the walk found the path in these inputs.
+    """
+    result = dict(job_inputs)
+    if len(path) > 1:
+        group = result.get(path[0])
+        if not isinstance(group, Mapping):
+            raise OAuthPointerShapeError(f"Field {path[0]!r} is not stored as a mapping")
+        result[path[0]] = with_pointer_at(group, path[1:], integration_id)
+    elif integration_id is None:
+        result.pop(path[0], None)
+    else:
+        result[path[0]] = integration_id
+    return result
 
 
 def parse_integration_id(value: Any) -> int | None:
@@ -91,17 +129,15 @@ def _oauth_fields(
                 yield from _oauth_fields(option.fields or [], (*prefix, field.name))
 
 
-def _in_use(
+def _in_use_slots(
     fields: Iterable[SourceFieldConfig],
     values: Mapping[str, Any],
     prefix: PointerPath,
     top_level: Mapping[str, Any],
-) -> Iterator[OAuthPointer]:
+) -> Iterator[PointerPath]:
     for field in fields:
         if isinstance(field, SourceFieldOauthConfig):
-            integration_id = parse_integration_id(values.get(field.name))
-            if integration_id is not None:
-                yield OAuthPointer(path=(*prefix, field.name), integration_id=integration_id)
+            yield (*prefix, field.name)
         elif isinstance(field, SourceFieldSelectConfig | SourceFieldSwitchGroupConfig):
             nested_names = {path[-1] for path, _ in _oauth_fields([field], ())}
             if not nested_names:
@@ -114,7 +150,7 @@ def _in_use(
                 continue
             if not isinstance(value, Mapping):
                 raise OAuthPointerShapeError(f"Field {field.name!r} is not stored as a mapping")
-            yield from _in_use(_selected_fields(field, value), value, (*prefix, field.name), top_level)
+            yield from _in_use_slots(_selected_fields(field, value), value, (*prefix, field.name), top_level)
 
 
 def _selected_fields(

@@ -477,10 +477,11 @@ A source's typed-in connection fields go to one `Integration` row of the source'
 
 A source's OAuth field (`SourceFieldOauthConfig`, a `*_integration_id` input) can sit at the top level or inside an option of a select or a switch group (GitHub `auth_method.github_integration_id`, BigQuery `auth_type.google_cloud_service_account_integration_id`).
 
-- `source.in_use_oauth_pointer(job_inputs)` gives the pointer that the sync uses, as an `OAuthPointer` (path and integration id), or None. A pointer under an option that is not selected, or under a switch group that is off, is stale and never in use. The values parse as `str_to_optional_int` does, so an int and a string of digits are equal.
+- `source.in_use_oauth_slot(job_inputs)` gives the path of the OAuth field that the sync uses, with or without a value, or None. An OAuth field under an option that is not selected, or under a switch group that is off, is never in use, and a pointer there is stale.
+- `source.in_use_oauth_pointer(job_inputs)` gives the pointer at that path, as an `OAuthPointer` (path and integration id), or None. The values parse as `str_to_optional_int` does, so an int and a string of digits are equal.
 - `source.oauth_pointer_paths` gives every path that can hold a pointer, also the stale ones.
 - The default walks the form (`sources/common/oauth_pointers.py`). It reads only the shape that `serialize_config` writes: a select as a mapping with `selection`, a switch group as a mapping with `enabled`. Any other shape (a flat legacy key, a select stored as a string) raises `OAuthPointerShapeError`. Callers then leave the source alone. They never guess.
-- Override both on your source class only for a pointer that no form field declares. Slack does this for its legacy `slack_integration_id`, which a pasted `slack_access_token` overrides.
+- Override `in_use_oauth_slot` and `oauth_pointer_paths` on your source class only for a pointer that no form field declares. Slack does this for its legacy `slack_integration_id`, which a pasted `slack_access_token` overrides.
 
 ## Implementing `source_for_pipeline`
 
