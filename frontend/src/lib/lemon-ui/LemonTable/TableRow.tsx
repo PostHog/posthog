@@ -30,6 +30,14 @@ export interface TableRowProps<T extends Record<string, any>> {
     onCellContextMenu?: (event: React.MouseEvent<HTMLTableCellElement>) => void
 }
 
+function stringifyRawCellValue(value: unknown): string {
+    try {
+        return JSON.stringify(value) ?? '[Unserializable value]'
+    } catch {
+        return '[Unserializable value]'
+    }
+}
+
 function TableRowRaw<T extends Record<string, any>>({
     record,
     recordIndex,
@@ -125,7 +133,7 @@ function TableRowRaw<T extends Record<string, any>>({
                             const rawContents = column.render
                                 ? column.render(value as T[keyof T], record, recordIndex, rowCount)
                                 : isTableCellRepresentation(value)
-                                  ? JSON.stringify(value)
+                                  ? stringifyRawCellValue(value)
                                   : value
 
                             // Wrap with cell actions if defined

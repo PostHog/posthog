@@ -50,6 +50,38 @@ describe('LemonTable', () => {
         expect(cell.querySelector('b')).toBeNull()
     })
 
+    it.each([
+        [
+            'circular reference',
+            () => {
+                const value: { self?: unknown } = {}
+                value.self = value
+                return value
+            },
+        ],
+        ['nested bigint', () => ({ nested: { count: 1n } })],
+        [
+            'throwing toJSON',
+            () => ({
+                toJSON: () => {
+                    throw new Error('serialization failed')
+                },
+            }),
+        ],
+    ])('renders %s as safe text and continues to the next row', (_, createValue) => {
+        const { container } = render(
+            <LemonTable
+                dataSource={[{ value: createValue() }, { value: { status: 'next row' } }]}
+                columns={[{ title: 'Value', dataIndex: 'value' }]}
+            />
+        )
+
+        expect(Array.from(container.querySelectorAll('tbody td'), (cell) => cell.textContent)).toEqual([
+            '[Unserializable value]',
+            '{"status":"next row"}',
+        ])
+    })
+
     it('keeps React elements from raw cell values', () => {
         render(
             <LemonTable
