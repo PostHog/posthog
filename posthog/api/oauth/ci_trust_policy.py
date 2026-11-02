@@ -163,7 +163,7 @@ class CITrustPolicySerializer(CIConditionsSerializerMixin, serializers.ModelSeri
     enabled = serializers.BooleanField(
         required=False, help_text="Whether the policy can mint tokens. Disabling it cuts off its tokens."
     )
-    created_by = UserBasicSerializer(read_only=True)
+    created_by = UserBasicSerializer(read_only=True, allow_null=True)
 
     class Meta:
         model = CITrustPolicy
@@ -245,7 +245,10 @@ class CIProvidersResponseSerializer(serializers.Serializer):
 def notify_admins_of_policy_change(
     team_id: int, policy_id: str, name: str, change: CITrustPolicyChange, actor_user_id: int | None
 ) -> None:
-    transaction.on_commit(lambda: send_ci_trust_policy_changed.delay(team_id, policy_id, name, change, actor_user_id))
+    # The change already happened, so a broker outage must not turn it into an error response.
+    transaction.on_commit(
+        lambda: send_ci_trust_policy_changed.delay(team_id, policy_id, name, change, actor_user_id), robust=True
+    )
 
 
 class DenyCIAccessToken(BasePermission):
@@ -365,8 +368,8 @@ class CITrustPolicyRequestSerializer(CIConditionsSerializerMixin, serializers.Mo
     approvers = serializers.SerializerMethodField(
         help_text="Names of the organization admins and owners who can approve, when the current user cannot."
     )
-    requested_by = UserBasicSerializer(read_only=True)
-    resolved_by = UserBasicSerializer(read_only=True)
+    requested_by = UserBasicSerializer(read_only=True, allow_null=True)
+    resolved_by = UserBasicSerializer(read_only=True, allow_null=True)
     policy_id = serializers.UUIDField(read_only=True, allow_null=True, help_text="The policy created on approval.")
 
     class Meta:

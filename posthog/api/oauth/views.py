@@ -2223,6 +2223,7 @@ class OAuthTokenView(TokenView):
                 **(get_region_info() or {}),
             },
         )
+        # RFC 6749 section 5.1: a response that carries a token must not be cached.
         return JsonResponse(
             {
                 "access_token": issued.access_token,
@@ -2230,7 +2231,8 @@ class OAuthTokenView(TokenView):
                 "token_type": "Bearer",
                 "expires_in": issued.expires_in_seconds,
                 "scope": " ".join(issued.scopes),
-            }
+            },
+            headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
         )
 
     def post(self, request, *args, **kwargs):

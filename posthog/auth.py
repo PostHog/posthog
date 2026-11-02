@@ -12,7 +12,6 @@ from django.apps import apps
 from django.conf import settings
 from django.contrib.auth.backends import BaseBackend
 from django.contrib.auth.models import AnonymousUser
-from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.http import HttpRequest, HttpResponse, JsonResponse
@@ -79,7 +78,7 @@ from posthog.passkey import verify_passkey_authentication_response
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
 from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
-from posthog.utils import get_trusted_client_ip
+from posthog.utils import get_safe_cache, get_trusted_client_ip, safe_cache_set
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.exports.backend.facade.auth import get_export_renderer_asset_context
@@ -870,13 +869,14 @@ class CIAccessTokenAuthentication(ActivityCredentialMixin, authentication.BaseAu
     def _active_policy_version(team_id: int, policy_id: str) -> str:
         """The enabled policy's version, or an empty string when it is disabled or gone."""
         cache_key = ci_trust_policy_active_cache_key(policy_id)
-        cached = cache.get(cache_key)
+        # The cache only spares a query, so a cache outage falls back to the database.
+        cached = get_safe_cache(cache_key)
         if cached is not None:
             return cached
         # The exchange only mints tokens for a project's own team, so the id is already canonical.
         policy = CITrustPolicy.objects.for_team(team_id, canonical=True).filter(pk=policy_id, enabled=True).first()
         version = ci_trust_policy_version(policy) if policy else ""
-        cache.set(cache_key, version, CI_TRUST_POLICY_ACTIVE_CACHE_SECONDS)
+        safe_cache_set(cache_key, version, CI_TRUST_POLICY_ACTIVE_CACHE_SECONDS)
         return version
 
     @classmethod
@@ -895,6 +895,8 @@ class CIAccessTokenAuthentication(ActivityCredentialMixin, authentication.BaseAu
                     algorithms=["RS256"],
                     audience=site_url,
                     issuer=site_url,
+                    # The exchange and the API can run on servers whose clocks differ a little.
+                    leeway=settings.ID_JAG_CLOCK_SKEW_SECONDS,
                     options={
                         "require": ["iss", "aud", "exp", "iat", "user_uuid", "org_id", "team_id", "policy_id", "scope"],
                     },

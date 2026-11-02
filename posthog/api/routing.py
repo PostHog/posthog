@@ -309,8 +309,16 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         else:
             # These are tenant boundaries, not authorization levels. Views that shape their own
             # permission chain cannot remove them.
+            # A CI token acts as an owner, who may pass a view's own checks (a staff owner passes staff
+            # bypasses), so its policy's scopes and project are enforced whatever chain the view builds.
+            ci_token_boundary = (
+                [APIScopePermission()]
+                if isinstance(self.request.successful_authenticator, CIAccessTokenAuthentication)
+                else []
+            )
             return [
                 *dangerously_defined,
+                *ci_token_boundary,
                 VerifiedDomainEnforcementPermission(),
                 MCPAccessPermission(),
                 ActiveOrganizationPermission(),

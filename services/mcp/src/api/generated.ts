@@ -21499,7 +21499,7 @@ export namespace Schemas {
       scopes: string[];
       /** Whether the policy can mint tokens. Disabling it cuts off its tokens. */
       enabled?: boolean;
-      readonly created_by: UserBasic;
+      readonly created_by: UserBasic | null;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -21569,7 +21569,7 @@ export namespace Schemas {
       readonly can_approve: boolean;
       /** Names of the organization admins and owners who can approve, when the current user cannot. */
       readonly approvers: readonly string[];
-      readonly requested_by: UserBasic;
+      readonly requested_by: UserBasic | null;
       /** The client the request came through, for example hog. */
       readonly requested_via: string;
       /**
@@ -21581,7 +21581,7 @@ export namespace Schemas {
       readonly created_at: string;
       /** When a pending request stops being approvable. */
       readonly expires_at: string;
-      readonly resolved_by: UserBasic;
+      readonly resolved_by: UserBasic | null;
       /**
          * When an admin approved or rejected the request.
          * @nullable
@@ -86963,7 +86963,7 @@ export namespace Schemas {
       scopes?: string[];
       /** Whether the policy can mint tokens. Disabling it cuts off its tokens. */
       enabled?: boolean;
-      readonly created_by?: UserBasic;
+      readonly created_by?: UserBasic | null;
       readonly created_at?: string;
       readonly updated_at?: string;
     }

@@ -18,6 +18,7 @@ from enum import StrEnum
 from typing import Any
 
 from django.conf import settings
+from django.utils import timezone
 
 import jwt
 import structlog
@@ -34,7 +35,7 @@ from posthog.api.oauth.ci_providers import (
     get_supported_ci_providers,
     normalize_issuer,
 )
-from posthog.api.oauth.client_assertion import ClientAssertionError, select_signing_key
+from posthog.api.oauth.client_assertion import ClientAssertionError, JWKSUnavailableError, select_signing_key
 from posthog.auth import CI_ACCESS_TOKEN_TYPE
 from posthog.dataclasses import frozen
 from posthog.jwt import ASYMMETRIC_SIGNING_ALGORITHMS
@@ -69,6 +70,7 @@ class CIExchangeErrorCode(StrEnum):
     NO_USABLE_SCOPES = "ci_no_usable_scopes"
     NO_OWNER = "ci_no_owner"
     NOT_CONFIGURED = "ci_not_configured"
+    PROVIDER_UNAVAILABLE = "ci_provider_unavailable"
 
 
 class CIExchangeError(Exception):
@@ -180,6 +182,13 @@ def _claim(claims: dict[str, Any], name: str | None) -> str:
 def _signing_key(provider: CIProvider, subject_token: str) -> PyJWK:
     try:
         key = select_signing_key(provider.jwks_url, subject_token)
+    except JWKSUnavailableError:
+        raise CIExchangeError(
+            CIExchangeErrorCode.PROVIDER_UNAVAILABLE,
+            f"Couldn't fetch {provider.name}'s signing keys. Try again in a minute.",
+            oauth_error="temporarily_unavailable",
+            http_status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
     except ClientAssertionError as e:
         raise CIExchangeError(
             CIExchangeErrorCode.TOKEN_INVALID, f"Couldn't find the key that signed the OIDC token: {e}"
@@ -277,6 +286,7 @@ def _pending_request_for(team_id: int, issuer: str, ci_claims: CIClaims) -> CITr
             repository_id=ci_claims.repository_id,
             repository=ci_claims.repository,
             status=CITrustPolicyRequest.Status.PENDING,
+            expires_at__gt=timezone.now(),
         )
         .order_by("-created_at")
     )
