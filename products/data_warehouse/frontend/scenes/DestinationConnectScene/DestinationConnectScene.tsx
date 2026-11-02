@@ -85,6 +85,8 @@ export function DestinationConnectScene(): JSX.Element {
             <SetupModal
                 isOpen={isModalOpen && integrationId === null}
                 kind={kind}
+                // Redshift destinations write over a username and password connection only.
+                passwordOnly={kind === 'aws-redshift'}
                 // The modals' close button calls onComplete with the click event, so only a number is a saved id.
                 onComplete={(id) => (typeof id === 'number' ? setIntegrationId(id) : setModalOpen(false))}
                 onClose={() => setModalOpen(false)}

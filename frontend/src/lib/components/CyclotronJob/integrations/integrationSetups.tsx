@@ -154,8 +154,13 @@ registerIntegrationSetup({
         label: 'Configure new Redshift connection',
         onClick: () => openModal('aws-redshift'),
     }),
-    SetupModal: ({ isOpen, integration, onComplete }) => (
-        <RedshiftSetupModal isOpen={isOpen} integration={integration} onComplete={onComplete} />
+    SetupModal: ({ isOpen, integration, passwordOnly, onComplete }) => (
+        <RedshiftSetupModal
+            isOpen={isOpen}
+            integration={integration}
+            passwordOnly={passwordOnly}
+            onComplete={onComplete}
+        />
     ),
 })
 

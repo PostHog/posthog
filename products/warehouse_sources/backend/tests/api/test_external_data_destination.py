@@ -105,10 +105,22 @@ class DestinationAPITestBase(APIBaseTest):
         )
         self.schema = ExternalDataSchema.objects.create(team=self.team, source=self.source, name="charges")
 
-    def _integration(self, kind: str = Integration.IntegrationKind.POSTGRESQL) -> Integration:
+    def _integration(
+        self,
+        kind: str = Integration.IntegrationKind.POSTGRESQL,
+        config: dict | None = None,
+        sensitive_config: dict | None = None,
+    ) -> Integration:
         self._integration_seq = getattr(self, "_integration_seq", 0) + 1
+        if kind == Integration.IntegrationKind.AWS_REDSHIFT and config is None and sensitive_config is None:
+            config = {"host": "cluster.example.redshift.amazonaws.com", "port": 5439, "user": "posthog"}
+            sensitive_config = {"password": "hunter2"}
         return Integration.objects.create(
-            team=self.team, kind=kind, integration_id=f"{kind}-{self._integration_seq}", config={}
+            team=self.team,
+            kind=kind,
+            integration_id=f"{kind}-{self._integration_seq}",
+            config=config or {},
+            sensitive_config=sensitive_config or {},
         )
 
     def _create_destination(self, **overrides) -> ExternalDataDestination:
@@ -381,6 +393,109 @@ class TestExternalDataDestinationAPI(DestinationAPITestBase):
 
         self.describe_test.assert_not_called()
         self.run_test_step.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("role", {"aws_role_arn": "arn:aws:iam::123456789012:role/posthog", "user": "posthog"}, {}),
+            (
+                "access_key",
+                {"aws_account_id": "123456789012", "user": "posthog"},
+                {"aws_access_key_id": "AKIAEXAMPLE", "aws_secret_access_key": "s3cr3t-value"},
+            ),
+            ("empty", {}, {}),
+            ("host_without_password", {"host": "cluster.example.com", "user": "posthog"}, {}),
+            ("password_without_host", {"user": "posthog"}, {"password": "hunter2"}),
+            ("blank_password", {"host": "cluster.example.com"}, {"password": ""}),
+            ("blank_host", {"host": ""}, {"password": "hunter2"}),
+        ]
+    )
+    def test_redshift_rejects_non_password_integrations(self, _name: str, config: dict, sensitive: dict) -> None:
+        integration = self._integration(Integration.IntegrationKind.AWS_REDSHIFT, config, sensitive)
+
+        response = self.client.post(
+            self.base,
+            {
+                "type": ExternalDataDestination.Type.REDSHIFT,
+                "name": "redshift",
+                "integration": integration.pk,
+                "config": {"database": "dev", "schema": "public"},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "integration"
+        assert "Username and password" in response.json()["detail"]
+        for secret in ("hunter2", "AKIAEXAMPLE", "s3cr3t-value"):
+            assert secret not in response.content.decode()
+        assert not ExternalDataDestination.objects.for_team(self.team.pk).filter(name="redshift").exists()
+
+    def test_redshift_accepts_a_password_integration(self) -> None:
+        destination = self._create_destination(
+            type=ExternalDataDestination.Type.REDSHIFT,
+            name="redshift",
+            integration=self._integration(Integration.IntegrationKind.AWS_REDSHIFT).pk,
+            config={"database": "dev", "schema": "public"},
+        )
+
+        assert destination.type == ExternalDataDestination.Type.REDSHIFT
+
+    @parameterized.expand(
+        [
+            ("role", {"aws_role_arn": "arn:aws:iam::123456789012:role/posthog"}, {}),
+            ("access_key", {"user": "posthog"}, {"aws_access_key_id": "AKIAEXAMPLE"}),
+        ]
+    )
+    def test_redshift_update_rejects_non_password_integrations(self, _name: str, config: dict, sensitive: dict) -> None:
+        destination = self._create_destination(
+            type=ExternalDataDestination.Type.REDSHIFT,
+            name="redshift",
+            integration=self._integration(Integration.IntegrationKind.AWS_REDSHIFT).pk,
+            config={"database": "dev", "schema": "public"},
+        )
+        other = self._integration(Integration.IntegrationKind.AWS_REDSHIFT, config, sensitive)
+
+        response = self.client.patch(f"{self.base}/{destination.id}", {"integration": other.pk}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "integration"
+        assert "Username and password" in response.json()["detail"]
+        destination.refresh_from_db()
+        assert destination.integration_id != other.pk
+
+    def test_redshift_update_without_changing_the_integration_is_allowed(self) -> None:
+        destination = self._create_destination(
+            type=ExternalDataDestination.Type.REDSHIFT,
+            name="redshift",
+            integration=self._integration(Integration.IntegrationKind.AWS_REDSHIFT).pk,
+            config={"database": "dev", "schema": "public"},
+        )
+
+        response = self.client.patch(f"{self.base}/{destination.id}", {"name": "renamed"}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+
+    @parameterized.expand(
+        [
+            (ExternalDataDestination.Type.POSTGRES, Integration.IntegrationKind.POSTGRESQL),
+            (ExternalDataDestination.Type.S3, Integration.IntegrationKind.AWS_S3),
+        ]
+    )
+    def test_password_rule_does_not_apply_to_other_types(self, destination_type: str, kind: str) -> None:
+        integration = self._integration(kind, {"aws_role_arn": "arn:aws:iam::123456789012:role/posthog"}, {})
+
+        response = self.client.post(
+            self.base,
+            {
+                "type": destination_type,
+                "name": "other",
+                "integration": integration.pk,
+                "config": {"database": "dev", "schema": "public", "bucket": "b", "region": "us-east-1"},
+            },
+            format="json",
+        )
+
+        assert response.json().get("attr") != "integration" or "Username and password" not in response.json()["detail"]
 
     def test_updating_a_destination_does_not_run_the_connection_test(self) -> None:
         destination = self._create_destination()

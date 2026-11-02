@@ -54,15 +54,17 @@ export const RedshiftSetupModal = (props: RedshiftSetupModalLogicProps): JSX.Ele
                 formKey="redshiftIntegration"
                 className="flex flex-col gap-4"
             >
-                <LemonTabs
-                    activeKey={authMode}
-                    onChange={setAuthMode}
-                    tabs={[
-                        { key: 'role', label: 'IAM role' },
-                        { key: 'access_key', label: 'Access keys' },
-                        { key: 'password', label: 'Username and password' },
-                    ]}
-                />
+                {!props.passwordOnly && (
+                    <LemonTabs
+                        activeKey={authMode}
+                        onChange={setAuthMode}
+                        tabs={[
+                            { key: 'role', label: 'IAM role' },
+                            { key: 'access_key', label: 'Access keys' },
+                            { key: 'password', label: 'Username and password' },
+                        ]}
+                    />
+                )}
 
                 {authMode === 'password' ? (
                     <>

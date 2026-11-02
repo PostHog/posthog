@@ -344,6 +344,11 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
             expected = " or ".join(f"'{kind}'" for kind in allowed_kinds)
             raise ValidationError({"integration": f"A {destination_type} destination needs a {expected} integration."})
 
+        if destination_type == ExternalDataDestination.Type.REDSHIFT and (
+            self.instance is None or "integration" in attrs
+        ):
+            self._require_password_redshift(integration)
+
         if isinstance(attrs.get("config"), dict):
             attrs["config"] = self._trim_names(str(destination_type), attrs["config"])
 
@@ -355,6 +360,22 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
             self._run_connection_test(destination_type, integration, attrs.get("config"))
 
         return attrs
+
+    # The writer reads `host` and `password` only, so an IAM role or access key Redshift
+    # integration passes the kind check and then fails on the first sync.
+    def _require_password_redshift(self, integration: IntegrationRecord) -> None:
+        has_host = bool((integration.config or {}).get("host"))
+        has_password = bool((integration.sensitive_config or {}).get("password"))
+        if not (has_host and has_password):
+            raise ValidationError(
+                {
+                    "integration": (
+                        "Redshift destinations need a connection with a host, a username and a password. "
+                        "This connection does not have them. It may use an IAM role or access keys. "
+                        'Reconnect Redshift and pick "Username and password".'
+                    )
+                }
+            )
 
     # Only creation tests the connection. A destination keeps its server, database and schema
     # after that (see `_reject_retargeting`), so there is nothing new to test on update.

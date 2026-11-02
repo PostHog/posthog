@@ -19,6 +19,8 @@ type IntegrationSetupModalProps = {
     isOpen: boolean
     kind: string
     integration?: any
+    /** Only the Redshift modal reads this: hide the IAM role and access key modes. */
+    passwordOnly?: boolean
     onComplete: (id?: number) => void
     onClose: () => void
 }

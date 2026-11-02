@@ -23,6 +23,8 @@ const SERVERLESS_WORKGROUP_ARN_REGEX = /^arn:aws(-[a-z-]+)?:redshift-serverless:
 export interface RedshiftSetupModalLogicProps {
     isOpen: boolean
     integration?: IntegrationType | null
+    /** Offer only "Username and password", the one mode warehouse destinations support. */
+    passwordOnly?: boolean
     onComplete: (integrationId?: number) => void
 }
 
@@ -274,14 +276,14 @@ export const redshiftSetupModalLogic = kea<redshiftSetupModalLogicType>([
     actions({
         setAuthMode: (mode: RedshiftAuthMode) => ({ mode }),
     }),
-    reducers({
+    reducers(({ props }) => ({
         authMode: [
-            'role' as RedshiftAuthMode,
+            (props.passwordOnly ? 'password' : 'role') as RedshiftAuthMode,
             {
                 setAuthMode: (_, { mode }) => mode,
             },
         ],
-    }),
+    })),
     forms(({ props, actions, values }) => ({
         redshiftIntegration: {
             defaults: {
