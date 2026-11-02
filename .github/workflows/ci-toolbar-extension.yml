@@ -1,0 +1,50 @@
+name: Toolbar extension
+
+# Builds the toolbar browser extension and uploads the Chrome and Firefox zips as a run artifact, so a reviewer can
+# install the build from a PR. The workflow never publishes to a browser store.
+
+on:
+    pull_request:
+        paths:
+            - '.github/workflows/ci-toolbar-extension.yml'
+            - 'frontend/bin/build-toolbar-extension.mjs'
+            - 'frontend/toolbar-config.mjs'
+            - 'frontend/src/toolbar/**'
+    workflow_dispatch:
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+    contents: read
+
+jobs:
+    build:
+        name: Build toolbar extension
+        runs-on: depot-ubuntu-24.04-4
+        timeout-minutes: 20
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter=@posthog/frontend... install --frozen-lockfile
+
+            - name: Prepare frontend
+              run: bin/turbo --filter=@posthog/frontend prepare
+
+            - name: Build products
+              run: pnpm --filter=@posthog/frontend build:products
+
+            - name: Build extension
+              run: pnpm --filter=@posthog/frontend build:toolbar-extension
+
+            - name: Upload extension zips
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: toolbar-extension
+                  path: frontend/dist/toolbar-extension/*.zip
+                  if-no-files-found: error
+                  retention-days: 14

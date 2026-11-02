@@ -10,7 +10,6 @@ from uuid import UUID
 from django.db.models import Model
 
 import structlog
-import posthoganalytics
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -31,7 +30,6 @@ from products.workflows.backend.facade.enums import EmailDraftFallbackReason, Em
 
 logger = structlog.get_logger(__name__)
 
-EMAIL_DRAFT_FLAG = "workflows-ai-email-draft"
 EMAIL_DRAFT_MODEL = "claude-haiku-5-5"
 # The user waits on this with a loader before the email opens, and the template is always there.
 EMAIL_DRAFT_TIMEOUT_SECONDS = 10.0
@@ -134,31 +132,9 @@ def _draft_email(team: Team, context: EmailDraftContext) -> EmailDraft:
 
 
 def _ai_unavailable_reason(team: Team) -> EmailDraftFallbackReason | None:
-    if not _draft_flag_enabled(team):
-        return EmailDraftFallbackReason.FLAG_OFF
     if team.organization.is_ai_data_processing_approved is not True:
         return EmailDraftFallbackReason.AI_NOT_APPROVED
     return None
-
-
-def _draft_flag_enabled(team: Team) -> bool:
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                EMAIL_DRAFT_FLAG,
-                str(team.uuid),
-                groups={"organization": str(team.organization_id), "project": str(team.id)},
-                group_properties={
-                    "organization": {"id": str(team.organization_id)},
-                    "project": {"id": str(team.id)},
-                },
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception as error:
-        capture_exception(error)
-        return False
 
 
 def _context_fields(

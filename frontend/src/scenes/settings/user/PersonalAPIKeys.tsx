@@ -25,8 +25,9 @@ import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
-import { API_KEY_SCOPE_PRESETS, MAX_API_KEYS_PER_USER } from 'lib/scopes'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
+import { API_KEY_SCOPE_PRESETS, DEFAULT_MAX_API_KEYS_PER_USER } from 'lib/scopes'
+import { userLogic } from 'scenes/userLogic'
 
 import { PersonalAPIKeyType } from '~/types'
 
@@ -618,6 +619,8 @@ function PersonalAPIKeysTable(): JSX.Element {
 export function PersonalAPIKeys(): JSX.Element {
     const { keys, canUsePersonalApiKeys } = useValues(personalAPIKeysLogic)
     const { setEditingKeyId } = useActions(personalAPIKeysLogic)
+    const { user } = useValues(userLogic)
+    const keysLimit = user?.personal_api_keys_limit ?? DEFAULT_MAX_API_KEYS_PER_USER
 
     return (
         <>
@@ -628,8 +631,8 @@ export function PersonalAPIKeys(): JSX.Element {
                 disabledReason={
                     !canUsePersonalApiKeys
                         ? 'Your organization does not allow members using personal API keys.'
-                        : keys.length >= MAX_API_KEYS_PER_USER
-                          ? `You can only have ${MAX_API_KEYS_PER_USER} personal API keys. Remove an existing key before creating a new one.`
+                        : keys.length >= keysLimit
+                          ? `You can only have ${keysLimit} personal API keys. Remove an existing key before creating a new one.`
                           : false
                 }
             >

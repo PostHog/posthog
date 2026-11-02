@@ -137,6 +137,7 @@ Macroeconomic indicators are reported per country, so add the countries you want
                     ),
                     SourceFieldInputConfig(
                         name="tickers",
+                        sync_setting=True,
                         label="Tickers",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=False,
@@ -145,6 +146,7 @@ Macroeconomic indicators are reported per country, so add the countries you want
                     ),
                     SourceFieldInputConfig(
                         name="countries",
+                        sync_setting=True,
                         label="Countries for macroeconomic indicators",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=False,

@@ -136,6 +136,7 @@ describe('tracingDataLogic', () => {
                 },
                 createMockSpan('root-2', '2024-01-01T01:00:00Z'),
             ]
+            tracingFiltersLogic().actions.setViewMode('traces')
             logic.actions.fetchSpansSuccess(withChild)
             // listRows = [root-1, root-2] in traces mode; index 1 is root-2, never the child at 05:00.
             logic.actions.setVisibleRowRange(0, 1)
@@ -238,9 +239,10 @@ describe('tracingDataLogic', () => {
             createMockSpan('root-2', '2024-01-01T01:00:00Z'),
         ]
 
-        it('lists only root spans in traces mode (default)', () => {
-            logic = mountWithSpans(withChildSpans)
-            expect(logic.values.filters.viewMode).toBe('traces')
+        it('lists only root spans in traces mode', () => {
+            logic = mountWithSpans([])
+            tracingFiltersLogic().actions.setViewMode('traces')
+            logic.actions.fetchSpansSuccess(withChildSpans)
             expect(logic.values.listRows.map((s) => s.uuid)).toEqual(['root-1', 'root-2'])
         })
 
@@ -265,8 +267,9 @@ describe('tracingDataLogic', () => {
         it('requests grouped traces from the API in traces mode', async () => {
             const listSpansSpy = jest.spyOn(api.tracing, 'listSpans').mockResolvedValue({ results: [], hasMore: false })
             logic = mountWithSpans([])
+            tracingFiltersLogic().actions.setViewMode('traces')
             await logic.asyncActions.fetchSpans()
-            expect(listSpansSpy).toHaveBeenCalledWith(
+            expect(listSpansSpy).toHaveBeenLastCalledWith(
                 expect.objectContaining({ flatSpans: false, rootSpans: false }),
                 expect.anything()
             )
@@ -275,6 +278,7 @@ describe('tracingDataLogic', () => {
 
         it('totalMatchingFilters reports trace count in traces mode and span count in spans mode', () => {
             logic = mountWithSpans([])
+            tracingFiltersLogic().actions.setViewMode('traces')
             logic.actions.fetchMatchingCountsSuccess({ count: 5000, traceCount: 100 })
             expect(logic.values.totalMatchingFilters).toBe(100)
             tracingFiltersLogic().actions.setViewMode('spans')
@@ -284,8 +288,12 @@ describe('tracingDataLogic', () => {
         it('sparkline counts root spans in traces mode and all spans in spans mode', async () => {
             const sparklineSpy = jest.spyOn(api.tracing, 'sparkline').mockResolvedValue({ results: [] })
             logic = mountWithSpans([])
+            tracingFiltersLogic().actions.setViewMode('traces')
             await logic.asyncActions.fetchSparkline()
-            expect(sparklineSpy).toHaveBeenCalledWith(expect.objectContaining({ rootSpans: true }), expect.anything())
+            expect(sparklineSpy).toHaveBeenLastCalledWith(
+                expect.objectContaining({ rootSpans: true }),
+                expect.anything()
+            )
             tracingFiltersLogic().actions.setViewMode('spans')
             await logic.asyncActions.fetchSparkline()
             expect(sparklineSpy).toHaveBeenLastCalledWith(
@@ -340,7 +348,7 @@ describe('tracingDataLogic', () => {
             // The sparkline counts root spans in 'traces' mode and all spans in 'spans' mode, so a
             // view-mode toggle changes its scope and the auto re-query must re-fetch it.
             await expectLogic(logic, () => {
-                tracingFiltersLogic().actions.setViewMode('spans')
+                tracingFiltersLogic().actions.setViewMode('traces')
             }).toDispatchActions(['fetchSparklineSuccess'])
             expect(sparklineSpy).toHaveBeenCalledTimes(2)
             sparklineSpy.mockRestore()

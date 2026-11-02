@@ -15,6 +15,7 @@ from posthog.schema import (
     ExperimentEventExposureConfig,
     ExperimentFunnelMetric,
     ExperimentMetricMathType,
+    ExperimentWarehouseNativeNode,
     FunnelConversionWindowTimeUnit,
     FunnelMathType,
     GroupMathType,
@@ -22,6 +23,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 
@@ -108,10 +110,14 @@ def is_threshold_supported_math(math_type: ExperimentMetricMathType | None) -> b
     return math_type in [ExperimentMetricMathType.SUM, ExperimentMetricMathType.TOTAL]
 
 
-def get_source_value_expr(source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]) -> ast.Expr:
+def get_source_value_expr(
+    source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode, ExperimentWarehouseNativeNode],
+) -> ast.Expr:
     """
     Return the per-row value that the metric aggregates.
     """
+    if isinstance(source, ExperimentWarehouseNativeNode):
+        raise ExposedHogQLError("Warehouse-native sources cannot be calculated yet.")
 
     if isinstance(source, EventsNode) or isinstance(source, ActionsNode):
         if hasattr(source, "math") and is_continuous(source.math):
@@ -223,6 +229,20 @@ def conversion_window_to_seconds(conversion_window: int, conversion_window_unit:
         raise ValueError(f"Unsupported conversion window unit: {conversion_window_unit}")
 
     return conversion_window * multipliers[conversion_window_unit]
+
+
+def winsorization_bound_expr(level: float, value: str, *, ignore_zeros: bool = False) -> ast.Expr:
+    """The outlier bound at the percentile `level` of `value` across the entities. `value` is an internal column name,
+    never user input, because it is interpolated into the expression. `quantile_exact_position` mirrors the value that
+    this function picks, so a change of the aggregate here must change that function too."""
+    over = f"if({value} != 0, {value}, null)" if ignore_zeros else value
+    return parse_expr(f"quantileExact({{level}})({over})", placeholders={"level": ast.Constant(value=level)})
+
+
+def quantile_exact_position(level: float, count: int) -> int:
+    """The position, among `count` values in ascending order, of the value that `quantileExact(level)` returns."""
+    # ClickHouse truncates `level * count` computed in double precision, which Python's float multiplication matches.
+    return int(level * count) if level < 1 else count - 1
 
 
 def analysis_window_end(end_date: Optional[datetime], as_of: datetime) -> datetime:

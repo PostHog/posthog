@@ -1,8 +1,9 @@
+import time
 import hashlib
 import datetime
 import dataclasses
 from collections.abc import AsyncIterable, Callable, Iterable, Iterator
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from django.core.cache import cache
 
@@ -13,6 +14,7 @@ import structlog
 from asgiref.sync import async_to_sync
 from requests import Request, Response
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity.stop import stop_base
 
 from posthog.egress.slack.transport import slack_request
 
@@ -376,25 +378,47 @@ def get_channels(
     ]
 
 
+class _StopBeforeDeadline(stop_base):
+    def __init__(self, deadline: float) -> None:
+        self.deadline = deadline
+
+    def __call__(self, retry_state: RetryCallState) -> bool:
+        return time.monotonic() + (retry_state.upcoming_sleep or 0) >= self.deadline
+
+
 # conversations.join errors that mean "nothing to do for this channel" rather than a real failure.
 _SKIP_JOIN_ERRORS = {"already_in_channel", "is_archived", "method_not_supported_for_channel_type"}
 
 
-def _join_public_channels(access_token: str, channels: list[dict[str, Any]]) -> int:
+def _join_public_channels(access_token: str, channels: list[dict[str, Any]], deadline: float | None = None) -> int:
     """Join every public channel the bot isn't already in, so their message events reach the webhook.
 
     ``conversations.join`` only works for public channels — private channels must be invited manually.
     Joins are idempotent (``already_in_channel`` is a no-op) and archived channels are skipped. A
     missing ``channels:join`` scope is surfaced immediately, since it means auto-join can never work.
+    Stops once ``time.monotonic()`` passes ``deadline``; a later pass joins the rest.
     Returns the number of channels newly joined.
     """
     url = "https://slack.com/api/conversations.join"
     headers = {"Authorization": f"Bearer {access_token}"}
+    post = _slack_post
+    if deadline is not None:
+        # A rate-limited join waits out Slack's Retry-After, which alone can outlast the budget.
+        post = cast(Any, _slack_post).retry_with(stop=stop_after_attempt(5) | _StopBeforeDeadline(deadline))
     joined = 0
     for ch in channels:
         if ch.get("is_private") or ch.get("is_archived") or ch.get("is_member"):
             continue
-        response = _slack_post(url, headers=headers, data={"channel": ch["id"]}, timeout=10)
+        if deadline is not None and time.monotonic() >= deadline:
+            logger.info("Slack auto-join stopped at its time budget", joined=joined)
+            break
+        try:
+            response = post(url, headers=headers, data={"channel": ch["id"]}, timeout=10)
+        except (SlackRetryableError, requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+            if deadline is None:
+                raise
+            logger.info("Slack auto-join stopped before its time budget ran out", joined=joined)
+            break
         response.raise_for_status()
         data = response.json()
         if data.get("ok"):
@@ -410,10 +434,16 @@ def _join_public_channels(access_token: str, channels: list[dict[str, Any]]) -> 
     return joined
 
 
-def join_public_channels(access_token: str, cache_id: str, authed_user: str | None = None) -> int:
+def join_public_channels(
+    access_token: str,
+    cache_id: str,
+    authed_user: str | None = None,
+    time_budget_seconds: float | None = None,
+) -> int:
     """Auto-join all public channels the bot isn't in yet (see ``_join_public_channels``)."""
+    deadline = time.monotonic() + time_budget_seconds if time_budget_seconds is not None else None
     channels = _fetch_all_channels_cached(cache_id, access_token, authed_user)
-    return _join_public_channels(access_token, channels)
+    return _join_public_channels(access_token, channels, deadline)
 
 
 def _add_timestamp(msg: dict[str, Any]) -> dict[str, Any]:

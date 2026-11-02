@@ -11,8 +11,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ahrefs.set
     ENDPOINTS,
     HISTORY_DAYS,
     MAX_COMPETITORS,
+    SITE_METRICS_FIRST_SYNC_DAYS,
+    SITE_METRICS_MAX_SYNC_DAYS,
     TOP_DOMAINS_COUNT,
     TOP_DOMAINS_PAGE_ROWS,
+    DailyReport,
     EndpointSettings,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -32,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     Endpoint,
     ResponseAction,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import reach_safe_point
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
@@ -122,16 +126,19 @@ def _site_audit_target(api_key: str, project_id: str) -> dict[str, Any]:
     raise ValueError("ahrefs_project_not_found")
 
 
-def _target_params(api_key: str, project_id: str, names: list[str]) -> dict[str, str]:
-    if not names:
-        return {}
-    project = _site_audit_target(api_key, project_id)
+def _project_target_params(project: dict[str, Any], names: list[str]) -> dict[str, str]:
     values = {
         "target": project["target_url"],
         "mode": project.get("target_mode"),
         "protocol": project.get("target_protocol"),
     }
     return {name: value for name, value in values.items() if name in names and value}
+
+
+def _target_params(api_key: str, project_id: str, names: list[str]) -> dict[str, str]:
+    if not names:
+        return {}
+    return _project_target_params(_site_audit_target(api_key, project_id), names)
 
 
 def _post(settings: EndpointSettings, body: dict[str, Any]) -> Endpoint:
@@ -210,14 +217,50 @@ def _endpoint_requests(
             yield {"path": settings["path"], "params": params}, {}
 
 
+def _as_date(value: Any) -> date:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    return date.fromisoformat(str(value)[:10])
+
+
 def _history_start(should_use_incremental_field: bool, last_value: Any, today: date) -> str:
     if should_use_incremental_field and last_value:
-        if isinstance(last_value, datetime):
-            return last_value.date().isoformat()
-        if isinstance(last_value, date):
-            return last_value.isoformat()
-        return date.fromisoformat(str(last_value)[:10]).isoformat()
+        return _as_date(last_value).isoformat()
     return (today - timedelta(days=HISTORY_DAYS)).isoformat()
+
+
+def _site_metrics_dates(should_use_incremental_field: bool, last_value: Any, today: date) -> list[date]:
+    # Each day costs API units, so an incremental sync starts after the last synced day.
+    if should_use_incremental_field and last_value:
+        start = max(_as_date(last_value) + timedelta(days=1), today - timedelta(days=SITE_METRICS_MAX_SYNC_DAYS - 1))
+    else:
+        start = today - timedelta(days=SITE_METRICS_FIRST_SYNC_DAYS - 1)
+    return [start + timedelta(days=offset) for offset in range((today - start).days + 1)]
+
+
+def _site_metrics_rows(
+    api_key: str,
+    project_id: str,
+    reports: list[DailyReport],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> Iterator[list[dict[str, object]]]:
+    dates = _site_metrics_dates(should_use_incremental_field, db_incremental_field_last_value, datetime.now(UTC).date())
+    if not dates:
+        return
+    project = _site_audit_target(api_key, project_id)
+    # No row is fetched yet, so the run can stop here before the reports of the first day.
+    reach_safe_point()
+    for day in dates:
+        row: dict[str, object] = {"project_id": project_id, "target": project["target_url"], "date": day.isoformat()}
+        for report in reports:
+            params = {**_project_target_params(project, report["target_params"]), "date": day.isoformat()}
+            values = list(_lookup(api_key, report["path"], params, report["data_selector"]))
+            found = values[0] if values else {}
+            row.update({column: found.get(field) for field, column in report["columns"].items()})
+        yield [row]
 
 
 def _unique_rows(page: list[dict[str, object]], primary_keys: list[str]) -> list[dict[str, object]]:
@@ -242,6 +285,22 @@ def ahrefs_source(
 ) -> SourceResponse:
     settings = schema_for_resource(ENDPOINTS, endpoint)
     normalized_project_id = str(int(project_id))
+    daily_reports = settings.get("daily_reports")
+    if daily_reports:
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: _site_metrics_rows(
+                api_key,
+                normalized_project_id,
+                daily_reports,
+                should_use_incremental_field,
+                db_incremental_field_last_value,
+            ),
+            primary_keys=settings["primary_keys"],
+            # Days are read from the oldest to today.
+            sort_mode="asc",
+            supports_resume=False,
+        )
     project_scoped = settings.get("project_scoped", True)
     history = settings.get("history", False)
     row_limit = settings["params"].get("limit") or settings.get("body", {}).get("limit")

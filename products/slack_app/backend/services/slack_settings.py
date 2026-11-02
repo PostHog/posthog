@@ -12,14 +12,12 @@ layer with zero translation.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, TypeVar
+from typing import TypeVar
 
 from django.db import models
 
 from products.slack_app.backend.models import ChannelWelcomeMode, ThreadJoinMode, UntaggedFollowupMode
-
-if TYPE_CHECKING:
-    from posthog.models.integration import Integration
+from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
 
 _Mode = TypeVar("_Mode", bound=models.TextChoices)
 
@@ -37,7 +35,9 @@ class AIPreferences:
     reasoning_effort: str | None = None
 
 
-def resolve_untagged_followup_mode(integration: Integration, slack_user_id: str | None) -> UntaggedFollowupMode:
+def resolve_untagged_followup_mode(
+    integration: WorkspaceIntegration, slack_user_id: str | None
+) -> UntaggedFollowupMode:
     """Resolve how untagged replies in a thread this Slack user started are treated.
 
     Read from the thread creator's row, so one person's choice governs every
@@ -113,7 +113,7 @@ def _set_untagged_mode(slack_workspace_id: str, slack_user_id: str, column: str,
 
 
 def resolve_thread_join_mode(
-    integration: Integration, slack_user_id: str | None, *, own_subscription: bool = False
+    integration: WorkspaceIntegration, slack_user_id: str | None, *, own_subscription: bool = False
 ) -> ThreadJoinMode:
     """Resolve what happens when someone else tags PostHog in a thread this Slack user started.
 

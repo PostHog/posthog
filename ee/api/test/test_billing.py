@@ -809,6 +809,7 @@ class TestBillingAPI(APILicensedTest):
         assert res_json["products"][0]["addons"][0]["tiers"][0]["current_amount_usd"] == "0.00"
         assert res_json["products"][0]["addons"][0]["tiers"][1]["current_amount_usd"] == "0.00"
 
+    @patch("posthog.tasks.demo_create_data.create_data_for_demo_team.delay")
     @patch("ee.billing.billing_manager.http_session.get")
     def test_organization_usage_count_with_demo_project(self, mock_request, *args):
         def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock | Response:
@@ -838,9 +839,9 @@ class TestBillingAPI(APILicensedTest):
         self.assertEqual(Team.objects.count(), 1)
         response = self.client.post("/api/projects/", {"name": "Test", "is_demo": True})
         self.assertEqual(response.status_code, 201)
-        self.assertEqual(Team.objects.count(), 3)
+        self.assertEqual(Team.objects.count(), 2)
 
-        demo_team = Team.objects.filter(is_demo=True).first()
+        demo_team = Team.objects.get(organization=self.organization, is_demo=True)
 
         # We create some events for the demo project
         with self.settings(USE_TZ=False):

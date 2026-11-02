@@ -79,6 +79,7 @@ The API only serves a rolling window of years around today, and it has no "chang
                 [
                     SourceFieldInputConfig(
                         name="country_codes",
+                        sync_setting=True,
                         label="Country codes",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,

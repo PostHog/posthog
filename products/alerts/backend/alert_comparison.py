@@ -7,8 +7,9 @@ A platform check names its due slot, and the two stacks do not check at the same
 spreads its alerts over an offset within the period, keyed on its own id for the alert, so
 production's check of a period can come before the platform's slot or after it. A platform check
 pairs with production's first check in the same local calendar period: the quarter hour, hour,
-day, ISO week or month the slot falls in. A production stack that made no check in that period is
-behind.
+day, ISO week or month the slot falls in. A real-time check has no such period, and both stacks
+step from the same due time, so it pairs with production's first check in the cadence after its
+slot. A production stack that made no check in that period is behind.
 
 `AlertCheck` rows are deleted after `AlertCheck.RETENTION`, so an older slot cannot be answered.
 """
@@ -48,7 +49,12 @@ from products.alerts_platform.backend.facade.contracts import (
     SuppressionReason,
 )
 from products.alerts_platform.backend.facade.lifecycle import AlertState
-from products.alerts_platform.backend.facade.scheduling import is_weekend, local_period_start, next_local_period_start
+from products.alerts_platform.backend.facade.scheduling import (
+    REAL_TIME_CADENCE_MINUTES,
+    is_weekend,
+    local_period_start,
+    next_local_period_start,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -63,6 +69,7 @@ _SUB_DAY_PERIOD_MINUTES: dict[str, int] = {
     AlertCalculationInterval.EVERY_15_MINUTES: 15,
     AlertCalculationInterval.HOURLY: 60,
 }
+_REAL_TIME_PERIOD = timedelta(minutes=REAL_TIME_CADENCE_MINUTES)
 # Calendar periods follow the team's local calendar: a day across a daylight-saving change is 23 or
 # 25 hours, and a month is as long as it is.
 _CALENDAR_PERIOD: dict[str, relativedelta] = {
@@ -276,9 +283,13 @@ def _period_of(slot: datetime, alert: AlertConfiguration) -> _Period | None:
     """The local calendar period the slot falls in: its quarter hour, hour, day, ISO week or month.
 
     Both schedulers check once per such period, each at an offset of its own, so production's check
-    of the same period can come before the platform's slot as well as after it.
+    of the same period can come before the platform's slot as well as after it. A real-time check is
+    due at the same instant on both stacks, so production's check of it comes after the slot, before
+    the next one is due.
     """
     interval = alert.calculation_interval or ""
+    if interval == AlertCalculationInterval.REAL_TIME:
+        return _Period(start=slot, end=slot + _REAL_TIME_PERIOD)
     if interval in _SUB_DAY_PERIOD_MINUTES:
         minutes = _SUB_DAY_PERIOD_MINUTES[interval]
         team_timezone = pytz.timezone(alert.team.timezone)

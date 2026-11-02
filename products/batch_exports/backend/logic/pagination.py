@@ -4,7 +4,7 @@ from collections.abc import Collection
 
 from django.db.models import Model, QuerySet
 
-from posthog.api.pagination import stable_queryset_ordering
+from posthog.queryset_paging import stable_queryset_ordering
 
 from products.batch_exports.backend.facade import contracts
 

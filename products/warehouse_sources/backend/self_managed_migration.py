@@ -56,6 +56,7 @@ from products.warehouse_sources.backend.file_uploads import (
     TABLE_FORMAT_TO_FILE_FORMAT,
     HostedUpload,
 )
+from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_destination import (
     ExternalDataSourceDestination,
@@ -83,6 +84,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     StorageService,
     UnmappableTableError,
     needs_preserved_column_names,
+    nested_text_columns,
     parse_self_managed_url,
     refuse_columns_an_import_changes,
     table_definition_for,
@@ -137,6 +139,7 @@ class TableMigrationStatus:
     reason: str | None = None
     source_id: str | None = None
     schema_id: str | None = None
+    nested_text_column_types: dict[str, str] | None = None
 
 
 @frozen
@@ -168,7 +171,7 @@ class _TablePlan:
 
     source: ObjectStorageSource[Any] | FileUploadSource
     schema_metadata: dict[str, Any]
-    job_inputs: dict[str, Any] = dataclasses.field(repr=False)
+    inputs: dict[str, Any] = dataclasses.field(repr=False)
     # Tables with the same group key and credential share one source.
     group_key: str
     description: str
@@ -286,7 +289,7 @@ class _Planner:
         return _TablePlan(
             source=source,
             schema_metadata=definition.schema_metadata(),
-            job_inputs=job_inputs,
+            inputs=job_inputs,
             group_key=location.group_key,
             description=f"Self-managed tables in {location.bucket}",
             bucket=location.bucket,
@@ -318,7 +321,7 @@ class _Planner:
         return _TablePlan(
             source=source,
             schema_metadata=schema_metadata,
-            job_inputs=pending_upload_job_inputs(upload_format, table.name),
+            inputs=pending_upload_job_inputs(upload_format, table.name),
             group_key=f"upload/{table.pk}",
             description=f"Uploaded file for {table.name}"[:400],
             shares_source=False,
@@ -496,6 +499,11 @@ def _evaluate(
             reason=reason,
             source_id=str(named.source_id) if named is not None else None,
             schema_id=str(named.id) if named is not None else None,
+            nested_text_column_types=(
+                nested_text_columns(table.columns)
+                if state in (TableMigrationState.PENDING, TableMigrationState.AWAITING_SYNC)
+                else None
+            ),
         )
 
     if table.external_data_source_id is not None:
@@ -554,7 +562,7 @@ def _find_or_create_source(table: DataWarehouseTable, plan: _TablePlan) -> Exter
     """The group's source for the table's team, credential and bucket. Runs under the group lock."""
     if not plan.shares_source:
         return create_source_for_upload(
-            table, plan.job_inputs, connection_metadata={MIGRATION_MARKER_KEY: {"group_key": plan.group_key}}
+            table, plan.inputs, connection_metadata={MIGRATION_MARKER_KEY: {"group_key": plan.group_key}}
         )
     existing = (
         ExternalDataSource.objects.filter(
@@ -569,7 +577,7 @@ def _find_or_create_source(table: DataWarehouseTable, plan: _TablePlan) -> Exter
     )
     if existing is not None:
         return existing
-    source = ExternalDataSource.objects.create(
+    source = SourceInputsStore.create(
         prefix=_free_prefix(table.team_id, plan),
         source_id=str(uuid.uuid4()),
         connection_id=str(uuid.uuid4()),
@@ -578,7 +586,7 @@ def _find_or_create_source(table: DataWarehouseTable, plan: _TablePlan) -> Exter
         status=ExternalDataSource.Status.RUNNING,
         source_type=plan.source.source_type,
         api_version=plan.source.default_version,
-        job_inputs=plan.job_inputs,
+        inputs=plan.inputs,
         description=plan.description,
         access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
         connection_metadata={
@@ -798,4 +806,9 @@ def _abandon(evaluation: _Evaluation, reason: str) -> None:
 
 def describe_status(status: TableMigrationStatus) -> str:
     reason = f" ({status.reason})" if status.reason else ""
-    return f"table={status.table_id} team={status.team_id} name={status.name} state={status.state}{reason}"
+    columns = status.nested_text_column_types or {}
+    note = ""
+    if columns:
+        changed = ", ".join(f"{name} ({column_type})" for name, column_type in columns.items())
+        note = f" note=(after the first sync these columns are stored as JSON text: {changed})"
+    return f"table={status.table_id} team={status.team_id} name={status.name} state={status.state}{reason}{note}"

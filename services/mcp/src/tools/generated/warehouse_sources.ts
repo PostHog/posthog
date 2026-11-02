@@ -96,52 +96,6 @@ const dataWarehouseStoredCredentialsList = (): ToolBase<
     },
 })
 
-const ExternalDataDestinationsListSchema = () => {
-    const ExternalDataDestinationsListQueryParams = orvalSchemas.ExternalDataDestinationsListQueryParams()
-    return ExternalDataDestinationsListQueryParams
-}
-
-const externalDataDestinationsList = (): ToolBase<
-    ReturnType<typeof ExternalDataDestinationsListSchema>,
-    Schemas.PaginatedExternalDataDestinationList
-> => ({
-    name: 'external-data-destinations-list',
-    schema: ExternalDataDestinationsListSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataDestinationsListSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedExternalDataDestinationList>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_destinations/`,
-            query: {
-                limit: params.limit,
-                offset: params.offset,
-            },
-        })
-        return result
-    },
-})
-
-const ExternalDataDestinationsRetrieveSchema = () => {
-    const ExternalDataDestinationsRetrieveParams = orvalSchemas.ExternalDataDestinationsRetrieveParams()
-    return ExternalDataDestinationsRetrieveParams.omit({ project_id: true })
-}
-
-const externalDataDestinationsRetrieve = (): ToolBase<
-    ReturnType<typeof ExternalDataDestinationsRetrieveSchema>,
-    WithPostHogUrl<Schemas.ExternalDataDestination>
-> => ({
-    name: 'external-data-destinations-retrieve',
-    schema: ExternalDataDestinationsRetrieveSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataDestinationsRetrieveSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ExternalDataDestination>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_destinations/${encodeURIComponent(String(params.id))}/`,
-        })
-        return await withPostHogUrl(context, result, `/data-management/sources/${result.id}`)
-    },
-})
-
 const ExternalDataSchemasCancelSchema = () => {
     const ExternalDataSchemasCancelCreateParams = orvalSchemas.ExternalDataSchemasCancelCreateParams()
     return ExternalDataSchemasCancelCreateParams.omit({ project_id: true })
@@ -653,6 +607,44 @@ const externalDataSourcesDestinationsRetrieve = (): ToolBase<
     },
 })
 
+const ExternalDataSourcesDestinationsUpdateSchema = () => {
+    const ExternalDataSourcesDestinationsPartialUpdateBody =
+        orvalSchemas.ExternalDataSourcesDestinationsPartialUpdateBody()
+    const ExternalDataSourcesDestinationsPartialUpdateParams =
+        orvalSchemas.ExternalDataSourcesDestinationsPartialUpdateParams()
+    return ExternalDataSourcesDestinationsPartialUpdateParams.omit({ project_id: true })
+        .extend(ExternalDataSourcesDestinationsPartialUpdateBody.shape)
+        .extend({
+            destination_ids: ExternalDataSourcesDestinationsPartialUpdateBody.shape['destination_ids'].describe(
+                'The full list of destination ids for this source, at least one. A destination left out is detached.'
+            ),
+        })
+}
+
+const externalDataSourcesDestinationsUpdate = (): ToolBase<
+    ReturnType<typeof ExternalDataSourcesDestinationsUpdateSchema>,
+    Schemas.SourceDestinations
+> => ({
+    name: 'external-data-sources-destinations-update',
+    schema: ExternalDataSourcesDestinationsUpdateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ExternalDataSourcesDestinationsUpdateSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.destination_ids !== undefined) {
+            body['destination_ids'] = params.destination_ids
+        }
+        const result = await context.api.request<Schemas.SourceDestinations>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/destinations/`,
+            body,
+        })
+        return result
+    },
+})
+
 const ExternalDataSourcesDestroySchema = () => {
     const ExternalDataSourcesDestroyParams = orvalSchemas.ExternalDataSourcesDestroyParams()
     return ExternalDataSourcesDestroyParams.omit({ project_id: true })
@@ -993,8 +985,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'data-warehouse-source-connect-link': dataWarehouseSourceConnectLink,
     'data-warehouse-source-setup': dataWarehouseSourceSetup,
     'data-warehouse-stored-credentials-list': dataWarehouseStoredCredentialsList,
-    'external-data-destinations-list': externalDataDestinationsList,
-    'external-data-destinations-retrieve': externalDataDestinationsRetrieve,
     'external-data-schemas-cancel': externalDataSchemasCancel,
     'external-data-schemas-delete-data': externalDataSchemasDeleteData,
     'external-data-schemas-destinations-retrieve': externalDataSchemasDestinationsRetrieve,
@@ -1011,6 +1001,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'external-data-sources-create-webhook-create': externalDataSourcesCreateWebhookCreate,
     'external-data-sources-delete-webhook-create': externalDataSourcesDeleteWebhookCreate,
     'external-data-sources-destinations-retrieve': externalDataSourcesDestinationsRetrieve,
+    'external-data-sources-destinations-update': externalDataSourcesDestinationsUpdate,
     'external-data-sources-destroy': externalDataSourcesDestroy,
     'external-data-sources-list': externalDataSourcesList,
     'external-data-sources-partial-update': externalDataSourcesPartialUpdate,

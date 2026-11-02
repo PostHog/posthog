@@ -27,6 +27,10 @@ class NorthflankEndpointConfig:
     parent_id_key: Optional[str] = None
     # Skips parents the child endpoint does not apply to.
     include_parent: Optional[Callable[[dict[str, Any]], bool]] = None
+    # Values for a `{stage}` placeholder in the path. Each parent is queried once per stage.
+    stages: tuple[str, ...] = ()
+    # Treat a 404 on a child list as "this parent has none" instead of failing the sync.
+    not_found_is_empty: bool = False
     paginated: bool = True
     page_size_param: str = "per_page"
     params: dict[str, Any] = field(default_factory=dict)
@@ -38,6 +42,9 @@ def _service_has_builds(service: dict[str, Any]) -> bool:
     # Deployment services run an image built elsewhere, so they have no builds of their own.
     return service.get("serviceType") != "deployment"
 
+
+# Every pipeline has these three stages, and each stage can have its own release flow.
+PIPELINE_STAGES = ("development", "staging", "production")
 
 # Only the billing usage endpoint documents a server-side timestamp filter (`startTime`); every other
 # stream is full refresh. Most resources are project-scoped, so the fan-out streams first list
@@ -78,6 +85,13 @@ NORTHFLANK_ENDPOINTS: dict[str, NorthflankEndpointConfig] = {
         primary_keys=["projectId", "id"],
         partition_key="createdAt",
     ),
+    "pipelines": NorthflankEndpointConfig(
+        name="pipelines",
+        path="/v1/projects/{project_id}/pipelines",
+        data_key="pipelines",
+        fan_out_over_projects=True,
+        primary_keys=["projectId", "id"],
+    ),
     "service_builds": NorthflankEndpointConfig(
         name="service_builds",
         path="/v1/projects/{project_id}/services/{parent_id}/build",
@@ -98,6 +112,41 @@ NORTHFLANK_ENDPOINTS: dict[str, NorthflankEndpointConfig] = {
         parent_id_key="jobId",
         primary_keys=["projectId", "jobId", "id"],
         partition_key="startedAt",
+    ),
+    "job_builds": NorthflankEndpointConfig(
+        name="job_builds",
+        path="/v1/projects/{project_id}/jobs/{parent_id}/build",
+        data_key="builds",
+        fan_out_over_projects=True,
+        parent="jobs",
+        parent_id_key="jobId",
+        primary_keys=["projectId", "jobId", "id"],
+        partition_key="createdAt",
+        # The job list does not say which jobs run an external image and so have no builds.
+        not_found_is_empty=True,
+    ),
+    "workflow_runs": NorthflankEndpointConfig(
+        name="workflow_runs",
+        path="/v1/projects/{project_id}/workflows/{parent_id}/runs",
+        data_key="runs",
+        fan_out_over_projects=True,
+        parent="workflows",
+        parent_id_key="workflowId",
+        primary_keys=["projectId", "workflowId", "id"],
+        partition_key="createdAt",
+    ),
+    "release_flow_runs": NorthflankEndpointConfig(
+        name="release_flow_runs",
+        path="/v1/projects/{project_id}/pipelines/{parent_id}/release-flows/{stage}/runs",
+        data_key="runs",
+        fan_out_over_projects=True,
+        parent="pipelines",
+        parent_id_key="pipelineId",
+        stages=PIPELINE_STAGES,
+        # A stage without a release flow has no runs to list.
+        not_found_is_empty=True,
+        primary_keys=["projectId", "pipelineId", "stage", "id"],
+        partition_key="createdAt",
     ),
     "plans": NorthflankEndpointConfig(
         name="plans",
@@ -120,6 +169,19 @@ NORTHFLANK_ENDPOINTS: dict[str, NorthflankEndpointConfig] = {
 }
 
 ENDPOINTS = tuple(NORTHFLANK_ENDPOINTS.keys())
+
+# Fan-out parents, including ones that are not synced as tables themselves.
+FAN_OUT_PARENTS: dict[str, NorthflankEndpointConfig] = {
+    **NORTHFLANK_ENDPOINTS,
+    "workflows": NorthflankEndpointConfig(
+        name="workflows",
+        path="/v1/projects/{project_id}/workflows",
+        # The API returns workflows under `data.pipelines`.
+        data_key="pipelines",
+        fan_out_over_projects=True,
+        primary_keys=["projectId", "id"],
+    ),
+}
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     "usage": [

@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.zoom.settings import ENDPOINTS, INCREMENTAL_FIELDS
 from products.warehouse_sources.backend.temporal.data_imports.sources.zoom.zoom import (
     ZoomResumeConfig,
+    supports_resume,
     validate_credentials as validate_zoom_credentials,
     zoom_source,
 )
@@ -156,6 +157,9 @@ class ZoomSource(ResumableSource[ZoomSourceConfig, ZoomResumeConfig]):
             schema_name=schema_name,
         )
 
+    def resume_covers_run(self, *, incremental_or_append: bool, schema_name: str | None = None) -> bool:
+        return schema_name is None or schema_name not in ENDPOINTS or supports_resume(schema_name)
+
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ZoomResumeConfig]:
         return ResumableSourceManager[ZoomResumeConfig](inputs, ZoomResumeConfig)
 
@@ -182,7 +186,7 @@ class ZoomSource(ResumableSource[ZoomSourceConfig, ZoomResumeConfig]):
             category=DataWarehouseSourceCategory.COMMUNICATION,
             label="Zoom",
             releaseStatus=ReleaseStatus.GA,
-            caption="""Sync your Zoom users, meetings, and webinars into the PostHog Data warehouse.
+            caption="""Sync your Zoom users, meetings, webinars, registrants, and attendance into the PostHog Data warehouse.
 
 Create a **Server-to-Server OAuth** app in the [Zoom App Marketplace](https://marketplace.zoom.us/develop/create) and copy its Account ID, Client ID, and Client Secret below.
 
@@ -190,6 +194,8 @@ Grant the following read scopes:
 - `user:read:list_users:admin`
 - `meeting:read:list_meetings:admin`
 - `webinar:read:list_webinars:admin`
+- `meeting:read:list_registrants:admin` and `webinar:read:list_registrants:admin` for registrants
+- `meeting:read:list_past_instances:admin`, `meeting:read:list_past_participants:admin`, `webinar:read:list_past_instances:admin` and `webinar:read:list_past_participants:admin` for participants
 """,
             iconPath="/static/services/zoom.png",
             docsUrl="https://posthog.com/docs/cdp/sources/zoom",

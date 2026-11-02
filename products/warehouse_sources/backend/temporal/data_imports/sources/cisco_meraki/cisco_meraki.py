@@ -1,7 +1,9 @@
 import re
 import json
+import math
 import hashlib
-from datetime import datetime
+from collections.abc import Iterator
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import parse_qs, urlsplit
 
@@ -11,6 +13,9 @@ from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cisco_meraki.settings import (
     AUTH_ERROR,
+    CLIENT_USAGE_BATCH_SIZE,
+    CLIENT_USAGE_MIN_TIMESPAN_SECONDS,
+    CLIENTS_TIMESPAN_SECONDS,
     ENDPOINTS,
     EVENT_LOG_FLOOR,
     EVENT_PRODUCT_TYPES,
@@ -19,6 +24,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cisco_mera
     PERMISSION_ERROR,
     REGION_ERROR,
     REGION_HOSTS,
+    UPLINK_USAGE_MAX_TIMESPAN_SECONDS,
+    UPLINK_USAGE_MIN_TIMESPAN_SECONDS,
     MerakiEndpoint,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
@@ -189,6 +196,19 @@ def _network_product_types(network: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def _appliance_networks(network: dict[str, Any]) -> list[dict[str, Any]]:
+    # Only security appliance networks have uplink usage. Other networks reject the request.
+    return [network] if "appliance" in (network.get("productTypes") or []) else []
+
+
+def _timespan_since(last_value: Any, minimum: int, maximum: int) -> int:
+    since = parse_datetime_value(last_value) if last_value is not None else None
+    if since is None:
+        return maximum
+    elapsed = math.ceil((datetime.now(UTC) - since).total_seconds())
+    return max(minimum, min(maximum, elapsed))
+
+
 def _with_event_id(event: dict[str, Any]) -> dict[str, Any]:
     content = json.dumps(event, sort_keys=True, separators=(",", ":"), default=str)
     return {"id": hashlib.sha256(content.encode()).hexdigest(), **event}
@@ -223,11 +243,20 @@ def _network_source(
             )
 
     is_event_log = endpoint.name == "network_events"
-    incremental = is_event_log and should_use_incremental_field
-    stop_before = parse_datetime_value(db_incremental_field_last_value) if incremental else None
+    is_uplink_usage = endpoint.name == "uplink_usage_history"
+    incremental = bool(endpoint.incremental_fields) and should_use_incremental_field
+    last_value = db_incremental_field_last_value if incremental else None
     child_endpoint_extra: dict[str, Any] = {"data_selector": endpoint.data_selector}
     if is_event_log:
-        child_endpoint_extra["paginator"] = _EventLogPaginator(stop_before)
+        child_endpoint_extra["paginator"] = _EventLogPaginator(parse_datetime_value(last_value))
+    if not endpoint.paginated:
+        child_endpoint_extra["paginator"] = "single_page"
+    child_params_extra = (
+        {"timespan": _timespan_since(last_value, UPLINK_USAGE_MIN_TIMESPAN_SECONDS, UPLINK_USAGE_MAX_TIMESPAN_SECONDS)}
+        if is_uplink_usage
+        else None
+    )
+    parent_data_map = _network_product_types if is_event_log else _appliance_networks if is_uplink_usage else None
 
     resource = cast(
         Resource,
@@ -241,12 +270,13 @@ def _network_source(
             job_id=job_id,
             db_incremental_field_last_value=None,
             should_use_incremental_field=incremental,
-            # The event log has no time filter, so the paginator bounds an incremental read instead.
+            # The event log paginator and the uplink usage timespan bound an incremental read instead.
             incremental_config_factory=lambda _field: None,
             parent_endpoint_extra={"data_selector": "$"},
             child_endpoint_extra=cast(Any, child_endpoint_extra),
-            parent_data_map=_network_product_types if is_event_log else None,
-            page_size_param="perPage",
+            child_params_extra=child_params_extra,
+            parent_data_map=parent_data_map,
+            page_size_param="perPage" if endpoint.paginated else None,
             resume_hook=save_checkpoint,
             initial_paginator_state=initial_state,
         ),
@@ -260,10 +290,111 @@ def _network_source(
         primary_keys=list(endpoint.primary_keys),
         on_complete=manager.clear_state,
         # Each network's event log arrives newest first, so the watermark advances only when the sync completes.
-        sort_mode="desc" if is_event_log else "asc",
-        partition_mode="datetime" if is_event_log else None,
-        partition_format="month" if is_event_log else None,
-        partition_keys=["occurredAt"] if is_event_log else None,
+        # Uplink usage arrives as one series for each network, so it has no order across the table.
+        sort_mode="desc" if is_event_log else None if is_uplink_usage else "asc",
+        **_partitioning(endpoint),
+    )
+
+
+def _partitioning(endpoint: MerakiEndpoint) -> dict[str, Any]:
+    if endpoint.partition_key is None:
+        return {}
+    return {"partition_mode": "datetime", "partition_format": "month", "partition_keys": [endpoint.partition_key]}
+
+
+def _usage_history_rows(network_id: str, histories: list[Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "networkId": network_id,
+            "clientId": history.get("clientId"),
+            "clientIp": history.get("clientIp"),
+            "clientMac": history.get("clientMac"),
+            **usage,
+        }
+        for history in histories
+        if isinstance(history, dict)
+        for usage in history.get("usageHistory") or []
+        if isinstance(usage, dict)
+    ]
+
+
+def _client_usage_pages(
+    config: "CiscoMerakiSourceConfig",
+    endpoint: MerakiEndpoint,
+    api_version: str,
+    manager: "ResumableSourceManager[CiscoMerakiResumeConfig]",
+    timespan: int,
+) -> Iterator[list[dict[str, Any]]]:
+    """Read usage histories for the clients of each network, a batch of client keys at a time.
+
+    The endpoint returns usage only for the clients that a request names, so the network clients
+    listing supplies the keys. The resume state is the list of networks that are complete.
+    """
+    settings = client_config(config, api_version)
+    client = RESTClient(
+        base_url=settings["base_url"],
+        auth=APIKeyAuth(api_key=config.api_key, name="X-Cisco-Meraki-API-Key"),
+        paginator=HeaderLinkPaginator(),
+        session=settings["session"],
+        request_timeout=settings["request_timeout"],
+    )
+    resume = manager.load_state() if manager.can_resume() else None
+    completed = list(resume.completed_paths or []) if resume is not None else []
+    networks = ENDPOINTS["networks"]
+
+    for network_page in client.paginate(
+        _organization_path(networks.path, config), params={"perPage": networks.page_size}
+    ):
+        manager.safe_point()
+        for network in network_page:
+            network_id = str(network["id"])
+            path = endpoint.path.replace("{networkId}", network_id)
+            if path in completed:
+                continue
+            manager.save_state(CiscoMerakiResumeConfig(completed_paths=list(completed)))
+            manager.safe_point()
+            for client_page in client.paginate(
+                f"networks/{network_id}/clients", params={"perPage": endpoint.page_size, "timespan": timespan}
+            ):
+                keys = [str(row["id"]) for row in client_page if isinstance(row, dict) and row.get("id")]
+                if not keys:
+                    manager.safe_point()
+                for start in range(0, len(keys), CLIENT_USAGE_BATCH_SIZE):
+                    params = {
+                        "clients": ",".join(keys[start : start + CLIENT_USAGE_BATCH_SIZE]),
+                        "perPage": endpoint.page_size,
+                        "timespan": timespan,
+                    }
+                    for history_page in client.paginate(path, params=params):
+                        rows = _usage_history_rows(network_id, history_page)
+                        if rows:
+                            yield rows
+                        else:
+                            manager.safe_point()
+            completed.append(path)
+
+
+def _client_usage_source(
+    config: "CiscoMerakiSourceConfig",
+    endpoint: MerakiEndpoint,
+    api_version: str,
+    manager: "ResumableSourceManager[CiscoMerakiResumeConfig]",
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> SourceResponse:
+    timespan = _timespan_since(
+        db_incremental_field_last_value if should_use_incremental_field else None,
+        CLIENT_USAGE_MIN_TIMESPAN_SECONDS,
+        CLIENTS_TIMESPAN_SECONDS,
+    )
+    return SourceResponse(
+        name=endpoint.name,
+        items=lambda: _client_usage_pages(config, endpoint, api_version, manager, timespan),
+        primary_keys=list(endpoint.primary_keys),
+        on_complete=manager.clear_state,
+        # Usage arrives as one series for each batch of clients, so it has no order across the table.
+        sort_mode=None,
+        **_partitioning(endpoint),
     )
 
 
@@ -278,6 +409,10 @@ def cisco_meraki_source(
     db_incremental_field_last_value: Any = None,
 ) -> SourceResponse:
     endpoint = schema_for_resource(ENDPOINTS, endpoint_name)
+    if endpoint.name == "client_usage_histories":
+        return _client_usage_source(
+            config, endpoint, api_version, manager, should_use_incremental_field, db_incremental_field_last_value
+        )
     if endpoint.fanout is not None:
         return _network_source(
             config,

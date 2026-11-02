@@ -59,6 +59,9 @@ class TestChartEvents(BaseTest):
     def test_finds_the_events_the_chart_reads(self, _name: str, source: dict[str, Any]) -> None:
         assert chart_events(source, self.team, self.user) is not None
 
+    def test_does_not_support_a_funnel_with_one_step(self) -> None:
+        assert chart_events({"kind": "FunnelsQuery", "series": [SERIES]}, self.team, self.user) is None
+
 
 @time_machine.travel(NOW, tick=False)
 class TestChartEventsCounts(ClickhouseTestMixin, BaseTest):

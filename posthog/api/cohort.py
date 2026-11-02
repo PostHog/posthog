@@ -125,7 +125,7 @@ from products.cohorts.backend.realtime_state import (
     CohortHistoryBuildPhase,
     CohortRealtimeReadiness,
     CohortRealtimeState,
-    has_realtime_state,
+    cohorts_with_realtime_state,
     resolve_realtime_readiness,
 )
 from products.feature_flags.backend.facade.config import ConfigFormatError, UnsupportedConfig, decode_config
@@ -643,11 +643,35 @@ API_COHORT_PERSON_BYTES_READ_FROM_POSTGRES_COUNTER = Counter(
 logger = structlog.get_logger(__name__)
 
 
+class LengthFirstListField(serializers.ListField):
+    # DRF checks max_length only after it validates every item, so an oversized list of bad items
+    # builds one error per item before it fails. Check the length first to reject it in constant time.
+    def to_internal_value(self, data: Any) -> list[Any]:
+        if self.max_length is not None and isinstance(data, list) and len(data) > self.max_length:
+            self.fail("max_length", max_length=self.max_length)
+        return super().to_internal_value(data)
+
+
 class AddPersonsToStaticCohortRequestSerializer(serializers.Serializer):
-    person_ids = serializers.ListField(
-        child=serializers.UUIDField(),
+    person_ids = LengthFirstListField(
+        child=serializers.UUIDField(
+            error_messages={
+                "invalid": "Must be a person UUID (the `id` column of the persons table), not a distinct ID or an email."
+            }
+        ),
         required=True,
-        help_text="List of person UUIDs to add to the cohort",
+        allow_empty=False,
+        max_length=DEFAULT_COHORT_INSERT_BATCH_SIZE,
+        error_messages={
+            "max_length": (
+                "Too many person_ids. Send at most {max_length} per request. To add a larger set, set a `query` "
+                "on the static cohort instead, and the server adds every matching person."
+            )
+        },
+        help_text=(
+            "Person UUIDs to add to the cohort (the `id` column of the persons table, not distinct IDs). "
+            f"At most {DEFAULT_COHORT_INSERT_BATCH_SIZE} per request."
+        ),
     )
 
 
@@ -781,6 +805,23 @@ class CohortUsedInResponseSerializer(serializers.Serializer):
     )
 
 
+# Each run carries its per-query stats, so a page stays bounded well above the UI page size of 100.
+COHORT_CALCULATION_HISTORY_MAX_LIMIT = 500
+
+
+class CohortCalculationHistoryQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        required=False,
+        default=100,
+        min_value=1,
+        max_value=COHORT_CALCULATION_HISTORY_MAX_LIMIT,
+        help_text=f"Number of calculation runs to return. Defaults to 100, at most {COHORT_CALCULATION_HISTORY_MAX_LIMIT}.",
+    )
+    offset = serializers.IntegerField(
+        required=False, default=0, min_value=0, help_text="Number of calculation runs to skip. Defaults to 0."
+    )
+
+
 class CohortCalculationHistorySerializer(serializers.ModelSerializer):
     duration_seconds = serializers.ReadOnlyField()
     is_completed = serializers.ReadOnlyField()
@@ -790,7 +831,6 @@ class CohortCalculationHistorySerializer(serializers.ModelSerializer):
     total_read_rows = serializers.ReadOnlyField()
     total_written_rows = serializers.ReadOnlyField()
     main_query = serializers.ReadOnlyField()
-    main_query_id = serializers.ReadOnlyField()
 
     class Meta:
         model = CohortCalculationHistory
@@ -810,8 +850,18 @@ class CohortCalculationHistorySerializer(serializers.ModelSerializer):
             "total_read_rows",
             "total_written_rows",
             "main_query",
-            "main_query_id",
         ]
+
+
+class CohortCalculationHistoryResponseSerializer(serializers.Serializer):
+    results = CohortCalculationHistorySerializer(many=True, help_text="Calculation runs on this page, newest first.")
+    count = serializers.IntegerField(help_text="Number of calculation runs recorded for the cohort.")
+    next = serializers.CharField(
+        allow_null=True, help_text="Query string for the next page, such as `?limit=100&offset=100`, or null."
+    )
+    previous = serializers.CharField(
+        allow_null=True, help_text="Query string for the previous page, or null on the first page."
+    )
 
 
 class CSVConfig:
@@ -977,7 +1027,7 @@ def _resolve_realtime_readiness_if_in_rollout(
     Eligibility is checked before the rollout flag, and not after, so a project the pipeline does
     not cover never pays for a flag evaluation that cannot change its answer.
     """
-    relevant = [cohort for cohort in cohorts if has_realtime_state(cohort)]
+    relevant = cohorts_with_realtime_state(cohorts)
     if not relevant or not _realtime_targeting_enabled(context):
         return {}
     return resolve_realtime_readiness(relevant)
@@ -1036,6 +1086,12 @@ class CohortListSerializer(serializers.ListSerializer):
             cohorts, self.child.context
         )
         return super().to_representation(cohorts)
+
+
+def _completed_calculations_newest_first(cohort: Any) -> QuerySet[CohortCalculationHistory]:
+    return CohortCalculationHistory.objects.filter(cohort=cohort, finished_at__isnull=False).order_by(
+        "-started_at", "-id"
+    )
 
 
 class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializer):
@@ -1165,18 +1221,14 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                 return get_friendly_error_message(cohort.last_error_code, will_retry=will_retry)
             return None
 
-        # Fall back to querying calculation history.
+        # Fall back to querying the most recent completed calculation.
+        # If a newer completed run succeeded (error is empty/NULL), the cohort has recovered
+        # and no stale error from an older failed run should be surfaced.
         # Old records may have error set but error_code=NULL; get_friendly_error_message
         # returns None for those, so they won't surface user-facing messages.
-        last_failed_calculation = (
-            CohortCalculationHistory.objects.filter(cohort=cohort)
-            .exclude(error__isnull=True)
-            .exclude(error="")
-            .order_by("-started_at")
-            .first()
-        )
-        if last_failed_calculation:
-            return get_friendly_error_message(last_failed_calculation.error_code, will_retry=will_retry)
+        last_completed_calculation = _completed_calculations_newest_first(cohort).first()
+        if last_completed_calculation and last_completed_calculation.error:
+            return get_friendly_error_message(last_completed_calculation.error_code, will_retry=will_retry)
         return None
 
     def validate_cohort_type(self, value):
@@ -2483,13 +2535,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         # cohorts.
         if not is_basic_list:
             last_error_code_subquery = Subquery(
-                CohortCalculationHistory.objects.filter(
-                    cohort=OuterRef("pk"),
-                    error__isnull=False,
-                )
-                .exclude(error="")
-                .order_by("-started_at")
-                .values("error_code")[:1]
+                _completed_calculations_newest_first(OuterRef("pk")).values("error_code")[:1]
             )
             queryset = queryset.prefetch_related("experiment_set").annotate(last_error_code=last_error_code_subquery)
 
@@ -2610,17 +2656,22 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
     def add_persons_to_static_cohort(self, request: request.Request, **kwargs):
         cohort: Cohort = self.get_object()
         if not cohort.is_static:
-            raise ValidationError("Can only add users to static cohorts")
-        person_ids = request.data.get("person_ids", None)
-        if not isinstance(person_ids, list):
-            raise ValidationError("person_ids must be a list")
-        if len(person_ids) == 0:
-            raise ValidationError("person_ids cannot be empty")
-        if len(person_ids) > DEFAULT_COHORT_INSERT_BATCH_SIZE:
-            raise ValidationError("List size exceeds limit")
+            raise ValidationError(
+                "Can only add users to static cohorts. This cohort is dynamic, so its filters decide who is in it. "
+                "Change the filters, or create a static cohort (`is_static: true`) and add the persons to that one.",
+                code="cohort_not_static",
+            )
+        serializer = AddPersonsToStaticCohortRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        person_ids = [str(person_id) for person_id in serializer.validated_data["person_ids"]]
         uuids = validate_person_uuids_exist(self.team_id, person_ids)
         if len(uuids) == 0:
-            raise ValidationError("No valid users to add to cohort")
+            raise ValidationError(
+                "No valid users to add to cohort. None of the person_ids match a person in this project. "
+                "Use person UUIDs from the persons table (for example `SELECT id FROM persons WHERE ...`). "
+                "Distinct IDs do not match, even when they look like UUIDs.",
+                code="no_matching_persons",
+            )
         cohort.insert_users_list_by_uuid(uuids, team_id=self.team_id)
         log_activity(
             organization_id=cast(UUIDT, self.organization_id),
@@ -2712,10 +2763,16 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         )
         return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
+    @extend_schema(
+        parameters=[CohortCalculationHistoryQuerySerializer],
+        responses={200: CohortCalculationHistoryResponseSerializer},
+    )
     @action(methods=["GET"], detail=True, required_scopes=["cohort:read"])
     def calculation_history(self, request: request.Request, **kwargs):
-        limit = int(request.query_params.get("limit", "100"))
-        offset = int(request.query_params.get("offset", "0"))
+        query = CohortCalculationHistoryQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        limit: int = query.validated_data["limit"]
+        offset: int = query.validated_data["offset"]
 
         cohort: Cohort = self.get_object()
 

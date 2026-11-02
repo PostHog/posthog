@@ -155,6 +155,7 @@ You need a free [Socrata app token](https://support.socrata.com/hc/en-us/article
                 [
                     SourceFieldInputConfig(
                         name="dataset_ids",
+                        sync_setting=True,
                         label="Dataset IDs",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,

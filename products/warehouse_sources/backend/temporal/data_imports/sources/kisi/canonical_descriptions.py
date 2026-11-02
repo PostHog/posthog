@@ -122,4 +122,38 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "created_at": "Time when the event was created.",
         },
     },
+    "group_locks": {
+        "description": "Links between Kisi groups and the locks that their members can open.",
+        "docs_url": "https://api.getkisi.com/docs#tag/group-locks/GET/group_locks",
+        "columns": {
+            "id": "Unique group lock identifier.",
+            "group_id": "Identifier of the group that gets access to the lock.",
+            "lock_id": "Identifier of the lock that the group can open.",
+            "place_id": "Identifier of the place that contains the lock.",
+            "created_at": "Time when the group lock was created.",
+            "updated_at": "Time when the group lock was last updated.",
+        },
+    },
+    "teams": {
+        "description": "Teams of Kisi users and guests that receive roles together.",
+        "docs_url": "https://api.getkisi.com/docs#tag/teams/GET/teams",
+        "columns": {
+            "id": "Unique team identifier.",
+            "name": "Team name.",
+            "created_at": "Time when the team was created.",
+            "updated_at": "Time when the team was last updated.",
+        },
+    },
+    "team_memberships": {
+        "description": "Users and guests that belong to each Kisi team.",
+        "docs_url": "https://api.getkisi.com/docs#tag/team-memberships/GET/team_memberships",
+        "columns": {
+            "id": "Unique team membership identifier.",
+            "team_id": "Identifier of the team.",
+            "member_type": "Type of the member: User or Guest.",
+            "member_id": "Identifier of the user or guest.",
+            "created_at": "Time when the team membership was created.",
+            "updated_at": "Time when the team membership was last updated.",
+        },
+    },
 }

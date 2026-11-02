@@ -87,6 +87,12 @@ class BlueskySource(ResumableSource[BlueskySourceConfig, BlueskyResumeConfig]):
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "400 Client Error": "Bluesky couldn't find that handle or DID. Check the spelling and reconnect.",
+            # Bluesky's public, unauthenticated AppView returns 403 when the account has hidden
+            # its posts from logged-out viewers, and this source only ever calls that API.
+            "403 Client Error": (
+                "This account has hidden its posts from logged-out viewers on Bluesky. Ask the account "
+                "owner to allow logged-out access in their Bluesky privacy settings, then reconnect."
+            ),
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

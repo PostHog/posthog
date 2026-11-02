@@ -66,6 +66,7 @@ Each sync fetches the current metadata and full version history for every config
                 [
                     SourceFieldInputConfig(
                         name="gems",
+                        sync_setting=True,
                         label="Gems",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,

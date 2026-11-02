@@ -73,6 +73,8 @@ def capture_suggested_reviewers_resolved(
     correction_note_targets: int | None = None,
     resolution_outcome: str | None = None,
     after_inbox_notification: bool | None = None,
+    removal_reason: str | None = None,
+    has_removal_note: bool | None = None,
 ) -> None:
     """Emit `signals_suggested_reviewers_resolved` when a report's suggested reviewers are persisted.
 
@@ -129,6 +131,8 @@ def capture_suggested_reviewers_resolved(
                 "user_uuid_only_count": len(linkability.linkable_user_uuids),
                 "unlinkable_user_uuid_count": len(linkability.unlinkable_user_uuids),
                 "all_unlinkable": bool(linkability.unlinkable_count) and not linkability.linkable_count,
+                **({"removal_reason": removal_reason} if removal_reason else {}),
+                **({"has_removal_note": has_removal_note} if has_removal_note is not None else {}),
                 **(
                     {}
                     if correction_notes_written is None

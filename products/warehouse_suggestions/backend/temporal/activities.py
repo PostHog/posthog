@@ -1,5 +1,6 @@
 from collections import Counter
 from itertools import batched
+from uuid import UUID
 
 from django.utils import timezone
 
@@ -19,7 +20,8 @@ from ..logic.flags import is_warehouse_suggestions_enabled
 from ..logic.job import TeamRunStatus, run_team, team_ids_with_suggestions_to_maintain
 from ..logic.reads import ReadWindow, read_rollup_days
 from ..logic.rules import RULES
-from .contracts import BatchOutcome, WarehouseSuggestionsInputs
+from ..logic.view_costs import MeasurementOutcome, measure_view_cost
+from .contracts import BatchOutcome, ViewCostRequest, WarehouseSuggestionsInputs
 
 LOGGER = get_logger(__name__)
 FULL_ROLLOUT = 1.0
@@ -53,18 +55,35 @@ def run_batch(team_ids: list[int], run_id: str) -> BatchOutcome:
     today = timezone.now().date()
     rollup_days = read_rollup_days(ReadWindow.ending(today, RULES))
     outcomes: Counter[str] = Counter()
+    view_costs_to_measure: list[ViewCostRequest] = []
     for team_id in team_ids:
         try:
-            outcomes[run_team(team_id, run_id=run_id, today=today, rollup_days=rollup_days).status] += 1
+            result = run_team(team_id, run_id=run_id, today=today, rollup_days=rollup_days)
         except Exception:
             LOGGER.exception("warehouse_suggestions.team_failed", team_id=team_id)
             outcomes["failed"] += 1
+            continue
+        outcomes[result.status] += 1
+        view_costs_to_measure.extend(
+            ViewCostRequest(team_id=team_id, saved_query_id=str(subject.id)) for subject in result.measurement_requests
+        )
     return BatchOutcome(
         processed=outcomes[TeamRunStatus.PROCESSED],
         not_eligible=outcomes[TeamRunStatus.NOT_ELIGIBLE],
         disabled=outcomes[TeamRunStatus.DISABLED],
         failed=outcomes["failed"],
+        view_costs_to_measure=view_costs_to_measure[: RULES.measurement.max_per_run],
     )
+
+
+def measure_view_costs_sync(requests: list[ViewCostRequest]) -> int:
+    outcomes: Counter[MeasurementOutcome] = Counter()
+    for request in requests:
+        outcomes[measure_view_cost(request.team_id, UUID(request.saved_query_id), RULES.measurement)] += 1
+    LOGGER.info(
+        "warehouse_suggestions.view_costs_measured", **{outcome.value: count for outcome, count in outcomes.items()}
+    )
+    return outcomes.total()
 
 
 def _teams_to_run() -> set[int]:
@@ -87,3 +106,9 @@ async def get_warehouse_suggestion_team_batches(inputs: WarehouseSuggestionsInpu
 async def generate_warehouse_suggestions(team_ids: list[int], run_id: str) -> BatchOutcome:
     async with Heartbeater():
         return await database_sync_to_async_pool(run_batch)(team_ids, run_id)
+
+
+@activity.defn
+async def measure_view_costs(requests: list[ViewCostRequest]) -> int:
+    async with Heartbeater():
+        return await database_sync_to_async_pool(measure_view_costs_sync)(requests)

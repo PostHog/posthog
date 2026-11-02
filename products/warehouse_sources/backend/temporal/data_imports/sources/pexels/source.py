@@ -71,6 +71,7 @@ Attribution to Pexels and to the photographer/videographer is required when you 
                     ),
                     SourceFieldInputConfig(
                         name="search_query",
+                        sync_setting=True,
                         label="Search query",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

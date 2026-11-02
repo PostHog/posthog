@@ -19,7 +19,7 @@ import SourceSetupIntro from "../\_snippets/source-setup-intro.mdx"
 import SyncModes from "../\_snippets/sync-modes.mdx"
 import TroubleshootingLink from "../\_snippets/dw-troubleshooting-link.mdx"
 
-[E2B](https://e2b.dev) runs secure cloud sandboxes for executing AI-agent-generated code. Linking E2B as a source syncs your sandbox infrastructure into the PostHog data warehouse: running and paused sandboxes, templates and their build history, snapshots, and CPU, memory and disk usage per sandbox. You can then join agent sandbox activity with your product analytics.
+[E2B](https://e2b.dev) runs secure cloud sandboxes for executing AI-agent-generated code. Linking E2B as a source syncs your sandbox infrastructure into the PostHog data warehouse: running and paused sandboxes, templates with their build history and tags, snapshots, and CPU, memory and disk usage per sandbox. You can then join agent sandbox activity with your product analytics.
 
 ## Prerequisites
 

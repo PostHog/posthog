@@ -191,7 +191,7 @@ Create an IAM user or role with the `logs:DescribeLogGroups`, `logs:FilterLogEve
 Log events sync from the log groups you list, or from every log group in the region (up to 50) when the list is empty. A log group or metric query added later syncs from the next sync on; resync the table to backfill its history. Any log delivered to CloudWatch Logs works, including Bedrock model invocation logs and CloudFront standard logs. Metric datapoints sync for the metric queries you configure as JSON, for example `[{"id": "cpu", "namespace": "AWS/EC2", "metric_name": "CPUUtilization", "dimensions": {"InstanceId": "i-0123456789abcdef0"}, "stat": "Average", "period": 300}]`. S3 Storage Lens metrics live in the `AWS/S3/Storage-Lens` namespace. Older datapoints come back at the resolution CloudWatch keeps for them: 5 minutes after 15 days and 1 hour after 63 days.""",
             iconPath="/static/services/amazon_cloudwatch.png",
             docsUrl="https://posthog.com/docs/cdp/sources/amazon-cloudwatch",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["aws", "cloudwatch", "logs", "metrics", "alarms"],
             fields=cast(
                 list[FieldType],
@@ -230,6 +230,7 @@ Log events sync from the log groups you list, or from every log group in the reg
                     ),
                     SourceFieldInputConfig(
                         name="log_group_names",
+                        sync_setting=True,
                         label="Log groups to sync (one per line, empty syncs every log group)",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=False,
@@ -238,6 +239,7 @@ Log events sync from the log groups you list, or from every log group in the reg
                     ),
                     SourceFieldInputConfig(
                         name="metric_queries",
+                        sync_setting=True,
                         label="Metric queries (JSON list)",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=False,
@@ -246,6 +248,7 @@ Log events sync from the log groups you list, or from every log group in the reg
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date (defaults to 7 days back for logs, 14 for metrics, 30 for alarm history)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

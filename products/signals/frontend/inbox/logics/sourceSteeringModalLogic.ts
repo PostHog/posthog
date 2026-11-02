@@ -194,26 +194,15 @@ export const sourceSteeringModalLogic: LogicWrapper<sourceSteeringModalLogicType
                 // behind. Retrying writes the same text to all of them, so a partial save heals.
                 let firstError: unknown = null
                 for (const sourceConfig of logicProps.sourceConfigs) {
-                    // The endpoint replaces the config object wholesale, so the whole blob goes back
-                    // with the steering keys merged in; a partial object would clobber source-specific
-                    // keys like recording_filters. The merge base is the freshest cached row rather
-                    // than the open-time prop snapshot, so a config change that landed while the
-                    // modal was open (another card's toggle, an earlier save) survives. A concurrent
-                    // write from another client can still be lost until the endpoint merges
-                    // server-side.
-                    const baseConfig =
-                        values.sourceConfigs?.find((c: SignalSourceConfig) => c.id === sourceConfig.id)?.config ??
-                        sourceConfig.config
-                    // The posture flag has no UI any more; dropping it on save keeps the free text the
-                    // only thing steering the gate, so what a user sees here is all that applies.
-                    const { [SOURCE_DEFAULT_NOT_ACTIONABLE_KEY]: _droppedPosture, ...restConfig } = baseConfig
-                    const config = { ...restConfig, [SOURCE_STEERING_KEY]: steering }
                     let updated: SignalSourceConfigApi
                     try {
                         updated = await signalsSourceConfigsPartialUpdate(
                             String(values.currentTeamId),
                             sourceConfig.id,
-                            { config }
+                            {
+                                config_set: { [SOURCE_STEERING_KEY]: steering },
+                                config_remove: [SOURCE_DEFAULT_NOT_ACTIONABLE_KEY],
+                            }
                         )
                     } catch (error) {
                         firstError = firstError ?? error
@@ -225,7 +214,7 @@ export const sourceSteeringModalLogic: LogicWrapper<sourceSteeringModalLogicType
                     actions.replaceSourceConfig({
                         ...sourceConfig,
                         enabled: updated.enabled ?? sourceConfig.enabled,
-                        config: updated.config ?? config,
+                        config: updated.config ?? sourceConfig.config,
                         updated_at: updated.updated_at,
                         // The generated type widens the serializer's sync status to string | null.
                         status: (updated.status ?? null) as SignalSourceConfig['status'],

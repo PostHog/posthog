@@ -11,9 +11,9 @@ is visible in one place.
 and ``temporalio`` on the ``django.setup()`` path. Core config-time consumers import this
 facade, so it reaches the service only through ``_service()``, which imports it at call
 time. For the same reason the Temporal client is built in ``_get_temporal_client()``, and
-the HogQL, destination config, file download, run and backfill modules load through
-``_import_hogql_source()``, ``_import_destination_config()``, ``_import_file_downloads()``,
-``_import_runs()`` and ``_import_backfills()``.
+the HogQL, destination config, export, file download, run and backfill modules load through
+``_import_hogql_source()``, ``_import_destination_config()``, ``_import_exports()``,
+``_import_file_downloads()``, ``_import_runs()`` and ``_import_backfills()``.
 
 Temporal workflow and activity registration crosses as objects, not data, so it lives in
 ``facade/temporal.py``. The destination clients the warehouse writers reuse live in
@@ -27,14 +27,12 @@ from types import ModuleType
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from django.db import transaction
 from django.db.models import Count, F, Q, Sum
 from django.db.models.functions import Coalesce
 
 import structlog
 
-from posthog.models import Team, User
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationManager
 
 from products.batch_exports.backend import (
     destination_tests,
@@ -51,6 +49,7 @@ from products.batch_exports.backend.models.batch_export import (
 )
 
 from . import contracts
+from .enums import BATCH_EXPORT_INTEGRATION_KINDS
 
 if TYPE_CHECKING:
     from temporalio.client import Client
@@ -62,17 +61,18 @@ __all__ = [
     "cancel_batch_export_backfill",
     "cancel_batch_export_run",
     "cancel_file_download",
-    "coerce_destination_config",
     "count_batch_exports_for_teams",
     "count_hogql_rows",
     "create_batch_export",
     "create_batch_export_backfill",
+    "create_batch_export_from_input",
     "create_workflows_backfill_export",
     "delete_batch_export",
     "delete_batch_exports_for_teams",
     "describe_destination_test",
     "drop_unknown_hogql_modifiers",
     "find_hogql_interval_placeholders",
+    "get_batch_export",
     "get_batch_export_backfill",
     "get_batch_export_by_name",
     "get_batch_export_run",
@@ -86,13 +86,19 @@ __all__ = [
     "list_backfills_for_export",
     "list_batch_export_backfills",
     "list_batch_export_runs",
+    "list_batch_exports",
     "list_batch_exports_using_integration",
     "list_file_download_runs",
     "list_latest_failed_runs",
     "list_supported_intervals",
+    "organization_has_custom_events_schema_exports",
+    "pause_batch_export",
     "retry_batch_export_run",
     "run_destination_test_step",
     "start_file_download",
+    "unpause_batch_export",
+    "update_batch_export",
+    "validate_batch_export_destination",
     "validate_batch_export_filters",
     "validate_destination_config",
     "validate_hogql_query",
@@ -148,6 +154,13 @@ def _import_destination_config() -> ModuleType:
     )
 
     return destination_config
+
+
+def _import_exports() -> ModuleType:
+    """Import the export logic at call time. See the module docstring for why."""
+    from products.batch_exports.backend.logic import exports
+
+    return exports
 
 
 def _import_file_downloads() -> ModuleType:
@@ -400,20 +413,6 @@ def get_latest_completed_run(export_id: UUID, team_id: int) -> contracts.BatchEx
     return _to_run_summary(run) if run is not None else None
 
 
-def _schedule_and_save(batch_export: BatchExport) -> None:
-    """Create the Temporal schedule of a new export, then save the export and its destination."""
-    service = _service()
-
-    # Schedule first, then the rows, which is the order every caller uses today. It trades one
-    # failure for the other: a failed save leaves an orphaned schedule, where the reverse order
-    # would leave a row pointing at no schedule. Neither is compensated yet.
-    service.sync_batch_export(batch_export, created=True)
-
-    with transaction.atomic():
-        batch_export.destination.save()
-        batch_export.save()
-
-
 def create_batch_export(
     team_id: int,
     *,
@@ -433,7 +432,7 @@ def create_batch_export(
         paused=paused,
         end_at=end_at,
     )
-    _schedule_and_save(batch_export)
+    _import_exports().schedule_and_save(batch_export)
     return _to_detail(batch_export)
 
 
@@ -474,15 +473,102 @@ def create_workflows_backfill_export(
         filters=event_filters,
         last_modified_by_id=last_modified_by_id,
     )
-    _schedule_and_save(batch_export)
+    _import_exports().schedule_and_save(batch_export)
     return _to_ref(batch_export)
 
 
 def delete_batch_export(export_id: UUID, team_id: int) -> None:
-    """Delete a batch export: pause it, cancel its work, then drop its Temporal schedule."""
-    service = _service()
-    batch_export = BatchExport.objects.select_related("destination").get(id=export_id, team_id=team_id)
-    service.delete_batch_export(batch_export)
+    """Delete a batch export: pause it, cancel its work, then drop its Temporal schedule.
+
+    Raises ``contracts.BatchExportNotFoundError`` when the team has no such live export.
+    """
+    _import_exports().delete_batch_export(team_id, export_id)
+
+
+def get_batch_export(
+    team_id: int, export_id: UUID, *, include_latest_runs: bool = True
+) -> contracts.BatchExportConfiguration:
+    """Return a scheduled batch export of the team, with its destination and, unless left out, its latest runs.
+
+    Without ``include_latest_runs``, ``latest_runs`` is empty and no run is read. Raises
+    ``contracts.BatchExportNotFoundError`` when the team has no such export, or it is deleted.
+    """
+    return _import_exports().get_batch_export(team_id, export_id, include_latest_runs=include_latest_runs)
+
+
+def list_batch_exports(
+    team_id: int, *, offset: int, limit: int
+) -> tuple[list[contracts.BatchExportConfiguration], int]:
+    """Return one page of the team's scheduled batch exports, newest first, and how many there are in total.
+
+    Deleted exports, and the exports that back Workflows backfills, are left out.
+    """
+    return _import_exports().list_batch_exports(team_id, offset=offset, limit=limit)
+
+
+def create_batch_export_from_input(
+    team_id: int, *, user_id: int, export: contracts.NewBatchExport
+) -> contracts.BatchExportConfiguration:
+    """Create a scheduled batch export and its Temporal schedule, as ``user_id``.
+
+    ``export`` already passed the checks of ``validate_batch_export_destination`` and
+    ``validate_destination_config``. Raises ``contracts.UnsupportedHogQLQueryError`` when a
+    legacy events model query cannot be stored as a schema.
+    """
+    return _import_exports().create_batch_export(team_id, user_id, export)
+
+
+def update_batch_export(
+    team_id: int, export_id: UUID, *, user_id: int, update: contracts.BatchExportUpdate
+) -> contracts.BatchExportConfiguration:
+    """Change a scheduled batch export as ``user_id``, and sync its Temporal schedule.
+
+    Raises ``contracts.BatchExportNotFoundError`` when the team has no such export, and
+    ``contracts.UnsupportedHogQLQueryError`` when a legacy events model query cannot be stored
+    as a schema.
+    """
+    return _import_exports().update_batch_export(team_id, export_id, user_id, update)
+
+
+def organization_has_custom_events_schema_exports(organization_id: UUID) -> bool:
+    """Whether the organization is grandfathered into sending a HogQL query with the events model.
+
+    Only organizations where a team already has an events model export with a stored query schema are.
+    """
+    return _import_exports().organization_has_custom_events_schema_exports(organization_id)
+
+
+def validate_hogql_query(
+    team_id: int, *, user_id: int, hogql_query: str, hogql_modifiers: Mapping[str, object] | None
+) -> tuple[str, ...]:
+    """Check that a HogQL query can power a batch export, with the user's table and property permissions.
+
+    Returns the names of the columns the query outputs. Raises ``contracts.UnsupportedHogQLQueryError``
+    when the query cannot power a batch export.
+    """
+    return _import_exports().validate_hogql_query(
+        team_id, user_id, hogql_query, dict(hogql_modifiers) if hogql_modifiers is not None else None
+    )
+
+
+def pause_batch_export(team_id: int, export_id: UUID, *, note: str) -> None:
+    """Pause a batch export, so its schedule starts no new runs.
+
+    ``note`` records who asked, on the Temporal schedule. Raises
+    ``contracts.BatchExportNotFoundError`` when the team has no such export, and
+    ``contracts.BatchExportScheduleError`` when Temporal rejects the change.
+    """
+    _import_exports().pause_batch_export(team_id, export_id, note=note)
+
+
+def unpause_batch_export(team_id: int, export_id: UUID, *, note: str, backfill: bool) -> None:
+    """Unpause a batch export. With ``backfill``, also backfill the runs it missed while paused.
+
+    ``note`` records who asked, on the Temporal schedule. Raises
+    ``contracts.BatchExportNotFoundError`` when the team has no such export, and
+    ``contracts.BatchExportScheduleError`` when Temporal rejects the change.
+    """
+    _import_exports().unpause_batch_export(team_id, export_id, note=note, backfill=backfill)
 
 
 def backfill_batch_export(
@@ -513,12 +599,27 @@ def validate_destination_config(destination_type: str, config: Mapping[str, Any]
     return _import_destination_config().validate_destination_config(destination_type, config, partial=partial)
 
 
-def coerce_destination_config(destination_type: str, config: dict[str, Any]) -> dict[str, Any]:
-    """Return a stored destination config with its values restored to their declared types.
+def validate_batch_export_destination(
+    team_id: int,
+    *,
+    export_id: UUID | None,
+    destination_type: str,
+    config: Mapping[str, Any],
+    integration: contracts.IntegrationChange | None,
+) -> None:
+    """Check that a destination can be saved, for a new export or as a change to ``export_id``.
 
-    The stored config reads back with stringified scalars, so ``"False"`` becomes ``False``.
+    ``config`` already passed ``validate_destination_config``. ``integration`` is None
+    when the request left the integration out, which keeps the existing integration of the export. Raises
+    ``contracts.InvalidBatchExportDestinationError`` with the failed check as the message.
     """
-    return _service().coerce_config_to_declared_types(destination_type, config)
+    _import_exports().validate_destination(
+        team_id,
+        export_id=export_id,
+        destination_type=destination_type,
+        config=config,
+        integration_change=integration,
+    )
 
 
 def describe_destination_test(destination_type: str) -> contracts.DestinationTest:
@@ -534,18 +635,30 @@ def run_destination_test_step(
     config: Mapping[str, object],
     integration_id: int | None,
     step: int,
+    export_id: UUID | None = None,
 ) -> contracts.DestinationTestStep:
     """Run one step of a destination's connection test, and return that step with its result.
 
-    ``config`` is a destination config that already passed validation. The step reaches the
-    destination over the network. When the destination authenticates through an integration,
-    the integration's config and secrets override any key of the same name in ``config``.
+    ``config`` is a destination config that already passed validation. With ``export_id``, the
+    test runs against that export: ``config`` may be partial, and the export's stored config
+    fills the fields it leaves out. The step reaches the destination over the network. When the
+    destination authenticates through an integration, the integration's config and secrets
+    override any key of the same name in ``config``. Raises ``contracts.BatchExportNotFoundError``
+    when the team has no such live export, and ``contracts.InvalidDestinationConfigError`` when
+    the merged config is not complete.
     """
     destination_test = destination_tests.get_destination_test(destination=destination_type)
 
     test_configuration = dict(config)
+    if export_id is not None:
+        # The stored config holds the destination's credentials, so it is merged here and never
+        # leaves the product.
+        # TODO: once inline credentials are gone, a request can send the full config. Then remove
+        # this merge, the `export_id` parameter and `get_destination_test_config`.
+        stored_config = _import_exports().get_destination_test_config(team_id, export_id)
+        test_configuration = validate_destination_config(destination_type, {**stored_config, **config}, partial=False)
     if integration_id is not None:
-        integration = Integration.objects.get(id=integration_id, team_id=team_id)
+        integration = IntegrationManager.kinds(*BATCH_EXPORT_INTEGRATION_KINDS).get(team_id, integration_id)
         test_configuration = {
             **test_configuration,
             **integration.config,
@@ -576,22 +689,6 @@ def find_hogql_interval_placeholders(hogql_query: str) -> frozenset[str]:
     hogql_source = _import_hogql_source()
     return frozenset(
         hogql_source.find_interval_placeholders(hogql_source.parse_hogql_select_for_batch_export(hogql_query))
-    )
-
-
-def validate_hogql_query(
-    team_id: int, *, user_id: int, hogql_query: str, hogql_modifiers: Mapping[str, object] | None
-) -> None:
-    """Check that a HogQL query can power a batch export, with the user's table and property permissions.
-
-    Raises ``contracts.UnsupportedHogQLQueryError`` when it cannot.
-    """
-    hogql_source = _import_hogql_source()
-    hogql_source.validate_hogql_query_for_batch_export(
-        hogql_query,
-        Team.objects.get(id=team_id),
-        user=User.objects.get(id=user_id),
-        modifiers=hogql_source.load_hogql_modifiers(dict(hogql_modifiers) if hogql_modifiers is not None else None),
     )
 
 
@@ -667,29 +764,26 @@ def get_file_download_url(team_id: int, run_id: UUID, part: str | None) -> str:
 def list_batch_export_runs(
     team_id: int, export_id: UUID, *, filters: contracts.BatchExportRunFilters, page: contracts.ListPage
 ) -> list[contracts.BatchExportRunDetail]:
-    """Return one page of an export's runs that match ``filters``, ordered by ``created_at`` or ``data_interval_start``."""
+    """Return one page of an export's runs that match ``filters``, ordered by ``created_at`` or ``data_interval_start``.
+
+    A deleted export has no runs.
+    """
     return _import_runs().list_runs(team_id, export_id, filters, page)
 
 
-def get_batch_export_run(
-    team_id: int, export_id: UUID, run_id: UUID, *, filters: contracts.BatchExportRunFilters
-) -> contracts.BatchExportRunDetail:
-    """Raises ``contracts.BatchExportRunNotFoundError`` unless the team has this run and it matches ``filters``."""
-    return _import_runs().get_run(team_id, export_id, run_id, filters)
+def get_batch_export_run(team_id: int, export_id: UUID, run_id: UUID) -> contracts.BatchExportRunDetail:
+    """Raises ``contracts.BatchExportRunNotFoundError`` unless the team has this run under this export, and the export is not deleted."""
+    return _import_runs().get_run(team_id, export_id, run_id)
 
 
-def retry_batch_export_run(
-    team_id: int, export_id: UUID, run_id: UUID, *, filters: contracts.BatchExportRunFilters
-) -> str:
+def retry_batch_export_run(team_id: int, export_id: UUID, run_id: UUID) -> str:
     """Backfill a run's data interval again and return the backfill id. Raises as ``get_batch_export_run`` does."""
-    return _import_runs().retry_run(team_id, export_id, run_id, filters)
+    return _import_runs().retry_run(team_id, export_id, run_id)
 
 
-def cancel_batch_export_run(
-    team_id: int, export_id: UUID, run_id: UUID, *, filters: contracts.BatchExportRunFilters
-) -> None:
+def cancel_batch_export_run(team_id: int, export_id: UUID, run_id: UUID) -> None:
     """Cancel a starting or running run. Raises ``contracts.InvalidBatchExportRunRequestError`` in any other status."""
-    _import_runs().cancel_run(team_id, export_id, run_id, filters)
+    _import_runs().cancel_run(team_id, export_id, run_id)
 
 
 def list_batch_export_backfills(

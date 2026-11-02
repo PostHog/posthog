@@ -72,7 +72,7 @@ function readNumber(value: unknown): number | null {
     return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
-function readChapters(summary: ReplayObservationApi): TimelineChapter[] {
+export function readChapters(summary: ReplayObservationApi): TimelineChapter[] {
     const raw = readModelOutput(summary)?.chapters
     if (!Array.isArray(raw)) {
         return []
@@ -238,6 +238,10 @@ export function currentRowIndex(rows: TimelineRow[], playerTimeMs: number): numb
         }
     })
     return current
+}
+
+export function momentCount(timeline: RecordingTimeline): number {
+    return timeline.chapters.length + timeline.markers.length
 }
 
 /** The next chapter start after the player's position. */

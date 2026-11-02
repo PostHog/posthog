@@ -6,6 +6,6 @@ Kept separate from ``facade.repo_selection`` so callers that only need the frame
 (e.g. signals' ``artefact_schemas``), which must stay dependency-light.
 """
 
-from products.tasks.backend.logic.repo_selection.types import RepoSelectionResult
+from products.tasks.backend.logic.repo_selection.types import ReportResearchContext, RepoSelectionResult
 
-__all__ = ["RepoSelectionResult"]
+__all__ = ["RepoSelectionResult", "ReportResearchContext"]

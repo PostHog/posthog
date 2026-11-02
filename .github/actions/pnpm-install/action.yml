@@ -56,6 +56,22 @@ runs:
               key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
               restore-keys: pnpm-${{ runner.os }}-
 
+        # pnpm 11 checks the lockfile against the supply-chain policies in pnpm-workspace.yaml
+        # on every install, and the check fetches registry metadata even when the store is warm.
+        # pnpm records a passed check in lockfile-verified.jsonl, keyed by lockfile path, content
+        # and policy, and skips the check when the record matches. pnpm-store-cache.yml writes
+        # this file on master. No restore-keys: a record for another lockfile cannot match.
+        - name: Get pnpm cache path
+          id: pnpm-cache
+          shell: bash
+          run: echo "path=$(pnpm cache path --silent)" >> "$GITHUB_OUTPUT"
+
+        - name: Restore pnpm lockfile verdict
+          uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+          with:
+              path: ${{ steps.pnpm-cache.outputs.path }}/lockfile-verified.jsonl
+              key: pnpm-verdict-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json') }}
+
         - name: Install dependencies
           shell: bash
           working-directory: ${{ inputs.working-directory }}

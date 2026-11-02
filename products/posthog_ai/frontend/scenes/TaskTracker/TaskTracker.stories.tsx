@@ -342,7 +342,7 @@ export const CloudTaskSelected: Story = {
                     results: [TASK_1_RUN],
                 },
                 '/api/projects/:team_id/tasks/task-1/runs/run-task-1/': TASK_1_RUN,
-                '/api/projects/:team_id/tasks/task-1/runs/run-task-1/logs': () =>
+                '/api/projects/:team_id/tasks/task-1/runs/run-task-1/log_entries': () =>
                     new HttpResponse(
                         JSON.stringify({
                             type: 'notification',
@@ -381,7 +381,7 @@ export const PiTaskSelected: Story = {
                     results: [PI_TASK_RUN],
                 },
                 '/api/projects/:team_id/tasks/task-4/runs/run-task-4/': PI_TASK_RUN,
-                '/api/projects/:team_id/tasks/task-4/runs/run-task-4/logs': () =>
+                '/api/projects/:team_id/tasks/task-4/runs/run-task-4/log_entries': () =>
                     new HttpResponse(PI_TASK_LOG.map((entry) => JSON.stringify(entry)).join('\n')),
             },
         }),

@@ -1,6 +1,8 @@
 //! One row of the v4 block index. Every value covers its block only, so a session row is a fold of its block rows:
 //! [`fold_session`].
 
+use super::features::SurfacingFeatures;
+
 /// Fingerprints a block or session row keeps. A session row with this many has visited this many pages or more.
 pub const MAX_URL_FINGERPRINTS: usize = 10;
 /// Window IDs a block or session row keeps. A session row with this many has this many windows or more.
@@ -86,6 +88,9 @@ pub struct BlockStats {
     pub written_jsonl_bytes: u64,
     /// The longest of those lines.
     pub max_written_event_bytes: u64,
+
+    /// What ingestion's surfacing feature recorder records for the block's events as one batch.
+    pub surfacing: SurfacingFeatures,
 }
 
 impl BlockStats {
@@ -124,6 +129,7 @@ impl BlockStats {
             MAX_URL_FINGERPRINTS,
         );
         union(&mut self.window_ids, &later.window_ids, MAX_WINDOW_IDS);
+        self.surfacing.merge(&later.surfacing);
         self.touch_input |= later.touch_input;
         self.set_viewport(
             later.viewport_ts_ms,
@@ -207,6 +213,8 @@ fn min_option(a: Option<i64>, b: Option<i64>) -> Option<i64> {
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Range;
+
     use super::*;
 
     fn block(first: i64, last: i64, host: &str, full_snapshots: u32, waiting: u32) -> BlockStats {
@@ -279,6 +287,77 @@ mod tests {
             (session.first_ts_ms, session.last_ts_ms),
             (Some(1_000), Some(65_000))
         );
+    }
+
+    #[test]
+    fn folds_the_surfacing_features_the_same_in_any_order_and_grouping() {
+        let page = |n: usize| format!("{n:016x}");
+        let block =
+            |first: i64, clicks: u64, distance: i64, max_gap: i64, ids: Range<i64>| BlockStats {
+                first_ts_ms: Some(first),
+                surfacing: SurfacingFeatures {
+                    click_count: clicks,
+                    path_visit_counts: std::array::from_fn(|token| clicks * token as u64),
+                    mouse_distance_traveled_millipx: distance,
+                    mouse_sum_x_millipx: -distance,
+                    max_idle_gap_ms: max_gap,
+                    visited_url_fingerprints: ids.clone().map(|id| page(id as usize % 7)).collect(),
+                    click_target_ids: ids.collect(),
+                    ..SurfacingFeatures::default()
+                },
+                ..BlockStats::default()
+            };
+        let blocks = [
+            block(1_000, 3, 1_500, 40_000, 0..1_000),
+            block(2_000, 5, 2_500, 100, 500..1_500),
+            block(64_000, 1, 0, 70_000, 1_400..2_000),
+            BlockStats::default(),
+        ];
+        let whole = fold_session(blocks.to_vec()).surfacing;
+        let mut pages: Vec<String> = (0..7).map(page).collect();
+        pages.sort_unstable();
+        assert_eq!(
+            (
+                whole.click_count,
+                whole.path_visit_counts[2],
+                whole.mouse_distance_traveled_millipx,
+                whole.mouse_sum_x_millipx,
+                whole.max_idle_gap_ms,
+                whole.visited_url_fingerprints.clone(),
+                whole.click_target_ids.clone(),
+            ),
+            // The sets keep every distinct value, past the cap of one block.
+            (9, 18, 4_000, -4_000, 70_000, pages, (0..2_000).collect())
+        );
+        // Every order, each cut into two groups that fold first, as a reader that folds day by day does.
+        for order in permutations(blocks.len()) {
+            let ordered: Vec<BlockStats> = order.iter().map(|&i| blocks[i].clone()).collect();
+            for cut in 0..=ordered.len() {
+                let (earlier, later) = ordered.split_at(cut);
+                let parts = vec![fold_session(earlier.to_vec()), fold_session(later.to_vec())];
+                assert_eq!(
+                    fold_session(parts).surfacing,
+                    whole,
+                    "{order:?} cut at {cut}"
+                );
+            }
+        }
+    }
+
+    fn permutations(n: usize) -> Vec<Vec<usize>> {
+        if n == 0 {
+            return vec![Vec::new()];
+        }
+        permutations(n - 1)
+            .into_iter()
+            .flat_map(|rest| {
+                (0..n).map(move |at| {
+                    let mut order = rest.clone();
+                    order.insert(at, n - 1);
+                    order
+                })
+            })
+            .collect()
     }
 
     #[test]
