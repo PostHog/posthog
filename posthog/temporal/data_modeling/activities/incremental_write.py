@@ -24,6 +24,7 @@ import json
 import shutil
 import sqlite3
 import threading
+from collections import Counter
 from collections.abc import Iterator
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -38,7 +39,7 @@ import pyarrow.compute as pc
 # the keys move to a local SQLite index, so a huge materialization cannot OOM the worker. Peak memory
 # of the in-memory check is about this state plus one slice, and a worker runs many activities at
 # once, so the budget has to stay a small share of a pod.
-MAX_UNIQUE_KEY_CHECK_BYTES = 256 * 1024 * 1024
+MAX_UNIQUE_KEY_CHECK_BYTES = 1024 * 1024 * 1024
 
 # The spilled index shares the worker's temporary disk with every other activity on it. Past this
 # size, or once that disk has less than the reserve free, the check fails the run loudly rather than
@@ -116,6 +117,25 @@ def assert_no_null_keys(batch: pa.RecordBatch, unique_key: tuple[str, ...]) -> N
             )
 
 
+def _spill_key(row: tuple[Any, ...]) -> str:
+    # JSON keeps Arrow's key equality within each fixed column type: NaN matches NaN, and 0.0 and -0.0 stay apart.
+    return json.dumps(row, default=str, ensure_ascii=False, separators=(",", ":"))
+
+
+def _spilled_duplicate_count(keys: pa.Table, rejected_row: int) -> int:
+    """How often a key appears in the run, for a slice the spilled index rejected at `rejected_row`.
+
+    The index keeps no journal, so it cannot roll the slice back to show what earlier slices stored.
+    The rejected key was stored once already if this row is its first in the slice, and a key
+    repeated within the slice may appear more often still.
+    """
+    slice_keys = [_spill_key(row) for row in zip(*keys.to_pydict().values(), strict=True)]
+    counts = Counter(slice_keys)
+    rejected = slice_keys[rejected_row]
+    stored_earlier = rejected not in slice_keys[:rejected_row]
+    return max(max(counts.values()), counts[rejected] + stored_earlier)
+
+
 class UniqueKeyTracker:
     """Exact unique-key enforcement across every batch of one materialization.
 
@@ -166,10 +186,10 @@ class UniqueKeyTracker:
         if self._closed.is_set():
             raise _TrackerClosed()
 
-    def _duplicate_key_error(self, occurrences: str) -> IncrementalWriteError:
+    def _duplicate_key_error(self, occurrences: int) -> IncrementalWriteError:
         return IncrementalWriteError(
-            f"The unique key ({', '.join(self._columns)}) does not identify a single row: {occurrences} in "
-            "this run's result. Add the columns that tell those rows apart."
+            f"The unique key ({', '.join(self._columns)}) does not identify a single row: one key "
+            f"appears {occurrences} times in this run's result. Add the columns that tell those rows apart."
         )
 
     def _raise_if_over_disk_budget(self) -> None:
@@ -185,23 +205,22 @@ class UniqueKeyTracker:
 
     def _check_disk(self, keys: pa.Table) -> None:
         assert self._spill is not None
+        yielded = 0
 
         def rows() -> Iterator[tuple[str]]:
+            nonlocal yielded
             for batch in keys.to_batches(max_chunksize=8192):
                 self._raise_if_closed()
                 self._raise_if_over_disk_budget()
-                columns = batch.to_pydict().values()
-                for row in zip(*columns, strict=True):
-                    # Arrow groups positive and negative zero together. JSON otherwise preserves
-                    # scalar equality within each fixed Arrow column type, including NaN and dates.
-                    normalized = [0.0 if isinstance(value, float) and value == 0 else value for value in row]
-                    yield (json.dumps(normalized, default=str, ensure_ascii=False, separators=(",", ":")),)
+                for row in zip(*batch.to_pydict().values(), strict=True):
+                    yielded += 1
+                    yield (_spill_key(row),)
 
         try:
             with self._spill:
                 self._spill.executemany("INSERT INTO unique_keys (key) VALUES (?)", rows())
         except sqlite3.IntegrityError as error:
-            raise self._duplicate_key_error("a key appears more than once") from error
+            raise self._duplicate_key_error(_spilled_duplicate_count(keys, rejected_row=yielded - 1)) from error
 
     def _start_spill(self) -> None:
         self._spill_directory = TemporaryDirectory(prefix="posthog-materialization-keys-")
@@ -250,7 +269,7 @@ class UniqueKeyTracker:
             if already_seen.num_rows:
                 worst = max(worst, pc.max(already_seen.column("count_all")).as_py() + 1)
         if worst > 1:
-            raise self._duplicate_key_error(f"one key appears {worst} times")
+            raise self._duplicate_key_error(worst)
 
         distinct = grouped.select(self._columns).combine_chunks()
         self._seen_chunks.append(distinct)
