@@ -30,7 +30,8 @@ from products.messaging.backend.presentation.views.message_templates import (
 from products.messaging.backend.services import transactional_email
 from products.messaging.backend.services.transactional_email import TransactionalEmailStage, make_transactional
 from products.workflows.backend.facade.api import set_default_email_sender_if_unset
-from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
+from products.workflows.backend.facade.models import HogFlow
+from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 
 
 def _stage_counts() -> dict[str, float]:
