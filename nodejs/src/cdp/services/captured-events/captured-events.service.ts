@@ -154,7 +154,7 @@ export class CapturedEventsService {
             return
         }
         const response = await this.internalCaptureService.captureBatch(group)
-        if (response.status === 400) {
+        if (response.status === 400 || response.status === 413) {
             const middle = Math.ceil(group.length / 2)
             await Promise.all([this.sendAndReport(group.slice(0, middle)), this.sendAndReport(group.slice(middle))])
         } else if (response.status >= 300) {

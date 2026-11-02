@@ -158,10 +158,19 @@ describe('CapturedEventsService', () => {
         })
 
         it.each([
-            ['source_webhook', [], 'small', ['batch a,b,c,d'], 'x'],
+            ['source_webhook', [], 400, 'small', ['batch a,b,c,d'], 'x'],
             [
                 'source_webhook',
                 ['c'],
+                400,
+                'small',
+                ['batch a,b,c,d', 'batch a,b', 'batch c,d', 'single c', 'single d'],
+                'x',
+            ],
+            [
+                'source_webhook',
+                ['c'],
+                413,
                 'small',
                 ['batch a,b,c,d', 'batch a,b', 'batch c,d', 'single c', 'single d'],
                 'x',
@@ -169,18 +178,26 @@ describe('CapturedEventsService', () => {
             [
                 'source_webhook',
                 ['a', 'd'],
+                400,
                 'small',
                 ['batch a,b,c,d', 'batch a,b', 'batch c,d', 'single a', 'single b', 'single c', 'single d'],
                 'x',
             ],
-            ['source_webhook', [], '1.2 MB', ['single a', 'single b', 'single c', 'single d'], '漢'.repeat(400_000)],
-            ['destination', [], 'small', ['single a', 'single b', 'single c', 'single d'], 'x'],
+            [
+                'source_webhook',
+                [],
+                400,
+                '1.2 MB',
+                ['single a', 'single b', 'single c', 'single d'],
+                '漢'.repeat(400_000),
+            ],
+            ['destination', [], 400, 'small', ['single a', 'single b', 'single c', 'single d'], 'x'],
         ])(
-            'sends a %s result with invalid events %j and %s events as %j',
-            async (type, invalid, _size, expected, blob) => {
+            'sends a %s result with invalid events %j refused with %s and %s events as %j',
+            async (type, invalid, refusal, _size, expected, blob) => {
                 teamManager.getTeam.mockResolvedValue(buildTeam(1, 'token-team-1'))
                 const statusOf = (events: InternalCaptureEvent[]): number =>
-                    events.some((event) => invalid.includes(event.event)) ? 400 : 200
+                    events.some((event) => invalid.includes(event.event)) ? refusal : 200
                 internalCaptureService.captureBatch.mockImplementation((events) =>
                     Promise.resolve({ status: statusOf(events) } as any)
                 )
