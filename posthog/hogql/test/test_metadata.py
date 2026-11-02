@@ -1193,13 +1193,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-    @parameterized.expand(
-        [
-            ("field", "SELECT {variables.company_name}"),
-            ("expression", "SELECT {variables.company_name ? 'a' : 'b'}"),
-        ]
-    )
-    def test_metadata_replaces_variable_placeholders(self, _name: str, query: str) -> None:
+    def test_metadata_replaces_variable_placeholders(self):
         insight_variable = InsightVariable.objects.create(
             team=self.team,
             name="Company",
@@ -1207,7 +1201,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             type=InsightVariable.Type.STRING,
         )
         metadata = self._select_with_variables(
-            query,
+            "SELECT {variables.company_name}",
             variables={
                 "company_name": {
                     "code_name": "company_name",

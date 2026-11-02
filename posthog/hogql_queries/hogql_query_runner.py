@@ -226,7 +226,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
                 # schema is the external connection's, so keep the per-call build there.
                 database = self.shared_database if self.query.connectionId is None else None
                 parsed_select = replace_filters(parsed_select, self.query.filters, self.team, database)
-        if self.query.variables or finder.placeholder_fields or finder.placeholder_expressions:
+        if self.query.variables or finder.has_variables:
             with self.timings.measure("replace_variables"):
                 parsed_select = replace_variables(
                     parsed_select, list(self.query.variables.values()) if self.query.variables else [], self.team

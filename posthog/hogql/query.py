@@ -226,7 +226,7 @@ class HogQLQueryExecutor:
                 self.placeholders = {}
             finder = find_placeholders(self.select_query)
 
-            if self.variables or finder.placeholder_fields or finder.placeholder_expressions:
+            if self.variables or finder.has_variables:
                 with self.timings.measure("variables"):
                     self.select_query = replace_variables(
                         node=self.select_query,
