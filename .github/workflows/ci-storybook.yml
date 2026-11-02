@@ -301,10 +301,20 @@ jobs:
 
             - name: Get pnpm cache path
               id: pnpm-cache
-              run: echo "path=$(pnpm cache path --silent)" >> "$GITHUB_OUTPUT"
+              run: |
+                  if cache_path=$(pnpm cache path --silent 2>/dev/null); then
+                      case "$cache_path" in
+                          /*)
+                              if [ "$(printf '%s\n' "$cache_path" | wc -l)" -eq 1 ]; then
+                                  printf 'path=%s\n' "$cache_path" >> "$GITHUB_OUTPUT"
+                              fi
+                              ;;
+                      esac
+                  fi
 
             - name: Restore pnpm lockfile verdict
               id: pnpm-verdict
+              if: steps.pnpm-cache.outputs.path != ''
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ steps.pnpm-cache.outputs.path }}/lockfile-verified.jsonl
@@ -670,10 +680,20 @@ jobs:
 
             - name: Get pnpm cache path
               id: pnpm-cache
-              run: echo "path=$(pnpm cache path --silent)" >> "$GITHUB_OUTPUT"
+              run: |
+                  if cache_path=$(pnpm cache path --silent 2>/dev/null); then
+                      case "$cache_path" in
+                          /*)
+                              if [ "$(printf '%s\n' "$cache_path" | wc -l)" -eq 1 ]; then
+                                  printf 'path=%s\n' "$cache_path" >> "$GITHUB_OUTPUT"
+                              fi
+                              ;;
+                      esac
+                  fi
 
             - name: Restore pnpm lockfile verdict
               id: pnpm-verdict
+              if: steps.pnpm-cache.outputs.path != ''
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ steps.pnpm-cache.outputs.path }}/lockfile-verified.jsonl
@@ -693,9 +713,9 @@ jobs:
                   key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
             # The container's cache path and recorded checkout path differ from the host.
-            # Seed its verdict from one master shard, independently of the store cache hit.
+            # Each runner provider needs a master shard to seed its separate cache.
             - name: Save pnpm lockfile verdict
-              if: github.ref == 'refs/heads/master' && matrix.shard == 1 && matrix.browser == 'chromium' && steps.pnpm-verdict.outputs.cache-hit != 'true'
+              if: github.ref == 'refs/heads/master' && matrix.shard == 1 && steps.pnpm-cache.outputs.path != '' && steps.pnpm-verdict.outputs.cache-hit != 'true'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ steps.pnpm-cache.outputs.path }}/lockfile-verified.jsonl
@@ -1021,10 +1041,20 @@ jobs:
 
             - name: Get pnpm cache path
               id: pnpm-cache
-              run: echo "path=$(pnpm cache path --silent)" >> "$GITHUB_OUTPUT"
+              run: |
+                  if cache_path=$(pnpm cache path --silent 2>/dev/null); then
+                      case "$cache_path" in
+                          /*)
+                              if [ "$(printf '%s\n' "$cache_path" | wc -l)" -eq 1 ]; then
+                                  printf 'path=%s\n' "$cache_path" >> "$GITHUB_OUTPUT"
+                              fi
+                              ;;
+                      esac
+                  fi
 
             - name: Restore pnpm lockfile verdict
               id: pnpm-verdict
+              if: steps.pnpm-cache.outputs.path != ''
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ steps.pnpm-cache.outputs.path }}/lockfile-verified.jsonl
