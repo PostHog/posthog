@@ -179,11 +179,7 @@ async def emit_backfill_signal_activity(input: EmitBackfillSignalInput) -> bool 
         source_id=input.issue.issue_id,
         description=description,
         weight=1.0,
-        extra={
-            "fingerprint": input.issue.fingerprint,
-            "users": input.issue.users,
-            "occurrences": input.issue.occurrences,
-        },
+        extra={"fingerprint": input.issue.fingerprint},
     )
 
 

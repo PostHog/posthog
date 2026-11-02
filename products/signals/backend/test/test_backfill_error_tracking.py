@@ -2,12 +2,14 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from temporalio import activity
-from temporalio.testing import WorkflowEnvironment
+from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.error_tracking.backend.facade.contracts import ErrorTrackingIssueImpact
+from products.signals.backend.facade.api import validate_signal_input
 from products.signals.backend.temporal.backfill_error_tracking import (
     BACKFILL_ISSUE_LIMIT,
     CANDIDATE_LIMIT,
@@ -15,6 +17,7 @@ from products.signals.backend.temporal.backfill_error_tracking import (
     BackfillErrorTrackingWorkflow,
     EmitBackfillSignalInput,
     ErrorTrackingIssueData,
+    emit_backfill_signal_activity,
     rank_backfill_candidates,
 )
 
@@ -114,3 +117,25 @@ async def test_workflow_replaces_steered_out_candidates_and_stops_at_limit(dispa
 
     assert CANDIDATE_LIMIT > BACKFILL_ISSUE_LIMIT + len(steered_out)
     assert emitted == [f"issue_{i}" for i in range(BACKFILL_ISSUE_LIMIT + len(steered_out))]
+
+
+@pytest.mark.asyncio
+async def test_emitted_signal_matches_the_error_tracking_contract():
+    issue = ErrorTrackingIssueData(
+        issue_id=str(uuid.uuid4()),
+        name="TypeError",
+        description="x is undefined",
+        fingerprint="fp",
+        users=3,
+        occurrences=9,
+    )
+    emit = AsyncMock(return_value=True)
+
+    with (
+        patch("posthog.models.Team.objects.aget", AsyncMock(return_value=MagicMock())),
+        patch("products.signals.backend.facade.api.emit_signal", emit),
+    ):
+        await ActivityEnvironment().run(emit_backfill_signal_activity, EmitBackfillSignalInput(team_id=1, issue=issue))
+
+    kwargs = {key: value for key, value in emit.call_args.kwargs.items() if key != "team"}
+    validate_signal_input(**kwargs, remediation=None)
