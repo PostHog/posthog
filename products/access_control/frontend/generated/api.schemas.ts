@@ -60,6 +60,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `business_knowledge` - business_knowledge
  * * `canvas` - canvas
  * * `ci_trust_policy` - ci_trust_policy
+ * * `ci_trust_policy_request` - ci_trust_policy_request
  * * `cohort` - cohort
  * * `comment` - comment
  * * `conversation` - conversation
@@ -183,6 +184,7 @@ export const ScopeObjectEnumApi = {
     BusinessKnowledge: 'business_knowledge',
     Canvas: 'canvas',
     CiTrustPolicy: 'ci_trust_policy',
+    CiTrustPolicyRequest: 'ci_trust_policy_request',
     Cohort: 'cohort',
     Comment: 'comment',
     Conversation: 'conversation',
@@ -329,6 +331,7 @@ export interface ProjectAccessSourceApi {
      * * `business_knowledge` - business_knowledge
      * * `canvas` - canvas
      * * `ci_trust_policy` - ci_trust_policy
+     * * `ci_trust_policy_request` - ci_trust_policy_request
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
@@ -495,6 +498,7 @@ export interface AccessControlObjectRuleApi {
      * * `business_knowledge` - business_knowledge
      * * `canvas` - canvas
      * * `ci_trust_policy` - ci_trust_policy
+     * * `ci_trust_policy_request` - ci_trust_policy_request
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
@@ -886,6 +890,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `business_knowledge` - business_knowledge
      * * `canvas` - canvas
      * * `ci_trust_policy` - ci_trust_policy
+     * * `ci_trust_policy_request` - ci_trust_policy_request
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
@@ -1174,6 +1179,7 @@ export interface ResolvedAccessApi {
      * * `business_knowledge` - business_knowledge
      * * `canvas` - canvas
      * * `ci_trust_policy` - ci_trust_policy
+     * * `ci_trust_policy_request` - ci_trust_policy_request
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation

@@ -612,6 +612,7 @@ export namespace Schemas {
      * * `business_knowledge` - business_knowledge
      * * `canvas` - canvas
      * * `ci_trust_policy` - ci_trust_policy
+     * * `ci_trust_policy_request` - ci_trust_policy_request
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
@@ -736,6 +737,7 @@ export namespace Schemas {
       BusinessKnowledge: 'business_knowledge',
       Canvas: 'canvas',
       CiTrustPolicy: 'ci_trust_policy',
+      CiTrustPolicyRequest: 'ci_trust_policy_request',
       Cohort: 'cohort',
       Comment: 'comment',
       Conversation: 'conversation',
@@ -860,6 +862,7 @@ export namespace Schemas {
        * * `business_knowledge` - business_knowledge
        * * `canvas` - canvas
        * * `ci_trust_policy` - ci_trust_policy
+       * * `ci_trust_policy_request` - ci_trust_policy_request
        * * `cohort` - cohort
        * * `comment` - comment
        * * `conversation` - conversation
@@ -1107,6 +1110,7 @@ export namespace Schemas {
        * * `business_knowledge` - business_knowledge
        * * `canvas` - canvas
        * * `ci_trust_policy` - ci_trust_policy
+       * * `ci_trust_policy_request` - ci_trust_policy_request
        * * `cohort` - cohort
        * * `comment` - comment
        * * `conversation` - conversation
@@ -1517,6 +1521,7 @@ export namespace Schemas {
        * * `business_knowledge` - business_knowledge
        * * `canvas` - canvas
        * * `ci_trust_policy` - ci_trust_policy
+       * * `ci_trust_policy_request` - ci_trust_policy_request
        * * `cohort` - cohort
        * * `comment` - comment
        * * `conversation` - conversation
@@ -21409,6 +21414,96 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly updated_at: string;
+    }
+
+    export type CITrustPolicyRequestStatusEnum = typeof CITrustPolicyRequestStatusEnum[keyof typeof CITrustPolicyRequestStatusEnum];
+
+
+    export const CITrustPolicyRequestStatusEnum = {
+      Pending: 'pending',
+      Approved: 'approved',
+      Rejected: 'rejected',
+      Expired: 'expired',
+    } as const;
+
+    export interface CITrustPolicyRequest {
+      readonly id: string;
+      /**
+         * The name the policy gets once approved.
+         * @maxLength 200
+         */
+      name: string;
+      /**
+         * The OIDC issuer of the CI provider, from the list of supported providers.
+         * @maxLength 255
+         */
+      issuer: string;
+      /**
+         * The key of the CI provider the issuer belongs to.
+         * @nullable
+         */
+      readonly provider: string | null;
+      /**
+         * The display name of the CI provider, or null.
+         * @nullable
+         */
+      readonly provider_name: string | null;
+      /**
+         * The repository's full name, for example `acme/web`. Matched exactly.
+         * @maxLength 255
+         */
+      repository: string;
+      /**
+         * The repository's immutable ID from the CI provider. Matched together with the name, so a deleted and re-created repository with the same name does not match.
+         * @maxLength 100
+         */
+      repository_id: string;
+      /**
+         * The git ref the job must run on, for example `refs/heads/main`. Empty matches any ref.
+         * @maxLength 255
+         */
+      ref?: string;
+      /**
+         * The deployment environment the job must run in. Empty matches any environment.
+         * @maxLength 255
+         */
+      environment?: string;
+      /**
+         * The scopes the policy's tokens would carry.
+         * @items.maxLength 100
+         */
+      scopes: string[];
+      /** Where the request stands. A request expires after 7 days. */
+      readonly status: CITrustPolicyRequestStatusEnum;
+      /** The link to send to an admin to approve the request. */
+      readonly approval_url: string;
+      /** Whether the current user's role lets them approve the request, in the browser. */
+      readonly can_approve: boolean;
+      /** Names of the organization admins and owners who can approve, when the current user cannot. */
+      readonly approvers: readonly string[];
+      readonly requested_by: UserBasic;
+      /** The client the request came through, for example hog. */
+      readonly requested_via: string;
+      /**
+         * Whether PostHog verified the OAuth app the request came through, or null for other clients.
+         * @nullable
+         */
+      readonly requested_via_verified: boolean | null;
+      /** When the request was made. */
+      readonly created_at: string;
+      /** When a pending request stops being approvable. */
+      readonly expires_at: string;
+      readonly resolved_by: UserBasic;
+      /**
+         * When an admin approved or rejected the request.
+         * @nullable
+         */
+      readonly resolved_at: string | null;
+      /**
+         * The policy created on approval.
+         * @nullable
+         */
+      readonly policy_id: string | null;
     }
 
     export interface EventsHeatMapColumnAggregationResult {
@@ -72988,6 +73083,7 @@ export namespace Schemas {
        * * `business_knowledge` - business_knowledge
        * * `canvas` - canvas
        * * `ci_trust_policy` - ci_trust_policy
+       * * `ci_trust_policy_request` - ci_trust_policy_request
        * * `cohort` - cohort
        * * `comment` - comment
        * * `conversation` - conversation
@@ -77944,6 +78040,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: CITrustPolicy[];
+    }
+
+    export interface PaginatedCITrustPolicyRequestList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: CITrustPolicyRequest[];
     }
 
     export interface PaginatedCanvasList {
@@ -131527,6 +131632,7 @@ export namespace Schemas {
      * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
      * * `OAuthApplication` - OAuthApplication
      * * `CITrustPolicy` - CITrustPolicy
+     * * `CITrustPolicyRequest` - CITrustPolicyRequest
      * * `User` - User
      * * `Action` - Action
      * * `AccountView` - AccountView
@@ -131647,6 +131753,7 @@ export namespace Schemas {
       ProjectSecretAPIKey: 'ProjectSecretAPIKey',
       OAuthApplication: 'OAuthApplication',
       CITrustPolicy: 'CITrustPolicy',
+      CITrustPolicyRequest: 'CITrustPolicyRequest',
       User: 'User',
       Action: 'Action',
       AccountView: 'AccountView',
@@ -131753,6 +131860,7 @@ export namespace Schemas {
      * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
      * * `OAuthApplication` - OAuthApplication
      * * `CITrustPolicy` - CITrustPolicy
+     * * `CITrustPolicyRequest` - CITrustPolicyRequest
      * * `User` - User
      * * `Action` - Action
      * * `AccountView` - AccountView
@@ -131861,6 +131969,7 @@ export namespace Schemas {
       ProjectSecretAPIKey: 'ProjectSecretAPIKey',
       OAuthApplication: 'OAuthApplication',
       CITrustPolicy: 'CITrustPolicy',
+      CITrustPolicyRequest: 'CITrustPolicyRequest',
       User: 'User',
       Action: 'Action',
       AccountView: 'AccountView',
@@ -133379,6 +133488,17 @@ export namespace Schemas {
     };
 
     export type CiTrustPoliciesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type CiTrustPolicyRequestsListParams = {
     /**
      * Number of results to return per page.
      */

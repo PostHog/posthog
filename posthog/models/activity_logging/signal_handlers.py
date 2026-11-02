@@ -45,7 +45,7 @@ from posthog.models.activity_logging.personal_api_key_utils import (
 from posthog.models.activity_logging.project_secret_api_key_utils import log_project_secret_api_key_activity
 from posthog.models.activity_logging.tag_utils import get_tagged_item_related_object_info
 from posthog.models.activity_logging.utils import activity_storage
-from posthog.models.ci_trust_policy import CITrustPolicy
+from posthog.models.ci_trust_policy import CITrustPolicy, CITrustPolicyRequest
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import OrganizationMembership
@@ -495,6 +495,32 @@ def handle_oauth_application_scopes_change(
     )
 
 
+def _log_ci_trust_activity(
+    scope: ActivityScope,
+    before_update: CITrustPolicy | CITrustPolicyRequest | None,
+    after_update: CITrustPolicy | CITrustPolicyRequest | None,
+    activity: str,
+    user: User | None,
+    was_impersonated: bool,
+) -> None:
+    instance = after_update or before_update
+    if instance is None:
+        return
+    log_activity(
+        organization_id=instance.team.organization_id,
+        team_id=instance.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=instance.pk,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            name=instance.name,
+            changes=changes_between(scope, previous=before_update, current=after_update),
+        ),
+    )
+
+
 @mutable_receiver(model_activity_signal, sender=CITrustPolicy)
 def handle_ci_trust_policy_change(
     sender: type[CITrustPolicy],
@@ -506,22 +532,26 @@ def handle_ci_trust_policy_change(
     was_impersonated: bool = False,
     **kwargs,
 ) -> None:
-    policy = after_update or before_update
-    if policy is None:
-        return
-    log_activity(
-        organization_id=policy.team.organization_id,
-        team_id=policy.team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=policy.pk,
-        scope=scope,
-        activity=activity,
-        detail=Detail(
-            name=policy.name,
-            changes=changes_between(scope, previous=before_update, current=after_update),
-        ),
-    )
+    _log_ci_trust_activity(scope, before_update, after_update, activity, user, was_impersonated)
+
+
+@mutable_receiver(model_activity_signal, sender=CITrustPolicyRequest)
+def handle_ci_trust_policy_request_change(
+    sender: type[CITrustPolicyRequest],
+    scope: ActivityScope,
+    before_update: CITrustPolicyRequest | None,
+    after_update: CITrustPolicyRequest | None,
+    activity: str,
+    user: User | None,
+    was_impersonated: bool = False,
+    **kwargs,
+) -> None:
+    if activity == "updated":
+        # A request is immutable apart from its resolution, so an update is an approval or a rejection.
+        if before_update is None or after_update is None or before_update.status == after_update.status:
+            return
+        activity = after_update.status
+    _log_ci_trust_activity(scope, before_update, after_update, activity, user, was_impersonated)
 
 
 # --- Receivers relocated from posthog.api viewset modules ---------------------------------

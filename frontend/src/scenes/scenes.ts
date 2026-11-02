@@ -100,6 +100,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         layout: 'app-full-scene-height',
         hideProjectNotice: true,
     },
+    [Scene.CITrustPolicyRequest]: {
+        projectBased: true,
+        name: 'CI trust policy request',
+        description: 'Review a request for a CI trust policy',
+    },
     [Scene.CLIAuthorize]: {
         name: 'Authorize CLI',
         projectBased: false,
@@ -846,6 +851,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.productTours()]: [Scene.ProductTours, 'productTours'],
     [urls.productTour(':id')]: [Scene.ProductTour, 'productTour'],
     [urls.approval(':id')]: [Scene.Approval, 'approval'],
+    // pinned: the backend builds this path into the approval link it returns, which people share
+    [urls.ciTrustPolicyRequest(':id')]: [Scene.CITrustPolicyRequest, 'ciTrustPolicyRequest'],
     [urls.sqlEditor()]: [Scene.SQLEditor, 'sqlEditor'],
     [urls.featureFlags()]: [Scene.FeatureFlags, 'featureFlags'],
     [urls.featureFlagTemplates()]: ['FeatureFlagTemplates' as Scene, 'featureFlagTemplates'],

@@ -1448,6 +1448,7 @@ export type ActivityLogListParams = {
      * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
      * * `OAuthApplication` - OAuthApplication
      * * `CITrustPolicy` - CITrustPolicy
+     * * `CITrustPolicyRequest` - CITrustPolicyRequest
      * * `User` - User
      * * `Action` - Action
      * * `AccountView` - AccountView
@@ -1567,6 +1568,7 @@ export const ActivityLogListScope = {
     ProjectSecretAPIKey: 'ProjectSecretAPIKey',
     OAuthApplication: 'OAuthApplication',
     CITrustPolicy: 'CITrustPolicy',
+    CITrustPolicyRequest: 'CITrustPolicyRequest',
     User: 'User',
     Action: 'Action',
     AccountView: 'AccountView',
@@ -1673,6 +1675,7 @@ export const ActivityLogListScope = {
  * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
  * * `OAuthApplication` - OAuthApplication
  * * `CITrustPolicy` - CITrustPolicy
+ * * `CITrustPolicyRequest` - CITrustPolicyRequest
  * * `User` - User
  * * `Action` - Action
  * * `AccountView` - AccountView
@@ -1780,6 +1783,7 @@ export const ActivityLogListScopesItem = {
     ProjectSecretAPIKey: 'ProjectSecretAPIKey',
     OAuthApplication: 'OAuthApplication',
     CITrustPolicy: 'CITrustPolicy',
+    CITrustPolicyRequest: 'CITrustPolicyRequest',
     User: 'User',
     Action: 'Action',
     AccountView: 'AccountView',

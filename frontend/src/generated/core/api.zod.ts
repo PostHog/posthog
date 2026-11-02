@@ -810,6 +810,51 @@ export const CiTrustPoliciesPartialUpdateBody = /* @__PURE__ */ zod.object({
     enabled: zod.boolean().optional().describe('Whether the policy can mint tokens. Disabling it cuts off its tokens.'),
 })
 
+export const ciTrustPolicyRequestsCreateBodyNameMax = 200
+
+export const ciTrustPolicyRequestsCreateBodyIssuerMax = 255
+
+export const ciTrustPolicyRequestsCreateBodyRepositoryMax = 255
+
+export const ciTrustPolicyRequestsCreateBodyRepositoryIdMax = 100
+
+export const ciTrustPolicyRequestsCreateBodyRefMax = 255
+
+export const ciTrustPolicyRequestsCreateBodyEnvironmentMax = 255
+
+export const ciTrustPolicyRequestsCreateBodyScopesItemMax = 100
+
+export const CiTrustPolicyRequestsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(ciTrustPolicyRequestsCreateBodyNameMax).describe('The name the policy gets once approved.'),
+    issuer: zod
+        .string()
+        .max(ciTrustPolicyRequestsCreateBodyIssuerMax)
+        .describe('The OIDC issuer of the CI provider, from the list of supported providers.'),
+    repository: zod
+        .string()
+        .max(ciTrustPolicyRequestsCreateBodyRepositoryMax)
+        .describe("The repository's full name, for example `acme\/web`. Matched exactly."),
+    repository_id: zod
+        .string()
+        .max(ciTrustPolicyRequestsCreateBodyRepositoryIdMax)
+        .describe(
+            "The repository's immutable ID from the CI provider. Matched together with the name, so a deleted and re-created repository with the same name does not match."
+        ),
+    ref: zod
+        .string()
+        .max(ciTrustPolicyRequestsCreateBodyRefMax)
+        .optional()
+        .describe('The git ref the job must run on, for example `refs\/heads\/main`. Empty matches any ref.'),
+    environment: zod
+        .string()
+        .max(ciTrustPolicyRequestsCreateBodyEnvironmentMax)
+        .optional()
+        .describe('The deployment environment the job must run in. Empty matches any environment.'),
+    scopes: zod
+        .array(zod.string().max(ciTrustPolicyRequestsCreateBodyScopesItemMax))
+        .describe("The scopes the policy's tokens would carry."),
+})
+
 /**
  * Create a new password for the sharing configuration.
  */

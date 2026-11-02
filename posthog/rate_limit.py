@@ -451,6 +451,26 @@ class CodexConnectUserThrottle(UserRateThrottle):
     rate = "10/hour"
 
 
+class _CITrustPolicyRequestThrottle(SimpleRateThrottle):
+    """One bucket per user and project, because each request asks the organization's admins to act."""
+
+    def get_cache_key(self, request: "Request", view: "APIView") -> str | None:
+        if not request.user.is_authenticated:
+            return None
+        team_id = PersonalApiKeyRateThrottle.safely_get_team_id_from_view(view)
+        return self.cache_format % {"scope": self.scope, "ident": f"{team_id}:{request.user.pk}"}
+
+
+class CITrustPolicyRequestBurstThrottle(_CITrustPolicyRequestThrottle):
+    scope = "ci_trust_policy_request_burst"
+    rate = "10/hour"
+
+
+class CITrustPolicyRequestSustainedThrottle(_CITrustPolicyRequestThrottle):
+    scope = "ci_trust_policy_request_sustained"
+    rate = "30/day"
+
+
 # Each internal feedback post lands in a shared Slack channel, so cap it per user.
 class InternalFeedbackUserThrottle(UserRateThrottle):
     scope = "internal_feedback_user"

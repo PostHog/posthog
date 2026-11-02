@@ -17,6 +17,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.BillingSection]: () => import('./billing/BillingSection'),
     [Scene.Billing]: () => import('./billing/Billing'),
     [Scene.Canvas]: () => import('./notebooks/NotebookCanvasScene'),
+    [Scene.CITrustPolicyRequest]: () => import('./ci-trust-policy-request/CITrustPolicyRequestScene'),
     [Scene.CLIAuthorize]: () => import('./authentication/cli/CLIAuthorize'),
     [Scene.CLILive]: () => import('./authentication/cli/CLILive'),
     [Scene.Cohort]: () => import('./cohorts/Cohort'),

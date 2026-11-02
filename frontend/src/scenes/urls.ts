@@ -371,6 +371,7 @@ export const urls = {
     projectPendingDeletion: (): string => '/project-pending-deletion',
     approvals: (): string => '/settings/environment-approvals#change-requests',
     approval: (id: string): string => `/approvals/${id}`,
+    ciTrustPolicyRequest: (id: string): string => `/ci-trust-policy-requests/${id}`,
     health: (): string => '/health',
     healthCategory: (category: string): string => `/health/${category}`,
     healthAlerts: (presetKinds?: string[]): string =>

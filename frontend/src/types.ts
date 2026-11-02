@@ -6150,6 +6150,7 @@ export enum ActivityScope {
     ORGANIZATION_DOMAIN = 'OrganizationDomain',
     OAUTH_APPLICATION = 'OAuthApplication',
     CI_TRUST_POLICY = 'CITrustPolicy',
+    CI_TRUST_POLICY_REQUEST = 'CITrustPolicyRequest',
     LEGAL_DOCUMENT = 'LegalDocument',
     ERROR_TRACKING_ISSUE = 'ErrorTrackingIssue',
     DATA_WAREHOUSE_EXPRESSION = 'DataWarehouseExpression',

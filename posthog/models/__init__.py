@@ -10,7 +10,7 @@ from .activity_logging.activity_log import ActivityLog
 from .activity_logging.notification_viewed import NotificationViewed
 from .async_deletion import AsyncDeletion, DeletionType
 from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
-from .ci_trust_policy import CITrustPolicy
+from .ci_trust_policy import CITrustPolicy, CITrustPolicyRequest
 from .column_configuration import ColumnConfiguration
 from .comment import Comment, CommentSlackThread
 from .core_event import CoreEvent
@@ -97,6 +97,7 @@ __all__ = [
     "AsyncMigration",
     "AsyncMigrationError",
     "CITrustPolicy",
+    "CITrustPolicyRequest",
     "CIMDVerificationToken",
     "ColumnConfiguration",
     "CoreEvent",

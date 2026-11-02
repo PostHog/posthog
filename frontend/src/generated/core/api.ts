@@ -16,7 +16,9 @@ import type {
     CIMDVerificationTokenWithValueApi,
     CIProvidersResponseApi,
     CITrustPolicyApi,
+    CITrustPolicyRequestApi,
     CiTrustPoliciesListParams,
+    CiTrustPolicyRequestsListParams,
     CimdVerificationTokensListParams,
     ConnectedAppApi,
     DataDeletionPreviewApi,
@@ -67,6 +69,7 @@ import type {
     OrganizationsProjectsListParams,
     PaginatedCIMDVerificationTokenListApi,
     PaginatedCITrustPolicyListApi,
+    PaginatedCITrustPolicyRequestListApi,
     PaginatedDataDeletionRequestListApi,
     PaginatedEnterprisePropertyDefinitionListApi,
     PaginatedExportedAssetListApi,
@@ -1567,6 +1570,95 @@ export const ciTrustPoliciesProvidersRetrieve = async (
     return apiMutator<CIProvidersResponseApi>(getCiTrustPoliciesProvidersRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getCiTrustPolicyRequestsListUrl = (projectId: string, params?: CiTrustPolicyRequestsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ci_trust_policy_requests/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ci_trust_policy_requests/`
+}
+
+export const ciTrustPolicyRequestsList = async (
+    projectId: string,
+    params?: CiTrustPolicyRequestsListParams,
+    options?: RequestInit
+): Promise<PaginatedCITrustPolicyRequestListApi> => {
+    return apiMutator<PaginatedCITrustPolicyRequestListApi>(getCiTrustPolicyRequestsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCiTrustPolicyRequestsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/ci_trust_policy_requests/`
+}
+
+export const ciTrustPolicyRequestsCreate = async (
+    projectId: string,
+    cITrustPolicyRequestApi: NonReadonly<CITrustPolicyRequestApi>,
+    options?: RequestInit
+): Promise<CITrustPolicyRequestApi> => {
+    return apiMutator<CITrustPolicyRequestApi>(getCiTrustPolicyRequestsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(cITrustPolicyRequestApi),
+    })
+}
+
+export const getCiTrustPolicyRequestsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/ci_trust_policy_requests/${id}/`
+}
+
+export const ciTrustPolicyRequestsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CITrustPolicyRequestApi> => {
+    return apiMutator<CITrustPolicyRequestApi>(getCiTrustPolicyRequestsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCiTrustPolicyRequestsApproveCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/ci_trust_policy_requests/${id}/approve/`
+}
+
+export const ciTrustPolicyRequestsApproveCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CITrustPolicyRequestApi> => {
+    return apiMutator<CITrustPolicyRequestApi>(getCiTrustPolicyRequestsApproveCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getCiTrustPolicyRequestsRejectCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/ci_trust_policy_requests/${id}/reject/`
+}
+
+export const ciTrustPolicyRequestsRejectCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CITrustPolicyRequestApi> => {
+    return apiMutator<CITrustPolicyRequestApi>(getCiTrustPolicyRequestsRejectCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

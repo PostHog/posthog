@@ -157,6 +157,12 @@ export const API_SCOPES: APIScope[] = [
         objectPlural: 'CI trust policies',
         disabledActions: ['write'],
     },
+    {
+        key: 'ci_trust_policy_request',
+        objectName: 'CI trust policy request',
+        objectPlural: 'CI trust policy requests',
+        info: 'Write access lets the key ask an organization admin for a CI trust policy. A request grants nothing until an admin approves it.',
+    },
     { key: 'cohort', objectName: 'Cohort', objectPlural: 'cohorts' },
     { key: 'comment', objectName: 'Comment', objectPlural: 'comments' },
     {
@@ -669,6 +675,7 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'organization_member',
             'project',
             'ci_trust_policy',
+            'ci_trust_policy_request',
             'user',
             'billing',
             'access_control',
