@@ -7,7 +7,7 @@ from urllib.parse import quote, urlencode, urlsplit
 import orjson
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.dataclasses import frozen
 
@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
     retry_with_deadline,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import reach_safe_point
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.settings import (
     DOCKERHUB_ENDPOINTS,
@@ -105,10 +106,17 @@ def _tags_url(namespace: str, repository: str) -> str:
     return f"{DOCKERHUB_BASE_URL}/v2/namespaces/{quote(namespace)}/repositories/{quote(repository)}/tags?{query}"
 
 
+def _safe_point_before_retry_wait(_state: RetryCallState) -> None:
+    # Every request runs between pages: the rows before it are yielded, and no caller holds rows
+    # while it fetches.
+    reach_safe_point()
+
+
 @retry_with_deadline(
     retry=retry_if_exception_type((DockerhubRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(5),
     wait=wait_exponential_jitter(initial=1, max=30),
+    before_sleep=_safe_point_before_retry_wait,
     reraise=True,
 )
 def _fetch_jwt(
@@ -169,6 +177,7 @@ def _request_json(
     retry=retry_if_exception_type((DockerhubRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(5),
     wait=wait_exponential_jitter(initial=1, max=30),
+    before_sleep=_safe_point_before_retry_wait,
     reraise=True,
 )
 def _fetch_page(
@@ -193,6 +202,7 @@ def _fetch_page(
     retry=retry_if_exception_type((DockerhubRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(5),
     wait=wait_exponential_jitter(initial=1, max=30),
+    before_sleep=_safe_point_before_retry_wait,
     reraise=True,
 )
 def _fetch_object(
@@ -270,6 +280,8 @@ def _cursor_pages(
 
     while url:
         items, next_url = client.get_page(url)
+        if next_url:
+            resumable_source_manager.save_state(DockerhubResumeConfig(next_url=next_url))
         if items:
             yield items
 
@@ -278,12 +290,14 @@ def _cursor_pages(
             break
 
         url = next_url
-        # Save AFTER yielding so a crash re-fetches from the next page (already-yielded pages are
-        # persisted); merge dedupes the re-pulled page on the primary key.
-        resumable_source_manager.save_state(DockerhubResumeConfig(next_url=next_url))
+        resumable_source_manager.safe_point()
 
 
-def _list_repository_names(client: DockerHubClient, namespace: str) -> list[str]:
+def _list_repository_names(
+    client: DockerHubClient,
+    namespace: str,
+    resumable_source_manager: ResumableSourceManager[DockerhubResumeConfig],
+) -> list[str]:
     names: list[str] = []
     url: Optional[str] = _repositories_url(namespace)
     while url:
@@ -291,6 +305,8 @@ def _list_repository_names(client: DockerHubClient, namespace: str) -> list[str]
         # `name` is the repository primary key and the fan-out key for tags: access it directly so a
         # malformed row (missing name) fails fast instead of being silently dropped from the sync.
         names.extend(item["name"] for item in items)
+        # The names are not rows, and this attempt has yielded nothing yet.
+        resumable_source_manager.safe_point()
     return names
 
 
@@ -303,7 +319,7 @@ def _tag_pages(
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     # The repository list is small (names only) and alphabetically ordered, so materializing it keeps
     # resume deterministic: we slice from the saved repository instead of comparing names.
-    repositories = _list_repository_names(client, namespace)
+    repositories = _list_repository_names(client, namespace, resumable_source_manager)
 
     start_index = 0
     resume_next_url: Optional[str] = None
@@ -325,20 +341,19 @@ def _tag_pages(
 
         while url:
             items, next_url = client.get_page(url)
+            # On the last page, pin state to the completed repository so a crash before the next
+            # repository's first page re-syncs at most this one repository.
+            resumable_source_manager.save_state(DockerhubResumeConfig(next_url=next_url, repository=repository))
             if items:
                 # Tag rows only carry a numeric repository id; inject the namespace and repository
                 # name so rows are self-describing and the composite primary key is table-unique.
                 yield [{**row, "namespace": namespace, "repository_name": repository} for row in items]
+            resumable_source_manager.safe_point()
 
             if not next_url:
                 break
 
             url = next_url
-            resumable_source_manager.save_state(DockerhubResumeConfig(next_url=next_url, repository=repository))
-
-        # Pin state to the completed repository so a crash before the next repository's first page
-        # re-syncs at most this one repository.
-        resumable_source_manager.save_state(DockerhubResumeConfig(next_url=None, repository=repository))
 
 
 def _audit_log_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -373,18 +388,19 @@ def _audit_log_pages(
                 f"Docker Hub returned an unexpected audit log payload on page {page}: {type(logs).__name__}"
             )
 
+        # The endpoint returns neither a next link nor a total count, so a short page is the only
+        # end-of-collection signal it gives us.
+        has_next_page = len(logs) >= PAGE_SIZE
+        if has_next_page:
+            resumable_source_manager.save_state(DockerhubResumeConfig(page=page + 1))
         if logs:
             yield [_audit_log_row(row) for row in logs]
 
-        # The endpoint returns neither a next link nor a total count, so a short page is the only
-        # end-of-collection signal it gives us.
-        if len(logs) < PAGE_SIZE:
+        if not has_next_page:
             break
 
         page += 1
-        # Save AFTER yielding so a crash re-fetches from the next page (already-yielded pages are
-        # persisted); merge dedupes any re-pulled page on the primary key.
-        resumable_source_manager.save_state(DockerhubResumeConfig(page=page))
+        resumable_source_manager.safe_point()
 
 
 def _audit_log_action_rows(client: DockerHubClient, namespace: str) -> Iterator[list[dict[str, Any]]]:

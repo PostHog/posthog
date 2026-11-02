@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
     retry_with_deadline,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import reach_safe_point
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.settings import (
     FLAGSMITH_ENDPOINTS,
@@ -345,7 +346,8 @@ def _iter_pages(
     budget: _PageBudget,
 ) -> Iterator[list[dict[str, Any]]]:
     """Walk a listing (paginated or plain-array) without touching resume state — used to
-    enumerate fan-out parents, which must be re-listed from scratch on every run."""
+    enumerate fan-out parents, which must be re-listed from scratch on every run. Parents are
+    enumerated before any row is yielded, so each page is a safe point."""
     url: str | None = start_url
     while url:
         if not budget.take():
@@ -355,6 +357,7 @@ def _iter_pages(
         rows, url = _extract_rows(base, data, url)
         if rows:
             yield rows
+        reach_safe_point()
 
 
 def _extend_capped(
@@ -616,6 +619,7 @@ def _paginate_resource(
         resumable_source_manager.save_state(
             FlagsmithResumeConfig(next_url=next_url or "", parent_key=parent.resume_key)
         )
+        resumable_source_manager.safe_point()
         url = next_url
 
 

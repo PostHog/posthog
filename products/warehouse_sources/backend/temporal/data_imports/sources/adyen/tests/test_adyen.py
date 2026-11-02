@@ -309,7 +309,7 @@ class TestCursorPagination:
             )
         )
 
-    def test_state_is_saved_after_each_yielded_page(self) -> None:
+    def test_state_is_staged_for_each_page_and_finished_window(self) -> None:
         session = _FakeSession(
             [
                 _FakeResponse(json_data={"data": [{"id": "t1"}], "_links": {"next": {"href": "https://x?cursor=c2"}}}),
@@ -320,8 +320,10 @@ class TestCursorPagination:
 
         self._pages(session, manager)
 
-        assert [state.cursor for state in manager.saved_states] == ["c2"]
-        assert manager.saved_states[0].window_start == "2026-01-01T00:00:00Z"
+        assert manager.saved_states == [
+            AdyenResumeConfig(window_start="2026-01-01T00:00:00Z", cursor="c2"),
+            AdyenResumeConfig(window_start="2026-01-02T00:00:00Z"),
+        ]
 
     def test_resume_starts_from_the_saved_cursor(self) -> None:
         session = _FakeSession([_FakeResponse(json_data={"data": [{"id": "t9"}]})])

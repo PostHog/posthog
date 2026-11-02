@@ -47,6 +47,9 @@ class FakeResumableSourceManager:
         self.saved.append(state)
         self.state = state
 
+    def safe_point(self) -> None:
+        pass
+
 
 def _nrql_data(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return {"actor": {"account": {"nrql": {"results": rows}}}}

@@ -43,6 +43,9 @@ class _FakeResumableManager:
     def save_state(self, data: SageHRResumeConfig) -> None:
         self.saved.append(data)
 
+    def safe_point(self) -> None:
+        pass
+
 
 class TestNormalizeSubdomain:
     @parameterized.expand(

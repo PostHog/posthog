@@ -10,8 +10,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
     make_tracked_session,
     retry_with_deadline,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
+    interruptible_wait,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.retry_limits import max_retry_after_seconds
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import reach_safe_point
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.luma.settings import (
     EVENTS_PATH,
@@ -68,12 +72,23 @@ def _retry_wait(retry_state: RetryCallState) -> float:
     return _EXPONENTIAL_WAIT(retry_state)
 
 
+def _before_retry_wait(_state: RetryCallState) -> None:
+    # Callers send each request with no rows held back, so the run can stop before any retry wait.
+    reach_safe_point()
+
+
+def _retry_sleep(seconds: float) -> None:
+    interruptible_wait(seconds, safe_point=reach_safe_point)
+
+
 # Luma holds a rate-limited key for one minute, so the waits must add up to more than that.
 # Eight attempts wait about 1+2+4+8+16+30+30 = 91 seconds in total.
 @retry_with_deadline(
     retry=retry_if_exception_type((LumaRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(8),
     wait=_retry_wait,
+    sleep=_retry_sleep,
+    before_sleep=_before_retry_wait,
     reraise=True,
 )
 def _fetch_page(
@@ -181,6 +196,7 @@ def _get_fan_out_rows(
             )
         for event_api_id in event_api_ids:
             yield from _get_child_rows_for_event(session, config, event_api_id, logger)
+            resumable_source_manager.safe_point()
 
         if not next_events_cursor or not event_entries:
             break
@@ -189,6 +205,7 @@ def _get_fan_out_rows(
         # Save AFTER yielding every child row of this events page, so a crash re-pulls at most one page
         # of parents; merge dedupes the re-pulled rows on the primary key.
         resumable_source_manager.save_state(LumaResumeConfig(pagination_cursor=events_cursor))
+        resumable_source_manager.safe_point()
 
 
 def _get_top_level_rows(
@@ -219,6 +236,7 @@ def _get_top_level_rows(
         # Save AFTER yielding so a crash re-fetches from the next page (already-yielded pages are
         # persisted); merge dedupes the re-pulled page on the primary key.
         resumable_source_manager.save_state(LumaResumeConfig(pagination_cursor=cursor))
+        resumable_source_manager.safe_point()
 
 
 def get_rows(

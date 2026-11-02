@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -288,8 +289,13 @@ def gainsight_px_source(
     }
 
     if config.incremental_fields:
-        return SourceResponse(
-            items=lambda: _event_pages(
+        # The window loop hands each page on unchanged and holds no rows. As a `Resource` it keeps the
+        # framework's per-page safe points, so a run of empty windows can hand off.
+        event_pages = Resource(
+            _event_pages,
+            name=endpoint,
+            hints={},
+            args=(
                 api_key,
                 region,
                 endpoint,
@@ -298,8 +304,8 @@ def gainsight_px_source(
                 resumable_source_manager,
                 db_incremental_field_last_value,
             ),
-            **response_kwargs,
         )
+        return SourceResponse(items=lambda: event_pages, **response_kwargs)
 
     paginator: BasePaginator
     if config.pagination == "scroll":

@@ -212,14 +212,15 @@ def _iter_billing_rows(
         # Response ordering is undocumented; each window arrives whole, so sort client-side to keep
         # the ascending guarantee sort_mode="asc" promises the pipeline.
         rows = sorted((_normalize_billing_record(record) for record in records), key=lambda r: r.get("time") or "")
+        if window_end is not None:
+            resumable_source_manager.save_state(RunPodResumeConfig(window_start=_format_rfc3339(window_end)))
         if rows:
             yield rows
+        else:
+            resumable_source_manager.safe_point()
 
         if window_end is None:
             break
-        # Save AFTER yielding so a crash re-yields the last window rather than skipping it — merge
-        # dedupes the re-pulled rows on the surrogate id.
-        resumable_source_manager.save_state(RunPodResumeConfig(window_start=_format_rfc3339(window_end)))
         window_start = window_end
 
 

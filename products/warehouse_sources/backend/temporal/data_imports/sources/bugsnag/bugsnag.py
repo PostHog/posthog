@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
     retry_with_deadline,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import reach_safe_point
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 # BugSnag uses a single global host for its Data Access API. On-prem / Enterprise installs use a
@@ -238,7 +239,10 @@ def _iter_all_pages(
     tolerated_statuses: tuple[int, ...] = (),
     paginate_by_offset: bool = False,
 ) -> Iterator[dict[str, Any]]:
-    """Yield every item across all pages of a list endpoint, following its next-page cursor."""
+    """Yield every item across all pages of a list endpoint, following its next-page cursor.
+
+    Only parent listings use this, and they run before any row is batched, so each page is a safe point.
+    """
     while True:
         items, next_url = _fetch_list_page(
             session,
@@ -249,6 +253,7 @@ def _iter_all_pages(
             paginate_by_offset=paginate_by_offset,
         )
         yield from items
+        reach_safe_point()
         if not next_url:
             return
         url = next_url
@@ -504,6 +509,12 @@ def _resolve_parents(
     return parents
 
 
+def _safe_point_if_drained(batcher: Batcher, manager: ResumableSourceManager[BugsnagResumeConfig]) -> None:
+    """Reach a safe point only when the shared batcher holds no rows the staged cursor skips."""
+    if not batcher.should_yield(include_incomplete_chunk=True):
+        manager.safe_point()
+
+
 def _iter_top_level(
     session: requests.Session,
     headers: dict[str, str],
@@ -542,6 +553,7 @@ def _iter_top_level(
                 yield batcher.get_table()
                 # Save AFTER yielding so a crash resumes at this page rather than losing buffered rows.
                 manager.save_state(BugsnagResumeConfig(next_url=checkpoint_url))
+        _safe_point_if_drained(batcher, manager)
         if not next_url:
             break
         url = next_url
@@ -588,6 +600,7 @@ def _iter_fan_out(
                 if batcher.should_yield():
                     yield batcher.get_table()
                     manager.save_state(BugsnagResumeConfig(next_url=None, parent_id=parent.resume_id))
+            _safe_point_if_drained(batcher, manager)
             continue
 
         page_count = 0
@@ -614,6 +627,7 @@ def _iter_fan_out(
                 if batcher.should_yield():
                     yield batcher.get_table()
                     manager.save_state(BugsnagResumeConfig(next_url=checkpoint_url, parent_id=parent.resume_id))
+            _safe_point_if_drained(batcher, manager)
             if not next_url:
                 break
             if config.max_pages is not None and page_count >= config.max_pages:

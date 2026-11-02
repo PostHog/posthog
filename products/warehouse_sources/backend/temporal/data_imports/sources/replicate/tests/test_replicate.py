@@ -36,6 +36,9 @@ class _FakeResumableManager:
     def save_state(self, data: ReplicateResumeConfig) -> None:
         self.saved.append(data)
 
+    def safe_point(self) -> None:
+        pass
+
 
 class TestFormatIncrementalValue:
     @parameterized.expand(

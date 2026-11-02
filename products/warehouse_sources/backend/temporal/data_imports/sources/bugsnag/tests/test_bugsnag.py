@@ -36,6 +36,9 @@ class _FakeResumableManager:
     def save_state(self, data: BugsnagResumeConfig) -> None:
         self.saved.append(data)
 
+    def safe_point(self) -> None:
+        pass
+
 
 def _make_response(status_code: int, body: Any = None, link: str | None = None) -> requests.Response:
     response = requests.Response()

@@ -341,6 +341,8 @@ def _get_windowed_rows(
 
     windows: deque[tuple[int, int]] = deque([(start, now)])
     while windows:
+        # Every row of the windows before this one is yielded, and the staged start is not past them.
+        resumable_source_manager.safe_point()
         window_since, window_before = windows.popleft()
         count = _window_count(session, api_token, url, config, window_since, window_before, logger)
         if count == 0:
@@ -829,6 +831,7 @@ def _get_metric_timeseries_rows(
                     )
 
         if not rows:
+            resumable_source_manager.safe_point()
             continue
 
         rows.sort(key=lambda row: _to_epoch(row.get("timestamp")) or 0)
@@ -969,6 +972,7 @@ def _get_performance_trace_rows(
     for window in _iter_windows(start, now, TRACES_WINDOW_SECONDS):
         traces = _window_traces(session, api_token, app_id, window.since, window.before, logger)
         if not traces:
+            resumable_source_manager.safe_point()
             continue
         yield traces
         resumable_source_manager.save_state(AppsignalResumeConfig(window_start=window.before))
@@ -1039,6 +1043,8 @@ def _get_trace_span_rows(
                     AppsignalResumeConfig(window_start=_to_epoch(trace_time) or window.since)
                 )
                 spans, batch_traces = [], 0
+            if not spans:
+                resumable_source_manager.safe_point()
 
         if spans:
             yield spans
@@ -1048,6 +1054,7 @@ def _get_trace_span_rows(
             )
             return
         resumable_source_manager.save_state(AppsignalResumeConfig(window_start=window.before))
+        resumable_source_manager.safe_point()
 
 
 def _fetch_deploy_stats(
@@ -1111,6 +1118,7 @@ def _walk_aggregate_windows(
         if rows:
             yield rows
         resumable_source_manager.save_state(AppsignalResumeConfig(window_start=window.before))
+        resumable_source_manager.safe_point()
 
 
 def _fetch_tracing_range_or_empty_if_aged_out(
@@ -1370,7 +1378,6 @@ def _get_slow_event_action_rows(
             return
 
         bucket = _to_iso(window.since)
-        rows: list[dict[str, Any]] = []
 
         for event in _fetch_slow_events(session, api_token, app_id, window, logger):
             digests_fetched += 1
@@ -1387,15 +1394,19 @@ def _get_slow_event_action_rows(
                     "digest": digest,
                 },
             )
-            rows.extend(
+            rows = [
                 {**action, "digest": digest, "timestamp": bucket}
                 for action in actions
                 if isinstance(action, dict) and action.get("namespace") and action.get("action_name")
-            )
+            ]
+            # The staged start still points at this bucket, so a resume re-reads it in full.
+            if rows:
+                yield rows
+            else:
+                resumable_source_manager.safe_point()
 
-        if rows:
-            yield rows
         resumable_source_manager.save_state(AppsignalResumeConfig(window_start=window.before))
+        resumable_source_manager.safe_point()
         buckets_done += 1
 
 
