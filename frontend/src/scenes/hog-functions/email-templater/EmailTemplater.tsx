@@ -827,11 +827,7 @@ function NativeEmailTemplaterForm({
 }
 
 function withInertLinks(html: string | undefined): string | undefined {
-    if (!html) {
-        return html
-    }
-    const baseTag = '<base target="_blank">'
-    return /<head\b[^>]*>/i.test(html) ? html.replace(/<head\b[^>]*>/i, (head) => head + baseTag) : baseTag + html
+    return html ? `${html}<style>a,area{pointer-events:none!important}</style>` : html
 }
 
 function EmailContentPreview({ buttonsAt }: { buttonsAt: 'bottom' | 'center' }): JSX.Element {
@@ -847,7 +843,7 @@ function EmailContentPreview({ buttonsAt }: { buttonsAt: 'bottom' | 'center' }):
                             buttonsAt === 'bottom' ? 'items-end' : 'items-center',
                             // Persistent start buttons while empty; hover-reveal once there is content
                             value
-                                ? 'opacity-0 group-hover/email-preview:opacity-100 group-focus-within/email-preview:opacity-100'
+                                ? 'opacity-0 group-hover/email-preview:opacity-100 focus-within:opacity-100'
                                 : 'opacity-100'
                         )}
                     >
