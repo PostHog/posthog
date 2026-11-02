@@ -997,8 +997,7 @@ jobs:
               # Resolve http-server/wait-on from common/storybook's devDependencies (no global install).
               run: |
                   pnpm --filter=@posthog/storybook exec http-server dist --port 6006 --silent &
-                  sleep 2
-                  pnpm --filter=@posthog/storybook exec wait-on http://127.0.0.1:6006 --timeout 30
+                  pnpm --filter=@posthog/storybook exec wait-on http://127.0.0.1:6006 --timeout 30000
 
             - name: Verify changed stories are stable
               id: flake-verify
