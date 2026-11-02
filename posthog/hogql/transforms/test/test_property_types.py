@@ -1010,7 +1010,10 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
                 SELECT 1 AS team_id, '$identify' AS event,
                     CAST(%(document)s, %(event_type)s) AS properties,
                     CAST('{}', %(person_type)s) AS person_properties,
-                    CAST(%(temporary_document)s, %(temporary_type)s) AS temporary_properties
+                    CAST(%(temporary_document)s, %(temporary_type)s) AS temporary_properties,
+                    CAST([], 'Array(String)') AS properties_null_keys,
+                    CAST([], 'Array(String)') AS temporary_properties_null_keys,
+                    CAST([], 'Array(String)') AS person_properties_null_keys
             ) """
             + printed,
             {
