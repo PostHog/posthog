@@ -172,6 +172,7 @@ export class StateManager {
             ...(introspectionResult.data.mcp_allowed_tools
                 ? { mcp_allowed_tools: introspectionResult.data.mcp_allowed_tools }
                 : {}),
+            ...(introspectionResult.data.supports_step_up === true ? { supports_step_up: true } : {}),
         }
     }
 

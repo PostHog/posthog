@@ -1,4 +1,4 @@
-import { isRejectedTokenChallenge, withResourceMetadata } from '@/lib/auth-errors'
+import { isInsufficientScopeChallenge, isRejectedTokenChallenge, withResourceMetadata } from '@/lib/auth-errors'
 import { resolveEffectiveClientName } from '@/lib/client-detection'
 import { MCP_DOCS_URL, getAuthorizationServerUrl } from '@/lib/constants'
 import { isIdJagAccessToken } from '@/lib/id-jag'
@@ -275,8 +275,13 @@ const handleRequest = async (
         const region = await resolveProxyRegion(token, ctx.props.userHash, env.MCP_KV)
         log.extend({ proxy: 'hono', region })
         const response = await proxyToHono(request, region)
-        if (isRejectedTokenChallenge(response)) {
-            log.extend({ authError: 'rejected_token' })
+        const authError = isRejectedTokenChallenge(response)
+            ? 'rejected_token'
+            : isInsufficientScopeChallenge(response)
+              ? 'insufficient_scope'
+              : undefined
+        if (authError) {
+            log.extend({ authError })
             return withResourceMetadata(response, request, effectiveRegion)
         }
         return response

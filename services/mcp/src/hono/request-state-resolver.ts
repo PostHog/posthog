@@ -89,6 +89,7 @@ export interface ResolvedState {
     heldTools?: ReadonlySet<string> | undefined
     /** The task a sandbox token is bound to, from token introspection. */
     sandboxTaskId?: string | undefined
+    supportsStepUp: boolean
     /**
      * Whether the caller's team may reach third-party MCP tools through `exec`.
      * Gated on the same flag as the gateway UI — the tools are the gateway's payoff,
@@ -372,6 +373,7 @@ export class RequestStateResolver {
             gatewayToolFilter: { tools, features, excludeTools },
             heldTools,
             sandboxTaskId: _apiKey?.sandbox_task_id,
+            supportsStepUp: _apiKey?.supports_step_up === true,
             gatewayToolsEnabled:
                 useSingleExec &&
                 !readOnly &&

@@ -17,7 +17,7 @@ import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
 import { MCPClientProfile } from '@/lib/client-detection'
-import { PostHogApiError } from '@/lib/errors'
+import { PostHogApiError, PostHogPermissionError } from '@/lib/errors'
 import { buildToolDomainsCompact } from '@/lib/instructions'
 import { CHATGPT_APP_OAUTH_CLIENT_ID } from '@/lib/oauth-constants'
 import { RENDER_UI_RESOURCE_URI, URI_MAP } from '@/resources/ui-apps.generated'
@@ -965,6 +965,55 @@ describe('ToolExecutor', () => {
 
             expect(result.content[0].text.includes('NONCANONICAL')).toBe(marked)
         })
+    })
+
+    describe('a missing scope reported by the API', () => {
+        let getToolByNameSpy: MockInstance | undefined
+
+        afterEach(() => {
+            getToolByNameSpy?.mockRestore()
+            getToolByNameSpy = undefined
+        })
+
+        function stubToolDeniedWith(error: PostHogPermissionError): void {
+            getToolByNameSpy = vi.spyOn(catalog, 'getToolByName').mockReturnValue({
+                build() {
+                    return this.base
+                },
+                base: {
+                    schema: z.object({}),
+                    handler: async () => {
+                        throw error
+                    },
+                },
+            } as any)
+        }
+
+        it.each([true, false])(
+            'returns the tool error with every scope from the API challenge in _meta when supportsStepUp=%s',
+            async (supportsStepUp) => {
+                stubToolDeniedWith(
+                    new PostHogPermissionError({
+                        detail: "API key missing required scope 'person:read'",
+                        missingScope: 'person:read',
+                        challengeScopes: ['person:read', 'cohort:read'],
+                        url: 'https://us.posthog.com/api/projects/1/persons/cohorts/',
+                        method: 'GET',
+                    })
+                )
+
+                const result = (await executor.handleToolCall(
+                    { name: 'mock-tool', arguments: {} },
+                    makeToolExecutorState([{ name: 'mock-tool' }], { supportsStepUp })
+                )) as any
+
+                expect(result.isError).toBe(true)
+                expect(result.content[0].text).toContain("Missing PostHog API scope: 'person:read'")
+                expect(result._meta['mcp/www_authenticate']).toEqual([
+                    'Bearer error="insufficient_scope", scope="person:read cohort:read", error_description="Reconnect PostHog and approve these scopes: person:read cohort:read"',
+                ])
+            }
+        )
     })
 
     describe('ignored input keys in tools mode', () => {

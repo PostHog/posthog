@@ -15,6 +15,7 @@ import {
     PostHogValidationError,
     ToolInputValidationError,
 } from '@/lib/errors'
+import { parseInsufficientScopeChallenge } from '@/lib/missing-scope'
 import { getSearchParamsFromRecord, sanitizeHeaders, sanitizeHeaderValue } from '@/lib/utils.js'
 import type {
     ApiEventDefinition,
@@ -627,6 +628,7 @@ export class ApiClient {
             return new PostHogPermissionError({
                 detail: errorData.detail || 'permission denied',
                 missingScope,
+                challengeScopes: parseInsufficientScopeChallenge(response.headers.get('WWW-Authenticate')),
                 url,
                 method,
             })
