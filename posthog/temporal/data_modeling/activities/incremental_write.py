@@ -24,7 +24,6 @@ import json
 import shutil
 import sqlite3
 import threading
-from collections import Counter
 from collections.abc import Iterator
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -129,11 +128,18 @@ def _spilled_duplicate_count(keys: pa.Table, rejected_row: int) -> int:
     The rejected key was stored once already if this row is its first in the slice, and a key
     repeated within the slice may appear more often still.
     """
-    slice_keys = [_spill_key(row) for row in zip(*keys.to_pydict().values(), strict=True)]
-    counts = Counter(slice_keys)
-    rejected = slice_keys[rejected_row]
-    stored_earlier = rejected not in slice_keys[:rejected_row]
-    return max(max(counts.values()), counts[rejected] + stored_earlier)
+    rejected = _spill_key(tuple(column[rejected_row].as_py() for column in keys.columns))
+    in_slice = 0
+    stored_earlier = True
+    row_number = 0
+    for batch in keys.to_batches(max_chunksize=8192):
+        for row in zip(*batch.to_pydict().values(), strict=True):
+            if _spill_key(row) == rejected:
+                in_slice += 1
+                stored_earlier = stored_earlier and row_number >= rejected_row
+            row_number += 1
+    grouped = keys.group_by(keys.column_names).aggregate([([], "count_all")])
+    return max(pc.max(grouped.column("count_all")).as_py(), in_slice + stored_earlier)
 
 
 class UniqueKeyTracker:
