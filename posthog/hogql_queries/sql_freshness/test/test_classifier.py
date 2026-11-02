@@ -209,6 +209,12 @@ GRANT_CASES: list[tuple[Any, ...]] = [
         {"timezone": AMSTERDAM, "now": datetime(2026, 10, 25, 0, 30, tzinfo=UTC)},
     ),
     (
+        "second_offset_counts_elapsed_time_across_a_dst_fall_back",
+        "select count() from events where timestamp >= now() - 3600",
+        SqlWindowClass.LIVE,
+        {"timezone": AMSTERDAM, "now": datetime(2026, 10, 25, 1, 30, tzinfo=UTC)},
+    ),
+    (
         "date_truncation_plus_integer_adds_days",
         "select count() from events where timestamp >= toStartOfMonth(toDate('2026-10-29')) "
         "and timestamp < toStartOfMonth(toDate('2026-10-29')) + 31",

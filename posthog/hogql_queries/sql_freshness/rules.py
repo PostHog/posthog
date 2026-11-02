@@ -37,6 +37,7 @@ class FreshnessReason(StrEnum):
     UNSUPPORTED_BOUND = "unsupported_bound"
     CLOCK_OUTSIDE_BOUNDS = "clock_outside_bounds"
     UNPARSEABLE = "unparseable"
+    PLACEHOLDER_EXPRESSION = "placeholder_expression"
 
 
 @frozen

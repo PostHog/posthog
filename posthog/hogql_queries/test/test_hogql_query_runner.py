@@ -708,6 +708,20 @@ class TestHogQLQueryRunnerApiSqlFreshness(BaseTest):
         assert isinstance(freshness, SqlFreshness)
         assert freshness.fresh_until == datetime(2026, 10, 30, tzinfo=UTC)
 
+    @time_machine.travel("2026-10-29T15:00:00Z", tick=False)
+    def test_placeholder_expression_keeps_default_age(self) -> None:
+        variable = InsightVariable.objects.create(team=self.team, name="Event", code_name="event_name", type="String")
+        freshness = self._built_freshness(
+            HogQLQuery(
+                query="select {toUnixTimestamp(now())}, count() from events "
+                "where timestamp >= '2026-10-01' and timestamp < '2026-10-28' and event != {variables.event_name}",
+                variables={
+                    str(variable.id): HogQLVariable(code_name="event_name", variableId=str(variable.id), value="x")
+                },
+            )
+        )
+        assert freshness == Reject(reason=FreshnessReason.PLACEHOLDER_EXPRESSION)
+
     @parameterized.expand([("project_timezone", None, "fixed_past"), ("utc", False, "up_to_now_long")])
     def test_bounds_follow_the_query_timezone(
         self, _name: str, convert_to_project_timezone: bool | None, expected_window: str

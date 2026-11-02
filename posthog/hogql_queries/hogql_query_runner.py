@@ -123,15 +123,15 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             return {}
         if isinstance(classification, Reject):
             return {"sql_cache_reason": classification.reason.value}
-        if isinstance(classification, SqlFreshness):
-            return {f"sql_cache_{key}": value for key, value in freshness_record(classification).items()}
-        return {}
+        return {f"sql_cache_{key}": value for key, value in freshness_record(classification).items()}
 
     def _classify_sql_freshness(
         self, query: ast.SelectQuery | ast.SelectSetQuery, relative_inputs: bool
     ) -> SqlFreshness | Reject:
         if "events" not in {name.lower() for name in self._queried_table_names}:
             return Reject(reason=FreshnessReason.NO_EVENTS)
+        if find_placeholders(parse_select(self.query.query)).placeholder_expressions:
+            return Reject(reason=FreshnessReason.PLACEHOLDER_EXPRESSION)
         try:
             context = self.build_hogql_context(enable_select_queries=True, modifiers=self.modifiers)
             resolved = resolve_types(clone_expr(query), context, dialect="hogql")

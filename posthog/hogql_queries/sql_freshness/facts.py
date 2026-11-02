@@ -191,6 +191,12 @@ def _period(unit: str, amount: int = 1) -> Union[timedelta, relativedelta]:
     return PERIOD_MAP[unit] * amount
 
 
+def _shifted(at: datetime, unit: str, amount: int) -> datetime:
+    if unit in _SUB_DAY_UNITS:
+        return (at.astimezone(UTC) + _period(unit, amount)).astimezone(at.tzinfo)
+    return at + _period(unit, amount)
+
+
 def _whole_days(delta: Union[timedelta, relativedelta]) -> bool:
     if isinstance(delta, timedelta):
         return delta.seconds == 0 and delta.microseconds == 0
@@ -261,11 +267,15 @@ class _Evaluator:
             ast.ArithmeticOperationOp.Sub,
         ):
             base = self.evaluate(expr.left)
-            delta = self._delta(expr.right, base) if base is not None else None
-            if base is None or delta is None or (base.utc_day and not _whole_days(delta)):
+            step = self._step(expr.right, base) if base is not None else None
+            if base is None or step is None:
                 return None
-            moved = base.at + delta if expr.op == ast.ArithmeticOperationOp.Add else base.at - delta
-            return dataclasses.replace(base, at=moved)
+            unit, amount = step
+            if expr.op == ast.ArithmeticOperationOp.Sub:
+                amount = -amount
+            if base.utc_day and not _whole_days(_period(unit, amount)):
+                return None
+            return dataclasses.replace(base, at=_shifted(base.at, unit, amount))
         return None
 
     def anchor(self, value: _Value) -> datetime:
@@ -296,15 +306,15 @@ class _Evaluator:
             return _Value(at=self.start_of_utc_today - timedelta(days=1), is_date=True, utc_day=True)
         return None
 
-    def _delta(self, expr: ast.Expr, base: _Value) -> Optional[Union[timedelta, relativedelta]]:
+    def _step(self, expr: ast.Expr, base: _Value) -> Optional[tuple[str, int]]:
         amount = _int_constant(expr)
         if amount is not None:
-            return _period("day" if base.is_date else "second", amount)
+            return ("day" if base.is_date else "second", amount)
         if isinstance(expr, ast.Call) and expr.name.startswith("toInterval") and len(expr.args) == 1:
             unit = expr.name.removeprefix("toInterval").lower()
             interval_amount = _int_constant(expr.args[0])
             if unit in PERIOD_MAP and interval_amount is not None:
-                return _period(unit, interval_amount)
+                return (unit, interval_amount)
         return None
 
     def _wrapper(self, call: ast.Call) -> Optional[_Value]:
@@ -347,7 +357,7 @@ class _Evaluator:
         amount = _int_constant(call.args[1]) if len(call.args) == 2 else None
         if inner is None or amount is None or (inner.utc_day and unit in _SUB_DAY_UNITS):
             return None
-        return dataclasses.replace(inner, at=inner.at + _period(unit, sign * amount))
+        return dataclasses.replace(inner, at=_shifted(inner.at, unit, sign * amount))
 
 
 _CALL_HANDLERS: dict[str, Callable[[_Evaluator, ast.Call], Optional[_Value]]] = {
@@ -386,7 +396,7 @@ def _bound(
             return _Bound(start=at, end=at)
         return _Bound(start=at, end=None) if op in _LOWER_BOUND_OPS else _Bound(start=None, end=at)
     floor = evaluator.align(at, truncation)
-    ceiling = floor + _period(_TRUNCATE_FUNCTIONS[truncation])
+    ceiling = _shifted(floor, _TRUNCATE_FUNCTIONS[truncation], 1)
     next_boundary = at if floor == at else ceiling
     if op == ast.CompareOperationOp.Eq:
         return _Bound(start=floor, end=ceiling)
