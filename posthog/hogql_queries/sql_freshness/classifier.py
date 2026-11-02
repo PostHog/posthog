@@ -6,6 +6,7 @@ from dateutil.parser import isoparse
 from posthog.hogql import ast
 
 from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.sql_freshness.facts import extract_facts
 from posthog.hogql_queries.sql_freshness.rules import (
     FreshnessReason,
@@ -40,7 +41,8 @@ def classify(
             week_start_day=week_start_day,
             relative_inputs=relative_inputs,
         )
-    except Exception:
+    except Exception as error:
+        capture_exception(error)
         return Reject(reason=FreshnessReason.UNPARSEABLE)
     reason = reject_reason(facts)
     if reason is not None:
