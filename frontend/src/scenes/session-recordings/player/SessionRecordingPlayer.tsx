@@ -24,7 +24,8 @@ import {
     SessionRecordingPlayerMode,
     sessionRecordingPlayerLogic,
 } from './sessionRecordingPlayerLogic'
-import { DEBUG_TAB_KEYS } from './watch/DebugTabBar'
+import { useLinkedIssuesAvailable } from './sidebar/useLinkedIssuesAvailable'
+import { debugTabKeys } from './watch/DebugTabBar'
 import { WatchPanel } from './watch/WatchPanel'
 
 export { createPlaybackSpeedKey } from './PurePlayer'
@@ -111,6 +112,7 @@ function SessionRecordingPlayerInternal({
     const { logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { user } = useValues(userLogic)
+    const linkedIssuesAvailable = useLinkedIssuesAvailable()
     const showDebugReplayButton = featureFlags[FEATURE_FLAGS.REPLAY_DEBUG_WITH_AI] || user?.is_impersonated
     // The player modal covers the side panel, so the conversation would open out of sight.
     const debugReplayAction = showDebugReplayButton && logicProps.playerKey !== 'modal' ? <DebugReplayButton /> : null
@@ -137,7 +139,7 @@ function SessionRecordingPlayerInternal({
                 </div>
                 {rightDock && (
                     <PlayerSidebar
-                        tabs={DEBUG_TAB_KEYS}
+                        tabs={debugTabKeys(linkedIssuesAvailable)}
                         stacking={SessionRecordingSidebarStacking.Horizontal}
                         onToggleStacking={() => setWatchDebugDock('bottom')}
                     />

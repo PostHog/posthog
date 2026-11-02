@@ -364,6 +364,45 @@ class TraceSummaryRun:
     groups: dict[str, str]
 
 
+class TracePullRequest(Contract):
+    repo_owner: str = Field(description="The owner of the pull request's repository.")
+    repo_name: str = Field(description="The name of the pull request's repository.")
+    number: int = Field(description="The pull request number.")
+    title: str | None = Field(description="The pull request title, or null when the synced data has none.")
+
+
+class TracePullRequestLookup(Contract):
+    pull_request: TracePullRequest | None = Field(
+        description="The pull request the trace's git branch belongs to, ranked by engineering analytics, or null "
+        "when the trace has no branch, the project has no GitHub source, or no pull request matches."
+    )
+
+
+TraceExportStatus = Literal["pending", "complete", "failed"]
+TRACE_EXPORT_STATUSES: tuple[TraceExportStatus, ...] = get_args(TraceExportStatus)
+
+
+class TraceExport(Contract):
+    id: int = Field(description="The export id, used to read its status and download the file.")
+    status: TraceExportStatus = Field(description="Whether the file is still being written, ready, or failed.")
+    filename: str = Field(description="The name the downloaded JSON file gets.")
+    created_at: datetime = Field(description="When the export was requested.")
+    expires_after: datetime | None = Field(description="When the file is deleted.")
+    exception: str | None = Field(description="Why the export failed, null unless status is failed.")
+
+
+class TraceExportFile(Contract):
+    trace: Trace = Field(description="The trace as the trace endpoint returns it.")
+    truncated: bool = Field(
+        description="True when the trace has more events than an export reads. The file then holds the earliest "
+        "events only, and leaves out the later steps."
+    )
+    nodes: list[TraceNodeDetail] = Field(
+        description="Every node with its event properties as ingested, inputs and outputs included: the root first, "
+        "then the tree in pre-order."
+    )
+
+
 AttentionReason = Literal["errored", "silent", "worse"]
 BucketStatus = Literal["none", "dip", "normal"]
 Interval = Literal["hour", "day"]

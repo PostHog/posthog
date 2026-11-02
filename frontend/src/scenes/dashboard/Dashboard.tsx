@@ -36,6 +36,7 @@ import { DashboardFlagCalledBanner } from './DashboardFlagCalledBanner'
 import { DashboardHeader } from './DashboardHeader'
 import { DashboardEmbeddedShareButton } from './DashboardHeaderActions'
 import { DashboardModalLoading } from './DashboardModalLoading'
+import { dashboardPerformanceLogic } from './dashboardPerformanceLogic'
 import { DashboardQueryScanBanner } from './DashboardQueryScanBanner'
 import { DashboardRetentionBanner } from './DashboardRetentionBanner'
 import { dashboardSubscribeNudgeLogic } from './dashboardSubscribeNudgeLogic'
@@ -152,6 +153,8 @@ function DashboardScene({
         hasInvalidDashboardId,
     } = useValues(dashboardLogic)
     const { layoutZoom } = useValues(dashboardLogic)
+    const { id: dashboardId } = useMountedLogic(dashboardLogic).props
+    useMountedLogic(dashboardPerformanceLogic({ dashboardId, placement }))
     const { currentTeamId } = useValues(teamLogic)
     const { reportDashboardViewed, cancelDashboardRefresh, retryDashboardLoad, setLayoutZoom } =
         useActions(dashboardLogic)

@@ -69,6 +69,7 @@ import {
 import { detectFeatureFlagChanges } from './featureFlagConfirmationLogic'
 import {
     NEW_FLAG,
+    RollbackReasonSource,
     convertIndexBasedPayloadsToVariantKeys,
     dependencyActionLabel,
     dependencyDisabledReason,
@@ -3886,6 +3887,184 @@ describe('featureFlagLogic', () => {
                 ['feature flag archived', { via: 'disable-confirmation' }],
             ])
             dialogOpenSpy.mockRestore()
+        })
+    })
+
+    describe('rollback reason question', () => {
+        const rollbackReasonRequired = (): ApiError =>
+            new ApiError(undefined, 409, undefined, {
+                type: 'invalid_request',
+                code: 'rollback_reason_required',
+                detail: "This edit lowers the flag's exposure.",
+            })
+
+        // The save sends tags the form does not hold, as the sidebar tags save does, so a resend of the form fails.
+        const saveFrom: Record<RollbackReasonSource, (l: typeof logic) => void> = {
+            save: (l) => l.actions.saveFeatureFlag({ ...l.values.featureFlag, tags: ['from-the-sidebar'] }),
+            toggle: (l) => l.actions.updateFeatureFlagActive(false),
+        }
+        const sentBy: Record<RollbackReasonSource, Record<string, unknown>> = {
+            save: { tags: ['from-the-sidebar'] },
+            toggle: { active: false },
+        }
+
+        const withRollbackReasonFlag = (enabled: boolean): void => {
+            enabledFeaturesLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.FEATURE_FLAG_ROLLBACK_REASON]: enabled })
+        }
+
+        let openForm: jest.SpyInstance
+
+        beforeEach(() => {
+            silenceKeaLoadersErrors()
+            openForm = jest.spyOn(LemonDialog, 'openForm').mockImplementation(() => {})
+            logic.actions.setFeatureFlag({ ...MOCK_FEATURE_FLAG, active: true })
+        })
+
+        afterEach(() => {
+            resumeKeaLoadersErrors()
+            openForm.mockRestore()
+        })
+
+        it.each([
+            [
+                'save',
+                'an answer',
+                { reason: 'errors', note: 'Checkout broke' },
+                { rollback_reason: 'errors', rollback_reason_note: 'Checkout broke' },
+            ],
+            [
+                'toggle',
+                'an answer',
+                { reason: 'metrics', note: '' },
+                { rollback_reason: 'metrics', rollback_reason_note: null },
+            ],
+            ['save', 'a skip', 'skipped', {}],
+            ['toggle', 'a skip', 'skipped', {}],
+        ] as const)(
+            'a %s save that lowers exposure asks why, then saves with %s',
+            async (source, _label, choice, resentFields) => {
+                withRollbackReasonFlag(true)
+                const update = jest
+                    .spyOn(api, 'update')
+                    .mockRejectedValueOnce(rollbackReasonRequired())
+                    .mockResolvedValue({ ...MOCK_FEATURE_FLAG, active: source !== 'toggle' })
+
+                await expectLogic(logic, () => saveFrom[source](logic)).toFinishAllListeners()
+
+                expect(update).toHaveBeenCalledTimes(1)
+                expect(update.mock.calls[0][1]).toEqual(expect.objectContaining({ ask_rollback_reason: true }))
+                expect(capturesOf('feature flag rollback reason asked')).toEqual([
+                    ['feature flag rollback reason asked', { source }],
+                ])
+
+                const dialog = openForm.mock.calls[0][0]
+                if (choice === 'skipped') {
+                    dialog.tertiaryButton.onClick()
+                } else {
+                    dialog.onSubmit(choice)
+                }
+                dialog.onAfterClose()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(update).toHaveBeenCalledTimes(2)
+                const resent = update.mock.calls[1][1] as Record<string, unknown>
+                expect(resent).not.toHaveProperty('ask_rollback_reason')
+                expect(resent).toEqual(expect.objectContaining({ ...sentBy[source], ...resentFields }))
+                expect(capturesOf('feature flag rollback reason skipped')).toEqual(
+                    choice === 'skipped' ? [['feature flag rollback reason skipped', { source }]] : []
+                )
+                expect(capturesOf('feature flag rollback reason canceled')).toEqual([])
+
+                // The answer belongs to that edit only, so the next save asks again.
+                await expectLogic(logic, () => saveFrom[source](logic)).toFinishAllListeners()
+                expect(update.mock.calls[2][1]).toEqual(expect.objectContaining({ ask_rollback_reason: true }))
+                expect(update.mock.calls[2][1]).not.toHaveProperty('rollback_reason')
+            }
+        )
+
+        it.each(['save', 'toggle'] as const)(
+            'a %s retried after the resend fails on the network keeps the answer',
+            async (source) => {
+                withRollbackReasonFlag(true)
+                const update = jest
+                    .spyOn(api, 'update')
+                    .mockRejectedValueOnce(rollbackReasonRequired())
+                    .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+                    .mockResolvedValue({ ...MOCK_FEATURE_FLAG, active: source !== 'toggle' })
+
+                await expectLogic(logic, () => saveFrom[source](logic)).toFinishAllListeners()
+                const dialog = openForm.mock.calls[0][0]
+                dialog.onSubmit({ reason: 'errors', note: '' })
+                dialog.onAfterClose()
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => saveFrom[source](logic)).toFinishAllListeners()
+
+                expect(update).toHaveBeenCalledTimes(3)
+                expect(update.mock.calls[2][1]).toEqual(expect.objectContaining({ rollback_reason: 'errors' }))
+                expect(openForm).toHaveBeenCalledTimes(1)
+            }
+        )
+
+        it.each([
+            ['the edit is canceled', 'save', (l: typeof logic) => l.actions.editFeatureFlag(false), 'save'],
+            ['the flag is reloaded', 'save', (l: typeof logic) => l.actions.loadFeatureFlag(), 'save'],
+            ['the next edit comes from the other source', 'toggle', () => {}, 'save'],
+        ] as const)(
+            'an answer whose resend failed does not ride on the next edit when %s',
+            async (_label, answeredFrom, discard, nextFrom) => {
+                withRollbackReasonFlag(true)
+                const update = jest
+                    .spyOn(api, 'update')
+                    .mockRejectedValueOnce(rollbackReasonRequired())
+                    .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+                    .mockResolvedValue({ ...MOCK_FEATURE_FLAG, active: true })
+
+                await expectLogic(logic, () => saveFrom[answeredFrom](logic)).toFinishAllListeners()
+                const dialog = openForm.mock.calls[0][0]
+                dialog.onSubmit({ reason: 'errors', note: '' })
+                dialog.onAfterClose()
+                await expectLogic(logic).toFinishAllListeners()
+                await expectLogic(logic, () => discard(logic)).toFinishAllListeners()
+
+                await expectLogic(logic, () => saveFrom[nextFrom](logic)).toFinishAllListeners()
+
+                expect(update.mock.calls[2][1]).toEqual(expect.objectContaining({ ask_rollback_reason: true }))
+                expect(update.mock.calls[2][1]).not.toHaveProperty('rollback_reason')
+            }
+        )
+
+        it('saves nothing when the question is closed without an answer', async () => {
+            withRollbackReasonFlag(true)
+            const update = jest.spyOn(api, 'update').mockRejectedValueOnce(rollbackReasonRequired())
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+            try {
+                await expectLogic(logic, () => saveFrom.save(logic)).toFinishAllListeners()
+
+                openForm.mock.calls[0][0].onAfterClose()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(update).toHaveBeenCalledTimes(1)
+                expect(capturesOf('feature flag rollback reason canceled')).toEqual([
+                    ['feature flag rollback reason canceled', { source: 'save' }],
+                ])
+                // The 409 must not read as a version conflict.
+                expect(toastSpy).not.toHaveBeenCalled()
+            } finally {
+                toastSpy.mockRestore()
+            }
+        })
+
+        it.each([
+            ['the feature flag is off', false, () => logic.actions.saveFeatureFlag(logic.values.featureFlag)],
+            ['the flag is turned on', true, () => logic.actions.updateFeatureFlagActive(true)],
+        ])('does not ask when %s', async (_label, enabled, save) => {
+            withRollbackReasonFlag(enabled)
+            const update = jest.spyOn(api, 'update').mockResolvedValueOnce({ ...MOCK_FEATURE_FLAG, active: true })
+
+            await expectLogic(logic, save).toFinishAllListeners()
+
+            expect(update.mock.calls[0][1]).not.toHaveProperty('ask_rollback_reason')
         })
     })
 

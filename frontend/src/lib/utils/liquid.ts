@@ -1,7 +1,7 @@
 // Lazy load liquid library
 import { Context, Emitter, Liquid, Output, Tag, TagToken, Template, TopLevelToken } from 'liquidjs'
 
-const LIQUID_REGEX = /\{\{(.*?)\}\}|{%(.*?)%}/g
+const LIQUID_TAG_CLOSERS: Record<string, string> = { '{': '}}', '%': '%}' }
 
 // Copy of the currency filter in nodejs/src/cdp/utils/liquid.ts, so previews format money the way sends do.
 const REGION_CURRENCIES: Record<string, string> = {
@@ -151,8 +151,33 @@ export class LiquidRenderer {
 
     // TRICKY: Unlayer replaces all liquid's elements like > for example with &gt;
     // We need to decode these but _only_ for the liquid elements i.e. content within {{ }} or {% %}
+    // Copy of decodeLiquidTags in nodejs/src/cdp/utils/liquid.ts: a single forward pass, so a tag can span
+    // lines without a regex rescanning the rest of the template for every unclosed opener.
     private static decode(template: string): string {
-        return template.replace(LIQUID_REGEX, (match) => this.decodeEntities(match))
+        let out = ''
+        let cursor = 0
+        const exhausted = new Set<string>()
+
+        while (cursor < template.length) {
+            const open = template.indexOf('{', cursor)
+            if (open === -1) {
+                break
+            }
+            const closer = LIQUID_TAG_CLOSERS[template[open + 1]]
+            const close = closer && !exhausted.has(closer) ? template.indexOf(closer, open + 2) : -1
+            if (close === -1) {
+                if (closer) {
+                    exhausted.add(closer)
+                }
+                out += template.slice(cursor, open + 1)
+                cursor = open + 1
+                continue
+            }
+            out += template.slice(cursor, open) + this.decodeEntities(template.slice(open, close + 2))
+            cursor = close + 2
+        }
+
+        return out + template.slice(cursor)
     }
 
     public static parse(template: string): Template[] {

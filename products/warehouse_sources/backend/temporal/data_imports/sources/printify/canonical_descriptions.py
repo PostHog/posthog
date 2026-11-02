@@ -100,4 +100,50 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "location": "The print provider's location address.",
         },
     },
+    "blueprint_print_providers": {
+        "description": "Which print providers fulfill each catalog blueprint, with their decoration methods and production time.",
+        "docs_url": "https://developers.printify.com/#catalog",
+        "columns": {
+            "id": "The ID of the print provider.",
+            "blueprint_id": "The ID of the catalog blueprint the print provider fulfills.",
+            "title": "The print provider's name.",
+            "decoration_methods": "Decoration methods the print provider offers for the blueprint (e.g. dtg, embroidery).",
+            "production_time": "The print provider's average production time in business days.",
+        },
+    },
+    "catalog_variants": {
+        "description": "Catalog variants (e.g. color and size combinations) for each blueprint and print provider used by a product in a connected shop. Includes out-of-stock variants.",
+        "docs_url": "https://developers.printify.com/#catalog",
+        "columns": {
+            "id": "The variant ID, referenced as variant_id on product variants and order line items.",
+            "blueprint_id": "The ID of the catalog blueprint.",
+            "print_provider_id": "The ID of the print provider.",
+            "title": "The variant's name (e.g. Heather Grey / XS).",
+            "options": "The option values of the variant, such as color and size.",
+            "placeholders": "Print areas available on the variant, with their dimensions and decoration method.",
+            "decoration_methods": "Decoration methods available for the variant.",
+        },
+    },
+    "catalog_shipping_rates": {
+        "description": "Shipping cost and handling time for each variant and destination country, for each blueprint and print provider used by a product in a connected shop.",
+        "docs_url": "https://developers.printify.com/#catalog",
+        "columns": {
+            "blueprint_id": "The ID of the catalog blueprint.",
+            "print_provider_id": "The ID of the print provider.",
+            "variant_id": "The ID of the catalog variant.",
+            "country": "The destination country code, or REST_OF_THE_WORLD.",
+            "handling_time": "The print provider's handling time for the blueprint.",
+            "first_item": "The shipping cost of the first item, in the smallest currency unit, and its currency.",
+            "additional_items": "The shipping cost of each additional item, in the smallest currency unit, and its currency.",
+        },
+    },
+    "product_gpsr": {
+        "description": "General Product Safety Regulation (GPSR) information for each product in a connected shop.",
+        "docs_url": "https://developers.printify.com/#products",
+        "columns": {
+            "shop_id": "The ID of the shop the product belongs to.",
+            "product_id": "The ID of the product.",
+            "sections": "GPSR sections, each with a title (e.g. EU representative, Care instructions) and text.",
+        },
+    },
 }
