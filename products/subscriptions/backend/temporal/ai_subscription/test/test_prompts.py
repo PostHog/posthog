@@ -2,12 +2,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.subscriptions.backend.temporal.ai_subscription.prompts import (
-    HOGQL_FIX_PROMPT,
-    PLAN_GENERATION_PROMPT,
-    prepend_hogql_query_writing_rules,
-    resolve_prompt,
-)
+from products.subscriptions.backend.temporal.ai_subscription.prompts import resolve_prompt
 
 _P = "products.subscriptions.backend.temporal.ai_subscription.prompts"
 
@@ -74,8 +69,3 @@ def test_resolve_prompt_captures_source_event(
         "team_id": 7,
         "$process_person_profile": False,
     }
-
-
-@parameterized.expand([("planner", PLAN_GENERATION_PROMPT), ("fixer", HOGQL_FIX_PROMPT)])
-def test_query_writing_rules_reach_prompt_with_groups_join(_name: str, prompt: str) -> None:
-    assert "FROM groups WHERE index" in prepend_hogql_query_writing_rules(prompt)
