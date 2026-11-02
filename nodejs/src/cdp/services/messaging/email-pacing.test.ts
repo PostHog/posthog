@@ -15,6 +15,10 @@ import {
 } from './email-pacing'
 
 describe('email pacing policies', () => {
+    afterEach(() => {
+        jest.restoreAllMocks()
+    })
+
     describe('parseTeamEmailCapMode', () => {
         it.each([
             [undefined, 'off'],
@@ -81,10 +85,6 @@ describe('email pacing policies', () => {
     })
 
     describe('retry delays', () => {
-        afterEach(() => {
-            jest.restoreAllMocks()
-        })
-
         it.each([
             [2, 0, 1000],
             [2, 0.9999, 1999],
@@ -170,10 +170,6 @@ describe('email pacing policies', () => {
             limiter.claimAllOrNothingPair.mockReset()
             limiter.claimUpTo.mockReset()
             tiers.getEmailSendingTier.mockReset().mockResolvedValue(0)
-        })
-
-        afterEach(() => {
-            jest.restoreAllMocks()
         })
 
         it.each([

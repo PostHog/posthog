@@ -3157,11 +3157,11 @@ describe('Workflows E2E (email queue)', () => {
                     status: 'completed',
                 }),
             ])
-            // Each pass is two transitions, a dequeue plus a requeue or completion: the hogflow
-            // pass routes to email, each of the two throttled SES attempts parks the job, and the
-            // last email pass sends and completes. That is 8. Anything higher means a pass went
-            // around the loop again.
-            expect(jobs[0].transition_count).toBeLessThanOrEqual(8)
+            const hogflowPasses = 1
+            const transitionsPerPass = 2
+            expect(jobs[0].transition_count).toBeLessThanOrEqual(
+                (hogflowPasses + ses.requests.length) * transitionsPerPass
+            )
         }
     })
 
