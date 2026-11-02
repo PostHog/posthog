@@ -821,7 +821,14 @@ def _update_cimd_application(
 
     try:
         app.full_clean()
-        app.save(update_fields=update_fields)
+        # One transaction, so a failed cleanup can't leave the new grant type saved while the sessions
+        # issued under the old one stay alive.
+        with transaction.atomic():
+            app.save(update_fields=update_fields)
+            if app.authorization_grant_type != previous_grant_type:
+                # The grant type decides how refresh tokens rotate and how a revoke sweeps them, and
+                # sessions issued under the old rule don't follow the new one. They end here.
+                revoke_application_sessions(app)
     except ValidationError as e:
         logger.warning("cimd_update_validation_failed", url=app.client_id, error=str(e))
         capture_exception(e)
@@ -832,10 +839,6 @@ def _update_cimd_application(
     else:
         if verification is not None:
             _touch_verification_token(verification)
-        if app.authorization_grant_type != previous_grant_type:
-            # The grant type decides how refresh tokens rotate and how a revoke sweeps them, and
-            # sessions issued under the old rule don't follow the new one. They end here.
-            revoke_application_sessions(app)
         # No rate-limit re-tiering on verification flips: the partner tier is derived
         # from organization_id at request time (OAuthApplication.partner_tier), so
         # the budgets follow the flip with nothing persisted.

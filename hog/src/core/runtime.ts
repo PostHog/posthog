@@ -89,11 +89,28 @@ function browserCommand(url: string): string[] {
 // `bun src/index.ts` runs as the bun executable, a compiled hog as itself.
 const FROM_SOURCE = basename(process.execPath).replace(/\.exe$/i, '') === 'bun'
 
+// Keychain calls that haven't settled. A call hog stopped waiting for, such as one behind a dialog
+// nobody answers, keeps the process alive, so the entry point ends the process when this is not zero.
+let pendingSecretCalls = 0
+
+export function hasPendingSecretCalls(): boolean {
+    return pendingSecretCalls > 0
+}
+
+async function tracked<T>(call: () => Promise<T>): Promise<T> {
+    pendingSecretCalls += 1
+    try {
+        return await call()
+    } finally {
+        pendingSecretCalls -= 1
+    }
+}
+
 function bunSecrets(service: string): Secrets {
     return {
-        get: (name) => Bun.secrets.get({ service, name }),
-        set: (name, value) => Bun.secrets.set({ service, name, value }),
-        delete: (name) => Bun.secrets.delete({ service, name }),
+        get: (name) => tracked(() => Bun.secrets.get({ service, name })),
+        set: (name, value) => tracked(() => Bun.secrets.set({ service, name, value })),
+        delete: (name) => tracked(() => Bun.secrets.delete({ service, name })),
     }
 }
 

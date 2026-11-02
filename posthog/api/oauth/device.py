@@ -275,12 +275,12 @@ class OAuthDeviceAuthorizationView(DeviceAuthorizationView):
 
 class OAuthDeviceAuthorizationBurstThrottle(IPThrottle):
     scope = "oauth_device_authorization_burst"
-    rate = "20/minute"
+    rate = "5/minute"
 
 
 class OAuthDeviceAuthorizationSustainedThrottle(IPThrottle):
     scope = "oauth_device_authorization_sustained"
-    rate = "200/hour"
+    rate = "30/hour"
 
 
 DEVICE_AUTHORIZATION_THROTTLE_CLASSES = (
