@@ -300,6 +300,12 @@ class MCPServerViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.G
 
 class MCPServerInstallationSerializer(serializers.ModelSerializer):
     template_id = serializers.UUIDField(source="template.id", read_only=True, allow_null=True, default=None)
+    gateway_server_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="ID of the MCP server this connection belongs to. The MCP server page takes this ID, "
+        "not the connection id. Null for older connections that are not linked to a server yet.",
+    )
     needs_reauth = serializers.SerializerMethodField()
     pending_oauth = serializers.SerializerMethodField()
     name = serializers.SerializerMethodField()
@@ -334,6 +340,7 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "template_id",
+            "gateway_server_id",
             "name",
             "icon_key",
             "icon_domain",
@@ -351,7 +358,16 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "template_id", "created_at", "updated_at", "tool_count", "scope", "is_owner"]
+        read_only_fields = [
+            "id",
+            "template_id",
+            "gateway_server_id",
+            "created_at",
+            "updated_at",
+            "tool_count",
+            "scope",
+            "is_owner",
+        ]
 
     def get_tool_count(self, obj: MCPServerInstallation) -> int:
         # Prefer the annotation to avoid N+1 on list; fall back to a direct
