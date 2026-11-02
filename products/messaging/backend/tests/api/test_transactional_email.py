@@ -524,7 +524,7 @@ class TestTransactionalEmail(APIBaseTest):
             ),
         ]
     )
-    def test_a_code_send_carries_what_the_caller_set(self, mock_post, _flag, _capture, _name, fields, sent):
+    def test_a_code_send_carries_what_the_caller_set(self, mock_post, _flag, capture, _name, fields, sent):
         self._cdp_accepts(mock_post)
         newer_default = Integration.objects.create(
             team=self.team, kind="email", integration_id="news@example.com", config={"verified": True}
@@ -538,6 +538,7 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
         sent = {**sent, "from": {**sent.get("from", {}), "integrationId": newer_default.id}}
         assert mock_post.call_args.kwargs["json"]["send"] == sent
+        assert capture.call_args.kwargs["properties"]["sensitive"] is sent.get("sensitive", False)
 
     @parameterized.expand(
         [

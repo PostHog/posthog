@@ -767,7 +767,7 @@ class TransactionalEmailSendMixin:
         send: Callable[[str | None], QueuedEmail],
         *,
         route: str,
-        addressed: dict[str, str],
+        addressed: dict[str, Any],
         unavailable: type[TransactionalEmailUnavailable] = TransactionalEmailUnavailable,
     ) -> Response:
         idempotency_key = request.headers.get("Idempotency-Key")
@@ -1235,7 +1235,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
                 idempotency_key=idempotency_key,
             ),
             route="send_email",
-            addressed={"addressed_by": "template_key"},
+            addressed={"addressed_by": "template_key", "sensitive": email.sensitive},
             unavailable=UnconfirmedEmailSend,
         )
 

@@ -506,19 +506,18 @@ def _send_payload(
 
 
 def _accepted_send(team_id: int, email: CodeEmail) -> dict[str, Any]:
-    accepted: dict[str, Any] = {
-        "content": _without_empty(
-            {"subject": email.subject, "html": email.html, "text": email.text or text_from_html(email.html)}
-        ),
-        "from": _without_empty(_code_send_sender(team_id, email.sender)),
-        "tracking": {"captureEngagement": email.capture_engagement},
-    }
-    if email.reply_to:
-        accepted["replyTo"] = list(email.reply_to)
-    if email.sensitive:
-        # Left out when false, so the retry of a send queued before this field existed matches its idempotency key.
-        accepted["sensitive"] = True
-    return accepted
+    # Empty and false fields stay out, so the retry of a send queued before a field existed matches its idempotency key.
+    return _without_empty(
+        {
+            "content": _without_empty(
+                {"subject": email.subject, "html": email.html, "text": email.text or text_from_html(email.html)}
+            ),
+            "from": _without_empty(_code_send_sender(team_id, email.sender)),
+            "tracking": {"captureEngagement": email.capture_engagement},
+            "replyTo": list(email.reply_to),
+            "sensitive": email.sensitive,
+        }
+    )
 
 
 def _code_send_sender(team_id: int, address: str | None) -> dict[str, Any]:
