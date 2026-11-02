@@ -9,7 +9,12 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.app_metrics2 import AppMetricsRequestSerializer, fetch_app_metric_totals, fetch_app_metrics_trends
+from posthog.api.app_metrics2 import (
+    MAX_TREND_BUCKETS,
+    AppMetricsRequestSerializer,
+    fetch_app_metric_totals,
+    fetch_app_metrics_trends,
+)
 from posthog.test.fixtures import create_app_metric2
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -171,3 +176,28 @@ class TestAppMetricsEndpointLimits(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == "name"
+
+    @parameterized.expand(
+        [
+            ("at_limit", MAX_TREND_BUCKETS - 1, status.HTTP_200_OK),
+            ("over_limit", MAX_TREND_BUCKETS, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_trend_bucket_count_is_capped(self, _name: str, hours_after_start: int, expected_status: int) -> None:
+        hog_function = HogFunction.objects.create(team=self.team, name="destination", type="destination", hog="")
+        after = datetime(2020, 1, 1, tzinfo=UTC)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/hog_functions/{hog_function.id}/metrics/",
+            {
+                "after": after.isoformat(),
+                "before": (after + timedelta(hours=hours_after_start)).isoformat(),
+                "interval": "hour",
+            },
+        )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_200_OK:
+            assert len(response.json()["labels"]) == MAX_TREND_BUCKETS
+        else:
+            assert "Use a shorter range or a larger interval." in response.json()["detail"]

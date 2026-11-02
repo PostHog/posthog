@@ -54,6 +54,16 @@ class AppMetricsTotalsResponseSerializer(DataclassSerializer):
 # Each requested name or kind becomes a series with one value per label, so the count must stay small.
 MAX_REQUESTED_BREAKDOWN_VALUES = 50
 
+# Each bucket becomes a label, and every series holds one value per label, so the range must stay bounded.
+# The limit allows hourly ranges of several years, because real callers send ranges that long.
+MAX_TREND_BUCKETS = 100_000
+
+TREND_INTERVAL_STEPS: dict[str, timedelta] = {
+    "hour": timedelta(hours=1),
+    "day": timedelta(days=1),
+    "week": timedelta(weeks=1),
+}
+
 
 def _split_requested_values(value: str) -> list[str]:
     values = list(dict.fromkeys(part.strip() for part in value.split(",") if part.strip()))
@@ -112,6 +122,16 @@ def _requested_breakdown_values(breakdown_by: str, name: list[str], kind: list[s
     return name if breakdown_by == "name" else kind
 
 
+def _trend_range_start(after: datetime, interval: str) -> datetime:
+    """Normalize the start of the range to the start of the interval."""
+    if interval == "hour":
+        return after.replace(minute=0, second=0, microsecond=0)
+    start = after.replace(hour=0, minute=0, second=0, microsecond=0)
+    if interval == "week":
+        start -= timedelta(days=start.weekday())
+    return start
+
+
 def fetch_app_metrics_trends(
     team_id: int,
     app_source: str,
@@ -128,6 +148,15 @@ def fetch_app_metrics_trends(
 
     name = name or []
     kind = kind or []
+
+    range_start = _trend_range_start(after, interval)
+    step = TREND_INTERVAL_STEPS[interval]
+    bucket_count = (before - range_start) // step + 1 if before >= range_start else 0
+    if bucket_count > MAX_TREND_BUCKETS:
+        raise ValidationError(
+            f"This range has {bucket_count:,} {interval} buckets, more than the limit of {MAX_TREND_BUCKETS:,}. "
+            "Use a shorter range or a larger interval."
+        )
 
     clickhouse_kwargs: dict[str, Any] = {}
 
@@ -170,27 +199,8 @@ def fetch_app_metrics_trends(
         raise ValueError("Unexpected results from ClickHouse")
 
     # We create the x values based on the date range and interval
-    labels: list[str] = []
     label_format = "%Y-%m-%dT%H:%M" if interval == "hour" else "%Y-%m-%d"
-
-    range_date = after
-    # Normalize the start of the range to the start of the interval
-    if interval == "hour":
-        range_date = range_date.replace(minute=0, second=0, microsecond=0)
-    elif interval == "day":
-        range_date = range_date.replace(hour=0, minute=0, second=0, microsecond=0)
-    elif interval == "week":
-        range_date = range_date.replace(hour=0, minute=0, second=0, microsecond=0)
-        range_date -= timedelta(days=range_date.weekday())
-
-    while range_date <= before:
-        labels.append(range_date.strftime(label_format))
-        if interval == "hour":
-            range_date += timedelta(hours=1)
-        elif interval == "day":
-            range_date += timedelta(days=1)
-        elif interval == "week":
-            range_date += timedelta(weeks=1)
+    labels = [(range_start + step * i).strftime(label_format) for i in range(bucket_count)]
 
     response = AppMetricsResponse(labels=[], series=[])
     data_by_breakdown: dict[str, dict[str, int]] = {}
