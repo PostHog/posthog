@@ -99,7 +99,7 @@ runs:
         # Save only on the default branch. Caches written on a PR/branch ref are
         # scoped to that ref alone — no other branch can read them, they evict
         # the shared master cache, and they only ever help that one PR's re-runs.
-        # A `depot ci run` (event `api`) has the master ref but carries an unreviewed local patch.
+        # `depot ci run` (event `api`) has the master ref but runs an unreviewed local patch.
         - name: Save pnpm store
           if: inputs.install != 'false' && github.ref == 'refs/heads/master' && github.event_name != 'api' && steps.restore.outputs.cache-hit != 'true'
           uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3

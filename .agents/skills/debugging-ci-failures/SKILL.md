@@ -354,44 +354,25 @@ Do NOT run `hogli test` with no arguments. Do NOT run `hogli nuke` or
 
 ### Run a Depot CI check job from your working tree
 
-Local commands come first, because each Depot run costs runner time.
-Fix the failure with the `hogli` command from the table above, and run that command until it passes.
-Use `depot ci run` only when the `hogli` command passes on your machine and the same job still fails in CI, which points at the CI environment.
-It runs the job on Depot against your working tree, so you do not need to push.
-Load the `depot-ci` skill for the flags.
+Fix with the local `hogli` command first.
+Use `depot ci run` only when that command passes locally and the job still fails in CI.
+It tests your working tree on Depot without a push. The `depot-ci` skill has the flags.
 
 ```bash
 depot ci run --workflow .depot/workflows/ci-backend.yml --job <job>
 ```
 
-- `<job>` is `repo-checks` or `sdk-major-guard`. The CLI adds the `changes` job that they need.
-- A CLI run skips the `repo-checks` steps that run only on pull requests: "Check deleted migrations", "Check for new files under ee/", and the base-diff part of "Lint product structure".
-  A green run proves nothing about those steps, so fix them with their local commands only.
-- Do not use `check-migrations` or `check-openapi-types`.
-  `check-migrations` checks out the repository a second time, after the patch step.
-  `check-openapi-types` fails on any unstaged diff, and the patch step leaves the patch unstaged.
-- Always pass `--job`. Depot rejects an inline workflow over 65,535 bytes before any job starts, and the whole `ci-backend.yml` is larger than that.
-- Start at most 2 runs per task without approval. Ask the user before each run after that.
-- Never run another job this way without approval.
-  A CLI run has the event `api`, so `changes` marks every path as changed.
-  The `django` and `turbo-tests` jobs then run their full matrices with no test selection.
-- The run posts its check runs to GitHub on the commit at `HEAD`, and its result comes from code that is not in that commit.
-  When `HEAD` is the head commit of an open PR, ask the user before every run, because the run can turn a check on that PR green or red.
-- The patch includes only tracked files. Run `git add` on new files first.
+- `<job>` is `repo-checks` or `sdk-major-guard`. Always pass `--job`: the whole workflow is over Depot's inline size limit.
+- Any other job needs approval. CLI runs skip test selection, and `check-migrations` and `check-openapi-types` mishandle the patch.
+- `repo-checks` skips its pull-request-only steps on a CLI run, so a green run does not cover them.
+- At most 2 runs per task without approval.
+- Ask before every run when `HEAD` is an open PR's head: the run posts its checks to that commit.
+- Only tracked files reach the patch. `git add` new files first.
+- `--ssh-after-step` bills for the whole pause. Use it only with approval, then `depot ci cancel`.
 
-After each run:
-
-1. Poll `depot ci status <run-id>` in a bounded loop until the run is no longer queued or running.
-   `depot ci status --wait` needs CLI 2.102.19 or later, so check `depot --version` before you use it.
-2. On failure, run `depot ci diagnose --job <job-id> --output json`.
-   It returns grouped failures, a possible fix and its evidence lines.
-   The diagnosis is AI-generated, so confirm it against `depot ci logs <attempt-id>` before you act on it.
-3. Reproduce what you found with the local command, fix it, and run the local command again before the next Depot run.
-
-`--ssh-after-step <n>` pauses a job until someone connects with `depot ci ssh`, and the runner bills for the whole pause.
-Use it only with the user's approval, and cancel the run with `depot ci cancel` when you are done.
-
-At the cap, stop and report what you targeted, what was wrong, what you changed, and the run ids.
+After each run, poll `depot ci status <run-id>` (`--wait` needs CLI 2.102.19+).
+On failure, read `depot ci diagnose --job <job-id> --output json`, and confirm it against `depot ci logs <attempt-id>`.
+Reproduce and fix locally before the next run. At the cap, stop and report the run ids and the remaining blocker.
 
 ## PostHog CI notes
 
