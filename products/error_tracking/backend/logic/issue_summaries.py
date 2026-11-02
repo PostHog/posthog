@@ -9,7 +9,7 @@ import re
 import json
 import time
 import hashlib
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -124,15 +124,14 @@ WAIT_POLL_INTERVAL_SECONDS = 0.25
 # Event values must not open or close the <issue> block that fences them in the prompt. Every angle bracket
 # becomes a look-alike, so no "<" from event text reaches the prompt and no nesting can rebuild a fence tag.
 FENCE_ESCAPES = str.maketrans({"<": "\u2039", ">": "\u203a"})
-SUMMARY_URL = re.compile(r"\b(?:[a-z][a-z0-9+.-]*://|www\.)[^\s\"'<>`]+", re.IGNORECASE)
-URL_SCHEME = re.compile(r"^[a-z][a-z0-9+.-]*://", re.IGNORECASE)
-# The prompt renders a frame as "app.js line 3 column 10", so a model writing "app.js:3:10" names the same file.
-URL_LINE_SUFFIX = re.compile(r"(?::\d+)+$")
-# A shell command never passes, even when the prompt holds it, because the event text is attacker-controlled.
+# A summary holds no URL and no shell command, even one the prompt holds, because the event text is attacker-controlled.
+SUMMARY_URL = re.compile(r"\b(?:[a-z][a-z0-9+.-]*://|www\.)\S", re.IGNORECASE)
 SUMMARY_SHELL_COMMAND = re.compile(
-    r"\|\s*(?:sudo\s+)?(?:(?:ba|z|da|k)?sh|iex)\b"
+    r"\|\s*(?:sudo\s+)?(?:(?:ba|z|da|k)?sh|iex|python[\d.]*|node|perl|ruby)\b"
     r"|\b(?:curl|wget)\s+(?:-|\S+://|\S+\.\S)"
-    r"|\b(?:ba|z)?sh\s+-c\b"
+    r"|\b(?:ba|z|da|k)?sh\s+-[a-z]*c\b"
+    r"|\b(?:python[\d.]*|node|perl|ruby)\s+-[a-z]*[ce]\b"
+    r"|\bbase64\s+(?:-d|--decode)\b"
     r"|\bsudo\s+\S"
     r"|\brm\s+-[a-z]*[rf]"
     r"|\bchmod\s+\+?[0-7x]"
@@ -680,7 +679,7 @@ def _generate_claimed(
     if response is None:
         logger.warning("error_tracking_issue_summary_invalid_output", team_id=team_id, issue_id=str(issue_id))
         return IssueSummaryResult(outcome=IssueSummaryOutcome.INVALID_OUTPUT, summary=stored)
-    if unsafe_fields := unsafe_summary_fields(response, inputs.prompt):
+    if unsafe_fields := unsafe_summary_fields(response.model_dump()):
         logger.warning(
             "error_tracking_issue_summary_unsafe_output",
             team_id=team_id,
@@ -1081,23 +1080,17 @@ def parse_summary_response(raw: str) -> IssueSummaryResponse | None:
         return None
 
 
-def unsafe_summary_fields(response: IssueSummaryResponse, prompt: str) -> list[str]:
-    """Return the fields that hold a shell command, or a URL that the prompt does not hold.
+def unsafe_summary_fields(content: Mapping[str, object]) -> list[str]:
+    """Return the text fields that hold a URL or a shell command.
 
     The whole summary is dropped when any field fails: a model that copied one injected instruction may have
     followed others, such as one that calls a real error benign.
     """
-    return [name for name, value in response.model_dump().items() if not _summary_field_safe(value, prompt)]
-
-
-def _summary_field_safe(value: str, prompt: str) -> bool:
-    if SUMMARY_SHELL_COMMAND.search(value):
-        return False
-    for match in SUMMARY_URL.finditer(value):
-        url = URL_LINE_SUFFIX.sub("", match.group().rstrip(".,;:!?)]}"))
-        if url not in prompt and URL_SCHEME.sub("", url) not in prompt:
-            return False
-    return True
+    return [
+        name
+        for name, value in content.items()
+        if isinstance(value, str) and (SUMMARY_URL.search(value) or SUMMARY_SHELL_COMMAND.search(value))
+    ]
 
 
 def infer_issue_category(team_id: int, prompt: str) -> IssueSummaryCategory | None:
