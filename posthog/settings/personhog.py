@@ -9,6 +9,14 @@ PERSONHOG_LIFECYCLE_ADDR = get_from_env("PERSONHOG_LIFECYCLE_ADDR", "")
 # UNAVAILABLE itself; a shorter client deadline would abandon calls the server was about to answer.
 PERSONHOG_LIFECYCLE_TIMEOUT_MS = get_from_env("PERSONHOG_LIFECYCLE_TIMEOUT_MS", 45_000, type_cast=int)
 
+# Deadline per saga call on the request path (the person API), which holds a web worker while the saga
+# runs and retries. Background callers keep PERSONHOG_LIFECYCLE_TIMEOUT_MS. Keep it above the identity
+# server's lifecycle_execute_timeout_secs (30 s): a shorter deadline makes the API report a failure for a
+# slow saga that still commits the delete, so the person is gone with no response or activity log for it.
+PERSON_DELETE_LIFECYCLE_REQUEST_TIMEOUT_MS = get_from_env(
+    "PERSON_DELETE_LIFECYCLE_REQUEST_TIMEOUT_MS", 35_000, type_cast=int
+)
+
 # gRPC channel options
 PERSONHOG_KEEPALIVE_TIME_MS = get_from_env("PERSONHOG_KEEPALIVE_TIME_MS", 30_000, type_cast=int)
 PERSONHOG_KEEPALIVE_TIMEOUT_MS = get_from_env("PERSONHOG_KEEPALIVE_TIMEOUT_MS", 5_000, type_cast=int)

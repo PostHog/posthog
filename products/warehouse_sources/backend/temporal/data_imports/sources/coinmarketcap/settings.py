@@ -10,12 +10,19 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 # the monthly credit cost is per data point, so it's unaffected by page size.
 PAGE_SIZE = 5000
 
+# The v5 CMC AI endpoints cap `limit` at 250 rather than 5000.
+CMC_AI_PAGE_SIZE = 250
+
 # Coins per `id=` request on the endpoints that take an explicit id list. CoinMarketCap bills
 # metadata at 1 credit per 250 records returned, so batching on that boundary is the cheapest
 # whole multiple. The historical endpoints bill per data point instead, where a smaller batch
 # only keeps each response (and the memory it lands in) manageable.
 METADATA_BATCH_SIZE = 250
 HISTORICAL_BATCH_SIZE = 20
+
+# CMC AI bills per coin returned, so the batch size doesn't change the cost. Each coin carries several
+# markdown answers, so a smaller batch keeps one response from growing large.
+CMC_AI_BATCH_SIZE = 50
 
 # Per-coin history is billed per data point, so the coin universe has to be bounded: asking for
 # a year of daily candles across every listed coin would spend a month of credits in one sync.
@@ -57,6 +64,7 @@ class CoinMarketCapEndpointConfig:
     # Extra query params merged into every request for this endpoint (e.g. a
     # stable `sort` field for deterministic offset pagination).
     extra_params: dict[str, str] = field(default_factory=dict)
+    page_size: int = PAGE_SIZE
 
 
 # CoinMarketCap's REST API wraps each collection under a top-level "data" key and
@@ -129,6 +137,17 @@ COINMARKETCAP_ENDPOINTS: dict[str, CoinMarketCapEndpointConfig] = {
         primary_key="exchange_id",
         extra_params={"sort": "total_liquidations_24h", "sort_dir": "desc"},
     ),
+    # Market-wide CMC AI questions, answers and top news from the CoinMarketCap homepage.
+    "cmc_ai_latest": CoinMarketCapEndpointConfig(
+        name="cmc_ai_latest",
+        path="/v5/cmc-ai/latest",
+        data_selector="data.insights",
+        # Changes each time an answer is regenerated, so it is unique within the current feed.
+        primary_key="answer_id",
+        page_size=CMC_AI_PAGE_SIZE,
+        # The endpoint takes no `sort`. The feed is a few dozen insights, so it fits on one page.
+        extra_params={"sources_limit": "100"},
+    ),
 }
 
 # How a response body turns into rows.
@@ -136,7 +155,9 @@ COINMARKETCAP_ENDPOINTS: dict[str, CoinMarketCapEndpointConfig] = {
 # "per_coin_quotes": `data` maps an id to a record holding a `quotes` array; each quote becomes
 #   a row carrying the coin's identity fields.
 # "quote_list": `data` is a single object whose `quotes` array is the whole table.
-RowShape = Literal["object_map", "per_coin_quotes", "quote_list"]
+# "per_coin_insights": `data.coins` holds one record per coin with an `insights` array; each
+#   insight becomes a row carrying the coin's identity fields.
+RowShape = Literal["object_map", "per_coin_quotes", "quote_list", "per_coin_insights"]
 
 # Where the ids for an `id=` param come from.
 # "map": every id in /v1/cryptocurrency/map.
@@ -144,7 +165,8 @@ RowShape = Literal["object_map", "per_coin_quotes", "quote_list"]
 # "exchange_map": every id in /v1/exchange/map.
 # "top_exchanges_by_volume": the HISTORICAL_EXCHANGE_LIMIT highest-volume exchanges in
 #   exchange/listings/latest.
-CoinUniverse = Literal["map", "top_by_market_cap", "exchange_map", "top_exchanges_by_volume"]
+# "cmc_ai_coverage": every id in /v5/cmc-ai/coins/map, the coins CMC AI writes content for.
+CoinUniverse = Literal["map", "top_by_market_cap", "exchange_map", "top_exchanges_by_volume", "cmc_ai_coverage"]
 
 
 @frozen
@@ -166,6 +188,8 @@ class CoinMarketCapBatchEndpointConfig:
     windowed: bool = False
     partition_key: Optional[str] = None
     extra_params: dict[str, str] = field(default_factory=dict)
+    # Query param that carries the id list.
+    id_param: str = "id"
 
 
 COINMARKETCAP_BATCH_ENDPOINTS: dict[str, CoinMarketCapBatchEndpointConfig] = {
@@ -260,6 +284,25 @@ COINMARKETCAP_BATCH_ENDPOINTS: dict[str, CoinMarketCapBatchEndpointConfig] = {
                 "active_market_pairs,total_volume_24h,total_volume_24h_reported,"
                 "altcoin_market_cap,altcoin_volume_24h,altcoin_volume_24h_reported,search_interval"
             ),
+        },
+    ),
+    # Per-coin CMC AI questions and answers from the Coin Detail Pages.
+    "cmc_ai_coins_latest": CoinMarketCapBatchEndpointConfig(
+        name="cmc_ai_coins_latest",
+        path="/v5/cmc-ai/coins/latest",
+        # The docs don't promise `answer_id` is unique across coins, so the coin id is part of the key.
+        primary_keys=["crypto_id", "answer_id"],
+        row_shape="per_coin_insights",
+        universe="cmc_ai_coverage",
+        batch_size=CMC_AI_BATCH_SIZE,
+        id_param="crypto_id",
+        extra_params={
+            # Pagination runs over coins, so one page has to hold the whole batch.
+            "limit": str(CMC_AI_BATCH_SIZE),
+            "sources_limit": "100",
+            # A coin that rotates out of coverage between the map walk and this request would
+            # otherwise fail the whole batch.
+            "skip_invalid": "true",
         },
     ),
 }

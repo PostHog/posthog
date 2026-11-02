@@ -40,7 +40,7 @@ Layer table, registry shapes, copy/move, analytics, and typing details: [`.agent
 **Critical rules:**
 
 - Product RBAC is registry-driven — see [permissions-and-sharing.md § Product RBAC](../../.agents/skills/manage-dashboard-widgets/references/permissions-and-sharing.md#product-rbac).
-- **Charts/trends on a dashboard → insight tiles**, not new widget types — [architecture.md § Charts](../../.agents/skills/manage-dashboard-widgets/references/architecture.md#charts--use-insight-tiles-not-widgets).
+- **Charts/trends on a dashboard → insight tiles**, not new widget types — [architecture.md § Charts](../../.agents/skills/manage-dashboard-widgets/references/architecture.md#charts--use-insight-tiles-not-widgets). The `metrics` widget is the documented exception.
 
 ## Frontend / backend parity
 

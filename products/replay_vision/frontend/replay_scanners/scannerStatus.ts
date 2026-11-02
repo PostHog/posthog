@@ -1,6 +1,7 @@
 import { Dayjs, dayjs } from 'lib/dayjs'
 
 import type { VisionQuotaApi } from '../generated/api.schemas'
+import type { RecordingsBlock } from '../logics/replayRecordingsLogic'
 import type { ScanDrought } from './scanDrought'
 import type { ReplayScanner } from './types'
 
@@ -13,9 +14,14 @@ const DELAYED_GRACE_MINUTES = 60
 const STARTING_MAX_AGE_MINUTES = 60
 
 export type ScannerStatus =
+    | { kind: 'no_ai_consent' }
+    | { kind: 'creator_lost_access' }
     | { kind: 'off'; reason: 'disabled' | 'no_sampling' }
+    | { kind: 'replay_off' }
+    | { kind: 'no_recordings' }
     | { kind: 'limit_reached'; free_only: boolean; credit_limit: number | null; limit_from_free_credits: boolean }
     | { kind: 'quota_exhausted' }
+    | { kind: 'filter_error'; message: string }
     | { kind: 'starting' }
     | { kind: 'delayed'; lastCheckedAt: Dayjs }
     | { kind: 'no_matches'; drought: ScanDrought }
@@ -33,19 +39,37 @@ export type ScannerStatusFields = Pick<
     | 'sweep_throttle_factor'
     | 'created_at'
     | 'last_swept_at'
+    | 'filter_error'
+    | 'unrunnable_reason'
 >
 
 /** The one status the scanner page leads with. Earlier checks win, so a scanner that is off never also reads as stopped. */
 export function scannerStatus(
     scanner: ScannerStatusFields,
-    options: { quotaExhausted: boolean; drought: ScanDrought | null; now?: Dayjs }
+    options: {
+        quotaExhausted: boolean
+        drought: ScanDrought | null
+        recordingsBlock?: RecordingsBlock | null
+        now?: Dayjs
+    }
 ): ScannerStatus {
     const now = options.now ?? dayjs()
+    // The sweep turns these scanners off itself, so the blocker explains the state better than "Off" does.
+    if (scanner.unrunnable_reason) {
+        return { kind: scanner.unrunnable_reason }
+    }
     if (!scanner.enabled) {
         return { kind: 'off', reason: 'disabled' }
     }
     if (scanner.sampling_rate === 0) {
         return { kind: 'off', reason: 'no_sampling' }
+    }
+    // With no recordings coming in, every check below would blame the scanner for a project-wide gap.
+    if (options.recordingsBlock === 'replay-off') {
+        return { kind: 'replay_off' }
+    }
+    if (options.recordingsBlock === 'no-recordings') {
+        return { kind: 'no_recordings' }
     }
     if (scanner.limit_reached) {
         return {
@@ -57,6 +81,9 @@ export function scannerStatus(
     }
     if (options.quotaExhausted) {
         return { kind: 'quota_exhausted' }
+    }
+    if (scanner.filter_error) {
+        return { kind: 'filter_error', message: scanner.filter_error }
     }
     const factor = Math.max(1, scanner.sweep_throttle_factor)
     const intervalMinutes = SWEEP_INTERVAL_MINUTES * factor
