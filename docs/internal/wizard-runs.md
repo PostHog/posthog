@@ -64,7 +64,7 @@ GET   /api/projects/{project_id}/wizard/runs/{run_id}/stream/
 Run responses include the creator ID and basic creator details for attribution in project-level run lists.
 Use `GET /api/projects/{project_id}/wizard/runs/?status=created,running&limit=5` to fetch the newest active runs; `count` gives the total number of active runs in the project. The `status` filter also accepts any individual run status.
 The optional `created_after` filter limits results and `count` to runs created after an ISO 8601 timestamp.
-The app-wide sync widget uses a fixed launch cutoff with this filter for active runs and the five newest runs of any status. It shows runs from anyone in the current project, not only runs created by the viewer.
+The app-wide sync widget uses a fixed launch cutoff with this filter for active runs and the five newest runs of any status. The cloud onboarding FAB shows only a run created by the viewer.
 It opens one event stream for the displayed active run. Terminal runs do not open a stream.
 It shows the newest active run by default, or the newest recent run when none are active.
 The selector lists up to five active and five recent runs by workspace and status, with the selected run marked and the total active count shown separately.
