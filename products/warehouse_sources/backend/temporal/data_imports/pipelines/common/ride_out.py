@@ -85,10 +85,11 @@ class DurableProgress:
                 self._handoff_reason = reason
 
 
-def activity_execution_age_seconds() -> float | None:
+def activity_execution_age_seconds(shutdown_grace_seconds: float = 0.0) -> float | None:
+    """The age leaves out the shutdown grace, for the reason given on `is_young_first_attempt`."""
     if not activity.in_activity():
         return None
-    return (datetime.now(UTC) - activity.info().started_time).total_seconds()
+    return (datetime.now(UTC) - activity.info().started_time).total_seconds() - shutdown_grace_seconds
 
 
 class HandoffGate:

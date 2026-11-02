@@ -27,6 +27,9 @@ class BigeyeEndpointConfig:
     # True for endpoints scoped to one metric. They fan out over the Metrics list, and each row
     # carries the parent's id as `metric_id`.
     per_metric: bool = False
+    # True for endpoints scoped to one lineage data node. They fan out over the data node ids of the
+    # Tables list, and each row carries the parent's node id as `root_data_node_id`.
+    per_table_data_node: bool = False
 
 
 # Bigeye's v1 API has no documented "updated since" filter on any list endpoint (see
@@ -86,6 +89,16 @@ BIGEYE_ENDPOINTS: dict[str, BigeyeEndpointConfig] = {
         data_selector="issue",
         paginated=True,
     ),
+    "Deltas": BigeyeEndpointConfig(
+        name="Deltas",
+        table_name="deltas",
+        path="/api/v1/deltas/fetch",
+        method="post",
+        data_selector="deltaInfos",
+        paginated=True,
+        # Rows nest their id under `delta.id`; `_flatten_delta` copies it to the top level.
+        primary_keys=("id",),
+    ),
     "SchemaChanges": BigeyeEndpointConfig(
         name="SchemaChanges",
         table_name="schema_changes",
@@ -125,7 +138,22 @@ BIGEYE_ENDPOINTS: dict[str, BigeyeEndpointConfig] = {
         # `_explode_scorecard` emits one row per metric category per day.
         primary_keys=("metric_category", "run_at_epoch_seconds"),
     ),
+    "LineageGraph": BigeyeEndpointConfig(
+        name="LineageGraph",
+        table_name="lineage_graph",
+        path="/api/v2/lineage/nodes/{dataNodeId}/graph",
+        method="get",
+        # A map of node id -> node, not a list. `_lineage_graph_rows` emits one row per node.
+        data_selector="nodes",
+        paginated=False,
+        per_table_data_node=True,
+        primary_keys=("root_data_node_id", "id"),
+    ),
 }
+
+# Only the direct neighbours of each table. Every edge still appears in the graph of both of its
+# tables, and an unbounded depth repeats the whole connected graph once per table in it.
+LINEAGE_GRAPH_DEPTH = 1
 
 # The scorecard API's documented maximum history window.
 SCORECARD_DAYS_OF_HISTORY = 90

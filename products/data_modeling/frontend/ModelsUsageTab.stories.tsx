@@ -1,4 +1,5 @@
 import type { Decorator, Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/dom'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
@@ -7,7 +8,8 @@ import type { MockResolverInfo } from '~/mocks/utils'
 
 import type { DataModelingJobApi } from 'products/data_warehouse/frontend/generated/api.schemas'
 
-import type { ModelUsageApi, ModelUsageRowApi, ModelUsageTotalsApi } from './generated/api.schemas'
+import type { ModelStatusModelApi, ModelUsageApi, ModelUsageRowApi, ModelUsageTotalsApi } from './generated/api.schemas'
+import { modelsUsageLogic } from './modelsUsageLogic'
 import { ModelsUsageTab } from './ModelsUsageTab'
 
 const totals: ModelUsageTotalsApi = {
@@ -68,12 +70,34 @@ const models: ModelUsageRowApi[] = [
         ],
     },
 ]
+const statusModel = (index: number): ModelStatusModelApi => ({
+    saved_query_id: models[index].saved_query_id!,
+    name: models[index].name,
+    deleted: models[index].deleted,
+})
 const populated: ModelUsageApi = {
     date_from: '2026-09-16',
     date_to: '2026-10-16',
     overview: totals,
     models,
     count: 3,
+    status_breakdown: [
+        { engine: 'clickhouse', status: 'Completed', count: 2, models: [statusModel(0), statusModel(1)] },
+        {
+            engine: 'clickhouse',
+            status: 'Failed',
+            count: 1,
+            models: [statusModel(2)],
+        },
+        { engine: 'managed_warehouse', status: 'Completed', count: 1, models: [statusModel(0)] },
+        { engine: 'managed_warehouse', status: 'Running', count: 1, models: [statusModel(1)] },
+        {
+            engine: 'managed_warehouse',
+            status: 'Failed',
+            count: 1,
+            models: [statusModel(2)],
+        },
+    ],
     usage_updated_at: '2026-10-16T03:00:00Z',
     trends: Array.from({ length: 30 }, (_, index) => {
         const readBytes = (150 + ((index * 71) % 300)) * 1024 ** 3
@@ -88,6 +112,77 @@ const populated: ModelUsageApi = {
         }
     }),
 }
+
+const getUnsortedUsage = ({ request }: MockResolverInfo): [number, ModelUsageApi] => {
+    const savedQueryIds = new Set(
+        (new URL(request.url).searchParams.get('saved_query_ids') ?? '').split(',').filter(Boolean)
+    )
+    if (savedQueryIds.size === 0) {
+        return [200, populated]
+    }
+
+    const selectedModels = populated.models.filter(
+        (model) => model.saved_query_id && savedQueryIds.has(model.saved_query_id)
+    )
+    const statusBreakdown = populated.status_breakdown
+        .map((breakdown) => {
+            const selectedStatusModels = breakdown.models.filter((model) => savedQueryIds.has(model.saved_query_id))
+            return { ...breakdown, count: selectedStatusModels.length, models: selectedStatusModels }
+        })
+        .filter((breakdown) => breakdown.count > 0)
+
+    return [
+        200,
+        {
+            ...populated,
+            overview: selectedModels.length === 1 ? selectedModels[0] : populated.overview,
+            models: selectedModels,
+            count: selectedModels.length,
+            status_breakdown: statusBreakdown,
+            trends: [],
+        },
+    ]
+}
+const getUsage = (info: MockResolverInfo): [number, ModelUsageApi] => {
+    const [status, usage] = getUnsortedUsage(info)
+    const params = new URL(info.request.url).searchParams
+    const sortBy = params.get('sort_by') ?? 'read_bytes'
+    const direction = params.get('sort_direction') === 'asc' ? 1 : -1
+    const value = (row: ModelUsageRowApi): number | string | null => {
+        switch (sortBy) {
+            case 'name':
+                return row.name.toLowerCase()
+            case 'clickhouse_read_bytes':
+                return row.engines.find((engine) => engine.engine === 'clickhouse')?.read_bytes ?? null
+            case 'managed_warehouse_read_bytes':
+                return row.engines.find((engine) => engine.engine === 'managed_warehouse')?.read_bytes ?? null
+            case 'cpu_microseconds':
+                return row.cpu_microseconds
+            case 'runs':
+                return row.runs
+            default:
+                return row.read_bytes
+        }
+    }
+    return [
+        status,
+        {
+            ...usage,
+            models: [...usage.models].sort((a, b) => {
+                const left = value(a)
+                const right = value(b)
+                if (left === null) {
+                    return right === null ? 0 : 1
+                }
+                if (right === null) {
+                    return -1
+                }
+                return (left < right ? -1 : left > right ? 1 : 0) * direction
+            }),
+        },
+    ]
+}
+
 const unknown: ModelUsageTotalsApi = {
     runs: 8,
     measured_runs: 0,
@@ -206,12 +301,12 @@ const meta: Meta<typeof ModelsUsageTab> = {
         msw: {
             mocks: {
                 get: {
-                    '/api/projects/:team_id/data_modeling_usage/': populated,
+                    '/api/projects/:team_id/data_modeling_usage/': getUsage,
                     '/api/projects/:team_id/data_modeling_jobs/': ({ request }: MockResolverInfo) => {
                         const params = new URL(request.url).searchParams
                         const offset = Number(params.get('offset') ?? 0)
                         const limit = Number(params.get('limit') ?? 20)
-                        const savedQueryId = params.get('saved_query_id')
+                        const savedQueryIds = new Set((params.get('saved_query_ids') ?? '').split(',').filter(Boolean))
                         const engine = params.get('engine')
                         const status = params.get('status')
                         const after = params.get('after')
@@ -219,7 +314,8 @@ const meta: Meta<typeof ModelsUsageTab> = {
                         const filteredJobs = jobs.filter((job) => {
                             const startedAt = new Date(job.created_at)
                             return (
-                                (!savedQueryId || job.saved_query_id === savedQueryId) &&
+                                (savedQueryIds.size === 0 ||
+                                    (job.saved_query_id && savedQueryIds.has(job.saved_query_id))) &&
                                 (!engine || job.engine === engine) &&
                                 (!status || job.status === status) &&
                                 (!after || startedAt >= new Date(after)) &&
@@ -296,11 +392,50 @@ export const Empty: Story = {
                         models: [],
                         trends: [],
                         count: 0,
+                        status_breakdown: [],
                         usage_updated_at: null,
                     },
                 },
             },
         },
+    },
+}
+export const StatusOnly: Story = {
+    decorators: [inMainContent('w-256')],
+    parameters: {
+        msw: {
+            mocks: {
+                get: {
+                    '/api/projects/:team_id/data_modeling_usage/': {
+                        ...populated,
+                        overview: { ...unknown, runs: 0 },
+                        models: [],
+                        trends: [],
+                        count: 0,
+                        status_breakdown: [
+                            {
+                                engine: 'managed_warehouse',
+                                status: 'Running',
+                                count: 1,
+                                models: [statusModel(1)],
+                            },
+                        ],
+                        usage_updated_at: null,
+                    },
+                },
+            },
+        },
+    },
+}
+export const FilteredByFailedModels: Story = {
+    decorators: [inMainContent('w-256')],
+    play: async () => {
+        await waitFor(() => {
+            if (!modelsUsageLogic.findMounted()?.values.usage) {
+                throw new globalThis.Error('Models usage must finish loading')
+            }
+        })
+        modelsUsageLogic.findMounted()!.actions.setSelectedSavedQueryIds([models[2].saved_query_id!])
     },
 }
 export const Error: Story = {

@@ -125,9 +125,10 @@ class TestResume:
 
 
 class TestIncremental:
-    def test_from_ts_applied_for_statistics_endpoint(self) -> None:
+    @parameterized.expand([("openinformation",), ("messageinformation",)])
+    def test_from_ts_applied_for_time_filtered_endpoint(self, endpoint: str) -> None:
         result = _driver().run(
-            "openinformation",
+            endpoint,
             [_response([{"ID": 1}], total=1)],
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
@@ -228,7 +229,8 @@ class TestSourceResponseShape:
 
         assert response.name == endpoint
         assert response.primary_keys == [config.primary_key]
-        assert response.sort_mode == "asc"
+        # messageinformation filters on CreatedAt but pages by ID, so it must not promise ascending order.
+        assert response.sort_mode == (None if endpoint == "messageinformation" else "asc")
         if config.partition_key:
             assert response.partition_mode == "datetime"
             assert response.partition_format == "month"

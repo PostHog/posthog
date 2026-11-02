@@ -3,7 +3,7 @@
 import structlog
 from openai import APITimeoutError
 
-from posthog.llm.gateway_client import get_llm_client
+from posthog.llm.gateway_client import build_openai_client
 
 from .constants import SUPPORTED_LANGUAGES, TRANSLATION_MODEL, TRANSLATION_TIMEOUT_SECONDS
 
@@ -34,7 +34,12 @@ def translate_text(text: str, target_language: str, user_distinct_id: str | None
     # way. The SDK retries twice by default, which makes the caller wait three timeouts before
     # seeing an error. One attempt with a larger budget fails sooner and leaves a text at the
     # 10,000 character cap more room to finish.
-    client = get_llm_client("llma_translation").with_options(max_retries=0)
+    distinct_id = user_distinct_id or "llma-translation"
+    client = build_openai_client(
+        "llma_translation",
+        ai_product="llma_translation",
+        distinct_id=distinct_id,
+    ).with_options(max_retries=0)
 
     target_name = SUPPORTED_LANGUAGES.get(target_language, target_language)
 
@@ -50,7 +55,7 @@ def translate_text(text: str, target_language: str, user_distinct_id: str | None
                 {"role": "user", "content": text},
             ],
             timeout=TRANSLATION_TIMEOUT_SECONDS,
-            user=user_distinct_id or "llma-translation",
+            user=distinct_id,
         )
     except APITimeoutError as e:
         raise TranslationTimeoutError from e

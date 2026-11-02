@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonModal, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal, LemonSegmentedButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { pluralize } from 'lib/utils/strings'
@@ -9,16 +9,53 @@ import { ContentAutopilotPromptActiveSwitch } from './ContentAutopilotPromptActi
 import { ContentAutopilotPromptAnswer } from './ContentAutopilotPromptAnswer'
 import { ContentAutopilotPromptArchiveBanner } from './ContentAutopilotPromptArchiveBanner'
 import { ContentAutopilotPromptChecks } from './ContentAutopilotPromptChecks'
+import { ContentAutopilotPromptConsensus } from './ContentAutopilotPromptConsensus'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
-import { ContentAutopilotPromptEngineSummary } from './ContentAutopilotPromptEngineSummary'
-import { ContentAutopilotPromptHistoryGrid } from './ContentAutopilotPromptHistoryGrid'
+import { ContentAutopilotPromptKpiCard } from './ContentAutopilotPromptKpiCard'
+import { ContentAutopilotPromptQueryTile } from './ContentAutopilotPromptQueryTile'
+import { ContentAutopilotPromptSentiment } from './ContentAutopilotPromptSentiment'
 import { ContentAutopilotPromptVersions } from './ContentAutopilotPromptVersions'
+import { promptCitationsContext, promptSearchesContext, promptSourcesContext } from './promptReportColumns'
+
+const Section = ({
+    title,
+    description,
+    children,
+}: {
+    title: string
+    description?: string
+    children: React.ReactNode
+}): JSX.Element => (
+    <section className="flex flex-col gap-3">
+        <div>
+            <h4 className="m-0">{title}</h4>
+            {description ? <p className="m-0 text-xs text-muted">{description}</p> : null}
+        </div>
+        {children}
+    </section>
+)
 
 export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
-    const { promptId, prompt, stats, historyGrid, lastCheckedAt, detailError, archiveConfirming } = useValues(
+    const {
+        promptId,
+        prompt,
+        stats,
+        lastCheckedAt,
+        detailError,
+        archiveConfirming,
+        reportKpis,
+        consensusMatrix,
+        sentimentSummary,
+        visibilityMetric,
+        visibilityQuery,
+        sourcesQuery,
+        citationsQuery,
+        searchesQuery,
+        sentimentQuery,
+    } = useValues(contentAutopilotPromptDetailLogic)
+    const { closePromptDetail, openPromptDetail, setArchiveConfirming, setVisibilityMetric } = useActions(
         contentAutopilotPromptDetailLogic
     )
-    const { closePromptDetail, openPromptDetail, setArchiveConfirming } = useActions(contentAutopilotPromptDetailLogic)
 
     if (!promptId) {
         return null
@@ -34,20 +71,32 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
         )
     }
 
+    const reportReady =
+        prompt &&
+        stats &&
+        reportKpis &&
+        consensusMatrix &&
+        sentimentSummary &&
+        visibilityQuery &&
+        sourcesQuery &&
+        citationsQuery &&
+        searchesQuery &&
+        sentimentQuery
+
     return (
         <LemonModal isOpen onClose={closePromptDetail} title={prompt?.prompt ?? 'Loading prompt'} width={960}>
             {detailError === 'failed' ? (
                 <LemonBanner type="error" action={{ children: 'Try again', onClick: () => openPromptDetail(promptId) }}>
                     Couldn't load this prompt. Try again, and if it keeps happening contact support.
                 </LemonBanner>
-            ) : !prompt || !stats || !historyGrid ? (
+            ) : !reportReady ? (
                 <div className="flex flex-col gap-3">
                     <LemonSkeleton className="h-8 w-1/2" />
                     <LemonSkeleton className="h-24 w-full" />
                     <LemonSkeleton className="h-40 w-full" />
                 </div>
             ) : (
-                <div className="flex flex-col gap-6">
+                <div className="@container/prompt-report flex flex-col gap-6">
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
                         {prompt.topic ? (
                             <LemonTag>{prompt.topic}</LemonTag>
@@ -84,10 +133,9 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
                     </div>
                     <ContentAutopilotPromptArchiveBanner />
                     {prompt.version_count > 1 ? (
-                        <section className="flex flex-col gap-2">
-                            <h4 className="m-0">Versions</h4>
+                        <Section title="Versions">
                             <ContentAutopilotPromptVersions promptId={prompt.id} />
-                        </section>
+                        </Section>
                     ) : null}
 
                     {stats.engines.length === 0 ? (
@@ -99,22 +147,123 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
                         </p>
                     ) : (
                         <>
-                            <section className="flex flex-col gap-2">
-                                <h4 className="m-0">Citation rate by engine</h4>
-                                <ContentAutopilotPromptEngineSummary engines={stats.engines} />
-                            </section>
-                            <section className="flex flex-col gap-2">
-                                <h4 className="m-0">Last 30 days</h4>
-                                <ContentAutopilotPromptHistoryGrid grid={historyGrid} />
-                            </section>
-                            <section className="flex flex-col gap-2">
-                                <h4 className="m-0">Answers</h4>
+                            <Section
+                                title="Last 30 days, all engines"
+                                description={`${pluralize(reportKpis.answers, 'answer')} across ${pluralize(reportKpis.days, 'day')}.`}
+                            >
+                                <div className="grid grid-cols-1 @2xl/prompt-report:grid-cols-2 gap-3">
+                                    <ContentAutopilotPromptKpiCard
+                                        label="Mentioned in answers"
+                                        description="Share of answers that name you. An answer that cites your site always counts."
+                                        kpi={reportKpis.visibility}
+                                        data-attr="content-autopilot-prompt-kpi-mentioned"
+                                    />
+                                    <ContentAutopilotPromptKpiCard
+                                        label="Cited as a source"
+                                        description="Share of answers that link to a page on your site."
+                                        kpi={reportKpis.citation}
+                                        data-attr="content-autopilot-prompt-kpi-cited"
+                                    />
+                                </div>
+                            </Section>
+
+                            <Section
+                                title="How often engines mention or cite you"
+                                description="One line per engine, one point per day it ran."
+                            >
+                                <ContentAutopilotPromptQueryTile
+                                    title={
+                                        visibilityMetric === 'cited'
+                                            ? 'Share of answers that cite you'
+                                            : 'Share of answers that mention you'
+                                    }
+                                    query={visibilityQuery}
+                                    uniqueKey={`aeo-prompt-visibility-${promptId}-${visibilityMetric}`}
+                                    bodyClassName="h-72 p-2"
+                                    actions={
+                                        <LemonSegmentedButton
+                                            size="xsmall"
+                                            value={visibilityMetric}
+                                            onChange={setVisibilityMetric}
+                                            options={[
+                                                { value: 'cited', label: 'Cited' },
+                                                { value: 'mentioned', label: 'Mentioned' },
+                                            ]}
+                                            data-attr="content-autopilot-prompt-visibility-metric"
+                                        />
+                                    }
+                                    data-attr="content-autopilot-prompt-visibility-tile"
+                                />
+                            </Section>
+
+                            <Section title="Answers" description="The latest answer from each engine.">
                                 <ContentAutopilotPromptAnswer />
-                            </section>
-                            <section className="flex flex-col gap-2">
-                                <h4 className="m-0">All checks</h4>
+                            </Section>
+
+                            <Section
+                                title="Where the answers come from"
+                                description="The sites and pages the engines link to when they answer this prompt."
+                            >
+                                <div className="grid grid-cols-1 @3xl/prompt-report:grid-cols-2 gap-4">
+                                    <ContentAutopilotPromptQueryTile
+                                        title="Sites the engines cite for this prompt"
+                                        query={sourcesQuery}
+                                        uniqueKey={`aeo-prompt-sources-${promptId}`}
+                                        context={promptSourcesContext}
+                                        data-attr="content-autopilot-prompt-sources-tile"
+                                    />
+                                    <ContentAutopilotPromptQueryTile
+                                        title="Pages the engines cite most"
+                                        query={citationsQuery}
+                                        uniqueKey={`aeo-prompt-citations-${promptId}`}
+                                        context={promptCitationsContext}
+                                        data-attr="content-autopilot-prompt-citations-tile"
+                                    />
+                                </div>
+                            </Section>
+
+                            <Section
+                                title="Which sites each engine relies on"
+                                description="The share of each engine's answers that link to a site. A darker cell means the engine links to that site more often."
+                            >
+                                <ContentAutopilotPromptConsensus matrix={consensusMatrix} />
+                            </Section>
+
+                            <Section
+                                title="How answers talk about you"
+                                description="Scored on the sentences that name you, so praise of another tool does not count."
+                            >
+                                <ContentAutopilotPromptSentiment summary={sentimentSummary} query={sentimentQuery} />
+                            </Section>
+
+                            <Section
+                                title="What the engines searched for"
+                                description="The searches an engine ran before it answered. Engines that do not report their searches are left out."
+                            >
+                                <ContentAutopilotPromptQueryTile
+                                    title="Searches"
+                                    query={searchesQuery}
+                                    uniqueKey={`aeo-prompt-searches-${promptId}`}
+                                    context={promptSearchesContext}
+                                    footer={
+                                        stats.top_words.length ? (
+                                            <span className="flex flex-wrap items-center gap-1">
+                                                <span className="mr-1">Most common words in those searches:</span>
+                                                {stats.top_words.map((word) => (
+                                                    <LemonTag key={word.word} size="small">
+                                                        {word.word} <span className="text-muted">{word.count}</span>
+                                                    </LemonTag>
+                                                ))}
+                                            </span>
+                                        ) : undefined
+                                    }
+                                    data-attr="content-autopilot-prompt-searches-tile"
+                                />
+                            </Section>
+
+                            <Section title="All checks">
                                 <ContentAutopilotPromptChecks />
-                            </section>
+                            </Section>
                         </>
                     )}
                 </div>

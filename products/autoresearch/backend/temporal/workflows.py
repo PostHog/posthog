@@ -62,6 +62,7 @@ with workflow.unsafe.imports_passed_through():
     from products.autoresearch.backend.query import BATCH_QUERY, SCORING_QUERY
     from products.autoresearch.backend.training.runner import run_training
     from products.autoresearch.backend.training.schedule import research_schedule, schedule_runs_for
+    from products.autoresearch.backend.training.stale import fail_stale_training_runs
     from products.tasks.backend.facade.access import get_desktop_access_decision
     from products.tasks.backend.facade.usage import task_run_usage_limited
 
@@ -755,7 +756,8 @@ def activity_load_active_pipelines(inp: LoadActivePipelinesInput) -> LoadActiveP
     outside the ``autoresearch`` rollout is skipped but stays live, so it resumes when the rollout
     reaches it again.
 
-    It also fails every inference run that its lost worker left RUNNING.
+    It also fails every inference run that its lost worker left RUNNING, and closes every training
+    run that its TaskRun can no longer close (``fail_stale_training_runs()``).
 
     The result lists the pipelines that are due and did not score yesterday first, so a bounded
     sweep starts the pipelines that missed a day before the others.
@@ -768,6 +770,7 @@ def activity_load_active_pipelines(inp: LoadActivePipelinesInput) -> LoadActiveP
     together. The next catch-up tick tries again.
     """
     fail_stale_inference_runs()
+    fail_stale_training_runs()
     if inp.catch_up_date is not None and cache.get(daily_sweep_key(inp.catch_up_date)) == DAILY_SWEEP_RUNNING:
         logger.info("autoresearch_catch_up_deferred", catch_up_date=inp.catch_up_date)
         return LoadActivePipelinesResult(pipelines=[])
@@ -866,7 +869,10 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
     The run row and its task binding commit together under the pipeline row lock, as in the
     facade's ``start_training``, so a manual start cannot interleave. A launch failure raises,
     so the activity retry applies.
+
+    A stale training run of the pipeline is closed first, outside the lock, so it does not block the start.
     """
+    fail_stale_training_runs(team_id=inp.team_id, pipeline_id=inp.pipeline_id)
     # The gates can call out to billing and flags, so they run before the row lock is taken.
     with team_scope(inp.team_id):
         loaded = AutoresearchPipeline.objects.select_related("created_by", "team__organization").get(pk=inp.pipeline_id)

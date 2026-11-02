@@ -59,6 +59,9 @@ const dashboardCreate = (): ToolBase<
         if (params.layout_compaction !== undefined) {
             body['layout_compaction'] = params.layout_compaction
         }
+        if (params.group_display !== undefined) {
+            body['group_display'] = params.group_display
+        }
         if (params.groups !== undefined) {
             body['groups'] = params.groups
         }
@@ -112,6 +115,7 @@ const dashboardCreate = (): ToolBase<
                 'tiles.*.insight.last_viewed_at',
                 'tiles.*.insight.timezone',
                 'tiles.*.insight.resolved_date_range',
+                'tiles.*.insight.resolved_compare_date_range',
                 'tiles.*.insight.filter_override_context',
                 'created_by.uuid',
                 'created_by.distinct_id',
@@ -291,6 +295,7 @@ const dashboardGet = (): ToolBase<
                 'tiles.*.insight.alerts',
                 'tiles.*.insight.timezone',
                 'tiles.*.insight.resolved_date_range',
+                'tiles.*.insight.resolved_compare_date_range',
                 'tiles.*.insight.filter_override_context',
                 'created_by.uuid',
                 'created_by.distinct_id',
@@ -615,6 +620,9 @@ const dashboardUpdate = (): ToolBase<
         if (params.layout_compaction !== undefined) {
             body['layout_compaction'] = params.layout_compaction
         }
+        if (params.group_display !== undefined) {
+            body['group_display'] = params.group_display
+        }
         if (params.groups !== undefined) {
             body['groups'] = params.groups
         }
@@ -669,6 +677,7 @@ const dashboardUpdate = (): ToolBase<
                 'tiles.*.insight.alerts',
                 'tiles.*.insight.timezone',
                 'tiles.*.insight.resolved_date_range',
+                'tiles.*.insight.resolved_compare_date_range',
                 'tiles.*.insight.filter_override_context',
                 'created_by.uuid',
                 'created_by.distinct_id',
@@ -841,6 +850,14 @@ const DashboardWidgetsRunSchema = () => {
     return DashboardsRunWidgetsRetrieveParams.omit({ project_id: true })
         .extend(DashboardsRunWidgetsRetrieveQueryParams.omit({ format: true }).shape)
         .extend({ id: z.preprocess(castStringToInt, DashboardsRunWidgetsRetrieveParams.shape['id']) })
+        .extend({
+            filters_override: z
+                .union([z.string(), z.record(z.string(), z.unknown())])
+                .optional()
+                .describe(
+                    'Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.'
+                ),
+        })
 }
 
 const dashboardWidgetsRun = (): ToolBase<
@@ -855,6 +872,8 @@ const dashboardWidgetsRun = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/run_widgets/`,
             query: {
+                filters_override: params.filters_override,
+                refresh: params.refresh,
                 tile_ids: params.tile_ids,
             },
         })

@@ -3,11 +3,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ApiClient } from '@/api/client'
 import { MemoryCache } from '@/lib/cache/MemoryCache'
 import { StateLookupCache } from '@/lib/cache/StateLookupCache'
-import { PostHogApiError } from '@/lib/errors'
+import { PostHogApiError, PostHogTransportError } from '@/lib/errors'
 import { getPostHogClient } from '@/lib/posthog'
 import { StateManager } from '@/lib/StateManager'
 import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
-import type { PinnedActiveContext, SessionScopedState, State } from '@/tools/types'
+import type { BusinessKnowledgeContent, PinnedActiveContext, SessionScopedState, State } from '@/tools/types'
 
 describe('StateManager', () => {
     let stateManager: StateManager
@@ -1326,6 +1326,24 @@ describe('StateManager', () => {
         })
     })
 
+    // A false field removes search guidance, so only a successful read may produce it.
+    describe('getOrFetchBusinessKnowledgeContent', () => {
+        it.each<[string, unknown, BusinessKnowledgeContent | undefined]>([
+            ['content', { has_sources: true, has_repositories: false }, { hasSources: true, hasRepositories: false }],
+            ['a malformed body as unknown', {}, { hasSources: undefined, hasRepositories: undefined }],
+            ['a failed read as unknown', new Error('Synthetic availability failure'), undefined],
+        ])('reads %s', async (_name, response, expected) => {
+            vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
+            const request = vi.fn(() =>
+                response instanceof Error ? Promise.reject(response) : Promise.resolve(response)
+            )
+            ;(stateManager as any)._api = { config: { apiToken: 'phx_test' }, request }
+
+            expect(await stateManager.getOrFetchBusinessKnowledgeContent('42')).toEqual(expected)
+            expect(request).toHaveBeenCalledWith(expect.objectContaining({ signal: expect.any(AbortSignal) }))
+        })
+    })
+
     describe('getOrFetchIntegrationKinds', () => {
         const projectId = '42'
 
@@ -1351,8 +1369,51 @@ describe('StateManager', () => {
 
             expect(result).toEqual(['github', 'slack'])
             expect(request).toHaveBeenCalledWith(
-                expect.objectContaining({ method: 'GET', path: `/api/projects/${projectId}/integrations/` })
+                expect.objectContaining({
+                    method: 'GET',
+                    path: `/api/projects/${projectId}/integrations/`,
+                    timeoutMs: 10 * 1000,
+                })
             )
+        })
+
+        it.each([
+            [
+                'a timeout',
+                new PostHogTransportError({
+                    url: 'https://us.posthog.com/api/projects/42/integrations/',
+                    method: 'GET',
+                    attempts: 1,
+                    retryable: true,
+                    cause: new DOMException('No response within 10 seconds', 'TimeoutError'),
+                }),
+                false,
+            ],
+            [
+                'an HTTP 500',
+                new PostHogApiError({
+                    status: 500,
+                    statusText: 'Internal Server Error',
+                    body: '',
+                    url: 'https://us.posthog.com/api/projects/42/integrations/',
+                    method: 'GET',
+                }),
+                true,
+            ],
+        ])('returns the cached kinds on %s', async (_name, error, reported) => {
+            await cache.set('apiKey', { scopes: ['integration:read'], scoped_organizations: [], scoped_teams: [] })
+            await cache.set('apiKeyFetchedAt', Date.now())
+            await cache.set(`integrationKinds:${projectId}` as any, ['github'] as any)
+            const reportSpy = vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
+            ;(stateManager as any)._api = {
+                config: { apiToken: 'phx_test' },
+                request: vi.fn().mockRejectedValue(error),
+            }
+
+            const result = await stateManager.getOrFetchIntegrationKinds(projectId)
+
+            expect(result).toEqual(['github'])
+            expect(reportSpy).toHaveBeenCalledTimes(reported ? 1 : 0)
         })
     })
 

@@ -2,25 +2,25 @@ import clsx from 'clsx'
 
 import { IconChevronRight } from '@posthog/icons'
 
+import type { DashboardWidgetPlacementDestination } from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenu'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { pluralize } from 'lib/utils/strings'
 
-import type { DashboardTileGroupApi, DashboardTileGroupColorEnumApi } from '../../generated/api.schemas'
+import type { TileGroupDisplay } from '~/types'
 
-const DOT_CLASS_NAMES: Record<DashboardTileGroupColorEnumApi, string> = {
-    blue: 'bg-[var(--blue)]',
-    purple: 'bg-[var(--purple)]',
-    green: 'bg-[var(--green)]',
-    yellow: 'bg-[var(--warning)]',
-    orange: 'bg-[var(--color-orange-500)]',
-    red: 'bg-[var(--danger)]',
-}
+import type { DashboardTileGroupApi } from '../../generated/api.schemas'
+import { DashboardTileGroupMenu } from './DashboardTileGroupMenu'
+import { TileGroupColorDot } from './TileGroupColorDot'
 
 interface DashboardTileGroupProps {
     group: DashboardTileGroupApi
     tileCount: number
     collapsed: boolean
     onToggle: () => void
+    copyToDestinations?: DashboardWidgetPlacementDestination[]
+    onCopyToDashboard?: (dashboardId: number, dashboardName: string) => void
+    copyLoading?: boolean
+    onChangeGroupDisplay?: (groupDisplay: TileGroupDisplay) => void
     children: React.ReactNode
 }
 
@@ -29,6 +29,10 @@ export function DashboardTileGroup({
     tileCount,
     collapsed,
     onToggle,
+    copyToDestinations,
+    onCopyToDashboard,
+    copyLoading,
+    onChangeGroupDisplay,
     children,
 }: DashboardTileGroupProps): JSX.Element {
     const tileCountLabel = pluralize(tileCount, 'tile')
@@ -54,16 +58,20 @@ export function DashboardTileGroup({
                     aria-expanded={!collapsed}
                     data-attr="dashboard-tile-group-toggle"
                 >
-                    {group.color && (
-                        <span
-                            aria-hidden
-                            className={clsx('mr-2 inline-block size-2 rounded-full', DOT_CLASS_NAMES[group.color])}
-                        />
-                    )}
+                    {group.color && <TileGroupColorDot color={group.color} className="mr-2" />}
                     <span className="font-semibold">{group.title || tileCountLabel}</span>
                 </LemonButton>
                 {group.title && collapsed && <span className="shrink-0 text-secondary text-xs">{tileCountLabel}</span>}
                 <div className="min-w-4 flex-1 border-t border-primary" />
+                {(onChangeGroupDisplay || onCopyToDashboard) && (
+                    <DashboardTileGroupMenu
+                        groupDisplay="sections"
+                        onChangeGroupDisplay={onChangeGroupDisplay}
+                        copyToDestinations={copyToDestinations}
+                        onCopyToDashboard={onCopyToDashboard}
+                        copyLoading={copyLoading}
+                    />
+                )}
             </div>
             {!collapsed && children}
         </section>

@@ -205,6 +205,11 @@ _INVALID_API_KEY_MESSAGE = (
     "ElevenLabs account settings, then try again."
 )
 
+_PAYMENT_REQUIRED_MESSAGE = (
+    "Your ElevenLabs account is out of credits, or this data needs a plan upgrade. Check your "
+    "ElevenLabs billing and plan, then try again."
+)
+
 
 def _is_missing_permission(response: Response) -> bool:
     try:
@@ -257,9 +262,13 @@ def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tup
         )
     if status == 401:
         return False, _INVALID_API_KEY_MESSAGE
-    # A 4xx other than the 401/403 above (a 400 is what users actually hit) is a deterministic client
-    # error: the key was rejected and retrying sends the same request, so treat it as an invalid key
-    # rather than a transient "try again". 429 is a rate limit and stays retryable below.
+    if status == 402:
+        # Payment required is a billing/plan problem, not a bad key — retrying or rotating the key
+        # can't fix it. Sync-time 402s are handled separately by `get_non_retryable_errors`.
+        return False, _PAYMENT_REQUIRED_MESSAGE
+    # A 4xx other than the 401/402/403 above (a 400 is what users actually hit) is a deterministic
+    # client error: the key was rejected and retrying sends the same request, so treat it as an
+    # invalid key rather than a transient "try again". 429 is a rate limit and stays retryable below.
     if 400 <= status < 500 and status != 429:
         return False, _INVALID_API_KEY_MESSAGE
     # A 429/5xx/unexpected status leaves the key unverified. Don't accept it — surface it so the user

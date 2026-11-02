@@ -278,11 +278,14 @@ func (p *Process) Lines() []string {
 	sb := p.emulator.Scrollback()
 	if sb != nil {
 		for i := range sb.Len() {
-			result = append(result, sb.Line(i).Render())
+			result = append(result, trimRowPadding(sb.Line(i).Render()))
 		}
 	}
 	screen := p.emulator.Render()
 	screenLines := strings.Split(screen, "\n")
+	for i, line := range screenLines {
+		screenLines[i] = trimRowPadding(line)
+	}
 	// The VT screen buffer always has height rows; trim trailing blank rows
 	// so unused screen space doesn't inflate the line count.
 	for len(screenLines) > 0 && screenLines[len(screenLines)-1] == "" {
@@ -290,6 +293,11 @@ func (p *Process) Lines() []string {
 	}
 	result = append(result, screenLines...)
 	return result
+}
+
+// The emulator pads every rendered row with spaces to the terminal width.
+func trimRowPadding(line string) string {
+	return strings.TrimRight(line, " ")
 }
 
 // resetEmulatorLocked replaces the emulator with a fresh instance at the given

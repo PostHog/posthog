@@ -1,4 +1,5 @@
 import abc
+import time
 import uuid
 from collections import defaultdict
 from collections.abc import Callable, Sequence
@@ -20,10 +21,12 @@ from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
 from posthog.clickhouse.cluster import (
     ClickhouseCluster,
     LightweightDeleteMutationRunner,
+    MutationNotFound,
     MutationWaiter,
     MutationWaiters,
     NodeRole,
     Query,
+    RetryPolicy,
     Workload,
     wait_for_mutations_on_shards,
 )
@@ -60,8 +63,22 @@ from posthog.models.person.sql import (
     PERSON_STATIC_COHORT_TABLE,
     PERSONS_TABLE,
 )
+from posthog.models.raw_sessions.sessions_v2 import (
+    SHARDED_RAW_SESSIONS_DATA_TABLE,
+    TABLE_BASE_NAME as RAW_SESSIONS_TABLE_BASE_NAME,
+)
+from posthog.models.raw_sessions.sessions_v3 import SHARDED_RAW_SESSIONS_TABLE_V3, TABLE_BASE_NAME_V3
+from posthog.models.sessions.sql import (
+    SESSIONS_DATA_TABLE,
+    TABLE_BASE_NAME as SESSIONS_TABLE_BASE_NAME,
+)
+from posthog.run_mode import run_mode
 
-from products.error_tracking.backend.facade.api import DocumentEmbeddingTable, document_embedding_tables
+from products.error_tracking.backend.facade.api import (
+    DocumentEmbeddingTable,
+    document_embedding_tables,
+    document_embeddings_buffer_table,
+)
 
 
 class DeleteConfig(dagster.Config):
@@ -123,6 +140,21 @@ class SweepTargetsConfig(dagster.Config):
     )
 
 
+class TeamProductDocumentsDeleteConfig(dagster.Config):
+    team_id: int = pydantic.Field(description="Delete the embedding documents of this team.")
+    product: str = pydantic.Field(
+        min_length=1,
+        description="Delete only the documents this product wrote, e.g. llm-analytics. Other products "
+        "write to the same tables, so their documents stay.",
+    )
+    timeout_seconds: int = pydantic.Field(
+        default=6 * 60 * 60,
+        gt=0,
+        description="Fail the run if the deletes have not finished in this many seconds, including the wait "
+        "for other mutations on the tables to finish first.",
+    )
+
+
 class MonthlyCleanupConfig(dagster.Config):
     team_ids: list[int] = pydantic.Field(
         default_factory=list,
@@ -144,6 +176,58 @@ class PartitionCleanup:
 @frozen
 class OldEventsCleanupPlan:
     partitions: list[PartitionCleanup]
+
+
+@frozen
+class OldSessionsCleanupPlan:
+    partitions: list[PartitionCleanup]
+
+
+@frozen
+class SessionsPlacement:
+    table: str
+    cluster: ClickhouseCluster
+
+
+# Every sessions table partitions by toYYYYMM of a session timestamp: the first event for v1, the
+# session start from the uuidv7 session id for v2 and v3. A due events month therefore names the
+# same partition here. A v2 or v3 session that starts in a due month keeps no row, even when it
+# continues into the next month.
+SESSIONS_RETENTION_TABLES: tuple[str, ...] = (
+    SESSIONS_DATA_TABLE(),
+    SHARDED_RAW_SESSIONS_DATA_TABLE(),
+    SHARDED_RAW_SESSIONS_TABLE_V3(),
+)
+SATELLITE_SESSIONS_RETENTION_TABLES: tuple[str, ...] = (
+    SESSIONS_TABLE_BASE_NAME,
+    RAW_SESSIONS_TABLE_BASE_NAME,
+    TABLE_BASE_NAME_V3,
+)
+
+
+def _sessions_placements(cluster: ClickhouseCluster) -> list[SessionsPlacement]:
+    placements = [
+        SessionsPlacement(table=table, cluster=cluster)
+        for table in SESSIONS_RETENTION_TABLES
+        if _any_node_has(cluster, table)
+    ]
+    # Deployed cloud keeps every sessions table on the sessions satellite, under its base name.
+    # Other deployments have no such cluster, which is the gate the sessions v3 migrations use.
+    if run_mode().is_deployed_cloud:
+        satellite = cluster.sibling(settings.CLICKHOUSE_SESSIONS_CLUSTER, NodeRole.SESSIONS)
+        placements.extend(
+            SessionsPlacement(table=table, cluster=satellite)
+            for table in SATELLITE_SESSIONS_RETENTION_TABLES
+            if _any_node_has(satellite, table)
+        )
+    return placements
+
+
+def _run_on_every_shard(cluster: ClickhouseCluster, runner: LightweightDeleteMutationRunner) -> None:
+    shard_mutations = cluster.map_one_host_per_shard(runner).result()
+    cluster.map_all_hosts_in_shards(
+        {host.shard_num: mutation.wait for host, mutation in shard_mutations.items() if host.shard_num is not None}
+    ).result()
 
 
 def _yyyymm(moment: datetime) -> int:
@@ -415,7 +499,7 @@ def ensure_no_concurrent_deletes_run(context: dagster.OpExecutionContext) -> Non
     # A queued run has done nothing yet. Its own guard sees this run once it starts.
     blockers = describe_runs(
         context.instance,
-        (deletes_job.name, monthly_old_events_cleanup_job.name, squash_person_overrides.name),
+        (deletes_job.name, monthly_retention_events_cleanup_job.name, squash_person_overrides.name),
         statuses=EXECUTING_RUN_STATUSES,
         exclude_run_id=context.run_id,
     )
@@ -1323,7 +1407,7 @@ def ensure_deletes_job_can_start(context: dagster.OpExecutionContext) -> None:
     # launching another run would collide, not which of two started runs came first.
     blockers = describe_runs(
         context.instance,
-        (deletes_job.name, monthly_old_events_cleanup_job.name, squash_person_overrides.name, context.job_name),
+        (deletes_job.name, monthly_retention_events_cleanup_job.name, squash_person_overrides.name, context.job_name),
         exclude_run_id=context.run_id,
     )
     if blockers:
@@ -1359,6 +1443,129 @@ def manual_deletes_job():
 def run_deletes_after_manual_trigger(context: dagster.RunStatusSensorContext) -> dagster.RunRequest:
     # The run_key makes each manual_deletes_job success launch at most one deletes_job run.
     return dagster.RunRequest(run_key=context.dagster_run.run_id, run_config=DELETES_RUN_CONFIG)
+
+
+_TEAM_PRODUCT_DOCUMENTS_PREDICATE = "team_id = %(team_id)s AND product = %(product)s"
+_MUTATION_POLL_SECONDS = 15.0
+_DOCUMENT_COUNT_MAX_EXECUTION_TIME = 300
+
+
+def _team_product_document_tables(cluster: ClickhouseCluster) -> list[str]:
+    """The sharded tables that can hold a document: every model table, and the buffer that feeds them."""
+    tables = [table.sharded_table for table in _present_document_embedding_tables(cluster)]
+    buffer = document_embeddings_buffer_table()
+    if _any_node_has(cluster, buffer):
+        tables.append(buffer)
+    return tables
+
+
+def _count_documents_per_table(
+    context: dagster.OpExecutionContext,
+    cluster: ClickhouseCluster,
+    tables: list[str],
+    parameters: dict[str, str | int],
+) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for table in tables:
+        count = _count_through(
+            context,
+            partial(_rows_per_shard, cluster),
+            f"{settings.CLICKHOUSE_DATABASE}.{table}",
+            parameters,
+            _DOCUMENT_COUNT_MAX_EXECUTION_TIME,
+            predicate=_TEAM_PRODUCT_DOCUMENTS_PREDICATE,
+        )
+        # A count that did not finish proves nothing either way, so it must not read as zero.
+        if count is None:
+            raise dagster.Failure(description=f"Could not count the documents in {table}")
+        counts[table] = count
+    return counts
+
+
+def _wait_until(waiters: MutationWaiters, deadline: float) -> Callable[[Client], None]:
+    def wait(client: Client) -> None:
+        while not waiters.is_done(client):
+            if time.monotonic() > deadline:
+                raise dagster.Failure(
+                    description=f"Mutations {[w.mutation_ids for w in waiters.waiters]} did not finish in time"
+                )
+            time.sleep(_MUTATION_POLL_SECONDS)
+
+    return wait
+
+
+@dagster.op
+def delete_team_product_documents(
+    context: dagster.OpExecutionContext,
+    config: TeamProductDocumentsDeleteConfig,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+) -> None:
+    """Delete the embedding documents of one team for one product, and fail if any survive.
+
+    The event sweep matches a document to an event only when `document_id` is the event uuid. The AI
+    observability summaries use `<trace or generation id>::<job id>`, so an event deletion leaves
+    them in place until the table TTL drops them. This job removes them on request.
+    """
+    parameters: dict[str, str | int] = {"team_id": config.team_id, "product": config.product}
+    tables = _team_product_document_tables(cluster)
+
+    # The delete and the survivor count read the same product value, so a misspelled product
+    # deletes nothing and still reports zero survivors. Refuse it before deleting instead.
+    found = _count_documents_per_table(context, cluster, tables, parameters)
+    context.add_output_metadata({"documents_found": dagster.MetadataValue.json(found)})
+    if not any(found.values()):
+        products: set[str] = set()
+        for table in tables:
+            query = Query(
+                f"SELECT DISTINCT product FROM {settings.CLICKHOUSE_DATABASE}.{table} WHERE team_id = %(team_id)s",
+                parameters,
+            )
+            for rows in cluster.map_one_host_per_shard(query).result().values():
+                products.update(row[0] for row in rows)
+        raise dagster.Failure(
+            description=f"Team {config.team_id} has no documents for product {config.product!r}. "
+            f"Products with documents for this team: {sorted(products)}. Check the product name. "
+            "If an earlier run already deleted them, there is nothing left to do."
+        )
+
+    deadline = time.monotonic() + config.timeout_seconds
+    reuse_floor = _mutation_reuse_floor(cluster)
+    by_shard: dict[int, list[MutationWaiter]] = {}
+    for table in tables:
+        runner = LightweightDeleteMutationRunner(
+            table=table,
+            predicate=_TEAM_PRODUCT_DOCUMENTS_PREDICATE,
+            parameters=parameters,
+            reuse_since=reuse_floor,
+            # The runners start one after another, so each gets only what is left of the shared deadline.
+            # A zero timeout means no limit, so the floor keeps an expired deadline from lifting it.
+            capacity_timeout=max(1.0, deadline - time.monotonic()),
+        )
+        for host, mutation in cluster.map_one_host_per_shard(runner).result().items():
+            if host.shard_num is not None:
+                by_shard.setdefault(host.shard_num, []).append(mutation)
+
+    # Under replication lag a mutation can be briefly invisible on a replica, as in wait_for_mutations_on_shards.
+    retry_policy = RetryPolicy(max_attempts=3, delay=10.0, exceptions=(MutationNotFound,))
+    cluster.map_all_hosts_in_shards(
+        {
+            shard_num: retry_policy(_wait_until(MutationWaiters(waiters=waiters), deadline))
+            for shard_num, waiters in by_shard.items()
+        }
+    ).result()
+
+    surviving = _count_documents_per_table(context, cluster, tables, parameters)
+    context.add_output_metadata({"surviving_documents": dagster.MetadataValue.json(surviving)})
+    if any(surviving.values()):
+        raise dagster.Failure(
+            description=f"Documents of team {config.team_id} for product {config.product!r} survived the delete: {surviving}"
+        )
+
+
+@dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
+def delete_team_product_documents_job():
+    """Delete the embedding documents of one team for one product, e.g. to complete a data deletion request."""
+    delete_team_product_documents()
 
 
 @dagster.op(ins={"start_after": dagster.In(dagster.Nothing)})
@@ -1494,24 +1701,128 @@ def cleanup_old_events_by_partition(
     )
 
 
+@dagster.op(ins={"start_after": dagster.In(dagster.Nothing)})
+def plan_old_sessions_cleanup(
+    context: dagster.OpExecutionContext,
+    config: MonthlyCleanupConfig,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+) -> OldSessionsCleanupPlan:
+    """Find every team with an events retention, and for each month the teams whose sessions in it are all past it."""
+    retention = effective_events_retention()
+    if config.team_ids:
+        if ignored := sorted(set(config.team_ids) - {item.team_id for item in retention}):
+            context.log.info(f"Ignoring teams with no events retention: {ignored}")
+        retention = [item for item in retention if item.team_id in config.team_ids]
+    if not retention:
+        context.log.info("No team has an events retention to enforce")
+        return OldSessionsCleanupPlan(partitions=[])
+
+    now = datetime.now(UTC).replace(tzinfo=None)
+    team_cutoffs = {item.team_id: _yyyymm(whole_month_cutoff(now, item.months)) for item in retention}
+
+    # Each sessions version partitions on a different expression of the session start, so the
+    # month comes from the partition id.
+    partition_filter = "AND toUInt32(_partition_id) IN %(partitions)s" if config.partitions else ""
+    parameters = {
+        "team_ids": sorted(team_cutoffs),
+        "partitions": config.partitions,
+        "cutoff_partition": max(team_cutoffs.values()),
+    }
+    team_months: set[tuple[int, int]] = set()
+    for sessions in _sessions_placements(cluster):
+        query = f"""
+            SELECT DISTINCT team_id, toUInt32(_partition_id) AS partition
+            FROM {sessions.table}
+            WHERE team_id IN %(team_ids)s
+            AND toUInt32(_partition_id) < %(cutoff_partition)s
+            {partition_filter}
+        """
+        results = sessions.cluster.map_one_host_per_shard(Query(query, parameters=parameters)).result()
+        team_months.update((team_id, partition) for rows in results.values() for team_id, partition in rows)
+
+    teams_by_partition: dict[int, list[int]] = defaultdict(list)
+    for team_id, partition in sorted(team_months):
+        if partition < team_cutoffs[team_id]:
+            teams_by_partition[partition].append(team_id)
+
+    plan = OldSessionsCleanupPlan(
+        partitions=[
+            PartitionCleanup(partition=partition, team_ids=team_ids)
+            for partition, team_ids in sorted(teams_by_partition.items(), reverse=True)
+        ]
+    )
+    for partition_cleanup in plan.partitions:
+        context.log.info(f"{partition_cleanup.partition}: teams {partition_cleanup.team_ids}")
+
+    context.add_output_metadata(
+        {
+            "teams": dagster.MetadataValue.int(len(team_cutoffs)),
+            "partitions": dagster.MetadataValue.int(len(plan.partitions)),
+        }
+    )
+    return plan
+
+
+@dagster.op
+def cleanup_old_sessions_by_partition(
+    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    plan: OldSessionsCleanupPlan,
+) -> None:
+    """Delete each planned month's sessions for the teams the plan lists for that month."""
+    if not plan.partitions:
+        context.log.info("No sessions partitions found to clean up")
+        return
+
+    total_partitions = len(plan.partitions)
+    placements = _sessions_placements(cluster)
+    reuse_floor = _mutation_reuse_floor(cluster)
+
+    for idx, item in enumerate(plan.partitions, 1):
+        context.log.info(f"Deleting sessions {item.partition} for teams {item.team_ids} ({idx}/{total_partitions})")
+        for sessions in placements:
+            delete_mutation_runner = LightweightDeleteMutationRunner(
+                table=sessions.table,
+                predicate="team_id IN %(team_ids)s",
+                parameters={"team_ids": item.team_ids},
+                partition=str(item.partition),
+                settings={"lightweight_deletes_sync": 0},
+                reuse_since=reuse_floor,
+            )
+            _run_on_every_shard(sessions.cluster, delete_mutation_runner)
+        context.log.info(f"Completed sessions deletion for partition {item.partition}")
+
+    context.add_output_metadata(
+        {
+            "partitions_processed": dagster.MetadataValue.int(total_partitions),
+            "team_ids": dagster.MetadataValue.text(
+                ", ".join(str(tid) for tid in sorted({tid for item in plan.partitions for tid in item.team_ids}))
+            ),
+        }
+    )
+
+
 @dagster.job(
     tags={
         "owner": JobOwners.TEAM_CLICKHOUSE.value,
         "deletes_job_concurrency": "v1",
     }
 )
-def monthly_old_events_cleanup_job():
-    """Delete events past each team's events retention set in Django admin, a whole month at a time."""
-    cleanup_old_events_by_partition(plan_old_events_cleanup(start_after=ensure_no_concurrent_deletes_run()))
+def monthly_retention_events_cleanup_job():
+    """Delete events and sessions past each team's events retention set in Django admin, a whole month at a time."""
+    events_deleted = cleanup_old_events_by_partition(
+        plan_old_events_cleanup(start_after=ensure_no_concurrent_deletes_run())
+    )
+    cleanup_old_sessions_by_partition(plan_old_sessions_cleanup(start_after=events_deleted))
 
 
 @dagster.schedule(
-    job=monthly_old_events_cleanup_job,
-    cron_schedule="0 0 1 * *",
-    execution_timezone="UTC",
+    job=monthly_retention_events_cleanup_job,
+    cron_schedule="0 21 3 * *",
+    execution_timezone="Europe/Paris" if settings.CLOUD_DEPLOYMENT == "EU" else "America/Los_Angeles",
     default_status=dagster.DefaultScheduleStatus.STOPPED,
 )
-def monthly_old_events_cleanup_schedule(
+def monthly_retention_events_cleanup_schedule(
     context: dagster.ScheduleEvaluationContext,
 ) -> dagster.RunRequest | dagster.SkipReason:
     if not effective_events_retention():

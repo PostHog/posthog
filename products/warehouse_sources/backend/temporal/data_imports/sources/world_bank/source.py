@@ -79,6 +79,7 @@ The API has no "changed since" filter, and the World Bank revises historical val
                 [
                     SourceFieldInputConfig(
                         name="indicator_codes",
+                        sync_setting=True,
                         label="Indicator codes",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,

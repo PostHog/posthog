@@ -63,10 +63,12 @@ class BingWebmasterToolsSource(SimpleSource[BingWebmasterToolsSourceConfig]):
 
     def get_retryable_errors(self) -> set[str]:
         return {
-            # Bing's rate-limit fault, raised as `BingWebmasterToolsError` by `_request_payload`.
-            # The key is per API user rather than per request, so a Temporal retry with backoff
-            # normally clears it once the window rolls over; it must not page as a bug.
+            # Bing's rate-limit faults, raised as `BingWebmasterToolsError` by `_request_payload`.
+            # ThrottleUser scopes the limit to the API key, ThrottleIP to the caller's egress
+            # address; either clears once its window rolls over, so a Temporal retry with backoff
+            # normally resolves it and it must not page as a bug.
             "ERROR!!! ThrottleUser",
+            "ERROR!!! ThrottleIP",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

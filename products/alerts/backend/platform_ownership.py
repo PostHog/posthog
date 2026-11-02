@@ -15,6 +15,7 @@ from uuid import UUID
 from products.alerts.backend.evaluation.validation import validate_alert_config
 from products.alerts.backend.facade.contracts import PlatformCannotOwn
 from products.alerts.backend.insight_alert_state_machine import apply_disable, apply_enable, apply_threshold_change
+from products.alerts.backend.llm_detector_limits import is_llm_detector_config
 from products.alerts.backend.models.alert import AlertConfiguration, Threshold
 from products.alerts.backend.platform_cutover import (
     can_move,
@@ -52,13 +53,12 @@ def on_created(alert: AlertConfiguration, at: datetime) -> bool:
 def on_updated(alert: AlertConfiguration, *, snooze_changed: bool) -> None:
     """Writes an edit the insight API saved onto the platform's copy.
 
-    Raises `PlatformCannotOwn` for an edit the platform cannot evaluate, such as a detector, and
+    Raises `PlatformCannotOwn` for an edit the platform cannot evaluate, such as a real-time check, and
     `InvalidPlatformAlertEdit` for one the platform's schema rejects.
     """
     if not can_move(alert):
         raise PlatformCannotOwn(
-            "The alerts platform runs this alert, and it cannot run detectors, real-time checks or the "
-            "investigation agent yet."
+            "The alerts platform runs this alert, and it cannot run real-time checks or the investigation agent yet."
         )
     update_owned_copy(
         team_id=alert.team_id,
@@ -149,7 +149,19 @@ def _write_insight_row(alert: AlertConfiguration, edit: PlatformAlertConfigurati
     # The inverse of `platform_upsert_of`.
     if edit.source_config["insight_id"] != alert.insight_id:
         raise InvalidPlatformAlertEdit("source_config", "An insight alert cannot move to another insight.")
+    if edit.enabled and not alert.enabled and is_llm_detector_config(alert.detector_config):
+        # Turning an AI alert back on adds to its project's capped model spend, which only the
+        # insight API's write admission checks.
+        raise InvalidPlatformAlertEdit(
+            "enabled",
+            "An AI detector alert can't be turned back on through this API. Turn it on in the insight's alert settings.",
+        )
     condition = edit.source_config[SOURCE_CONDITION_KEY]
+    if condition.get("detector") != alert.detector_config:
+        # A detector config is checked against its insight and its access rules in the insight API only.
+        raise InvalidPlatformAlertEdit(
+            "source_config", "The detector can't change through this API. Change it in the insight's alert settings."
+        )
     try:
         # The rules the insight API applies, so the insight stack never holds a pair it cannot check.
         validate_alert_config(

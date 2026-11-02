@@ -257,6 +257,8 @@ const resolveResultByUuid = (
  * wins (it covers FAILED rows AND discovery-step failures absent from `results`), falling back to a
  * failed row's error_message. A rejected run carries the earlier run's rows, so its error is dropped on a
  * metric that has a row: the banner shows the message and the cell keeps the earlier result.
+ * `_shown_failure` in products/experiments/backend/health/latest_calculation.py repeats this rule for the health
+ * checks, so change both together.
  */
 const resolveErrorByUuid = (recalculation: RecalculationPayload): ResolveByUuid<MetricErrorState> => {
     const metricErrors = metricErrorEntries(recalculation)

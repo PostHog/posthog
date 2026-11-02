@@ -1,3 +1,5 @@
+import re
+import json
 from typing import Any
 
 from django.conf import settings
@@ -6,7 +8,7 @@ import requests
 
 from posthog.models import User
 
-from ..facade.contracts import ExecResult, ExecTool, McpServerError
+from ..facade.contracts import ExecResult, ExecTool, McpServerError, McpServerTimeout, ToolCallResult
 from .tokens import WebMCPTokenIssuer
 
 # The stateless MCP dialect needs no handshake, so each proxied call is one HTTP request.
@@ -15,6 +17,10 @@ CLIENT_INFO = {"name": "posthog-webmcp", "version": "1.0.0"}
 EXEC_TOOL_NAME = "exec"
 # Connect, read. The read timeout covers slow tools such as SQL queries.
 REQUEST_TIMEOUT_SECONDS = (5, 120)
+# A direct tool call backs a button a person is waiting on, so it gives up long before a slow query would.
+TOOL_CALL_TIMEOUT_SECONDS = (5, 30)
+# A tool name goes into an exec command line, so it must not carry spaces, flags or a second command.
+TOOL_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
 
 def get_mcp_server_url() -> str | None:
@@ -65,9 +71,12 @@ class McpServerClient:
                 )
         raise McpServerError("The MCP server did not advertise the exec tool")
 
-    def call_exec(self, command: str) -> ExecResult:
+    def call_exec(self, command: str, *, timeout: tuple[int, int] = REQUEST_TIMEOUT_SECONDS) -> ExecResult:
         result = self._request(
-            "tools/call", {"name": EXEC_TOOL_NAME, "arguments": {"command": command}}, name=EXEC_TOOL_NAME
+            "tools/call",
+            {"name": EXEC_TOOL_NAME, "arguments": {"command": command}},
+            name=EXEC_TOOL_NAME,
+            timeout=timeout,
         )
         content = result.get("content")
         return ExecResult(
@@ -75,7 +84,36 @@ class McpServerClient:
             is_error=result.get("isError") is True,
         )
 
-    def _request(self, method: str, params: dict[str, Any], *, name: str | None = None) -> dict[str, Any]:
+    def call_tool(self, tool: str, arguments: dict[str, Any]) -> ToolCallResult:
+        if not TOOL_NAME_RE.match(tool):
+            raise McpServerError(f'"{tool}" is not a valid tool name')
+        # `--json` returns the handler's result as JSON for every tool. Without it most tools answer
+        # with formatted text, and only tools with a UI app set structuredContent. The caller
+        # confirms the call with the user, so `--confirm` lets a destructive tool run.
+        command = f"call --json --confirm {tool} {json.dumps(arguments, separators=(',', ':'))}"
+        result = self.call_exec(command, timeout=TOOL_CALL_TIMEOUT_SECONDS)
+        # The first block is the tool's output. Exec can append blocks with session metadata after it.
+        text = next((block["text"] for block in result.content if isinstance(block.get("text"), str)), "")
+        structured: Any = None
+        if not result.is_error:
+            try:
+                structured = json.loads(text)
+            except ValueError:
+                structured = None
+        return ToolCallResult(
+            structured_content=structured if isinstance(structured, dict) else None,
+            text=text,
+            is_error=result.is_error,
+        )
+
+    def _request(
+        self,
+        method: str,
+        params: dict[str, Any],
+        *,
+        name: str | None = None,
+        timeout: tuple[int, int] = REQUEST_TIMEOUT_SECONDS,
+    ) -> dict[str, Any]:
         headers = {
             "Authorization": f"Bearer {self._token}",
             "Content-Type": "application/json",
@@ -103,9 +141,10 @@ class McpServerClient:
         }
         try:
             # A redirect can resend the bearer token and the command to a URL nobody configured.
-            response = requests.post(
-                self._url, json=body, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False
-            )
+            response = requests.post(self._url, json=body, headers=headers, timeout=timeout, allow_redirects=False)
+        except requests.ReadTimeout as error:
+            # The server has the request, so it can still finish the call after this client gives up.
+            raise McpServerTimeout("The MCP server did not answer in time") from error
         except requests.RequestException as error:
             raise McpServerError(f"Could not reach the MCP server: {error.__class__.__name__}") from error
 

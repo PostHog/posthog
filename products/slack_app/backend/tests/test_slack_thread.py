@@ -673,7 +673,9 @@ class TestReplyPostedCapture(SimpleTestCase):
         reader = MagicMock()
         mock_resolve_user.return_value = reader
         context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
-        handler = SlackThreadHandler(context, RunFooter(run_id="run-1", task_id="task-1"), actor_slack_user_id="U123")
+        handler = SlackThreadHandler(
+            context, RunFooter(run_id="run-1", task_id="task-1", chart_links=True), actor_slack_user_id="U123"
+        )
 
         reply(handler)
 
@@ -691,6 +693,7 @@ class TestReplyPostedCapture(SimpleTestCase):
             "slack_session_id": "T1:C001:1234.5678",
             "task_id": "task-1",
             "run_id": "run-1",
+            "chart_links": True,
         }
 
 

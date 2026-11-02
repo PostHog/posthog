@@ -32,10 +32,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.mono.settings import (
     AUTH_ERROR,
     BASE_URL,
+    DATA_SELECTORS,
     DATE_FILTERS,
     ENDPOINTS,
+    FANOUT_PARENTS,
     INCREMENTAL_FIELDS,
     PAGE_SIZE,
+    PAYOUT_STATUS,
     PERMISSION_ERROR,
     PRIMARY_KEYS,
 )
@@ -135,8 +138,10 @@ def incremental_start(
 def endpoint_paginator(endpoint: str) -> PaginatorConfig | None:
     if endpoint in ("institutions", "mandate_debits"):
         return "single_page"
-    if endpoint == "payments":
+    if endpoint in ("payments", "payouts"):
         return PageNumberPaginator(base_page=1, total_path="meta.paging.pages")
+    if endpoint in ("disbursements", "disbursement_distributions"):
+        return PageNumberPaginator(base_page=1, total_path="data.pagination.pages")
     if endpoint == "mandates":
         # The documented response has no paging metadata, so stop at the first empty page.
         return PageNumberPaginator(base_page=1)
@@ -176,13 +181,18 @@ def mono_source(
             "paginate": "true",
             "limit": PAGE_SIZE,
         }
+    elif endpoint in FANOUT_PARENTS:
+        parent, placeholder = FANOUT_PARENTS[endpoint]
+        params[placeholder] = {"type": "resolve", "resource": parent, "field": "id"}
     elif endpoint in ("payments", "mandates"):
         params["limit"] = PAGE_SIZE
+    elif endpoint == "payouts":
+        params["status"] = PAYOUT_STATUS
 
     endpoint_config: Endpoint = {
         "path": path,
         "params": params,
-        "data_selector": "data.payments" if endpoint == "payments" else "data",
+        "data_selector": DATA_SELECTORS.get(endpoint, "data"),
         "data_selector_required": True,
     }
     paginator = endpoint_paginator(endpoint)
@@ -199,14 +209,18 @@ def mono_source(
         "endpoint": endpoint_config,
     }
     resources: list[str | EndpointResource] = []
-    if endpoint == "transactions":
+    if endpoint in FANOUT_PARENTS:
+        parent, _ = FANOUT_PARENTS[endpoint]
+        parent_endpoint: Endpoint = {
+            "path": schema_for_resource(ENDPOINTS, parent),
+            "data_selector": DATA_SELECTORS.get(parent, "data"),
+            "data_selector_required": True,
+        }
+        parent_paginator = endpoint_paginator(parent)
+        if parent_paginator is not None:
+            parent_endpoint["paginator"] = parent_paginator
         resource["include_from_parent"] = ["id"]
-        resources.append(
-            {
-                "name": "accounts",
-                "endpoint": {"path": "accounts", "data_selector": "data", "data_selector_required": True},
-            }
-        )
+        resources.append({"name": parent, "endpoint": parent_endpoint})
     resources.append(resource)
 
     def save_checkpoint(state: dict[str, Any] | None) -> None:
@@ -223,8 +237,9 @@ def mono_source(
         initial_paginator_state=resume.paginator_state if resume else None,
     )
     result = next(item for item in built if item.name == endpoint)
-    if endpoint == "transactions":
-        result.add_map(rename_parent_fields("accounts", {"id": "account_id"}))
+    if endpoint in FANOUT_PARENTS:
+        parent, placeholder = FANOUT_PARENTS[endpoint]
+        result.add_map(rename_parent_fields(parent, {"id": placeholder}))
     return SourceResponse(
         name=endpoint,
         items=lambda: result,

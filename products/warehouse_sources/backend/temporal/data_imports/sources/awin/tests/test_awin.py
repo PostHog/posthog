@@ -1,7 +1,9 @@
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any, Optional
 
 import time_machine
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -65,17 +67,52 @@ class TestWindowsForAccount:
 
 
 class TestBuildWindowParams:
-    def test_reports_advertiser_includes_region(self) -> None:
-        # Awin's aggregated advertiser report 400s without `region` because it's a required param
-        # the API has no "all regions" value for.
+    @parameterized.expand(
+        [
+            # Awin's aggregated reports 400 without `region` where it is a required param, because
+            # the API has no "all regions" value for it.
+            ("reports_advertiser", "US", None),
+            ("publisher_campaign_reports", "US", "day"),
+            ("advertiser_campaign_reports", None, "day"),
+            ("publisher_creative_reports", "US", None),
+            ("advertiser_creative_reports", "US", None),
+        ]
+    )
+    def test_report_params(
+        self, endpoint: str, expected_region: Optional[str], expected_interval: Optional[str]
+    ) -> None:
         params = _build_window_params(
-            AWIN_ENDPOINTS["reports_advertiser"],
+            AWIN_ENDPOINTS[endpoint],
             datetime(2024, 1, 1, tzinfo=UTC),
             datetime(2024, 1, 31, tzinfo=UTC),
             incremental_field=None,
             region="US",
         )
-        assert params["region"] == "US"
+        assert params.get("region") == expected_region
+        # Without a daily interval the campaign report returns one total per campaign, which the
+        # `date` primary key column cannot tell apart.
+        assert params.get("interval") == expected_interval
+        assert params["startDate"] == "2024-01-01"
+
+    @parameterized.expand(
+        [
+            ("default", None, "enquiryDate"),
+            ("enquiry_date", "enquiryDate", "enquiryDate"),
+            ("transaction_date", "transactionDate", "transactionDate"),
+        ]
+    )
+    def test_transaction_queries_window_on_the_selected_field(
+        self, _name: str, incremental_field: Optional[str], expected_date_type: str
+    ) -> None:
+        params = _build_window_params(
+            AWIN_ENDPOINTS["transaction_queries"],
+            datetime(2024, 1, 1, tzinfo=UTC),
+            datetime(2024, 1, 31, tzinfo=UTC),
+            incremental_field=incremental_field,
+            region="US",
+        )
+        assert params["dateType"] == expected_date_type
+        assert params["startDate"] == "2024-01-01T00:00:00"
 
 
 class TestRowsFromResponse:
@@ -165,6 +202,9 @@ class TestFormatPath:
             ),
             ("reports_publisher", AwinFanoutTarget(advertiser_id=9), "/advertisers/9/reports/publisher"),
             ("advertiser_publishers", AwinFanoutTarget(advertiser_id=9), "/advertisers/9/publishers"),
+            # Awin serves these two under the singular `/publisher/` prefix.
+            ("transaction_queries", AwinFanoutTarget(publisher_id=5), "/publisher/5/transactionqueries"),
+            ("offers", AwinFanoutTarget(publisher_id=5), "/publisher/5/promotions"),
         ]
     )
     def test_each_id_lands_in_the_path_segment_that_accepts_it(
@@ -276,6 +316,75 @@ class TestGetRows:
         # Programme 1 was already done before the crash; the pair bookmark restarts at 2.
         assert result.raised is None
         assert result.params("advertiserId")[2:] == ["2", "3"]
+
+
+class TestPaginatedEndpoints:
+    @parameterized.expand(
+        [
+            # The last page is full, so only the page count stops the walk.
+            ("stops_at_total_pages", [2, 2], 2, ["1", "2"]),
+            # No totals in the body, so the short second page ends the walk.
+            ("stops_at_short_page", [2, 1], None, ["1", "2"]),
+            ("stops_at_empty_page", [0], None, ["1"]),
+        ]
+    )
+    @time_machine.travel("2024-06-01", tick=False)
+    def test_transaction_queries_walk_every_page_of_each_window(
+        self, _name: str, page_lengths: list[int], total_pages: Optional[int], expected_pages: list[str]
+    ) -> None:
+        page_iter = iter(page_lengths)
+        next_enquiry_id = iter(range(1, 1000))
+
+        def answer(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/accounts":
+                return ScriptedResponse(json={"accounts": [{"accountId": 10, "accountType": "publisher"}]})
+            items = [{"enquiryId": next(next_enquiry_id)} for _ in range(next(page_iter))]
+            body: dict[str, Any] = {"pageItems": items}
+            if total_pages is not None:
+                body["totalPagesAvailable"] = total_pages
+            return ScriptedResponse(json=body)
+
+        with patch.dict(
+            AWIN_ENDPOINTS, {"transaction_queries": replace(AWIN_ENDPOINTS["transaction_queries"], page_size=2)}
+        ):
+            # A recent cursor leaves a single window, so every request below is a page of it.
+            result = SourceDriver(AwinSource(), AwinSourceConfig(api_token="token")).run(
+                "transaction_queries",
+                answer,
+                should_use_incremental_field=True,
+                incremental_field="enquiryDate",
+                db_incremental_field_last_value="2024-05-20T00:00:00",
+            )
+
+        assert result.raised is None
+        assert result.params("pageNumber")[1:] == expected_pages
+        assert set(result.params("startDate")[1:]) == {"2024-05-20T00:00:00"}
+        assert {r.path for r in result.requests[1:]} == {"/publisher/10/transactionqueries"}
+        assert [row["enquiryId"] for row in result.rows] == list(range(1, sum(page_lengths) + 1))
+        assert all(row["publisherId"] == 10 for row in result.rows)
+
+    def test_offers_post_filters_and_page_through_the_total(self) -> None:
+        def offers(start: int, count: int) -> list[dict[str, Any]]:
+            return [{"promotionId": promotion_id} for promotion_id in range(start, start + count)]
+
+        with patch.dict(AWIN_ENDPOINTS, {"offers": replace(AWIN_ENDPOINTS["offers"], page_size=2)}):
+            result = SourceDriver(AwinSource(), AwinSourceConfig(api_token="token")).run(
+                "offers",
+                [
+                    ScriptedResponse(json={"accounts": [{"accountId": 10, "accountType": "publisher"}]}),
+                    ScriptedResponse(json={"data": offers(1, 2), "pagination": {"page": 1, "pageSize": 2, "total": 4}}),
+                    ScriptedResponse(json={"data": offers(3, 2), "pagination": {"page": 2, "pageSize": 2, "total": 4}}),
+                ],
+            )
+
+        assert result.raised is None
+        offer_requests = result.requests[1:]
+        assert [(r.method, r.path) for r in offer_requests] == [("POST", "/publisher/10/promotions")] * 2
+        assert [r.json() for r in offer_requests] == [
+            {"filters": {"membership": "joined", "status": "active"}, "pagination": {"page": page, "pageSize": 2}}
+            for page in (1, 2)
+        ]
+        assert result.rows == [{"promotionId": promotion_id, "publisherId": 10} for promotion_id in range(1, 5)]
 
 
 class TestAwinSource:

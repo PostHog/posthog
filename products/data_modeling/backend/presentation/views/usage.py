@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 from django.db import models
 
@@ -19,6 +20,20 @@ class ModelUsageEngine(models.TextChoices):
     MANAGED_WAREHOUSE = "managed_warehouse", "Managed warehouse"
 
 
+class ModelUsageSortBy(models.TextChoices):
+    NAME = "name", "Model"
+    READ_BYTES = "read_bytes", "Bytes read"
+    CLICKHOUSE_READ_BYTES = "clickhouse_read_bytes", "ClickHouse bytes"
+    MANAGED_WAREHOUSE_READ_BYTES = "managed_warehouse_read_bytes", "Managed warehouse bytes"
+    CPU_MICROSECONDS = "cpu_microseconds", "CPU time"
+    RUNS = "runs", "Runs"
+
+
+class ModelUsageSortDirection(models.TextChoices):
+    ASC = "asc", "Ascending"
+    DESC = "desc", "Descending"
+
+
 class ModelUsageQuerySerializer(serializers.Serializer):
     days = serializers.IntegerField(
         required=False, min_value=1, max_value=90, help_text="Number of complete UTC days, up to 90."
@@ -33,16 +48,41 @@ class ModelUsageQuerySerializer(serializers.Serializer):
     page_size = serializers.IntegerField(
         default=20, min_value=1, max_value=100, help_text="Models per page, up to 100."
     )
+    sort_by = serializers.ChoiceField(
+        choices=ModelUsageSortBy.choices, default=ModelUsageSortBy.READ_BYTES, help_text="Column to sort models by."
+    )
+    sort_direction = serializers.ChoiceField(
+        choices=ModelUsageSortDirection.choices,
+        default=ModelUsageSortDirection.DESC,
+        help_text="Sort direction. Unmeasured values are always last.",
+    )
     engine = serializers.ChoiceField(
         choices=ModelUsageEngine.choices,
         default=ModelUsageEngine.CLICKHOUSE,
         help_text="Materialization engine. All combines ClickHouse and managed warehouse usage.",
     )
-    saved_query_id = serializers.UUIDField(
-        required=False, allow_null=True, help_text="Limit usage to one accessible materialized view."
+    saved_query_ids = serializers.CharField(
+        required=False, help_text="Comma-separated materialized view IDs. Usage is limited to accessible views."
     )
+    saved_query_id = serializers.UUIDField(required=False, help_text="Limit usage to one accessible materialized view.")
+
+    def validate_saved_query_ids(self, value: str) -> list[UUID]:
+        values = [item.strip() for item in value.split(",") if item.strip()]
+        if not values:
+            raise serializers.ValidationError("Select at least one materialized view.")
+        try:
+            return [UUID(item) for item in values]
+        except ValueError as error:
+            raise serializers.ValidationError("Enter valid materialized view IDs.") from error
 
     def validate(self, attrs: dict) -> dict:
+        saved_query_id = attrs.get("saved_query_id")
+        if saved_query_id is not None:
+            if "saved_query_ids" in attrs:
+                raise serializers.ValidationError(
+                    {"saved_query_id": "Use saved_query_id or saved_query_ids, not both."}
+                )
+            attrs["saved_query_ids"] = [saved_query_id]
         days = attrs.get("days")
         date_from = attrs.get("date_from")
         date_to = attrs.get("date_to")
@@ -98,13 +138,29 @@ class ModelUsageRowSerializer(ModelUsageTotalsSerializer):
     engines = ModelUsageEngineSerializer(many=True, help_text="Usage totals for each selected engine.")
 
 
+class ModelStatusModelSerializer(serializers.Serializer):
+    saved_query_id = serializers.UUIDField(help_text="Model ID.")
+    name = serializers.CharField(help_text="Model name.")
+    deleted = serializers.BooleanField(help_text="Whether this model has been deleted.")
+
+
+class ModelStatusBreakdownSerializer(serializers.Serializer):
+    engine = serializers.CharField(help_text="Materialization engine: clickhouse or managed_warehouse.")
+    status = serializers.CharField(help_text="Status of the latest run for the model and engine in this range.")
+    count = serializers.IntegerField(help_text="Number of models whose latest run has this status.")
+    models = ModelStatusModelSerializer(many=True, help_text="Models whose latest run has this status.")
+
+
 class ModelUsageSerializer(serializers.Serializer):
     date_from = serializers.DateField(help_text="Inclusive UTC start date.")
     date_to = serializers.DateField(help_text="Exclusive UTC end date. Today's incomplete usage is excluded.")
     overview = ModelUsageTotalsSerializer(help_text="Totals over the whole date range.")
     trends = ModelUsageDaySerializer(many=True, help_text="Daily usage, attributed to when each run finished.")
-    models = ModelUsageRowSerializer(many=True, help_text="Model breakdown, highest measured bytes first.")
+    models = ModelUsageRowSerializer(many=True, help_text="Model breakdown in the requested sort order.")
     count = serializers.IntegerField(help_text="Total number of models in the breakdown.")
+    status_breakdown = ModelStatusBreakdownSerializer(
+        many=True, help_text="Latest run status for each model and engine in the selected complete-day range."
+    )
     usage_updated_at = serializers.DateTimeField(
         allow_null=True, help_text="Latest usage collection timestamp in this range."
     )
@@ -123,8 +179,8 @@ class ModelUsageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def list(self, request: ValidatedRequest, **kwargs: object) -> response.Response:
         query_data = request.validated_query_data
         saved_queries = self.get_queryset()
-        if saved_query_id := query_data.get("saved_query_id"):
-            saved_queries = saved_queries.filter(id=saved_query_id)
+        if saved_query_ids := query_data.get("saved_query_ids"):
+            saved_queries = saved_queries.filter(id__in=saved_query_ids)
         selected_engine = query_data["engine"]
         engines = (
             (DataModelingJobEngine.CLICKHOUSE, DataModelingJobEngine.MANAGED_WAREHOUSE)
@@ -141,6 +197,8 @@ class ModelUsageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     start_date=query_data["start_date"],
                     end_date=query_data["end_date"],
                     engines=engines,
+                    sort_by=query_data["sort_by"],
+                    sort_direction=query_data["sort_direction"],
                 )
             ).data
         )

@@ -252,9 +252,9 @@ async def execute_trino_model(
     source_query: object,
     incremental: TrinoIncrementalWrite | None = None,
     on_processed_bytes: Callable[[int], None] | None = None,
+    on_cpu_milliseconds: Callable[[int], None] | None = None,
 ) -> DuckLakeTableResult:
-    """Build the model on Trino. ``on_processed_bytes`` receives the bytes each statement processed,
-    including statements of attempts that fail."""
+    """Build the model on Trino and report the final statement usage, including failed attempts."""
     from products.managed_warehouse.backend.trino_execution import (  # noqa: PLC0415 -- keeps executor creation off startup paths
         run_trino_model_with_retries,
     )
@@ -272,4 +272,5 @@ async def execute_trino_model(
             control=control,
         ),
         on_processed_bytes=on_processed_bytes,
+        on_cpu_milliseconds=on_cpu_milliseconds,
     )

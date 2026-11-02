@@ -221,7 +221,9 @@ export function GithubIntegration({
                 {!isConnected &&
                     !githubAvailableInstallationsResponse &&
                     githubAvailableInstallationsResponseLoading && (
-                        <p className="text-secondary mb-0">Looking for existing GitHub installations…</p>
+                        <span role="status" className="sr-only">
+                            Looking for existing GitHub installations…
+                        </span>
                     )}
                 {!isConnected &&
                     !githubAvailableInstallationsResponseLoading &&
@@ -238,8 +240,8 @@ export function GithubIntegration({
                     )}
                 {installRequestInProgress || (isConnected && !showManageButton) ? null : emphasizeConnect &&
                   !isConnected ? (
-                    <div className="flex w-full flex-col items-center gap-4">
-                        <div className="flex flex-wrap justify-center gap-2">
+                    <div className={cn('flex w-full flex-col gap-4', centered ? 'items-center' : 'items-start')}>
+                        <div className={cn('flex flex-wrap gap-2', centered && 'justify-center')}>
                             <LemonButton
                                 type={canLinkExisting ? 'secondary' : 'primary'}
                                 icon={<IconGithub />}
@@ -254,14 +256,16 @@ export function GithubIntegration({
                                 {canLinkExisting ? 'Connect a different organization or repository' : connectText}
                             </LemonButton>
                         </div>
-                        <p className="m-0 max-w-[520px] text-center text-[13px] text-tertiary">
-                            {connectDescription ?? (
-                                <>
-                                    PostHog uses GitHub to create reports and pull requests based on your code. After
-                                    connecting GitHub, you can run Wizard in the background to complete setup.
-                                </>
-                            )}
-                        </p>
+                        {connectDescription !== '' && (
+                            <p className="m-0 max-w-[520px] text-center text-[13px] text-tertiary">
+                                {connectDescription ?? (
+                                    <>
+                                        PostHog uses GitHub to create reports and pull requests based on your code.
+                                        After connecting GitHub, you can run Wizard in the background to complete setup.
+                                    </>
+                                )}
+                            </p>
+                        )}
                     </div>
                 ) : (
                     <div className={cn('flex flex-wrap gap-2', centered && 'justify-center')}>

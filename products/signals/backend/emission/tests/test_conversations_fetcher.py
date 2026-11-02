@@ -3,6 +3,7 @@ from datetime import timedelta
 
 import pytest
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -113,6 +114,27 @@ class TestConversationsTicketFetcherEligibility(BaseTest):
 
         assert conversations_ticket_fetcher(self.team, CONVERSATIONS_TICKETS_CONFIG, {}) == []
 
+    def test_automated_pr_update_does_not_resnapshot_ticket(self):
+        ticket = _make_ticket(self.team)
+        _backdate_ticket(ticket, hours=48)
+        assert len(conversations_ticket_fetcher(self.team, CONVERSATIONS_TICKETS_CONFIG, {})) == 1
+        _backdate_emission(self.team, ticket, hours=30)
+
+        with patch("products.conversations.backend.signals.capture_message_sent") as capture_reply:
+            with self.captureOnCommitCallbacks(execute=True):
+                Comment.objects.create(
+                    team=self.team,
+                    scope="conversations_ticket",
+                    item_id=str(ticket.id),
+                    content="A pull request is open",
+                    item_context={"author_type": "AI", "is_private": False, "automated_update_key": "pr-123"},
+                )
+            capture_reply.assert_not_called()
+
+        ticket.refresh_from_db()
+        assert ticket.last_message_at is None
+        assert conversations_ticket_fetcher(self.team, CONVERSATIONS_TICKETS_CONFIG, {}) == []
+
 
 @pytest.mark.django_db
 class TestConversationsTicketFetcherMessages(BaseTest):
@@ -130,6 +152,28 @@ class TestConversationsTicketFetcherMessages(BaseTest):
         messages = result[0]["messages"]
         assert len(messages) == 1
         assert messages[0] == ("customer", "Hello there")
+
+    def test_excludes_automated_pr_update_from_snapshot(self):
+        _add_comment(self.team, self.ticket, content="Real customer message")
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="A pull request is open",
+            item_context={"author_type": "AI", "is_private": False, "automated_update_key": "pr-123"},
+        )
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            created_by=self.user,
+            content="A team message",
+            item_context={"author_type": "AI", "is_private": False, "automated_update_key": "user-supplied"},
+        )
+
+        result = conversations_ticket_fetcher(self.team, CONVERSATIONS_TICKETS_CONFIG, {})
+
+        assert result[0]["messages"] == [("customer", "Real customer message"), ("AI", "A team message")]
 
     def test_attaches_multiple_messages_across_author_types(self):
         _add_comment(self.team, self.ticket, content="User question", author_type="customer")

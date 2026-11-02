@@ -5,6 +5,8 @@ it. Which destinations an alert has is resolved before this, so a change to that
 reaches no transport.
 """
 
+from datetime import UTC
+
 from django.utils import timezone
 
 import structlog
@@ -16,18 +18,26 @@ from products.alerts_platform.backend.delivery.thread_store import ThreadBusy, T
 from products.alerts_platform.backend.delivery.transport import (
     DeliveryError,
     DeliveryTransport,
+    DestinationMisconfigured,
     MessageHandle,
     RootEditor,
 )
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AnnouncedTransition,
+    DeliveryPath,
     EvaluationAnnouncement,
     IncidentAction,
     MessageLink,
 )
 from products.alerts_platform.backend.logic.platform_reads import alert_snapshot
-from products.alerts_platform.backend.temporal.metrics import increment_root_edit_failures, safe_record
+from products.alerts_platform.backend.temporal.metrics import (
+    DeliveryOutcomeLabel,
+    increment_deliveries,
+    increment_root_edit_failures,
+    record_delivery_lag,
+    safe_record,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -48,6 +58,7 @@ def deliver(
     project: MessageLink | None = None,
 ) -> None:
     channel_target = transport.channel_target(target)
+    source = announcement.source.value
     busy = 0
 
     for transition in announcement.transitions:
@@ -67,8 +78,12 @@ def deliver(
             # in the channel twice. The holder may also have died, and then its claim frees
             # this thread only when it goes stale. The caller waits and runs the send again.
             busy += 1
+            safe_record(increment_deliveries, source, transport.provider, DeliveryPath.NATIVE.value, "busy")
             continue
         if claim is None:
+            safe_record(
+                increment_deliveries, source, transport.provider, DeliveryPath.NATIVE.value, "already_delivered"
+            )
             continue
 
         try:
@@ -128,6 +143,8 @@ def _send(
             succeeded=False,
             error=str(error) if isinstance(error, DeliveryError) else type(error).__name__,
         )
+        outcome: DeliveryOutcomeLabel = "misconfigured" if isinstance(error, DestinationMisconfigured) else "failed"
+        safe_record(increment_deliveries, message.source.value, transport.provider, DeliveryPath.NATIVE.value, outcome)
         raise
     record_delivery(
         team_id=team_id,
@@ -136,7 +153,17 @@ def _send(
         destination_id=destination_id,
         succeeded=True,
     )
+    safe_record(increment_deliveries, message.source.value, transport.provider, DeliveryPath.NATIVE.value, "sent")
+    safe_record(record_delivery_lag, message.source.value, transport.provider, _lag_ms(message.transition))
     return sent
+
+
+def _lag_ms(transition: AnnouncedTransition) -> int:
+    # History rows come back from ClickHouse without a zone, and their times are UTC.
+    decided_at = transition.occurred_at
+    if decided_at.tzinfo is None:
+        decided_at = decided_at.replace(tzinfo=UTC)
+    return max(0, int((timezone.now() - decided_at).total_seconds() * 1000))
 
 
 def _edit_root(

@@ -15,9 +15,10 @@ activities feed is newest-first and pages backwards through history via `count` 
 (params absent from the OpenAPI spec but used by the official Platform.sh PHP client and CLI, which
 page by setting `starts_at` to the oldest `created_at` seen and dedupe by id).
 
-Fan-out: organizations -> projects/subscriptions/members, and organizations -> projects ->
-environments/activities. Resume state checkpoints the current organizations page URL after all its
-children are processed; a resumed run re-fans that page and merge dedupes on the primary key.
+Fan-out: organizations -> projects/subscriptions/members/invoices/usage records, organizations ->
+projects -> environments/activities, and organizations -> projects -> environments -> deployments.
+Resume state checkpoints the current organizations page URL after all its children are processed;
+a resumed run re-fans that page and merge dedupes on the primary key.
 """
 
 import time
@@ -25,7 +26,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any
-from urllib.parse import urlencode, urljoin, urlparse
+from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlparse, urlunparse
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -59,10 +60,10 @@ REQUEST_TIMEOUT_SECONDS = 60
 AUTH_FAILED_MESSAGE = "Platform.sh authentication failed"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class PlatformShResumeConfig:
-    # Next URL to fetch. For the top-level organizations table it's the next page URL; for fan-out
-    # tables it's the current organizations page URL (resume re-fans that page and its children,
+    # Next URL to fetch. For top-level tables (organizations, regions) it's the next page URL; for
+    # fan-out tables it's the current organizations page URL (resume re-fans that page and its children,
     # merge dedupes on the primary key).
     next_url: str | None = None
 
@@ -79,6 +80,12 @@ class PlatformShAuthenticationError(Exception):
 class PlatformShUntrustedURLError(Exception):
     """Raised when a next-page/resume URL points off the configured API host. We attach the bearer
     token to every request, so following an off-host URL would leak it; refuse instead."""
+
+
+class PlatformShPaginationError(Exception):
+    """Raised when a page-numbered list repeats a page it already returned. The server is ignoring
+    the page param, so the rows past the first page can't be fetched; fail rather than sync a short
+    table."""
 
 
 class PlatformShPageCapExceededError(Exception):
@@ -100,9 +107,9 @@ class PlatformShClient:
         self._logger = logger
         self._access_token: str | None = None
         self._token_deadline = 0.0
-        # capture=False: environment responses carry `http_access.basic_auth` and activity
-        # responses carry raw `log` output — secrets we strip client-side in `_clean_rows`, which
-        # runs after HTTP sample capture would have recorded the raw body. Requests stay metered
+        # capture=False: environment and deployment responses carry `http_access.basic_auth` and
+        # activity responses carry raw `log` output — secrets we strip client-side in `_clean_rows`,
+        # which runs after HTTP sample capture would have recorded the raw body. Requests stay metered
         # and logged; only the opt-in body capture is excluded.
         self._session = make_tracked_session(redact_values=(api_token,), capture=False)
 
@@ -221,27 +228,56 @@ def _next_link(body: dict[str, Any], current_url: str, client: PlatformShClient)
     return client.validate_url(urljoin(current_url, href))
 
 
+def _with_page_number(url: str, param: str, page: int) -> str:
+    parsed = urlparse(url)
+    query = {**dict(parse_qsl(parsed.query)), param: str(page)}
+    return urlunparse(parsed._replace(query=urlencode(query)))
+
+
 def _iter_envelope_pages(
     client: PlatformShClient,
     url: str,
     max_pages: int | None = None,
     page_cap_context: dict[str, Any] | None = None,
+    items_key: str = "items",
+    page_number_param: str | None = None,
 ) -> Iterator[tuple[list[dict[str, Any]], str]]:
     """Yield (items, page_url) for each page of an `{"items": [...], "_links": {...}}` list,
-    following the `_links.next` cursor. When `max_pages` is set and more pages remain, raise
-    rather than truncate: a silently short table would stay incomplete on every later run."""
+    following the `_links.next` cursor, or incrementing `page_number_param` when a page has no
+    next link. When `max_pages` is set and more pages remain, raise rather than truncate: a
+    silently short table would stay incomplete on every later run."""
     page_count = 0
+    seen_ids: set[Any] = set()
     while True:
         body = client.get(url).json()
-        items = body.get("items") if isinstance(body, dict) else None
+        items = body.get(items_key) if isinstance(body, dict) else None
         if not items:
             return
+        if max_pages is not None and page_count >= max_pages:
+            # Only a guessed page-number URL is fetched past the cap: an empty probe means the list
+            # ended exactly at the cap, anything else means rows remain.
+            raise PlatformShPageCapExceededError(
+                f"Platform.sh: page cap of {max_pages} reached with more pages remaining; "
+                f"raise max_pages_per_parent to sync this parent fully. context={page_cap_context or {}}"
+            )
         next_url = _next_link(body, url, client)
+        guessed_next = False
+        if page_number_param is not None:
+            page_ids = {item.get("id") for item in items}
+            if page_ids <= seen_ids:
+                raise PlatformShPaginationError(
+                    f"Platform.sh: {url} repeated a page it already returned; the server ignored "
+                    f"`{page_number_param}`, so the full list can't be fetched. context={page_cap_context or {}}"
+                )
+            seen_ids |= page_ids
+            if next_url is None:
+                next_url = _with_page_number(url, page_number_param, page_count + 2)
+                guessed_next = True
         yield items, url
         page_count += 1
         if not next_url:
             return
-        if max_pages is not None and page_count >= max_pages:
+        if max_pages is not None and page_count >= max_pages and not guessed_next:
             raise PlatformShPageCapExceededError(
                 f"Platform.sh: page cap of {max_pages} reached with more pages remaining; "
                 f"raise max_pages_per_parent to sync this parent fully. context={page_cap_context or {}}"
@@ -354,6 +390,31 @@ def _iter_project_activities(
         starts_at = min(row["created_at"] for row in new_rows)
 
 
+def _iter_environment_deployments(
+    client: PlatformShClient,
+    environment: dict[str, Any],
+    logger: FilteringBoundLogger,
+    config: PlatformShEndpointConfig,
+) -> Iterator[list[dict[str, Any]]]:
+    # Inactive environments run nothing, so there is no deployment to report.
+    if environment.get("status") == "inactive":
+        return
+    # Environment ids are Git branch names and can contain "/".
+    url = client.api_base + config.path.format(
+        project_id=environment["project_id"], environment_id=quote(environment["id"], safe="")
+    )
+    try:
+        data = client.get(url).json()
+    except requests.HTTPError as e:
+        # The environment was deleted after the environments list was read.
+        if e.response is not None and e.response.status_code == 404:
+            logger.debug(f"Platform.sh: no deployments for environment {environment['id']}, skipping")
+            return
+        raise
+    if isinstance(data, list) and data:
+        yield _clean_rows(_inject_parent_fields(data, environment, config.include_parent_fields), config)
+
+
 def _iter_project_children(
     client: PlatformShClient,
     project: dict[str, Any],
@@ -362,6 +423,13 @@ def _iter_project_children(
     cutoff: datetime | None,
 ) -> Iterator[list[dict[str, Any]]]:
     project_id = project["id"]
+    if config.fan_out_parent == "environments":
+        environments_config = PLATFORM_SH_ENDPOINTS["environments"]
+        for environments in _iter_project_children(client, project, logger, environments_config, cutoff=None):
+            for environment in environments:
+                yield from _iter_environment_deployments(client, environment, logger, config)
+        return
+
     if config.name == "activities":
         raw_batches: Iterator[list[dict[str, Any]]] = _iter_project_activities(
             client, project_id, logger, config, cutoff
@@ -402,30 +470,32 @@ def get_rows(
         logger.debug(f"Platform.sh: syncing {endpoint} incrementally from {cutoff.isoformat()}")
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    orgs_url = _build_url(client.api_base, "/organizations", PLATFORM_SH_ENDPOINTS["organizations"].page_size)
+    # Top-level tables page their own path; fan-out tables page the organizations list.
+    list_config = config if config.fan_out_parent is None else PLATFORM_SH_ENDPOINTS["organizations"]
+    list_url = _build_url(client.api_base, list_config.path, list_config.page_size)
     if resume is not None and resume.next_url:
-        orgs_url = client.validate_url(resume.next_url)
-        logger.debug(f"Platform.sh: resuming {endpoint} from organizations page: {orgs_url}")
+        list_url = client.validate_url(resume.next_url)
+        logger.debug(f"Platform.sh: resuming {endpoint} from page: {list_url}")
 
-    if endpoint == "organizations":
+    if config.fan_out_parent is None:
         while True:
-            body = client.get(orgs_url).json()
-            items = body.get("items") if isinstance(body, dict) else None
+            body = client.get(list_url).json()
+            items = body.get(config.items_key) if isinstance(body, dict) else None
             if not items:
                 return
-            next_url = _next_link(body, orgs_url, client)
+            next_url = _next_link(body, list_url, client)
             yield _clean_rows(items, config)
             if not next_url:
                 return
             # Save AFTER yielding so a crash re-yields the last page rather than skipping it
             # (merge dedupes on the primary key).
             resumable_source_manager.save_state(PlatformShResumeConfig(next_url=next_url))
-            orgs_url = next_url
+            list_url = next_url
 
     # Fan-out tables: walk the organizations list and emit child rows per org (and, for
     # project-scoped tables, per project). Checkpoint the org page URL after all of its children
     # are processed; a resumed run re-fans that page and merge dedupes.
-    for orgs, org_page_url in _iter_envelope_pages(client, orgs_url):
+    for orgs, org_page_url in _iter_envelope_pages(client, list_url):
         for org in orgs:
             if config.fan_out_parent == "organizations":
                 child_url = _build_url(client.api_base, config.path.format(organization_id=org["id"]), config.page_size)
@@ -434,9 +504,11 @@ def get_rows(
                     child_url,
                     max_pages=config.max_pages_per_parent,
                     page_cap_context={"organization_id": org["id"], "endpoint": endpoint},
+                    items_key=config.items_key,
+                    page_number_param=config.page_number_param,
                 ):
                     yield _clean_rows(_inject_parent_fields(child_items, org, config.include_parent_fields), config)
-            else:  # children of projects (environments, activities)
+            else:  # children of projects (environments, activities, deployments)
                 projects_config = PLATFORM_SH_ENDPOINTS["projects"]
                 projects_url = _build_url(
                     client.api_base,

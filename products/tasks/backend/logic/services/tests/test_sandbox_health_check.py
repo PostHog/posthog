@@ -1,4 +1,5 @@
 import os
+import json
 import time
 import subprocess
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -18,6 +19,7 @@ from products.tasks.backend.logic.services.sandbox import (
     build_health_check_command,
     health_check_budget_seconds,
 )
+from products.tasks.backend.logic.services.startup_failure import AgentServerStartupError, raise_startup_failure
 
 
 def _path_with_fake_curl(tmp_path: Path, body: str, delay_seconds: float) -> dict[str, str]:
@@ -63,6 +65,11 @@ def test_health_check_ignores_curl_config(tmp_path: Path) -> None:
     [
         ('{"status":"ok","hasSession":true}', 0, "ok:1"),
         ('{"status":"ok","hasSession":false}', 1, ""),
+        (
+            '{"status":"ok","hasSession":false,"readiness":"failed"}',
+            1,
+            '{"status":"ok","hasSession":false,"readiness":"failed"}',
+        ),
         ('{"status":"error","code":"codex_credential_unavailable"}', 1, "codex_credential_unavailable"),
     ],
 )
@@ -183,3 +190,68 @@ def test_preflight_reports_only_the_capabilities_the_binary_carries(
         if line.startswith(AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX)
     ]
     assert sorted(reported) == sorted(capabilities)
+
+
+@pytest.mark.parametrize(
+    ("provider", "reason", "reported_retryability", "expected_reason", "expected_retryability"),
+    [
+        ("claude", "proxy_invalid", "unknown", "proxy_invalid", "requires_action"),
+        ("claude", "sandbox_required_unavailable", "unknown", "sandbox_required_unavailable", "requires_action"),
+        ("claude", "worktree_unverified", "requires_action", "worktree_unverified", "transient"),
+        ("claude", None, "requires_action", None, "unknown"),
+        ("claude", "arbitrary-reason", "requires_action", None, "unknown"),
+        ("codex", "credential_service_unavailable", "requires_action", "credential_service_unavailable", "transient"),
+    ],
+)
+def test_health_check_carries_validated_startup_failure(
+    tmp_path: Path, provider, reason, reported_retryability, expected_reason, expected_retryability
+) -> None:
+    payload = {
+        "status": "ok",
+        "hasSession": False,
+        "readiness": "failed",
+        "runId": "example-run",
+        "startupFailure": {
+            "provider": provider,
+            "phase": "sdk_initialization",
+            "reason": reason,
+            "retryability": reported_retryability,
+        },
+    }
+    result = subprocess.run(
+        ["bash", "-c", build_health_check_command(port=1, max_attempts=1, poll_interval=0.0)],
+        env=_path_with_fake_curl(tmp_path, json.dumps(payload), 0.0),
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert result.returncode == 1
+    with pytest.raises(AgentServerStartupError) as raised:
+        raise_startup_failure(result.stdout, "example-sandbox")
+    assert raised.value.run_id == "example-run"
+    assert raised.value.startup_failure.reason == expected_reason
+    assert raised.value.startup_failure.retryability == expected_retryability
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"runId": None},
+        {"hasSession": True},
+        {"readiness": "ready"},
+    ],
+)
+def test_health_check_ignores_unconfirmed_startup_failures(change) -> None:
+    payload = {
+        "hasSession": False,
+        "readiness": "failed",
+        "runId": "example-run",
+        "startupFailure": {
+            "provider": "claude",
+            "phase": "sdk_initialization",
+            "reason": "proxy_invalid",
+            "retryability": "requires_action",
+        },
+        **change,
+    }
+    raise_startup_failure(json.dumps(payload), "example-sandbox")

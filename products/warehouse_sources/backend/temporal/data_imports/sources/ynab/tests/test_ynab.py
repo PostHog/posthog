@@ -162,88 +162,63 @@ def test_plans_list_and_empty_account(driver: SourceDriver) -> None:
     assert accounts.saved_states == []
 
 
-def _month_detail(categories: list[dict[str, Any]]) -> ScriptedResponse:
-    return ScriptedResponse(json={"data": {"month": {"categories": categories}}})
+def _plan_export(months: list[dict[str, Any]]) -> ScriptedResponse:
+    return ScriptedResponse(json={"data": {"plan": {"id": "unused", "months": months}, "server_knowledge": 42}})
 
 
 @pytest.mark.parametrize(
-    "plan,resume_state,expected_rows",
+    "resume_state,expected_rows",
     [
         (
-            {"id": "plan-1", "first_month": "2023-11-01", "last_month": "2024-01-01"},
             None,
-            [("plan-1", "2023-11-01"), ("plan-1", "2023-12-01"), ("plan-1", "2024-01-01")],
+            [("plan-1", "2023-12-01", "category-1"), ("plan-1", "2024-01-01", "category-1")],
         ),
         (
-            {"id": "plan-1", "first_month": "2023-11-01", "last_month": "2024-01-01"},
-            YnabResumeConfig(completed=["plans/plan-1/months/2023-11-01"]),
-            [("plan-1", "2023-12-01"), ("plan-1", "2024-01-01")],
+            YnabResumeConfig(completed=["plans/plan-1"]),
+            [],
         ),
-        ({"id": "plan-1", "first_month": "2024-01-01", "last_month": "2024-01-01"}, None, [("plan-1", "2024-01-01")]),
-        ({"id": "plan-1", "first_month": None, "last_month": None}, None, []),
-        ({"id": "plan-1"}, None, []),
     ],
 )
-def test_month_categories_cover_each_plan_month(
-    plan: dict[str, Any],
+def test_month_categories_take_one_request_per_plan(
     resume_state: YnabResumeConfig | None,
-    expected_rows: list[tuple[str, str]],
+    expected_rows: list[tuple[str, str, str]],
     driver: SourceDriver,
 ) -> None:
     category = {"id": "category-1", "budgeted": 1000, "activity": -500, "balance": 500}
+    # Enough months that a request per month would spend YNAB's hourly limit of 200 on its own.
+    history = [
+        {"month": f"{year}-{month:02d}-01", "categories": []} for year in range(2005, 2023) for month in range(1, 13)
+    ]
     result = driver.run(
         "month_categories",
         route(
             {
-                "/v1/plans": [ScriptedResponse(json={"data": {"plans": [plan, {"id": "plan-2"}]}})],
-                **{
-                    f"/v1/plans/plan-1/months/{month}": [_month_detail([category])]
-                    for month in ["2023-11-01", "2023-12-01", "2024-01-01"]
-                },
+                "/v1/plans": [ScriptedResponse(json={"data": {"plans": [{"id": "plan-1"}, {"id": "plan-2"}]}})],
+                "/v1/plans/plan-1": [
+                    _plan_export(
+                        [
+                            {"month": "2023-12-01", "income": 0, "categories": [category]},
+                            {"month": "2024-01-01", "income": 0, "categories": [category]},
+                        ]
+                    )
+                ],
+                "/v1/plans/plan-2": [_plan_export(history)],
             }
         ),
         resume_state=resume_state,
     )
 
     rows = [row for batch in result.items for row in batch]
-    assert [(row["plan_id"], row["month"]) for row in rows] == expected_rows
-    assert all(row["id"] == "category-1" and row["balance"] == 500 for row in rows)
+    assert [(row["plan_id"], row["month"], row["id"]) for row in rows] == expected_rows
+    assert all(row["balance"] == 500 and "categories" not in row for row in rows)
     assert result.response is not None and result.response.primary_keys is not None
     assert len({tuple(row[key] for key in result.response.primary_keys) for row in rows}) == len(rows)
-    assert result.paths == ["/v1/plans", *[f"/v1/plans/plan-1/months/{month}" for _, month in expected_rows]]
-    assert all(dict(request.query) == {} for request in result.requests)
-    if expected_rows:
-        assert result.saved_states[-1].completed[-1] == f"plans/plan-1/months/{expected_rows[-1][1]}"
-
-
-def test_month_categories_skip_missing_month(driver: SourceDriver) -> None:
-    result = driver.run(
-        "month_categories",
-        route(
-            {
-                "/v1/plans": [
-                    ScriptedResponse(
-                        json={
-                            "data": {
-                                "plans": [{"id": "plan-1", "first_month": "2024-01-01", "last_month": "2024-02-01"}]
-                            }
-                        }
-                    )
-                ],
-                "/v1/plans/plan-1/months/2024-01-01": [
-                    ScriptedResponse(status=404, json={"error": {"id": "404.2", "name": "resource_not_found"}})
-                ],
-                "/v1/plans/plan-1/months/2024-02-01": [_month_detail([{"id": "category-1"}])],
-            }
-        ),
+    expected_paths = (
+        ["/v1/plans", "/v1/plans/plan-2"] if resume_state else ["/v1/plans", "/v1/plans/plan-1", "/v1/plans/plan-2"]
     )
-
-    assert result.raised is None
-    assert result.items == [[{"id": "category-1", "plan_id": "plan-1", "month": "2024-02-01"}]]
-    assert result.saved_states[-1].completed == [
-        "plans/plan-1/months/2024-01-01",
-        "plans/plan-1/months/2024-02-01",
-    ]
+    assert result.paths == expected_paths
+    assert all(dict(request.query) == {} for request in result.requests)
+    assert result.saved_states[-1].completed == ["plans/plan-1", "plans/plan-2"]
 
 
 @pytest.mark.parametrize("groups", [[], [{"id": "group-1", "categories": []}]])
@@ -305,9 +280,11 @@ def test_sync_errors_keep_auth_terminal_and_outages_retryable(status: int, drive
     result = driver.run("plans", always(ScriptedResponse(status=status, json={"error": {"id": str(status)}})))
     exception = RESTClientRetryableError if status in (429, 500) else HTTPError
     assert isinstance(result.raised, exception)
-    mappings = YnabSource().get_non_retryable_errors()
-    matched = [message for pattern, message in mappings.items() if pattern in str(result.raised)]
-    assert bool(matched) is (status in (401, 403))
+    source = YnabSource()
+    terminal = [pattern for pattern in source.get_non_retryable_errors() if pattern in str(result.raised)]
+    assert bool(terminal) is (status in (401, 403))
+    exhausted = [pattern for pattern in source.get_retry_exhausted_errors() if pattern in str(result.raised)]
+    assert bool(exhausted) is (status == 429)
     assert result.saved_states == []
 
 

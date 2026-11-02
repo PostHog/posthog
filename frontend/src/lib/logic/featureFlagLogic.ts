@@ -98,6 +98,15 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
     return flags
 }
 
+export function peekFeatureFlag(featureFlags: FeatureFlagsSet, flag: FeatureFlagKey): boolean | string | undefined {
+    const raw = (featureFlags as { toJSON?: () => FeatureFlagsSet }).toJSON?.() ?? featureFlags
+    return raw[flag]
+}
+
+export function reportFeatureFlagExposure(featureFlags: FeatureFlagsSet, flag: FeatureFlagKey): void {
+    notifyFlagIfNeeded(flag, peekFeatureFlag(featureFlags, flag))
+}
+
 export function getFeatureFlagPayload(flag: FeatureFlagKey): any {
     return posthog.getFeatureFlagResult(flag, { send_event: false })?.payload
 }

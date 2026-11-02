@@ -91,6 +91,22 @@ export function getDashboardSections({
     return sections
 }
 
+// Group keys can't hold a null character, so no real group shares this key.
+export const UNGROUPED_TILES_TAB_KEY = '\u0000ungrouped'
+
+export function getSectionGroupKey(section: DashboardSection): string {
+    return section.kind === 'group' ? section.groupKey : UNGROUPED_TILES_TAB_KEY
+}
+
+/** Tabs show one group at a time, so tiles outside any group gather into one tab of their own, first. */
+export function getDashboardTabs(sections: DashboardSection[]): DashboardSection[] {
+    const ungroupedTiles = sections.flatMap((section) => (section.kind === 'tiles' ? section.tiles : []))
+    const groupSections = sections.filter((section) => section.kind === 'group')
+    return ungroupedTiles.length > 0
+        ? [{ kind: 'tiles', key: 'tiles-ungrouped', tiles: ungroupedTiles }, ...groupSections]
+        : groupSections
+}
+
 function moveToTop(layout: Layout): Layout {
     const top = Math.min(...layout.map((item) => item.y))
     return layout.map((item) => ({ ...item, y: item.y - top }))

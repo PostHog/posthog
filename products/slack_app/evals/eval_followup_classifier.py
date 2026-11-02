@@ -23,7 +23,7 @@ import asyncio
 from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
-from products.posthog_ai.eval_harness.one_shot import OneShotPublicEval
+from products.posthog_ai.eval_harness.one_shot import OneShotEval
 from products.slack_app.backend.services.slack_messages import SlackThreadMessage
 from products.slack_app.backend.temporal.activities import classifiers
 from products.slack_app.evals.offline_config import offline_suite
@@ -238,7 +238,7 @@ async def eval_followup_classifier(ctx: EvalContext) -> None:
             "last_message": f"{classifier_model}: agent_directed={agent_directed}",
         }
 
-    await OneShotPublicEval(
+    await OneShotEval(
         experiment_name="slack-app-followup-classifier",
         offline_suite=offline_suite(
             "slack_app/eval_followup_classifier::eval_followup_classifier",

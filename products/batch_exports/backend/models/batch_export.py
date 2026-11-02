@@ -178,7 +178,7 @@ class BatchExportRun(UUIDTModel):
         db_table = "posthog_batchexportrun"
         constraints = [
             models.CheckConstraint(
-                check=(
+                condition=(
                     Q(batch_export__isnull=False, batch_export_on_demand__isnull=True)
                     | Q(batch_export__isnull=True, batch_export_on_demand__isnull=False)
                 ),

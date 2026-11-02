@@ -1,5 +1,6 @@
 import json
 import uuid
+import hashlib
 import dataclasses
 from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime, timedelta
@@ -24,6 +25,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
+from posthog.integrations import IntegrationManager
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
@@ -34,6 +36,16 @@ from products.signals.backend.activity_summary.read import (
     ActivitySummaryTheme as ActivitySummaryTheme,
     ActivitySummaryVersionView as ActivitySummaryVersionView,
     ActivitySummaryView as ActivitySummaryView,
+)
+from products.signals.backend.anomaly_scores import search as anomaly_search
+from products.signals.backend.anomaly_scores.search import (
+    AnomalyDashboardNotFound as AnomalyDashboardNotFound,
+    AnomalyGroupBy as AnomalyGroupBy,
+    AnomalyHistoryFilters as AnomalyHistoryFilters,
+    AnomalyInsightHistory as AnomalyInsightHistory,
+    AnomalyInterval as AnomalyInterval,
+    AnomalySearchFilters as AnomalySearchFilters,
+    AnomalySearchResult as AnomalySearchResult,
 )
 from products.signals.backend.artefact_schemas import (
     # Re-exported so the Slack mention handler can label the task it starts from a report's
@@ -49,6 +61,10 @@ from products.signals.backend.briefing_reports import (
 )
 from products.signals.backend.contracts import DIRECT_STEERABLE_SOURCES, SIGNAL_VARIANT_LOOKUP, SignalRemediation
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
+from products.signals.backend.facade.source_scouts import (
+    SOURCE_TEMPLATE_HASH_METADATA_KEY,
+    SOURCE_TEMPLATE_METADATA_KEY,
+)
 from products.signals.backend.inbox_summary import (
     INBOX_SUMMARY_PERIOD as INBOX_SUMMARY_PERIOD,
     generated_pull_requests,
@@ -107,7 +123,8 @@ from products.signals.backend.scout_harness.workflow_runs import (
     start_workflow_scout_run as start_workflow_scout_run,
 )
 from products.signals.backend.signal_metadata import SourceSliceSignalStats, fetch_signal_stats_for_source_slice
-from products.signals.backend.spend import signal_id_for
+from products.signals.backend.spend import complete_signal_pipeline, finalized_signal_ids, signal_id_for
+from products.signals.backend.spend_billing import system_source_exempt
 
 # Re-exported for external products (tasks presentation catches it around facade create_task).
 from products.signals.backend.task_run_artefacts import ReportTaskCapExceeded as ReportTaskCapExceeded
@@ -219,6 +236,18 @@ def list_activity_summary_versions(
 ) -> list[ActivitySummaryVersionView] | None:
     """The user's own summary versions, newest first, or None when the flag payload does not enroll the team."""
     return activity_summary_read.list_versions(team, user_id, limit=limit, version=version)
+
+
+def search_anomalies(*, team: Team, user: User, filters: AnomalySearchFilters, now: datetime) -> AnomalySearchResult:
+    """The anomaly rate of each scored insight series the user can read, most anomalous first."""
+    return anomaly_search.search(team, user, filters, now)
+
+
+def get_anomaly_insight_history(
+    *, team: Team, user: User, filters: AnomalyHistoryFilters, now: datetime
+) -> AnomalyInsightHistory | None:
+    """Every scored series of one insight with its buckets, or None when the user cannot read the insight."""
+    return anomaly_search.insight_history(team, user, filters, now)
 
 
 @frozen
@@ -435,15 +464,37 @@ def get_default_slack_notification_channel(team_id: int) -> str | None:
     return value or None
 
 
-def set_default_slack_notification_channel(team_id: int, value: str | None) -> None:
-    """Idempotently set the team-default Slack channel for signal notifications."""
+def get_default_slack_notification_integration_id(team_id: int) -> int | None:
+    """The Slack integration that owns the team-default channel.
+
+    None for an unbound legacy channel, and for a binding to a workspace that is no longer connected.
+    """
+    from products.signals.backend.models import (
+        SignalTeamConfig,  # noqa: PLC0415 — avoids importing model layer at facade import time
+    )
+
+    bound_id = (
+        SignalTeamConfig.objects.filter(team_id=team_id)
+        .values_list("default_slack_notification_integration_id", flat=True)
+        .first()
+    )
+    if bound_id is None or not IntegrationManager.slack.any.get_many(team_id, [bound_id]):
+        return None
+    return bound_id
+
+
+def set_default_slack_notification_channel(team_id: int, value: str | None, *, integration_id: int | None) -> None:
+    """Idempotently set the team-default Slack channel for signal notifications, and the workspace that owns it."""
     from products.signals.backend.models import (
         SignalTeamConfig,  # noqa: PLC0415 — avoids importing model layer at facade import time
     )
 
     SignalTeamConfig.objects.update_or_create(
         team_id=team_id,
-        defaults={"default_slack_notification_channel": value or None},
+        defaults={
+            "default_slack_notification_channel": value or None,
+            "default_slack_notification_integration_id": integration_id if value else None,
+        },
     )
 
 
@@ -603,7 +654,12 @@ def organization_acted_on_report(organization_id: "str | uuid.UUID") -> bool:
     """
     return SignalReport.objects.filter(
         team__organization_id=organization_id,
-        status__in=[SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING, SignalReport.Status.SUPPRESSED],
+        status__in=[
+            SignalReport.Status.RESOLVED,
+            SignalReport.Status.MONITORING,
+            SignalReport.Status.CLOSED,
+            SignalReport.Status.SUPPRESSED,
+        ],
     ).exists()
 
 
@@ -843,12 +899,20 @@ async def emit_signal(
 
     organization = await database_sync_to_async(lambda: team.organization)()
     if not organization.is_ai_data_processing_approved:
+        if signal_id:
+            await database_sync_to_async(complete_signal_pipeline)(
+                team_id=team.id, signal_id=signal_id, billing_exempt=system_source_exempt(source_product)
+            )
         return
 
     is_enabled = await database_sync_to_async(SignalSourceConfig.is_source_enabled, thread_sensitive=False)(
         team.id, source_product, source_type
     )
     if not is_enabled:
+        if signal_id:
+            await database_sync_to_async(complete_signal_pipeline)(
+                team_id=team.id, signal_id=signal_id, billing_exempt=system_source_exempt(source_product)
+            )
         return
 
     description_tokens = _token_count(description)
@@ -908,6 +972,8 @@ async def emit_signal(
     signal_id = signal_id or signal_id_for(
         team_id=team.id, source_product=source_product, source_type=source_type, idempotency_key=idempotency_key
     )
+    if await database_sync_to_async(finalized_signal_ids)(team_id=team.id, signal_ids=[signal_id]):
+        return
 
     # Below the started event on purpose: a filtered signal then has a top-of-funnel event to be
     # counted against, so a steering drop reads apart from a dispatch failure rather than as one.
@@ -927,6 +993,9 @@ async def emit_signal(
             weight=weight,
             extra=extra or {},
         ):
+            await database_sync_to_async(complete_signal_pipeline, thread_sensitive=False)(
+                team_id=team.id, signal_id=signal_id, billing_exempt=system_source_exempt(source_product)
+            )
             return
 
     client = await async_connect()
@@ -1419,6 +1488,103 @@ def scouts_for_source(
             "id", "skill_name", "enabled", "created_at"
         )
     ]
+
+
+def source_scout_body_hash(body: str) -> str:
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
+@frozen
+class SourceScoutSkill:
+    """A source-owned scout's live skill text, for the source product to keep in step with its templates."""
+
+    team_id: int
+    skill_name: str
+    source_id: str
+    body: str
+    version: int
+    # What the source product recorded with `set_source_scout_template`, or None for a scout it never claimed.
+    template: str | None
+    template_hash: str | None
+
+
+def source_scout_skill(team_id: int, skill_name: str) -> SourceScoutSkill | None:
+    """A source-owned scout's latest live skill text, or None when the scout or its skill is gone."""
+    from products.skills.backend.models.skills import (
+        LLMSkill,  # noqa: PLC0415 — keeps the skills models off the facade's import path
+    )
+
+    source_id = (
+        SignalScoutConfig.objects.for_team(team_id)
+        .filter(skill_name=skill_name)
+        .values_list("source_id", flat=True)
+        .first()
+    )
+    skill = (
+        LLMSkill.objects.filter(team_id=team_id, name=skill_name, is_latest=True, deleted=False)
+        .only("team_id", "name", "body", "version", "metadata")
+        .first()
+    )
+    if not source_id or skill is None:
+        return None
+    return SourceScoutSkill(
+        team_id=team_id,
+        skill_name=skill_name,
+        source_id=source_id,
+        body=skill.body,
+        version=skill.version,
+        template=(skill.metadata or {}).get(SOURCE_TEMPLATE_METADATA_KEY),
+        template_hash=(skill.metadata or {}).get(SOURCE_TEMPLATE_HASH_METADATA_KEY),
+    )
+
+
+def set_source_scout_template(*, team_id: int, skill_name: str, version: int, template: str) -> bool:
+    """Record that a scout's text at `version` is `template`'s, without a new version. False when it moved on."""
+    from products.skills.backend.models.skills import (
+        LLMSkill,  # noqa: PLC0415 — keeps the skills models off the facade's import path
+    )
+
+    with transaction.atomic():
+        skill = (
+            LLMSkill.objects.select_for_update()
+            .filter(team_id=team_id, name=skill_name, version=version, is_latest=True, deleted=False)
+            .first()
+        )
+        if skill is None:
+            return False
+        skill.metadata = {
+            **(skill.metadata or {}),
+            SOURCE_TEMPLATE_METADATA_KEY: template,
+            SOURCE_TEMPLATE_HASH_METADATA_KEY: source_scout_body_hash(skill.body),
+        }
+        skill.save(update_fields=["metadata", "updated_at"])
+    return True
+
+
+def publish_source_scout_body(*, team_id: int, skill_name: str, base_version: int, body: str, template: str) -> bool:
+    """Publish new template text as the scout's next skill version, unless someone published since `base_version`."""
+    from products.skills.backend.api.skill_services import (  # noqa: PLC0415 — keeps the API surface off the import path
+        LLMSkillNotFoundError,
+        LLMSkillVersionConflictError,
+        publish_skill_version,
+    )
+
+    try:
+        publish_skill_version(
+            Team.objects.get(pk=team_id),
+            user=None,
+            skill_name=skill_name,
+            body=body,
+            base_version=base_version,
+            version_description="Updated to the latest template",
+            system_metadata={
+                SOURCE_TEMPLATE_METADATA_KEY: template,
+                SOURCE_TEMPLATE_HASH_METADATA_KEY: source_scout_body_hash(body),
+            },
+        )
+    except (LLMSkillNotFoundError, LLMSkillVersionConflictError):
+        return False
+    return True
 
 
 def latest_structured_output_for_source(

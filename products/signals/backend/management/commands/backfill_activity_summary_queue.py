@@ -1,7 +1,8 @@
 """Seed the activity summary queue state of the enrolled teams, in batches of teams.
 
-Run it once before the tick reads the queue, and again after a large enrollment change. Without it,
-the queue holds only the rows that the cursors read after their first tick.
+Run it once before the tick reads the queue, and again after a large enrollment change or a change to
+`source_weights` or `count_views`. Without it, the queue holds only the rows that the cursors read
+after their first tick, and the pending scores keep the weights they were fed with.
 """
 
 import json

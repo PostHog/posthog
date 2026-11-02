@@ -12,6 +12,7 @@ import type { RadialSlicePayload } from './hooks/useRadialInteraction'
 import { RadialLayoutContext } from './radial-context'
 import type { RadialLayoutContextValue } from './radial-context'
 import type { PieLayout } from './radial-layout'
+import { useResolvedChartTheme } from './theme'
 import type {
     ChartDrawArgs,
     ChartMargins,
@@ -38,7 +39,8 @@ export type RadialLayoutBuilder<Meta = unknown> = (
 
 export interface RadialChartProps<Meta = unknown> {
     series: Series<Meta>[]
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     buildLayout: RadialLayoutBuilder<Meta>
     drawStatic: (args: ChartDrawArgs) => void
     drawHover: (args: ChartDrawArgs) => DrawHoverResult
@@ -56,7 +58,7 @@ export interface RadialChartProps<Meta = unknown> {
 
 export function RadialChart<Meta = unknown>({
     series,
-    theme,
+    theme: themeProp,
     buildLayout,
     drawStatic,
     drawHover,
@@ -69,6 +71,7 @@ export function RadialChart<Meta = unknown>({
     dataAttr,
     children,
 }: RadialChartProps<Meta>): React.ReactElement {
+    const theme = useResolvedChartTheme(themeProp)
     const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx, overlayCtx } = useChartCanvas({
         margins: RADIAL_MARGINS,
     })
@@ -119,9 +122,6 @@ export function RadialChart<Meta = unknown>({
         dimensions,
         scales,
         series: coloredSeries,
-        // No x-axis category labels in a radial chart; preserve the contract by passing []. Slice
-        // labels live in the SliceLabels overlay, which reads from the radial layout directly.
-        labels: [],
         hoverIndex,
         hoverPosition: null,
         theme,

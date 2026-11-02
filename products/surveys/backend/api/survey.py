@@ -11,6 +11,7 @@ from django.core.cache import cache
 from django.db import models, transaction
 from django.db.models import QuerySet
 from django.http import HttpRequest, HttpResponse
+from django.http.request import split_domain_port
 from django.shortcuts import render
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
@@ -57,6 +58,7 @@ from posthog.helpers.trigram_search import (
 )
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
+from posthog.models.proxy_record import ProxyRecord
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
@@ -70,7 +72,8 @@ from products.access_control.backend.presentation.access_control import (
 )
 from products.actions.backend.api.action import ActionSerializer, ActionStepJSONSerializer
 from products.actions.backend.models.action import Action
-from products.approvals.backend.mixins import ApprovalHandlingMixin
+from products.approvals.backend.exceptions import ApprovalRequired
+from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
 from products.approvals.backend.transactions import gated_atomic
 from products.feature_flags.backend.api.feature_flag import (
     BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
@@ -1920,10 +1923,12 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 team_id=self.context["team_id"],
                 feature_flag_id=validated_data["targeting_flag_id"],
             )
-        # The survey row and its flags are one unit. The gate can reject a flag write after the
-        # row is saved, which would leave a survey with no targeting or internal flag and no way
-        # to retry, so keep the whole create in one block.
-        with gated_atomic():
+        # The survey row and its flags are one unit. A flag write can fail after the row is saved,
+        # which would leave a survey with no targeting or internal flag and no way to retry, so keep
+        # the whole create in one block. A create only mints flags.
+        # `_create_or_update_targeting_flag` turns a gated mint into a 400 and rolls back its
+        # change request in a savepoint, so `gated_atomic` has nothing to restore here.
+        with transaction.atomic():
             if validated_data.get("targeting_flag_filters"):
                 assert_feature_flag_write_scope(
                     self.context["request"],
@@ -1976,9 +1981,23 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 feature_flag_id=validated_data["targeting_flag_id"],
             )
 
+        # Validate before any flag write. A flag minted below commits with the block, so a
+        # rejection after it would leave an active flag that no survey links.
+        iteration_count = validated_data.get("iteration_count", None)
+        if (
+            instance.current_iteration is not None
+            and iteration_count is not None
+            and instance.current_iteration > iteration_count > 0
+        ):
+            raise serializers.ValidationError(
+                f"Cannot change survey recurrence to {iteration_count}, should be at least {instance.current_iteration}"
+            )
+
         # One PATCH can remove the existing targeting flag and ask for new filters. The gate can
         # reject the replacement, so the delete and the write stay in one block. Without it a
-        # rejected change leaves the survey with no targeting flag at all.
+        # rejected change leaves the survey with no targeting flag at all. The survey row and
+        # its internal flags join the block, so a gate refusing an internal flag cannot leave
+        # the edits saved behind a 400.
         with gated_atomic():
             if validated_data.get("remove_targeting_flag"):
                 if instance.targeting_flag:
@@ -2045,31 +2064,37 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                     validated_data["targeting_flag_id"] = new_flag.id
                 validated_data.pop("targeting_flag_filters")
 
-        iteration_count = validated_data.get("iteration_count", None)
-        if (
-            instance.current_iteration is not None
-            and iteration_count is not None
-            and instance.current_iteration > iteration_count > 0
-        ):
-            raise serializers.ValidationError(
-                f"Cannot change survey recurrence to {iteration_count}, should be at least {instance.current_iteration}"
+            if iteration_count is not None:
+                instance.iteration_count = iteration_count
+                instance.iteration_frequency_days = validated_data.get("iteration_frequency_days")
+
+            instance = super().update(instance, validated_data)
+
+            team = Team.objects.get(id=self.context["team_id"])
+            # `changes_between` will not catch changes to the ForeignKey relationships
+            # so it's useful for any changes to the Survey model itself, but not for the related models
+            non_foreign_table_relation_changes = changes_between(
+                "Survey",
+                previous=before_update,
+                current=instance,
             )
+            changes.extend(non_foreign_table_relation_changes)
 
-        if iteration_count is not None:
-            instance.iteration_count = iteration_count
-            instance.iteration_frequency_days = validated_data.get("iteration_frequency_days")
+            should_flag_be_active = self._should_survey_flags_be_active(instance)
 
-        instance = super().update(instance, validated_data)
+            # Intentionally NOT gated on feature_flag:write: this only syncs the active state of
+            # the survey's OWN dedicated targeting flag to the survey's running state (start/stop/
+            # archive), which survey:write already controls. The flag's definition (its filters)
+            # can only be set via the gated targeting_flag_filters path. Enforcement covers
+            # definition writes, not this lifecycle mirror.
+            if instance.targeting_flag:
+                instance.targeting_flag.active = should_flag_be_active
+                instance.targeting_flag.save()
 
-        team = Team.objects.get(id=self.context["team_id"])
-        # `changes_between` will not catch changes to the ForeignKey relationships
-        # so it's useful for any changes to the Survey model itself, but not for the related models
-        non_foreign_table_relation_changes = changes_between(
-            "Survey",
-            previous=before_update,
-            current=instance,
-        )
-        changes.extend(non_foreign_table_relation_changes)
+            self._add_user_survey_interacted_filters(instance)
+            self._associate_actions(instance, validated_data.get("conditions"))
+            self._add_internal_response_sampling_filters(instance)
+
         log_activity(
             organization_id=team.organization_id,
             team_id=self.context["team_id"],
@@ -2116,21 +2141,6 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 team=team,
                 request=self.context["request"],
             )
-
-        should_flag_be_active = self._should_survey_flags_be_active(instance)
-
-        # Intentionally NOT gated on feature_flag:write: this only syncs the active state of
-        # the survey's OWN dedicated targeting flag to the survey's running state (start/stop/
-        # archive), which survey:write already controls. The flag's definition (its filters)
-        # can only be set via the gated targeting_flag_filters path. Enforcement covers
-        # definition writes, not this lifecycle mirror.
-        if instance.targeting_flag:
-            instance.targeting_flag.active = should_flag_be_active
-            instance.targeting_flag.save()
-
-        self._add_user_survey_interacted_filters(instance)
-        self._associate_actions(instance, validated_data.get("conditions"))
-        self._add_internal_response_sampling_filters(instance)
         return instance
 
     def _add_internal_response_sampling_filters(self, instance: Survey):
@@ -2293,19 +2303,30 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 request.method = "POST"
                 random_id = generate("1234567890abcdef", 10)
                 feature_flag_key = slugify(f"{SURVEY_TARGETING_FLAG_PREFIX}{random_id}{flag_name_suffix or ''}")
-                return create_flag(
-                    {
-                        "key": feature_flag_key,
-                        "name": f"Targeting flag for survey {name}",
-                        "filters": filters,
-                        "active": active,
-                        "creation_context": "surveys",
-                    },
-                    team=team,
-                    user=request.user,
-                    request=request,
-                    serializer_context=self.context,
-                )
+                # An approved change request replays only the flag write. The survey that links the
+                # flag is not part of it, so approval would create an orphan flag and no survey.
+                # Refuse the write instead, and let the savepoint take the change request with it.
+                try:
+                    with transaction.atomic():
+                        return create_flag(
+                            {
+                                "key": feature_flag_key,
+                                "name": f"Targeting flag for survey {name}",
+                                "filters": filters,
+                                "active": active,
+                                "creation_context": "surveys",
+                            },
+                            team=team,
+                            user=request.user,
+                            request=request,
+                            serializer_context=self.context,
+                            owner=FLAG_OWNER_SURVEY,
+                        )
+                except ApprovalRequired:
+                    raise serializers.ValidationError(
+                        "A feature flag approval policy covers the flag this survey needs, so the survey "
+                        "can't be saved. Ask someone who can bypass the policy to save it."
+                    )
 
 
 class SurveySerializerCreateUpdateOnlySchema(SurveySerializerCreateUpdateOnly):
@@ -3943,6 +3964,24 @@ def _survey_error_response(
     return _isolate_public_survey_response(request, render(request, "surveys/error.html", context, status=status))
 
 
+def _survey_not_available_response(request: HttpRequest) -> HttpResponse:
+    # Use generic error message to prevent survey ID enumeration
+    return _survey_error_response(
+        request,
+        error_title="Survey not available",
+        error_message="The requested survey is not available.",
+        status=404,
+    )
+
+
+def _is_another_organizations_proxy_domain(request: HttpRequest, survey: Survey) -> bool:
+    # get_host() prefers X-Forwarded-Host, which a client can set. The managed proxy keeps the visitor's Host header.
+    domain, _ = split_domain_port(request.META.get("HTTP_HOST", ""))
+    return (
+        ProxyRecord.objects.filter(domain__iexact=domain).exclude(organization_id=survey.team.organization_id).exists()
+    )
+
+
 @csrf_exempt
 @axes_dispatch
 def public_survey_page(request: HttpRequest, survey_id: str) -> HttpResponse:
@@ -3966,15 +4005,10 @@ def public_survey_page(request: HttpRequest, survey_id: str) -> HttpResponse:
     try:
         # nosemgrep: idor-lookup-without-team (public survey page, intentionally unauthenticated)
         survey = Survey.objects.select_related("team").get(id=survey_id)
+        is_another_organizations_proxy_domain = _is_another_organizations_proxy_domain(request, survey)
     except Survey.DoesNotExist:
         logger.info("survey_page_not_found", survey_id=survey_id)
-        # Use generic error message to prevent survey ID enumeration
-        return _survey_error_response(
-            request,
-            error_title="Survey not available",
-            error_message="The requested survey is not available.",
-            status=404,
-        )
+        return _survey_not_available_response(request)
     except Exception as e:
         logger.exception("survey_page_db_error", error=str(e), survey_id=survey_id)
         capture_exception(e)
@@ -3984,6 +4018,10 @@ def public_survey_page(request: HttpRequest, survey_id: str) -> HttpResponse:
             error_message="The service is temporarily unavailable. Please try again later.",
             status=503,
         )
+
+    if is_another_organizations_proxy_domain:
+        logger.info("survey_page_foreign_proxy_domain", survey_id=survey_id, host=request.META.get("HTTP_HOST"))
+        return _survey_not_available_response(request)
 
     survey_is_running = (
         survey.start_date is not None and survey.start_date <= datetime.now(UTC) and survey.end_date is None

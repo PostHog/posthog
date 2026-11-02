@@ -122,6 +122,32 @@ class TestDataModelingJob(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual([job["id"] for job in response.json()["results"]], [str(self.job3.id)])
 
+    def test_filters_by_saved_query_ids(self):
+        included_query = DataWarehouseSavedQuery.objects.create(team=self.team, name="Included query")
+        included_job = DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=included_query,
+            status=DataModelingJob.Status.COMPLETED,
+            last_run_at=timezone.now(),
+        )
+        excluded_query = DataWarehouseSavedQuery.objects.create(team=self.team, name="Excluded query")
+        excluded_job = DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=excluded_query,
+            status=DataModelingJob.Status.COMPLETED,
+            last_run_at=timezone.now(),
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/data_modeling_jobs/",
+            {"saved_query_ids": f"{self.saved_query.id},{included_query.id}"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        job_ids = {job["id"] for job in response.json()["results"]}
+        self.assertEqual(job_ids, {str(self.job1.id), str(self.job2.id), str(self.job3.id), str(included_job.id)})
+        self.assertNotIn(str(excluded_job.id), job_ids)
+
     def test_filters_by_finished_date_range(self):
         DataModelingJob.objects.filter(id=self.job1.id).update(last_run_at=datetime(2026, 10, 10, tzinfo=UTC))
         DataModelingJob.objects.filter(id=self.job2.id).update(last_run_at=datetime(2026, 10, 11, tzinfo=UTC))

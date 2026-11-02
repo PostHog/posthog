@@ -214,6 +214,11 @@ That field is the only valid link to a canvas — never construct one yourself; 
   `canvases-actions-retrieve` tool and follow each verb's `usage` (payload/result shape,
   behavior, and the confirmation copy it warrants) before wiring it.
 
+- **`ph.tools.read(tool, args)` and `ph.tools.call(tool, args)`**: run an allowlisted PostHog
+  MCP tool as the viewer, for example to read a feature flag and change its rollout. Declare every
+  tool in `capabilities.posthog.tools`. `read` takes read-only tools; `call` changes data, so wire
+  it to a click, and the host asks the viewer to confirm. See `querying-canvas-data` for the
+  allowlist and the version handling that flag writes need.
 - **`ph.connectors.call(provider, tool, args)`** — read live third-party data (GitHub, or any
   MCP store server) with the VIEWER's own connection at view time. Never call GitHub, Calendly,
   or another service yourself and paste the result into the source: that snapshot is stale on

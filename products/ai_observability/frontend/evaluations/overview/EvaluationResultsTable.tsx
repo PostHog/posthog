@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlus, IconSearch } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTable } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -11,21 +11,15 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { EvaluationResultApi } from '../../generated/api.schemas'
 import { llmEvaluationsLogic } from '../llmEvaluationsLogic'
+import { EvaluationAttentionPills } from './EvaluationAttentionPills'
 import { EvaluationCreateSlot } from './EvaluationCreateSlot'
 import { EvaluationDirectoryTiles } from './EvaluationDirectoryTiles'
-import { ATTENTION_LABELS } from './evaluationOverviewDisplay'
 import { EvaluationResultActions } from './EvaluationResultActions'
 import { EvaluationResultCell } from './EvaluationResultCell'
 import { EvaluationResultDrawer } from './EvaluationResultDrawer'
 import { EvaluationResultNameCell } from './EvaluationResultNameCell'
 import { EvaluationResultTrendCell } from './EvaluationResultTrendCell'
-import { type AttentionFilter, OVERVIEW_LIST_ANCHOR_ID, evaluationsOverviewLogic } from './evaluationsOverviewLogic'
-
-const FILTER_OPTIONS: { value: AttentionFilter; label: string }[] = [
-    { value: null, label: 'All' },
-    { value: 'any', label: 'Needs attention' },
-    ...(['errored', 'silent', 'worse'] as const).map((reason) => ({ value: reason, label: ATTENTION_LABELS[reason] })),
-]
+import { evaluationsOverviewLogic } from './evaluationsOverviewLogic'
 
 export function EvaluationResultsTable(): JSX.Element {
     const {
@@ -34,14 +28,13 @@ export function EvaluationResultsTable(): JSX.Element {
         buckets,
         search,
         attentionFilter,
-        attentionCounts,
         configById,
         few,
         overviewLoading,
         overviewFailure,
         directoryTiles,
     } = useValues(evaluationsOverviewLogic)
-    const { setSearch, setAttentionFilter } = useActions(evaluationsOverviewLogic)
+    const { setSearch } = useActions(evaluationsOverviewLogic)
     const { openCreateDirectory } = useActions(llmEvaluationsLogic)
 
     const columns: LemonTableColumns<EvaluationResultApi> = [
@@ -70,15 +63,13 @@ export function EvaluationResultsTable(): JSX.Element {
         {
             title: 'Created by',
             key: 'created_by',
-            className: 'hidden @min-[40rem]:table-cell',
-            width: 0,
-            align: 'center',
+            className: 'hidden @min-[40rem]:table-cell whitespace-nowrap',
             render: (_, row) => {
                 const user = configById.get(row.id)?.created_by
                 return user ? (
-                    <ProfilePicture user={user} size="md" title={user.first_name || user.email} />
+                    <ProfilePicture user={user} size="md" showName />
                 ) : row.createdBy ? (
-                    <ProfilePicture name={row.createdBy} size="md" title={row.createdBy} />
+                    <ProfilePicture name={row.createdBy} size="md" showName />
                 ) : (
                     <span className="text-secondary">-</span>
                 )
@@ -95,7 +86,7 @@ export function EvaluationResultsTable(): JSX.Element {
     ]
 
     return (
-        <div id={OVERVIEW_LIST_ANCHOR_ID} className="@container flex flex-col gap-3 scroll-mt-4">
+        <div className="@container flex flex-col gap-3">
             <EvaluationDirectoryTiles />
             <div className="flex flex-wrap items-center gap-2">
                 <LemonInput
@@ -123,16 +114,7 @@ export function EvaluationResultsTable(): JSX.Element {
                         </LemonButton>
                     </AccessControlAction>
                 )}
-                <LemonSelect
-                    size="small"
-                    value={attentionFilter}
-                    onChange={setAttentionFilter}
-                    options={FILTER_OPTIONS.map(({ value, label }) => ({
-                        value,
-                        label: `${label} (${attentionCounts[value ?? 'all'] ?? 0})`,
-                    }))}
-                    data-attr="evaluation-overview-table-filter"
-                />
+                <EvaluationAttentionPills />
             </div>
             <LemonTable
                 columns={columns}
@@ -157,7 +139,7 @@ export function EvaluationResultsTable(): JSX.Element {
                           : 'No evaluations in this scope yet.'
                 }
             />
-            <div className="text-xs text-secondary">{`Showing ${tableRows.length} of ${rows.length} evaluations`}</div>
+            <div className="text-xs text-secondary pb-4">{`Showing ${tableRows.length} of ${rows.length} evaluations`}</div>
             <EvaluationResultDrawer />
         </div>
     )

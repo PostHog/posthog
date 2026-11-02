@@ -86,6 +86,10 @@ class DataModelingJobPagination(pagination.LimitOffsetPagination):
     max_limit = 100
 
 
+class UUIDInFilter(django_filters.BaseInFilter, django_filters.UUIDFilter):
+    pass
+
+
 DATA_MODELING_JOB_LIST_FIELDS = (
     "id",
     "saved_query_id",
@@ -110,6 +114,11 @@ DATA_MODELING_JOB_LIST_FIELDS = (
 
 
 class DataModelingJobFilterSet(django_filters.FilterSet):
+    saved_query_ids = UUIDInFilter(
+        field_name="saved_query_id",
+        lookup_expr="in",
+        help_text="Comma-separated materialized view IDs.",
+    )
     after = django_filters.IsoDateTimeFilter(
         field_name="last_run_at", lookup_expr="gte", help_text="Include jobs finished at or after this time."
     )
@@ -119,7 +128,7 @@ class DataModelingJobFilterSet(django_filters.FilterSet):
 
     class Meta:
         model = DataModelingJob
-        fields = ["saved_query_id", "status", "engine"]
+        fields = ["saved_query_id", "saved_query_ids", "status", "engine"]
 
 
 @extend_schema_view(

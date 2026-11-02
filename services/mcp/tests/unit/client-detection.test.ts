@@ -7,10 +7,10 @@ import {
     CODING_AGENT_CLIENT_NAME_FRAGMENTS,
     DEFAULT_CLIENT_CAPABILITIES,
     MCPClientProfile,
+    OPENAI_RENDER_UI_CLIENT_NAMES,
     POSTHOG_CODE_CONSUMER,
     TOOLS_MODE_CLIENT_NAME_FRAGMENTS,
     TOOLS_MODE_USER_AGENT_FRAGMENTS,
-    isClaudeUiHostClient,
     isCliModeEnabledClient,
     isLegacyDialectOnlyClient,
     isPostHogCodeConsumer,
@@ -247,38 +247,6 @@ describe('isToolsModeClient', () => {
     })
 })
 
-describe('isClaudeUiHostClient', () => {
-    it.each([['ClaudeAI'], ['claudeai'], ['CLAUDEAI'], ['Anthropic/ClaudeAI']])(
-        'returns true for vendor client %s',
-        (vendorClient) => {
-            expect(isClaudeUiHostClient({ vendorClient })).toBe(true)
-        }
-    )
-
-    it.each([['Claude-User'], ['claude-user'], ['Claude_User']])('returns true for user agent %s', (userAgent) => {
-        expect(isClaudeUiHostClient({ userAgent })).toBe(true)
-    })
-
-    it.each([['ClaudeCode'], ['some-random-tool'], ['']])('returns false for vendor client %s', (vendorClient) => {
-        expect(isClaudeUiHostClient({ vendorClient })).toBe(false)
-    })
-
-    it('returns false when nothing matches', () => {
-        expect(isClaudeUiHostClient({})).toBe(false)
-        expect(isClaudeUiHostClient({ vendorClient: 'ClaudeCode', userAgent: 'node-fetch' })).toBe(false)
-    })
-
-    it('keeps the fragment lists non-empty and lowercased', () => {
-        for (const fragments of [ANTHROPIC_UI_HOST_VENDOR_FRAGMENTS, ANTHROPIC_UI_HOST_USER_AGENT_FRAGMENTS]) {
-            expect(fragments.length).toBeGreaterThan(0)
-            for (const fragment of fragments) {
-                expect(fragment).toBe(fragment.toLowerCase())
-                expect(fragment.length).toBeGreaterThan(0)
-            }
-        }
-    })
-})
-
 describe('MCPClientProfile', () => {
     describe('isCliModeEnabled()', () => {
         it.each([
@@ -409,48 +377,51 @@ describe('MCPClientProfile', () => {
         })
     })
 
-    describe('isClaudeUiHost()', () => {
-        it('returns true for Claude web/desktop vendor client (x-anthropic-client: ClaudeAI)', () => {
-            expect(new MCPClientProfile({ vendorClient: 'ClaudeAI' }).isClaudeUiHost()).toBe(true)
+    describe('isRenderUiHost()', () => {
+        it.each([
+            { vendorClient: 'ClaudeAI' },
+            { vendorClient: 'CLAUDEAI' },
+            { vendorClient: 'Anthropic/ClaudeAI' },
+            { vendorClient: 'Cowork' },
+            { userAgent: 'Claude-User' },
+            { userAgent: 'Claude_User' },
+        ])('returns true for Claude web/desktop and Cowork: %j', (input) => {
+            expect(new MCPClientProfile(input).isRenderUiHost()).toBe(true)
         })
 
-        it('returns true via User-Agent (Claude-User) when the vendor header is absent', () => {
-            expect(new MCPClientProfile({ userAgent: 'Claude-User' }).isClaudeUiHost()).toBe(true)
-        })
-
-        it('returns false for Claude Code (vendorClient: ClaudeCode)', () => {
-            expect(new MCPClientProfile({ vendorClient: 'ClaudeCode' }).isClaudeUiHost()).toBe(false)
-        })
-
-        it('returns true for Cowork (vendorClient: Cowork)', () => {
-            expect(new MCPClientProfile({ vendorClient: 'Cowork' }).isClaudeUiHost()).toBe(true)
-        })
-
-        it('vendor client wins over a shared Claude-User user-agent', () => {
-            // Claude Code can share the `Claude-User` user-agent with web/desktop,
-            // but its vendor client is authoritative and excludes it.
-            expect(
-                new MCPClientProfile({ vendorClient: 'ClaudeCode', userAgent: 'Claude-User' }).isClaudeUiHost()
-            ).toBe(false)
-        })
-
-        it('does not match the pooled clientName alone — avoids misclassifying Claude Code', () => {
-            // Claude Code's pooled initialize body also says `Anthropic/ClaudeAI`;
-            // only the per-request vendor client / user-agent identify a UI host.
-            expect(new MCPClientProfile({ clientName: 'Anthropic/ClaudeAI' }).isClaudeUiHost()).toBe(false)
-            expect(
-                new MCPClientProfile({ clientName: 'Anthropic/ClaudeAI', vendorClient: 'ClaudeCode' }).isClaudeUiHost()
-            ).toBe(false)
-        })
-
-        it('returns false when nothing is set', () => {
-            expect(new MCPClientProfile({}).isClaudeUiHost()).toBe(false)
+        it.each([
+            {},
+            { vendorClient: 'ClaudeCode' },
+            { vendorClient: 'some-random-tool' },
+            { vendorClient: 'ClaudeCode', userAgent: 'node-fetch' },
+            // The vendor client is authoritative, so Claude Code stays excluded when it
+            // shares the `Claude-User` user-agent with web/desktop.
+            { vendorClient: 'ClaudeCode', userAgent: 'Claude-User' },
+            // Claude Code's pooled initialize body also says `Anthropic/ClaudeAI`.
+            { clientName: 'Anthropic/ClaudeAI' },
+            { clientName: 'Anthropic/ClaudeAI', vendorClient: 'ClaudeCode' },
+        ])('returns false for %j', (input) => {
+            expect(new MCPClientProfile(input).isRenderUiHost()).toBe(false)
         })
 
         it('Claude Code stays a coding agent and is not a UI host', () => {
             const profile = new MCPClientProfile({ clientName: 'Anthropic/ClaudeAI', vendorClient: 'ClaudeCode' })
             expect(profile.isCliModeEnabled()).toBe(true)
-            expect(profile.isClaudeUiHost()).toBe(false)
+            expect(profile.isRenderUiHost()).toBe(false)
+        })
+
+        it('keeps the fragment lists non-empty and lowercased', () => {
+            for (const fragments of [
+                ANTHROPIC_UI_HOST_VENDOR_FRAGMENTS,
+                ANTHROPIC_UI_HOST_USER_AGENT_FRAGMENTS,
+                OPENAI_RENDER_UI_CLIENT_NAMES,
+            ]) {
+                expect(fragments.length).toBeGreaterThan(0)
+                for (const fragment of fragments) {
+                    expect(fragment).toBe(fragment.toLowerCase())
+                    expect(fragment.length).toBeGreaterThan(0)
+                }
+            }
         })
     })
 

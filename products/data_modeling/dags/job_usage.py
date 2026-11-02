@@ -86,6 +86,7 @@ class JobUsageCollector:
             workload=Workload.DEFAULT,
         ).result()
         updated: list[DataModelingJob] = []
+        measured_at = datetime.now(UTC)
         for team_id, workflow_id, workflow_run_id, read_bytes, read_rows, cpu, query_count in rows:
             job = unique[(team_id, workflow_id, workflow_run_id)]
             job.read_bytes, job.read_rows, job.cpu_microseconds, job.query_count = (
@@ -94,9 +95,10 @@ class JobUsageCollector:
                 cpu,
                 query_count,
             )
-            job.usage_updated_at = datetime.now(UTC)
+            # bulk_update skips auto_now, and the warehouse mirror syncs rows by updated_at.
+            job.usage_updated_at = job.updated_at = measured_at
             updated.append(job)
-        DataModelingJob.objects.bulk_update(updated, USAGE_FIELDS, batch_size=BATCH_SIZE)
+        DataModelingJob.objects.bulk_update(updated, [*USAGE_FIELDS, "updated_at"], batch_size=BATCH_SIZE)
         return CollectedJobUsage(measured_jobs=len(updated), ambiguous_jobs=ambiguous, expired_jobs=expired)
 
     @staticmethod

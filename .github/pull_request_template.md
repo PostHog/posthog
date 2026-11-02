@@ -1,4 +1,4 @@
-<!-- This has to stand on its own: a reader who opens no files should still know why the PR is necessary and what it does. Length tracks the change, so a small diff gets a few bullets rather than a full-length body, and a section you have nothing for gets one line or "None". -->
+<!-- This has to stand on its own: a reader who opens no files should still know why the PR is necessary and what it does. Aim for 150 words or fewer, table cells included. Diagrams, code blocks and <details> blocks do not count. A section you have nothing for gets one bullet: "- None." -->
 
 ## Problem
 
@@ -13,6 +13,7 @@
 <!-- For each change a person can notice, say what they will now see or do differently, not only the code path that does it. Mark the rest as mechanical so a reviewer knows nothing user-visible is hiding in it. -->
 
 <!-- If there are frontend changes, please include screenshots. For a new interaction that one screenshot cannot show, a short GIF or animated WebP of the flow can replace the after screenshot. -->
+<!-- For frontend or user-facing changes under products/mobile/, before-and-after screenshots from physical iOS AND Android devices are required. Prefer multiple screen sizes. See products/mobile/AGENTS.md for capture and device coverage requirements. -->
 <!-- PostHog employees: `hogli pr:upload-image <file>` uploads to the public PostHog/pr-assets repo and prints markdown to paste here. Never upload customer data, secrets, or internal info. -->
 
 <!-- If a reference design was involved, include a link to the relevant Figma frame! -->
@@ -57,23 +58,35 @@
 
 **Agent:** tool, model
 
+<!-- List every repo-provided or public skill invoked (e.g. /django-migrations, /improving-drf-endpoints), so reviewers can see where an agent shaped the code. Write "None" when no skill ran. -->
+
+**Skills:** `/skill`
+
 <!-- Definition of done (agents): not done until each gate below holds. Verify against the named artifact or skill — don't assume. Add gates as the PR touches more areas.
      - No duplicate: when this PR fixes something believed to be live on master, no open PR already fixes it. A broken master attracts parallel agents, so search before opening — `gh pr list --state open --search "<keywords>" --limit 20`, which lists drafts too, and most agent PRs start as drafts. Say here which PR you found and why this one is still needed, or that the search found nothing.
      - Patch coverage: the lines this PR changed are covered, or the uncovered ones are justified under "How did you test this code?". Don't pad untouched code to lift the number. Check the "🧪 Backend test coverage" PR comment (and its patch-coverage artifact).
      - New events schema: Backend CI reruns the paths in `.github/new-events-schema-targets.txt` against the native-JSON events table. A new directory of tests that read event properties is added to that file. Add `test-new-events-schema` when the diff should run the whole backend suite on both tables: event ingestion or cleaning, or event reads whose tests are outside the list. Apply it while draft, or push another commit after labeling, because label events do not start Backend CI. State the result under "How did you test this code?".
+     - CI report: every section of the "🤖 CI report" comment is ✅, or you considered each finding: fixed it, explained in the PR body why it does not apply, or escalated it to a person. Warn-only sections, such as eager graph budgets, pass the checks while still open. See AGENTS.md, "The CI report".
      - Public artifact: nothing in this PR — code, fixtures and sample data, comments, commit messages, or this description — carries material from the agent session that isn't already public. If the work drew on a customer conversation, ticket, or log, say so here and state that the committed data is invented. Renaming people, hosts, and identifiers does not clear real material; see AGENTS.md "Public open source repo guidance".
 -->
 
-<!-- Keep this short: 1-3 short paragraphs or a handful of bullets — not an exhaustive log. Include:
-     - link to session and the tool names used, but do not include tool call results.
-     - skills invoked: always explicitly call out any repo-provided or public skills (e.g. /django-migrations, /improving-drf-endpoints) that were invoked while producing this PR. This helps reviewers judge where and how the code was shaped by an agent.
-     - decisions made along the way: what changed across the session. The reason the shipped design beats the obvious alternative goes in Changes instead, where a reviewer will actually see it.
-     - anything else that helps reviewers
-     Write reviewer-facing prose. Do not paste user prompts verbatim — paraphrase the intent in your own words.
-     This is the ONLY section that should contain descriptions of what this PR might have looked like before its present final state.
-     Don't duplicate info already present in preceding sections.
-     DO NOT INCLUDE sensitive data that may have been shared in an agent session — that applies to every part of this PR, not just this section.
--->
+<details>
+<summary>More context for AI agents</summary>
+
+<!-- Agents: this block is collapsed by default and does not count toward the 150 words.
+     Keep it current: on every push, rewrite it to describe the PR at that commit. Replace stale bullets, never append a log.
+     Keep the fields below in this order. One line per bullet, under 25 words, 10 bullets at most. Delete a field you have nothing for.
+     - Decisions: what changed across the session. The reason the shipped design beats the obvious alternative goes in Changes, where a reviewer will see it.
+     This is the ONLY place that may describe what this PR looked like before its present state. Don't repeat facts from the sections above.
+     Paraphrase the intent of user prompts, never paste them. Link the session, name the tools, but leave out tool call results.
+     DO NOT INCLUDE sensitive data that may have been shared in an agent session — that applies to every part of this PR, not just this block. -->
+
+- **Session:** link, tools used
+- **Decisions:** one bullet per decision
+- **Follow-ups:** work left for a later PR
+- **Read closely:** files or lines that need a careful review
+
+</details>
 
 <!-- Overall PR authoring rules for agents:
 - Title: <type>(<scope>): <description> — type=feat|fix|chore, scope required, lowercase, no period, <72 chars.
@@ -82,9 +95,9 @@
 - Description: high-level rationale, not a step-by-step replay.
 - Voice: the subject of every sentence is the change, never its author. No "I", "me" or "my" anywhere in the body. "I (actually Claude)" is worse than either half: it hands the assignee an account of work they did not do. Authorship is one stated fact in the Agent context section below.
 - Body: pass it straight to the creation tool's `body` arg (GitHub MCP `create_pull_request` body, or `gh pr create --body-file -` via stdin) — don't write it to a temp file first; the arg preserves markdown and newlines verbatim.
-- Architecture and topology changes: when one sentence cannot carry the change, include separate before-and-after Mermaid `flowchart` blocks with PostHog colors. This covers CI wiring, pipelines, services and their calls, module or package boundaries, state machines with several states, and request paths across systems. A UI flow or a linear sequence of screens gets screenshots or a reel, not a diagram. Use `/writing-pr-descriptions` for the palette and role mapping.
+- Architecture and topology changes: include separate before-and-after Mermaid `flowchart` blocks with PostHog colors under one short sentence that states the change, also for a one-step change. This covers CI wiring, pipelines, services and their calls, module or package boundaries, state machines with several states, and request paths across systems. A UI flow or a linear sequence of screens gets screenshots or a reel, not a diagram. Use `/writing-pr-descriptions` for the palette and role mapping.
 - Public OSS repo: no internal customers, incidents, or operational metrics.
-- Stack instead of stuffing: if the diff holds two or more separable steps (migration then behavior, rename then rewrite), open a stack rather than one big PR. See AGENTS.md, "Stacked PRs" and /stacking-prs.
+- Stack instead of stuffing: if the diff holds two or more separable steps (migration then behavior, rename then rewrite), open a stack rather than one big PR. If the body needs more than 150 words, suggest a stack to the person who directed the work. See AGENTS.md, "Stacked PRs" and /stacking-prs.
 - Simplify before opening: if your agent has a behavior-preserving cleanup pass (Claude Code: `/simplify`), run it on a non-trivial diff before final tests and preflight, since it edits the tree. Skip it for small mechanical changes.
 - Draft by default: open new PRs as drafts (`gh pr create --draft`) — drafts run only a narrow CI subset and save runner credits. Fix CI and run affected tests locally before marking ready for review.
 - Labels: apply `skip-agent-review` for trivial/chore PRs that don't need an automatic review.
@@ -94,5 +107,5 @@
 - Do not add a human Co-authored-by just for the sake of attribution — if no human was involved in the changes, own it as agent-authored.
 - Agent-authored PRs always require human review — do not self-merge or auto-approve.
 - Do NOT claim manual testing you haven't done.
-- Shape and style: invoke the `/writing-pr-descriptions` skill before writing this body. In short: lead Problem with who is affected and what is wrong for them, taken from a source and true under any solution, then lead Changes with the effect a person sees rather than the code path behind it. Make the body stand alone for a reader who opens no files, size it to the change, link evidence rather than asserting what CI already reports, then hold what's left to one fact per bullet in under 25 words. A body that got longer as bullets was not cut.
+- Shape and style: invoke the `/writing-pr-descriptions` skill before writing this body. In short: lead Problem with who is affected and what is wrong for them, taken from a source and true under any solution, then lead Changes with the effect a person sees rather than the code path behind it. Make the body stand alone for a reader who opens no files, aim for 150 words, link evidence rather than asserting what CI already reports, then hold what's left to one fact per bullet in under 25 words. A body that got longer as bullets was not cut.
 -->

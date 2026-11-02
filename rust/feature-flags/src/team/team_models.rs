@@ -1,7 +1,9 @@
+use crate::team::request_blocklist::{self, BlockReason, BlockedHosts, BlockedIps};
 use common_types::{TeamId, TeamIdentifier};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sqlx::types::{Json, Uuid};
+use std::net::IpAddr;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, sqlx::Type)]
 #[serde(transparent)]
@@ -78,6 +80,31 @@ pub struct Team {
     // Cache entries written before this field existed retain legacy matching.
     #[serde(default)]
     pub property_matching_version: PropertyMatchingVersion,
+    // Sourced from the customer-editable TeamFeatureFlagPolicyConfig extension. Cache entries
+    // written before these fields existed deserialize to empty lists, which block nothing.
+    #[serde(default)]
+    #[sqlx(try_from = "Vec<String>")]
+    pub flags_blocked_hosts: BlockedHosts,
+    #[serde(default)]
+    #[sqlx(try_from = "Vec<String>")]
+    pub flags_blocked_ips: BlockedIps,
+}
+
+impl Team {
+    /// The reason this team's request blocklist refuses a caller with this host and these
+    /// client IPs, or `None` when the caller is allowed.
+    pub fn request_block_reason(
+        &self,
+        origin_host: Option<&str>,
+        client_ips: impl IntoIterator<Item = IpAddr>,
+    ) -> Option<BlockReason> {
+        request_blocklist::check(
+            &self.flags_blocked_hosts,
+            &self.flags_blocked_ips,
+            origin_host,
+            client_ips,
+        )
+    }
 }
 
 fn default_timezone() -> String {
@@ -135,6 +162,37 @@ mod tests {
         assert_eq!(
             team.property_matching_version,
             PropertyMatchingVersion::LEGACY
+        );
+        assert_eq!(
+            team.request_block_reason(Some("example.com"), ["203.0.113.7".parse().unwrap()]),
+            None
+        );
+    }
+
+    #[test]
+    fn test_blocklist_survives_a_cache_round_trip() {
+        let cached = serde_json::json!({
+            "id": 1,
+            "name": "test team",
+            "api_token": "test_token",
+            "uuid": Uuid::new_v4().to_string(),
+            "flags_blocked_hosts": ["example.com"],
+            "flags_blocked_ips": ["203.0.113.0/24", "not-an-ip"],
+        });
+
+        let team: Team = serde_json::from_value(cached).expect("cache blob must deserialize");
+        let reserialized: Team =
+            serde_json::from_value(serde_json::to_value(&team).unwrap()).unwrap();
+
+        assert_eq!(reserialized.flags_blocked_ips, team.flags_blocked_ips);
+        assert_eq!(
+            reserialized
+                .request_block_reason(Some("app.example.com"), ["198.51.100.1".parse().unwrap()]),
+            Some(BlockReason::Host)
+        );
+        assert_eq!(
+            reserialized.request_block_reason(None, ["203.0.113.9".parse().unwrap()]),
+            Some(BlockReason::Ip)
         );
     }
 }

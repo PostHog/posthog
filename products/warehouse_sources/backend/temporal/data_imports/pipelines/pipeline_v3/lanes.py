@@ -103,6 +103,7 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
         continued_job_ids: tuple[str, ...] = (),
         ride_out: RideOutConfig | None = None,
         progress: DurableProgress | None = None,
+        shutdown_grace_seconds: float = 0.0,
     ) -> None:
         if not source_response.lanes:
             raise ValueError(f"{source_response.name} declares no lanes; run it on PipelineV3")
@@ -126,6 +127,7 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
             continued_job_ids=continued_job_ids,
             ride_out=ride_out,
             progress=progress,
+            shutdown_grace_seconds=shutdown_grace_seconds,
         )
 
         # The base built the first lane; it shares the base's batch list so the two never disagree.

@@ -30,6 +30,7 @@ Marketing emails must include an unsubscribe link — render it with the built-i
 ```
 
 (`{{ unsubscribe_url_one_click }}` is also available for one-click list-unsubscribe flows.)
+A template written for Customer.io can keep its `{% unsubscribe_url %}` tag, which renders the same link as `{{ unsubscribe_url }}`.
 
 Output is HTML-escaped by default, so a value renders as text even when it contains markup:
 

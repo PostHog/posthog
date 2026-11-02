@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import Optional
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -7,10 +8,12 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 
 from posthog.constants import AvailableFeature
 from posthog.models import User
 
+from products.access_control.backend.models.role import Role
 from products.approvals.backend.models import (
     Approval,
     ApprovalDecision,
@@ -19,6 +22,7 @@ from products.approvals.backend.models import (
     ChangeRequestState,
     ValidationStatus,
 )
+from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -652,6 +656,81 @@ class TestApprovalPolicyViewSet(APIBaseTest):
         assert "do not exist" in str(response.json())
 
 
+# TODO(experiment-approval-policies): remove with the sync, once every organization is rolled out.
+class TestExperimentPoliciesOnceScopedByOwner(APIBaseTest):
+    """An organization that evaluates policies by flag owner owns its experiment policies.
+
+    Until then they are hidden mirrors that the sync overwrites, so showing or accepting one
+    would offer an edit that the next run reverts. The rollout flag is what separates the two,
+    and it is read in both the viewset and the serializer, so both are checked here.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": "approvals"},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": "role based access"},
+        ]
+        self.organization.save()
+        self.organization_membership.level = 8
+        self.organization_membership.save()
+
+    def _rolled_out(self):
+        return (
+            patch("products.approvals.backend.api.scope_by_owner_enabled", return_value=True),
+            patch("products.approvals.backend.serializers.scope_by_owner_enabled", return_value=True),
+        )
+
+    def test_an_experiment_policy_is_listed(self):
+        policy = ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="experiment.launch",
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+
+        viewset_patch, serializer_patch = self._rolled_out()
+        with viewset_patch, serializer_patch:
+            response = self.client.get(f"/api/environments/{self.team.id}/approval_policies/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["id"] for row in response.json()["results"]] == [str(policy.id)]
+
+    def test_an_experiment_policy_can_be_created(self):
+        viewset_patch, serializer_patch = self._rolled_out()
+        with viewset_patch, serializer_patch:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/approval_policies/",
+                {"action_key": "experiment.launch", "approver_config": {"quorum": 1, "users": [self.user.id]}},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["action_key"] == "experiment.launch"
+
+    def test_a_second_policy_for_the_same_experiment_action_is_refused(self):
+        """The duplicate check must see the mirrors once they are the organization's own rows."""
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="experiment.launch",
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+
+        viewset_patch, serializer_patch = self._rolled_out()
+        with viewset_patch, serializer_patch:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/approval_policies/",
+                {"action_key": "experiment.launch", "approver_config": {"quorum": 1, "users": [self.user.id]}},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "already exists" in response.json()["detail"]
+
+
 class TestFeatureFlagApprovalIntegration(APIBaseTest):
     """
     End-to-end tests: policy exists → API call blocked → change request created
@@ -817,3 +896,205 @@ class TestFeatureFlagApprovalIntegration(APIBaseTest):
         self.flag.refresh_from_db()
         assert self.flag.filters["groups"][0]["rollout_percentage"] == 75
         assert not ChangeRequest.objects.filter(team=self.team).exists()
+
+
+_ROLLOUT_OVER_50 = {"type": "before_after", "field": "rollout_percentage", "operator": ">", "value": 50}
+
+
+@patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+class TestAdoptingAFlagCannotDropItsApprovalCover(APIBaseTest):
+    """Which policies cover a flag follows its owner, so adoption must not be a way around one.
+
+    A member who may not enable a governed flag could otherwise attach it to a survey or an early
+    access feature, which leaves it owned by a product with no family, and then enable it with no
+    change request. They need flag write access either way, so what this protects is the approval.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": "approvals"},
+        ]
+        self.organization.save()
+        self.flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="governed",
+            name="governed",
+            active=False,
+            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
+            created_by=self.user,
+        )
+
+    def _policy(
+        self, action_key: str, conditions: Optional[dict] = None, bypass_levels: Optional[list[str]] = None
+    ) -> ApprovalPolicy:
+        return ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key=action_key,
+            conditions=conditions or {},
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            bypass_org_membership_levels=bypass_levels or [],
+            created_by=self.user,
+        )
+
+    def _adopt(self, product: str):
+        from products.feature_flags.backend.ownership import assert_flag_available_for
+
+        return assert_flag_available_for(self.flag, product=product)
+
+    # TODO(experiment-approval-policies): remove with the sync, once every organization is rolled
+    # out. The guard stays, so the tests keep running with the rollout state always on.
+    def _scoped_by_owner(self, enabled: bool):
+        return patch(
+            "products.approvals.backend.coverage.scope_by_owner_enabled",
+            return_value=enabled,
+        )
+
+    @parameterized.expand([("survey",), ("product_tour",), ("early_access_feature",)])
+    def test_a_product_with_no_family_cannot_adopt_a_governed_flag(self, _mock_enabled, product: str) -> None:
+        self._policy("feature_flag.enable")
+
+        with self._scoped_by_owner(True), self.assertRaises(ValidationError) as caught:
+            self._adopt(product)
+
+        assert "need approval" in str(caught.exception)
+
+    def test_an_experiment_may_adopt_it_because_the_cover_moves(self, _mock_enabled) -> None:
+        """Experiment policies mirror the flag policies, so adoption keeps the flag governed."""
+        self._policy("feature_flag.enable")
+        self._policy("experiment.launch")
+
+        with self._scoped_by_owner(True):
+            self._adopt("experiment")
+
+    def test_a_family_that_governs_a_different_write_does_not_count(self, _mock_enabled) -> None:
+        """The cover has to survive write by write, not merely exist.
+
+        A flag protected against being enabled, adopted into a family that gates only pausing,
+        would keep a policy and lose the only protection it had. Comparing whole families instead
+        of operations let that through.
+        """
+        self._policy("feature_flag.enable")
+        self._policy("experiment.pause")
+
+        with self._scoped_by_owner(True), self.assertRaises(ValidationError) as caught:
+            self._adopt("experiment")
+
+        assert "need approval" in str(caught.exception)
+
+    @parameterized.expand(
+        [
+            # The target policy exists but its condition names a field a launch never carries,
+            # so it matches nothing and the gate allows the launch it was meant to stop.
+            (
+                "narrower_target",
+                {},
+                {"type": "before_after", "field": "rollout_percentage", "operator": ">", "value": 50},
+                True,
+            ),
+            # The synced mirror copies conditions exactly, and both families build the same
+            # intent, so the same conditions gate the same writes.
+            ("mirrored_conditions", _ROLLOUT_OVER_50, _ROLLOUT_OVER_50, False),
+            # A target with no conditions gates every write the conditional source gated.
+            ("broader_target", _ROLLOUT_OVER_50, {}, False),
+        ]
+    )
+    def test_a_target_policy_counts_only_if_it_gates_at_least_as_much(
+        self, _mock_enabled, _name: str, source: dict, target: dict, refused: bool
+    ) -> None:
+        self._policy("feature_flag.enable", conditions=source)
+        self._policy("experiment.launch", conditions=target)
+
+        with self._scoped_by_owner(True):
+            if refused:
+                with self.assertRaises(ValidationError):
+                    self._adopt("experiment")
+            else:
+                self._adopt("experiment")
+
+    @parameterized.expand(
+        [
+            # Admins and owners the flag policy stops could adopt the flag and enable it unreviewed.
+            ("target_lets_more_levels_skip", [], ["8", "15"], False, True),
+            ("target_lets_a_role_skip", [], [], True, True),
+            ("same_bypass", ["8", "15"], ["8", "15"], False, False),
+            ("target_lets_fewer_skip", ["8", "15"], ["15"], False, False),
+        ]
+    )
+    def test_a_target_policy_must_let_no_more_members_skip_it(
+        self,
+        _mock_enabled,
+        _name: str,
+        source_levels: list[str],
+        target_levels: list[str],
+        target_role: bool,
+        refused: bool,
+    ) -> None:
+        self._policy("feature_flag.enable", bypass_levels=source_levels)
+        target = self._policy("experiment.launch", bypass_levels=target_levels)
+        if target_role:
+            target.bypass_roles.add(Role.objects.create(organization=self.organization, name="Release managers"))
+
+        with self._scoped_by_owner(True):
+            if refused:
+                with self.assertRaises(ValidationError):
+                    self._adopt("experiment")
+            else:
+                self._adopt("experiment")
+
+    @parameterized.expand(
+        [
+            # Launching reviews turning the flag on, which a flag already on never does again.
+            ("standalone_and_on", True, False, True),
+            ("standalone_and_off", False, False, False),
+            # Another experiment's launch already reviewed it, and experiments may share a flag.
+            ("owned_by_an_experiment_and_on", True, True, False),
+        ]
+    )
+    def test_an_active_flag_cannot_skip_the_launch_review(
+        self, _mock_enabled, _name: str, active: bool, owned_by_experiment: bool, refused: bool
+    ) -> None:
+        self._policy("experiment.launch")
+        self.flag.active = active
+        self.flag.save()
+        if owned_by_experiment:
+            Experiment.objects.create(team=self.team, name="Earlier", feature_flag=self.flag)
+
+        with self._scoped_by_owner(True):
+            if refused:
+                with self.assertRaises(ValidationError) as caught:
+                    self._adopt("experiment")
+                assert "already on" in str(caught.exception)
+            else:
+                self._adopt("experiment")
+
+    def test_a_partial_overlap_still_refuses(self, _mock_enabled) -> None:
+        """Covering some of the writes is not covering them, so one gap is enough to refuse."""
+        self._policy("feature_flag.enable")
+        self._policy("feature_flag.update")
+        self._policy("experiment.launch")
+
+        with self._scoped_by_owner(True), self.assertRaises(ValidationError):
+            self._adopt("experiment")
+
+    def test_an_ungoverned_flag_may_be_adopted(self, _mock_enabled) -> None:
+        with self._scoped_by_owner(True):
+            self._adopt("survey")
+
+    def test_adoption_is_untouched_without_the_approvals_feature(self, _mock_enabled) -> None:
+        self._policy("feature_flag.enable")
+
+        with (
+            self._scoped_by_owner(True),
+            patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=False),
+        ):
+            self._adopt("survey")
+
+    # TODO(experiment-approval-policies): remove with the sync, once every organization is rolled out.
+    def test_adoption_is_untouched_before_the_rollout(self, _mock_enabled) -> None:
+        """`feature_flag.*` still covers every flag then, so no owner change can drop the cover."""
+        self._policy("feature_flag.enable")
+
+        with self._scoped_by_owner(False):
+            self._adopt("survey")

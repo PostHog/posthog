@@ -1,4 +1,6 @@
 import json
+from collections import defaultdict
+from collections.abc import Sequence
 from copy import deepcopy
 from datetime import timedelta
 from typing import Any, Optional, cast
@@ -646,6 +648,14 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
                 raise serializers.ValidationError({"template_id": f"No template found for id '{data['template_id']}'"})
 
+            # A test run of an unsaved function takes template_id from the caller, and the template decides
+            # which reserved functions the code may call, so it gets the same check as a create.
+            is_unsaved_test = (
+                instance is None and self.context.get("view") and self.context["view"].action == "invocations"
+            )
+            if is_unsaved_test:
+                self._validate_template_is_creatable(template)
+
         if is_create:
             # Set defaults for new functions
             data["inputs_schema"] = data.get("inputs_schema") or []
@@ -1223,6 +1233,24 @@ class HogFunctionViewSet(
             span.set_attribute("hog_function.search.empty", results_len == 0)
         return response
 
+    def get_serializer(self, *args: Any, **kwargs: Any) -> BaseSerializer:
+        if self.action == "list" and args and isinstance(args[0], list):
+            self._attach_templates_without_fk(args[0])
+        return super().get_serializer(*args, **kwargs)
+
+    @staticmethod
+    def _attach_templates_without_fk(functions: Sequence[HogFunction]) -> None:
+        # Set in memory only, so HogFunction.template skips its per-row get_template fallback.
+        by_template_id: dict[str, list[HogFunction]] = defaultdict(list)
+        for fn in functions:
+            if fn.hog_function_template_id is None and fn.template_id:
+                by_template_id[fn.template_id].append(fn)
+        if not by_template_id:
+            return
+        for template_id, template in HogFunctionTemplate.get_latest_templates(by_template_id).items():
+            for fn in by_template_id[template_id]:
+                fn.hog_function_template = template
+
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
         response = Response(self.get_serializer(instance).data)
@@ -1252,6 +1280,7 @@ class HogFunctionViewSet(
             queryset = queryset.filter(deleted=False)
 
         if self.action == "list":
+            queryset = queryset.select_related("created_by", "hog_function_template")
             search = self.request.GET.get("search")
             if search:
                 if len(search) > MAX_SEARCH_LENGTH:

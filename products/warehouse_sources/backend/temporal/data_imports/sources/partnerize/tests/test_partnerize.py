@@ -105,6 +105,52 @@ class TestReportRows:
         # The default window filters on the conversion time, no date_type override needed.
         assert result.params("date_type") == [None]
 
+    @parameterized.expand(
+        [
+            ("conversion_time", "conversion_time", None),
+            ("last_modified", "last_modified", "last_updated"),
+        ]
+    )
+    def test_conversion_items_explode_one_row_per_item(
+        self, _name: str, incremental_field: str, expected_date_type: str | None
+    ) -> None:
+        conversion = {
+            "conversion_id": "c1",
+            "campaign_id": "10l1",
+            "conversion_time": "2024-05-02 10:00:00",
+            "last_modified": "2024-05-03 10:00:00",
+            "currency": "EUR",
+            "conversion_items": [
+                {"conversion_item_id": "i1", "item_value": 10, "conversion_id": "nested"},
+                {"conversion_item_id": "i2", "item_value": 20},
+            ],
+        }
+        result = _driver().run(
+            "conversion_items",
+            [
+                ScriptedResponse(
+                    json={
+                        "conversions": [
+                            {"conversion_data": conversion},
+                            {"conversion_data": {"conversion_id": "c2", "conversion_items": []}},
+                        ],
+                        "limit": 300,
+                    }
+                )
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2024-05-01 12:00:00",
+            incremental_field=incremental_field,
+        )
+
+        assert result.raised is None
+        assert result.params("date_type") == [expected_date_type]
+        assert [(row["conversion_id"], row["conversion_item_id"], row["item_value"]) for row in result.rows] == [
+            ("c1", "i1", 10),
+            ("c1", "i2", 20),
+        ]
+        assert all(row["conversion_time"] == "2024-05-02 10:00:00" for row in result.rows)
+
     def test_missing_data_key_is_retried_then_reraises(self) -> None:
         # A 200 body without the data key is an unexpected shape; the request is reissued and, if it
         # never recovers, surfaces as a retryable error after the attempt cap.
@@ -222,11 +268,34 @@ class TestListRows:
         assert result.urls == [resume_url]
 
 
+class TestFanOutRows:
+    def test_commissions_fan_out_over_campaigns(self) -> None:
+        result = _driver().run(
+            "commissions",
+            [
+                ScriptedResponse(
+                    json={"campaigns": [{"campaign": {"campaign_id": "10l1"}}, {"campaign": {"campaign_id": "10l2"}}]}
+                ),
+                ScriptedResponse(json={"active_commissions": [{"id": "1", "type": "default"}]}),
+                ScriptedResponse(status=404, json={"error": "not found"}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/user/publisher/111111l92/campaign/a",
+            "/v2/campaigns/10l1/publishers/111111l92/commissions/active",
+            "/v2/campaigns/10l2/publishers/111111l92/commissions/active",
+        ]
+        assert [(row["campaign_id"], row["type"], row["id"]) for row in result.rows] == [("10l1", "default", "1")]
+
+
 class TestPartnerizeSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
         config = PARTNERIZE_ENDPOINTS[endpoint]
-        result = _driver().run(endpoint, [ScriptedResponse(json={config.data_key: []})])
+        data_key = PARTNERIZE_ENDPOINTS[config.fanout.parent_name].data_key if config.fanout else config.data_key
+        result = _driver().run(endpoint, [ScriptedResponse(json={data_key: []})])
         assert result.raised is None
         response = result.response
         assert response is not None
@@ -237,7 +306,7 @@ class TestPartnerizeSourceResponse:
             assert response.sort_mode == "desc"
             assert response.partition_mode == "datetime"
             assert response.partition_keys == [config.partition_key]
-        else:
+        elif config.fanout is None:
             assert response.sort_mode == "asc"
             assert response.partition_mode is None
 

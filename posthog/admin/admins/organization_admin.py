@@ -324,7 +324,7 @@ class OrganizationAdmin(admin.ModelAdmin):
 
     def billing_link(self, organization: Organization) -> str:
         url = f"{settings.BILLING_SERVICE_URL}/admin/billing/customer/?q={organization.pk}"
-        return format_html(f'<a href="{url}">Billing →</a>')
+        return format_html('<a href="{}">Billing →</a>', url)
 
     def usage_posthog(self, organization: Organization):
         return format_html(

@@ -15,7 +15,7 @@ from sshtunnel import BaseSSHTunnelForwarderError, SSHTunnelForwarder
 
 from posthog.cloud_utils import is_cloud
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration
+from posthog.integrations import AuthType, IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.psycopg_helpers import (
     is_resolvable_hostname,
     is_temporary_resolution_failure,
@@ -703,9 +703,16 @@ def _require_loopback(host: str) -> str:
     return host
 
 
-def _checked_connect_host(host: str, team_id: int | None, refusal_prefix: str) -> str:
+def _checked_connect_host(
+    host: str,
+    team_id: int | None,
+    refusal_prefix: str,
+    *,
+    port: int | None = None,
+    source_type: str | None = None,
+) -> str:
     """Return the address `resolve_safe_host` approves for `host`, or raise `HostNotAllowedError`."""
-    resolution = resolve_safe_host(host, team_id)
+    resolution = resolve_safe_host(host, team_id, port=port, source_type=source_type)
     if resolution.connect_host is None:
         raise HostNotAllowedError(f"{refusal_prefix}: {resolution.error or _INTERNAL_IP_ERROR}")
     return resolution.connect_host
@@ -756,7 +763,7 @@ def pinned_connect_host(host: str, team_id: int | None) -> DialTarget:
     )
 
 
-def _check_direct_host(config, team_id: int | None) -> None:
+def _check_direct_host(config, team_id: int | None, source_type: str | None = None) -> None:
     """Refuse a direct database connection to a host that resolves somewhere internal.
 
     The connect-time counterpart to `is_database_host_valid`, which runs at the API layer on
@@ -783,7 +790,9 @@ def _check_direct_host(config, team_id: int | None) -> None:
     The resolve inside `resolve_safe_host` stops at `HOST_RESOLUTION_TIMEOUT_SECONDS`, so a stalled
     resolver fails fast and retryably.
     """
-    _checked_connect_host(config.host, team_id, DATABASE_HOST_NOT_ALLOWED_ERROR)
+    _checked_connect_host(
+        config.host, team_id, DATABASE_HOST_NOT_ALLOWED_ERROR, port=config.port, source_type=source_type
+    )
 
 
 # sshtunnel reports every failure to reach the gateway with the same wording. `_create_tunnels`
@@ -874,7 +883,7 @@ def _connected_ssh_tunnel(ssh_tunnel: SSHTunnel, config, *, ssh_host: str) -> Ge
 
 
 @contextmanager
-def open_ssh_tunnel(config, team_id: int | None = None) -> Generator[tuple[str, int]]:
+def open_ssh_tunnel(config, team_id: int | None = None, source_type: str | None = None) -> Generator[tuple[str, int]]:
     """Yield `(host, port)` for a database connection, going through an SSH tunnel if configured."""
     with _logged_connection(config, team_id):
         ssh_config = _enabled_ssh_tunnel(config)
@@ -887,12 +896,12 @@ def open_ssh_tunnel(config, team_id: int | None = None) -> Generator[tuple[str, 
 
                 yield _require_loopback(tunnel.local_bind_host), tunnel.local_bind_port
         else:
-            _check_direct_host(config, team_id)
+            _check_direct_host(config, team_id, source_type)
             yield config.host, config.port
 
 
 def make_ssh_tunnel_factory(
-    config, team_id: int | None = None
+    config, team_id: int | None = None, source_type: str | None = None
 ) -> Callable[[], _GeneratorContextManager[tuple[str, int]]]:
     """Return a zero-arg factory that opens a fresh `open_ssh_tunnel(config)` context each call.
 
@@ -922,7 +931,7 @@ def make_ssh_tunnel_factory(
         with _logged_connection(config, team_id):
             # Checked per reopen, not once when the factory is built, so a long-running
             # sync that reconnects re-checks the host each time.
-            _check_direct_host(config, team_id)
+            _check_direct_host(config, team_id, source_type)
             yield config.host, config.port
 
     return without_ssh_func
@@ -931,13 +940,15 @@ def make_ssh_tunnel_factory(
 class SSHTunnelMixin:
     """Mixin for sources that support SSH tunnels"""
 
-    def with_ssh_tunnel(self, config, team_id: int | None = None) -> _GeneratorContextManager[tuple[str, int]]:
-        return open_ssh_tunnel(config, team_id)
+    def with_ssh_tunnel(
+        self, config, team_id: int | None = None, source_type: str | None = None
+    ) -> _GeneratorContextManager[tuple[str, int]]:
+        return open_ssh_tunnel(config, team_id, source_type)
 
     def make_ssh_tunnel_func(
-        self, config, team_id: int | None = None
+        self, config, team_id: int | None = None, source_type: str | None = None
     ) -> Callable[[], _GeneratorContextManager[tuple[str, int]]]:
-        return make_ssh_tunnel_factory(config, team_id)
+        return make_ssh_tunnel_factory(config, team_id, source_type)
 
     def ssh_tunnel_enabled(self, config) -> bool:
         """Whether the tunnel helpers above will tunnel rather than connect directly.
@@ -993,7 +1004,7 @@ def _integration_fetch_backoff_sleep(attempt: int) -> None:
 class OAuthMixin:
     """Mixin for OAuth-based sources"""
 
-    def get_oauth_integration(self, integration_id: int, team_id: int) -> Integration:
+    def get_oauth_integration(self, integration_id: int, team_id: int) -> IntegrationRecord:
         """Get OAuth integration from integration ID.
 
         Temporal activities run in a long-lived worker outside Django's request cycle, so a pooled
@@ -1004,7 +1015,7 @@ class OAuthMixin:
         marks its connection unusable, so ``close_old_connections()`` evicts it between attempts and
         the next attempt runs on a fresh one; the sleep lets a saturated pool drain. A genuinely
         missing integration is surfaced as the stable, non-retryable ``ValueError`` and is not
-        retried.
+        retried. A row that is not an OAuth row counts as missing.
         """
         if not integration_id:
             raise ValueError(f"Missing integration ID")
@@ -1012,8 +1023,8 @@ class OAuthMixin:
         attempt = 0
         while True:
             try:
-                return Integration.objects.get(id=integration_id, team_id=team_id)
-            except Integration.DoesNotExist:
+                integration = IntegrationManager.any.get(team_id, integration_id)
+            except IntegrationNotFound:
                 raise ValueError(f"Integration not found: {integration_id}") from None
             except OperationalError:
                 attempt += 1
@@ -1021,6 +1032,12 @@ class OAuthMixin:
                     raise
                 close_old_connections()
                 _integration_fetch_backoff_sleep(attempt)
+                continue
+            # The reference does not name its kind here, so the read covers every kind. A row of another
+            # auth type (for example a token row of an OAuth kind) has no OAuth tokens to read or refresh.
+            if integration.auth_type != AuthType.OAUTH:
+                raise ValueError(f"Integration not found: {integration_id}")
+            return integration
 
     def get_oauth_accounts(
         self, integration_id: int, team_id: int, search: str | None = None
