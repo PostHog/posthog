@@ -766,11 +766,14 @@ def test_send_weekly_digest_batch_emails_subscribed_members_once(
         assert post.args == (WEBHOOK_SETTINGS["WEEKLY_DIGEST_WORKFLOW_WEBHOOK_URL"],)
         assert post.kwargs["headers"] == {
             "Authorization": "Bearer test-webhook-secret",
-            "Idempotency-Key": f"{digest.key}:{subscribed.id}",
+            "Content-Type": "application/json",
+            "Idempotency-Key": f"{digest.key}:{subscribed.uuid}",
         }
-        assert post.kwargs["json"]["event"] == "weekly digest ready"
-        assert post.kwargs["json"]["distinct_id"] == (subscribed.distinct_id or subscribed.email)
-        properties = post.kwargs["json"]["properties"]
+        # The digest holds UUIDs and datetimes, so the body must be encoded before it reaches requests.
+        body = json.loads(post.kwargs["data"])
+        assert body["event"] == "weekly digest ready"
+        assert body["distinct_id"] == (subscribed.distinct_id or subscribed.email)
+        properties = body["properties"]
         assert properties["to"] == subscribed.email
     (team_payload,) = properties["teams"]
     assert team_payload["team_id"] == team.id
@@ -843,6 +846,7 @@ def test_send_weekly_digest_batch_stops_sending_once_the_activity_is_cancelled(
         ("queue_full", 1),
         ("oversized", 0),
         ("failed_webhook", 0),
+        ("unexpected_webhook_error", 0),
     ],
 )
 def test_send_weekly_digest_batch_leaves_organization_unsent_when_an_event_is_dropped(
@@ -868,6 +872,8 @@ def test_send_weekly_digest_batch_leaves_organization_unsent_when_an_event_is_dr
 
     session = MagicMock()
     session.post.return_value.status_code = 503
+    if drop == "unexpected_webhook_error":
+        session.post.side_effect = TypeError("Object of type UUID is not JSON serializable")
 
     with (
         override_settings(**WEBHOOK_SETTINGS),
@@ -876,7 +882,10 @@ def test_send_weekly_digest_batch_leaves_organization_unsent_when_an_event_is_dr
             "posthog.temporal.weekly_digest.activities.DIGEST_PAYLOAD_SIZE_LIMIT",
             100 if drop == "oversized" else DIGEST_PAYLOAD_SIZE_LIMIT,
         ),
-        patch("posthog.temporal.weekly_digest.activities._routes_to_workflows", return_value=drop == "failed_webhook"),
+        patch(
+            "posthog.temporal.weekly_digest.activities._routes_to_workflows",
+            return_value=drop in ("failed_webhook", "unexpected_webhook_error"),
+        ),
         patch("posthog.temporal.weekly_digest.activities.requests.Session", return_value=session),
         patch("posthog.temporal.weekly_digest.activities.time.sleep"),
     ):
