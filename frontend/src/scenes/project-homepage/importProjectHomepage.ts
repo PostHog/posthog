@@ -13,10 +13,12 @@ export function importTodayHome(): Promise<typeof import('./today/TodayHome')> {
 }
 
 export function importProjectHomepage(): Promise<typeof import('./ProjectHomepage')> {
-    const importContent = featureFlagLogic.values.featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]
-        ? importTodayHome
-        : importAiFirstHomepage
-    // ProjectHomepage imports the content again and handles a failure there.
-    importContent().catch(() => {})
+    // A prefetch at boot runs before the app mounts the flag logic. ProjectHomepage then picks the content when it renders.
+    const featureFlags = featureFlagLogic.findMounted()?.values.featureFlags
+    if (featureFlags) {
+        const importContent = featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV] ? importTodayHome : importAiFirstHomepage
+        // ProjectHomepage imports the content again and handles a failure there.
+        importContent().catch(() => {})
+    }
     return import('./ProjectHomepage')
 }
