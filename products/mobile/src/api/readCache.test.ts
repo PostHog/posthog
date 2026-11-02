@@ -160,6 +160,44 @@ describe('bounded offline read cache', () => {
         next.stop()
     })
 
+    test.each(['timer', 'flush'] as const)(
+        'retries failed hydration on %s before replacing saved entries',
+        async (retry) => {
+            const storage = memoryStorage()
+            const store = new ReadCacheStore(storage)
+            const savedAt = Date.now() - 1000
+            await store.save(
+                scope,
+                () => [{ key, data: aggregate, updatedAt: savedAt }],
+                () => true
+            )
+            const read = storage.getItem
+            const original = await read(cacheKey(scope))
+            let unavailable = true
+            storage.getItem = async (name) => {
+                if (unavailable) throw new Error('Temporary read failure')
+                return read(name)
+            }
+            const active = client()
+            const session = persistReadCache(active, store, scope, () => true)
+            await session.ready
+            const newerKey = [...key.slice(0, 4), 'new-view', '-', '-']
+            active.setQueryData(newerKey, { ...aggregate, value: 99 })
+            await session.flush()
+            await jest.advanceTimersByTimeAsync(1000)
+            expect(await read(cacheKey(scope))).toBe(original)
+            unavailable = false
+            if (retry === 'timer') await jest.advanceTimersByTimeAsync(5000)
+            else await session.flush()
+            expect(active.getQueryData(key)).toMatchObject({ value: 42, restoredFromDevice: true })
+            expect(active.getQueryState(key)?.dataUpdatedAt).toBe(savedAt)
+            expect(active.getQueryData(newerKey)).toMatchObject({ value: 99 })
+            await session.flush()
+            expect(await store.load(scope)).toHaveLength(2)
+            session.stop()
+        }
+    )
+
     it('clears every account project and pending writes on sign-out without touching another account', async () => {
         const store = new ReadCacheStore(memoryStorage())
         const other = { ...scope, account: 'account-2' }

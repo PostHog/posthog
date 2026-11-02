@@ -34,7 +34,9 @@ export function persistReadCache(
     // Saved inbox queries cannot refetch, so retain them before hydration creates inactive queries.
     client.setQueryDefaults(['read-inbox'], { gcTime: Infinity })
     let stopped = false
-    let loading = true
+    let loading = false
+    let hydrated = false
+    let retryTimer: ReturnType<typeof setTimeout> | undefined
     let restoring = false
     const denied = new Set<string>()
     const deniedResources = new Set<string>()
@@ -75,10 +77,11 @@ export function persistReadCache(
     const flush = async (): Promise<void> => {
         if (timer) clearTimeout(timer)
         timer = undefined
-        if (!loading && valid()) await store.save(scope, collect, valid).catch(() => undefined)
+        if (!hydrated && valid()) await hydrate()
+        if (hydrated && valid()) await store.save(scope, collect, valid).catch(() => undefined)
     }
     const save = (): void => {
-        if (loading || !valid() || timer) return
+        if (!hydrated || loading || !valid() || timer) return
         timer = setTimeout(() => {
             timer = undefined
             void flush()
@@ -196,7 +199,11 @@ export function persistReadCache(
                 : projected
         client.setQueryData(entry.key, data, { updatedAt: entry.updatedAt })
     }
-    const ready = (async (): Promise<void> => {
+    const hydrate = async (): Promise<void> => {
+        if (loading || hydrated || !valid()) return
+        if (retryTimer) clearTimeout(retryTimer)
+        retryTimer = undefined
+        loading = true
         try {
             const entries = await store.load(scope)
             if (!valid()) return
@@ -212,17 +219,24 @@ export function persistReadCache(
             }
             keep([...merged.values()])
             for (const entry of good.values()) restore(entry)
+            hydrated = true
+        } catch {
+            if (valid()) retryTimer = setTimeout(() => void hydrate(), 5000)
         } finally {
             restoring = false
             loading = false
-            if (valid() && (denied.size || deniedResources.size)) await evictDenied()
-            else save()
+            if (hydrated) {
+                if (valid() && (denied.size || deniedResources.size)) await evictDenied()
+                else save()
+            }
         }
-    })().catch(() => undefined)
+    }
+    const ready = hydrate()
     const pause = (): void => {
         stopped = true
         good.clear()
         if (timer) clearTimeout(timer)
+        if (retryTimer) clearTimeout(retryTimer)
     }
     return {
         ready,

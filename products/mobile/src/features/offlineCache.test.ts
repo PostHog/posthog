@@ -77,7 +77,9 @@ function seed(projectId: number, user = 'user-1'): readonly unknown[] {
         `${account(user)}.${projectId}`,
         JSON.stringify([{ key, updatedAt: Date.now() - 1000, data: { metrics: [], readAt: Date.now() - 1000 } }])
     )
-    mockValues.set(`${account(user)}.scopes`, JSON.stringify([`${account(user)}.${projectId}`]))
+    const index = `${account(user)}.scopes`
+    const scopes: string[] = JSON.parse(mockValues.get(index) ?? '[]')
+    mockValues.set(index, JSON.stringify([...new Set([...scopes, `${account(user)}.${projectId}`])]))
     return key
 }
 
@@ -255,6 +257,33 @@ describe('authenticated offline-cache lifecycle', () => {
             stop()
         }
     )
+
+    it('clears Views from unvisited saved projects after a scope denial and preserves inbox and other accounts', async () => {
+        const first = seed(1)
+        const unvisited = seed(2)
+        seed(2, 'user-2')
+        const inbox = ['read-inbox', 'https://example.com', 2]
+        const saved = JSON.parse(mockValues.get(`${account()}.2`) ?? '[]')
+        saved.push({
+            key: inbox,
+            updatedAt: Date.now() - 1000,
+            data: { items: [], sourceUpdatedAt: Date.now() - 1000 },
+        })
+        mockValues.set(`${account()}.2`, JSON.stringify(saved))
+        let stop = installOfflineCache()
+        await waitFor(() => expect(queryClient.getQueryData(first)).toBeDefined())
+        useScopeErrorStore.setState({ reported: { views: 'insights:read', errors: null, replay: null } })
+        await waitFor(() => expect(mockValues.get(`${account()}.2`)).not.toContain('"views"'))
+        stop()
+        queryClient.clear()
+        useScopeErrorStore.setState({ reported: { views: null, errors: null, replay: null } })
+        useAuthStore.setState({ projectId: 2 })
+        stop = installOfflineCache()
+        await waitFor(() => expect(queryClient.getQueryData(inbox)).toBeDefined())
+        expect(queryClient.getQueryData(unvisited)).toBeUndefined()
+        expect(mockValues.get(`${account('user-2')}.2`)).toContain('"views"')
+        stop()
+    })
 
     it('does not rehydrate views when the existing access gate reports a missing scope', async () => {
         const key = seed(1)

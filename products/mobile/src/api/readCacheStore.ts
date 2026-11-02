@@ -171,6 +171,26 @@ export class ReadCacheStore {
         })
     }
 
+    evictAccountViews(account: string, host: string): Promise<void> {
+        const generation = this.generation
+        return this.enqueue(async () => {
+            const raw = await this.storage.getItem(`${account}.scopes`)
+            const keys: unknown = raw ? JSON.parse(raw) : []
+            if (!Array.isArray(keys)) return
+            for (const key of keys) {
+                if (generation !== this.generation) return
+                if (typeof key !== 'string' || !key.startsWith(`${account}.`)) continue
+                const projectId = Number(key.slice(account.length + 1))
+                if (!Number.isSafeInteger(projectId) || projectId <= 0) continue
+                const scope = { account, host, projectId }
+                const remaining = (await this.read(scope)).filter((entry) => entry.key[0] !== 'views')
+                if (generation !== this.generation) return
+                if (remaining.length) await this.write(scope, remaining)
+                else await this.remove(key)
+            }
+        })
+    }
+
     save(scope: ReadCacheScope, entries: () => ReadCacheEntry[], current: () => boolean): Promise<void> {
         const generation = this.generation
         return this.enqueue(async () => {

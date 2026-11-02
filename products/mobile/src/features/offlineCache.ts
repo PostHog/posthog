@@ -32,6 +32,14 @@ async function accountKey(host: string, userId: string): Promise<string> {
     return `mobile-read-cache-v1-${hash}`
 }
 
+function viewsScopeDenied(): boolean {
+    const tokens = getSessionTokens()
+    return (
+        useScopeErrorStore.getState().reported.views !== null ||
+        (tokens?.kind === 'oauth' && missingViewsScope(tokens.grantedScopes) !== null)
+    )
+}
+
 export function installOfflineCache(): () => void {
     let active: ReturnType<typeof persistReadCache> | undefined
     const sessions = new Map<string, ReturnType<typeof persistReadCache>>()
@@ -56,7 +64,9 @@ export function installOfflineCache(): () => void {
         if (!state.host || !state.user || state.projectId === null) return
         const { host, projectId } = state
         void accountKey(host, state.user.uuid)
-            .then((account) => {
+            .then(async (account) => {
+                if (mine !== generation || identity() !== target) return
+                if (viewsScopeDenied()) await store.evictAccountViews(account, host)
                 if (mine !== generation || identity() !== target) return
                 active = persistReadCache(
                     queryClient,
@@ -65,9 +75,7 @@ export function installOfflineCache(): () => void {
                     () => identity() === target,
                     (key) =>
                         key[0] === 'views' &&
-                        (useScopeErrorStore.getState().reported.views !== null ||
-                            (getSessionTokens()?.kind === 'oauth' &&
-                                missingViewsScope(getSessionTokens()?.grantedScopes ?? null) !== null) ||
+                        (viewsScopeDenied() ||
                             ['deleted', 'no_access', 'scope'].includes(
                                 useItemErrors.getState().errors[JSON.stringify(key)] ?? ''
                             )),
@@ -91,6 +99,17 @@ export function installOfflineCache(): () => void {
             } catch {}
         }
         for (const session of sessions.values()) session.purgeDeniedViews(keys)
+        const target = identity()
+        if (!target || !viewsScopeDenied()) return
+        const [host, userId] = JSON.parse(target) as [string, string, number]
+        void accountKey(host, userId)
+            .then(async (account) => {
+                const verified = identity()
+                if (!verified || JSON.stringify(JSON.parse(verified).slice(0, 2)) !== JSON.stringify([host, userId]))
+                    return
+                await store.evictAccountViews(account, host)
+            })
+            .catch(() => undefined)
     }
     const unsubscribeErrors = useItemErrors.subscribe(purge)
     const unsubscribeScopes = useScopeErrorStore.subscribe(purge)
