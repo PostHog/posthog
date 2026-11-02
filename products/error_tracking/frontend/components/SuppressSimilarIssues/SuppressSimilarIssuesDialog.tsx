@@ -13,11 +13,9 @@ import {
     DialogFooter,
     DialogHeader,
     DialogTitle,
-    FieldLabel,
     FieldLegend,
     FieldSet,
     RadioGroup,
-    RadioGroupItem,
     Skeleton,
     Tooltip,
     TooltipContent,
@@ -31,6 +29,7 @@ import {
 } from '../../scenes/ErrorTrackingConfigurationScene/suppression_rules/EvaluationIndicator'
 import { errorTrackingEditAccessDisabledReason } from '../../utils'
 import { MessagePattern } from './MessagePattern'
+import { SuppressScopeChoice } from './SuppressScopeChoice'
 import { suppressSimilarIssuesLogic } from './suppressSimilarIssuesLogic'
 import { SuppressScopeKey } from './suppressSimilarScopes'
 
@@ -43,6 +42,7 @@ export function SuppressSimilarIssuesDialog(): JSX.Element {
         selectedScope,
         selectedOption,
         selectedImpact,
+        scopeImpacts,
         scopeImpactsLoading,
         createdRulesLoading,
     } = useValues(suppressSimilarIssuesLogic)
@@ -102,42 +102,40 @@ export function SuppressSimilarIssuesDialog(): JSX.Element {
                                     </span>
                                 )}
                             </FieldLegend>
-                            {scopeOptions.length > 1 && (
+                            {scopeOptions.length > 1 ? (
                                 <RadioGroup
                                     value={selectedScope}
                                     onValueChange={(scope) => selectScope(scope as SuppressScopeKey)}
-                                    className="flex flex-wrap gap-4"
+                                    className="gap-2"
                                     aria-label="Messages to drop"
                                 >
                                     {scopeOptions.map((option) => (
-                                        <FieldLabel
+                                        <SuppressScopeChoice
                                             key={option.key}
-                                            htmlFor={`suppress-similar-scope-${option.key}`}
-                                            className="items-center"
-                                        >
-                                            <RadioGroupItem
-                                                value={option.key}
-                                                id={`suppress-similar-scope-${option.key}`}
-                                                data-attr={`error-tracking-suppress-similar-scope-${option.key}`}
-                                            />
-                                            <span>{titles[option.key]}</span>
-                                        </FieldLabel>
+                                            option={option}
+                                            title={titles[option.key]}
+                                            impact={scopeImpacts?.[option.key]}
+                                            impactLoading={scopeImpactsLoading}
+                                        />
                                     ))}
                                 </RadioGroup>
-                            )}
-                            <div className="flex flex-wrap gap-1">
-                                {selectedOption?.messages.map((segments, index) => (
-                                    <MessagePattern key={index} segments={segments} />
-                                ))}
-                            </div>
-                            {scopeImpactsLoading ? (
-                                <Skeleton className="h-4 w-44" />
                             ) : (
-                                <p className="m-0 text-sm text-secondary">
-                                    {selectedImpact
-                                        ? `${pluralize(selectedImpact.exceptions, 'exception')} across ${pluralize(selectedImpact.issueCount, 'issue')} in the last 7 days`
-                                        : "Couldn't count matching exceptions"}
-                                </p>
+                                <>
+                                    <div className="flex flex-wrap gap-1">
+                                        {selectedOption?.messages.map((segments, index) => (
+                                            <MessagePattern key={index} segments={segments} />
+                                        ))}
+                                    </div>
+                                    {scopeImpactsLoading ? (
+                                        <Skeleton className="h-4 w-44" />
+                                    ) : (
+                                        <p className="m-0 text-sm text-secondary">
+                                            {selectedImpact
+                                                ? `${pluralize(selectedImpact.exceptions, 'exception')} across ${pluralize(selectedImpact.issueCount, 'issue')} in the last 7 days`
+                                                : "Couldn't count matching exceptions"}
+                                        </p>
+                                    )}
+                                </>
                             )}
                         </FieldSet>
                     )}

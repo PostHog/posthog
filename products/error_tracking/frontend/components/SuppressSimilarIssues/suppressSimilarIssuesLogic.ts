@@ -246,7 +246,10 @@ export const suppressSimilarIssuesLogic = kea<suppressSimilarIssuesLogicType>([
             [] as SuppressedIssueSnapshot[],
             {
                 loadSnapshots: async (ids: string[], breakpoint): Promise<SuppressedIssueSnapshot[]> => {
-                    const snapshots = await loadIssueSnapshots(ids)
+                    const snapshots = await loadIssueSnapshots(ids).catch((error: unknown) => {
+                        breakpoint()
+                        throw error
+                    })
                     breakpoint()
                     return snapshots
                 },

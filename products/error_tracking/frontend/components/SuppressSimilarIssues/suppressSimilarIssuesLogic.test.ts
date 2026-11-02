@@ -103,6 +103,31 @@ describe('suppressSimilarIssuesLogic', () => {
         expect(logic.values.isOpen).toBe(false)
     })
 
+    it('keeps a newer dialog open when an older message query fails', async () => {
+        let rejectFirstQuery!: (error: Error) => void
+        jest.spyOn(api, 'queryHogQL')
+            .mockImplementationOnce(
+                () =>
+                    new Promise((_, reject) => {
+                        rejectFirstQuery = reject
+                    }) as never
+            )
+            .mockResolvedValueOnce({ results: [['issue-2', '["Error"]', '["Network error"]']] } as never)
+        logic.actions.loadSnapshots(['issue-1'])
+        logic.actions.dismissSuggestion()
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSnapshots(['issue-2'])
+        }).toDispatchActions(['openSuggestion'])
+
+        await expectLogic(logic, () => {
+            rejectFirstQuery(new Error('Message query failed'))
+        }).toFinishAllListeners()
+
+        expect(logic.values.isOpen).toBe(true)
+        expect(logic.values.snapshots[0].id).toBe('issue-2')
+    })
+
     it('closes when the issue has no exception message', async () => {
         jest.spyOn(api, 'queryHogQL').mockResolvedValue({ results: [['issue-1', '["Error"]', '[]']] } as never)
 
