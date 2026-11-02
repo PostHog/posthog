@@ -2,7 +2,7 @@ import { DataColorToken } from 'lib/colors'
 // eslint-disable-next-line import/no-cycle
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import type { FunnelLayout } from 'lib/constants'
-import type { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
+import type { AggregationAxisFormat } from 'lib/insights/aggregationAxisFormat'
 
 import { ConversionGoalSchema } from '~/taxonomy/marketingAnalytics'
 import {
@@ -31,7 +31,6 @@ import {
     ExperimentStatsMethod,
     FileSystemIconColor,
     FilterLogicalOperator,
-    FilterType,
     FunnelConversionWindowTimeUnit,
     FunnelMathType,
     FunnelPathType,
@@ -827,8 +826,8 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
      * */
     date_from?: string | null
     date_to?: string | null
-    events?: FilterType['events']
-    actions?: FilterType['actions']
+    events?: Record<string, any>[]
+    actions?: Record<string, any>[]
     properties?: AnyPropertyFilter[]
     console_log_filters?: LogEntryPropertyFilter[]
     having_predicates?: AnyPropertyFilter[] // duration and snapshot_source filters
@@ -4443,7 +4442,11 @@ export interface WebVitalsItem {
     days: string[]
     /** The index of the row's series in the query. */
     order: integer
-    action: WebVitalsItemAction
+    /**
+     * @deprecated The runner no longer writes this field. Only responses cached before 2026-10-30 carry it, and it goes
+     * once those entries expire. Read the series from the query at `order` instead.
+     */
+    action?: WebVitalsItemAction
 }
 
 export interface WebVitalsQueryResponse extends AnalyticsQueryResponseBase {

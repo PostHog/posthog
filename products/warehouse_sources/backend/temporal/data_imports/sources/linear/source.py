@@ -99,6 +99,19 @@ class LinearSource(ResumableSource[LinearSourceConfig, LinearResumeConfig], OAut
             # so it must not disable the schema.
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # linear.py's own tenacity retry already rides out 5xx, 429, GraphQL-wrapped internal
+        # errors and transient network blips (LINEAR_MAX_RETRY_ATTEMPTS attempts with backoff).
+        # A LinearRetryableError only reaches here once that in-process budget is exhausted, so
+        # Temporal retrying the whole activity is the self-recovering next step, not a bug to page on.
+        return {
+            "Linear: server error",
+            "Linear: rate limited",
+            "Linear: internal server error",
+            "Linear: transient network error",
+            "Linear: incomplete JSON response",
+        }
+
     def _get_access_token(self, config: LinearSourceConfig, team_id: int) -> str:
         integration = self.get_oauth_integration(config.linear_integration_id, team_id)
 

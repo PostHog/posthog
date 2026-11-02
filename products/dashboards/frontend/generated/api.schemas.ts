@@ -1379,6 +1379,23 @@ export interface PatchedPatchedDashboardOpenApiApi {
     delete_insights?: boolean
 }
 
+export interface AddInsightToDashboardRequestApi {
+    /** ID of an existing insight to place on the dashboard. The insight must belong to the same environment as the dashboard. Adding an insight the dashboard already shows changes nothing, and adding one that was removed from the dashboard restores its tile. */
+    insight_id: number
+}
+
+export interface DashboardTileBasicApi {
+    /** ID of the dashboard tile. */
+    readonly id: number
+    /** ID of the dashboard the tile sits on. */
+    readonly dashboard_id: number
+    /**
+     * Whether the tile was removed from the dashboard.
+     * @nullable
+     */
+    deleted?: boolean | null
+}
+
 export interface CopyDashboardGroupRequestApi {
     /** Dashboard id the group currently belongs to. */
     fromDashboardId: number
@@ -9857,13 +9874,6 @@ export type _InsightQuerySchemaApi =
     | BIVisualizationNodeApi
     | HogQueryApi
 
-export interface DashboardTileBasicApi {
-    readonly id: number
-    readonly dashboard_id: number
-    /** @nullable */
-    deleted?: boolean | null
-}
-
 /**
  * Warnings attached to the query response that produced an insight's results.
  */
@@ -10866,15 +10876,6 @@ export interface DataColorThemeApi {
     readonly created_by: UserBasicApi
 }
 
-export interface PaginatedDataColorThemeListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: DataColorThemeApi[]
-}
-
 export interface PatchedDataColorThemeApi {
     readonly id?: number
     /** @maxLength 100 */
@@ -11154,6 +11155,18 @@ export type DashboardsDestroyParams = {
 export type DashboardsDestroyFormat = (typeof DashboardsDestroyFormat)[keyof typeof DashboardsDestroyFormat]
 
 export const DashboardsDestroyFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsAddInsightCreateParams = {
+    format?: DashboardsAddInsightCreateFormat
+}
+
+export type DashboardsAddInsightCreateFormat =
+    (typeof DashboardsAddInsightCreateFormat)[keyof typeof DashboardsAddInsightCreateFormat]
+
+export const DashboardsAddInsightCreateFormat = {
     Json: 'json',
     Txt: 'txt',
 } as const
@@ -11458,14 +11471,3 @@ export const DashboardsWidgetCatalogRetrieveWidgetTypeItem = {
     SessionReplayList: 'session_replay_list',
     SurveyResults: 'survey_results',
 } as const
-
-export type DataColorThemesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}

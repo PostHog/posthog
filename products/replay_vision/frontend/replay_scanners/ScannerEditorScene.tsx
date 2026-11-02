@@ -30,16 +30,17 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { pluralize } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
 
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { CreditPriceNote } from '../components/PricingLink'
+import { RecordingsBlockBanner } from '../components/RecordingsBlockBanner'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { ExampleObservations } from './components/ExampleObservations'
@@ -179,6 +180,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                         resourceType={{ type: 'replay_vision' }}
                         actions={<ReplayVisionFeedbackButton />}
                     />
+                    <RecordingsBlockBanner />
                     {step === 'goal' || step === 'overview' || fromOverview ? null : (
                         <GuidedWizardStepper
                             steps={stepperSteps}
@@ -221,7 +223,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                                         For each recording it watches, the scanner writes an observation like these and
                                         cites the moment it found.
                                     </p>
-                                    <ExampleObservations compact />
+                                    <ExampleObservations />
                                 </aside>
                             </div>
                         </div>
