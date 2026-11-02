@@ -44,6 +44,7 @@ from rest_framework.throttling import UserRateThrottle
 from posthog.accessible_teams import AccessibleTeams, CredentialScopeDenied
 from posthog.api.oauth.client_assertion import resolve_client_assertion
 from posthog.auth import SessionAuthentication
+from posthog.helpers.two_factor_session import missing_two_factor_step
 from posthog.models import Team, User
 from posthog.models.oauth import OAuthApplication, OAuthDeviceGrant, live_oauth_access_tokens, live_oauth_refresh_tokens
 from posthog.rate_limit import IPThrottle
@@ -239,6 +240,12 @@ class OAuthDeviceAuthorizationView(DeviceAuthorizationView):
                 status=429,
             )
         client_id = _presented_client_id(request) or ""
+        if client_id and "client_id" not in request.POST:
+            # RFC 8628 section 3.1 needs no client_id in the body from a client that authenticates,
+            # but oauthlib reads it only from there.
+            post = request.POST.copy()
+            post["client_id"] = client_id
+            request.POST = post  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         if cimd_creation_throttled(request, self, client_id):
             return JsonResponse(
                 {"error": "invalid_client", "error_description": "Too many new client registrations. Try again later."},
@@ -431,7 +438,7 @@ class OAuthDeviceViewSet(viewsets.ViewSet):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        team = Team.objects.filter(id=serializer.validated_data["project_id"]).first()
+        team = Team.objects.select_related("organization").filter(id=serializer.validated_data["project_id"]).first()
         if team is None:
             return Response(
                 {"error": "invalid_project", "error_description": "Project not found."},
@@ -442,6 +449,16 @@ class OAuthDeviceViewSet(viewsets.ViewSet):
         except CredentialScopeDenied:
             return Response(
                 {"error": "access_denied", "error_description": "You don't have access to this project."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        # Session auth checks the 2FA policy of the current organization only, and the token never
+        # meets a 2FA check later, so the policy of the project's organization is checked here.
+        if missing_two_factor_step(request._request, cast(User, request.user), organization=team.organization):
+            return Response(
+                {
+                    "error": "two_factor_required",
+                    "error_description": "This project's organization requires two-factor authentication. Set it up, then try again.",
+                },
                 status=status.HTTP_403_FORBIDDEN,
             )
 

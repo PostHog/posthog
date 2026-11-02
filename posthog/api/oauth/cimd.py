@@ -35,6 +35,7 @@ from posthog.models.oauth import (
     TokenEndpointAuthMethod,
     find_cimd_verification_token,
     normalize_cimd_url,
+    revoke_application_sessions,
 )
 from posthog.ph_client import ph_scoped_capture
 from posthog.rate_limit import IPThrottle
@@ -772,6 +773,7 @@ def _update_cimd_application(
             pass  # Keep existing name if new one is invalid
 
     app.redirect_uris = " ".join(metadata.get("redirect_uris") or [])
+    previous_grant_type = app.authorization_grant_type
     app.authorization_grant_type = _resolve_grant_type(metadata)
     # A document without a logo keeps the stored one, and only an app with none gets the host icon
     if metadata.get("logo_uri") is not None or not app.logo_uri:
@@ -830,6 +832,10 @@ def _update_cimd_application(
     else:
         if verification is not None:
             _touch_verification_token(verification)
+        if app.authorization_grant_type != previous_grant_type:
+            # The grant type decides how refresh tokens rotate and how a revoke sweeps them, and
+            # sessions issued under the old rule don't follow the new one. They end here.
+            revoke_application_sessions(app)
         # No rate-limit re-tiering on verification flips: the partner tier is derived
         # from organization_id at request time (OAuthApplication.partner_tier), so
         # the budgets follow the flip with nothing persisted.

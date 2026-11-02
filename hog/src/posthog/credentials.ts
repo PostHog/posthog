@@ -4,7 +4,7 @@ import { EXIT_USAGE, HogError } from '@/core/errors'
 import type { Env, Runtime } from '@/core/runtime'
 
 import { FileStore } from './credential-store'
-import { readLogin } from './logins'
+import { readLogin, type StoredLogin } from './logins'
 import { readSettings } from './settings'
 
 // posthog-cli falls back to this host when neither --host nor the credentials name one.
@@ -205,18 +205,33 @@ export async function resolveCredentials(
         }
     }
 
+    const fromLogin = ({ credential: stored, store }: StoredLogin): ResolvedCredentials =>
+        withHost({ apiKey: stored.apiKey, projectId: stored.projectId, host: stored.host }, 'store', {
+            store: store.kind,
+            path: store instanceof FileStore ? store.path : undefined,
+        })
+
+    // A login to another host than posthog.json names waits until posthog-cli's file had its turn,
+    // because that file may hold credentials for the right host.
+    let otherHostLogin: StoredLogin | undefined
     if (options.includeStore !== false) {
         const settings = await readSettings(runtime)
         const hosts = options.host !== undefined ? [options.host] : [options.configHost, settings.host]
         for (const host of new Set(hosts)) {
             const login = host === undefined ? undefined : await readLogin(runtime, settings, host)
-            if (login) {
-                const { credential: stored, store } = login
-                return withHost({ apiKey: stored.apiKey, projectId: stored.projectId, host: stored.host }, 'store', {
-                    store: store.kind,
-                    path: store instanceof FileStore ? store.path : undefined,
-                })
+            if (!login) {
+                continue
             }
+            const { configHost } = options
+            if (
+                options.host === undefined &&
+                configHost !== undefined &&
+                !sameOrigin(configHost, login.credential.host)
+            ) {
+                otherHostLogin ??= login
+                continue
+            }
+            return fromLogin(login)
         }
     }
 
@@ -239,6 +254,10 @@ export async function resolveCredentials(
         }
     }
 
+    if (otherHostLogin) {
+        // Fails with host_mismatch, which says how to log in to the right host.
+        return fromLogin(otherHostLogin)
+    }
     throw new HogError(
         'not_authenticated',
         "hog couldn't find PostHog credentials.",

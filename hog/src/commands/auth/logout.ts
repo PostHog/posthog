@@ -1,5 +1,6 @@
 import { clearPending } from '@/core/approval'
 import { defineCommand } from '@/core/command'
+import { escapeControls } from '@/core/output'
 import { PERSONAL_API_KEY_ENV_VAR, posthogCliCredentialsPath } from '@/posthog/credentials'
 import { LOGIN_COMMAND } from '@/posthog/login'
 import { readLogin, removeLogin } from '@/posthog/logins'
@@ -48,7 +49,7 @@ export default defineCommand({
     human({ result, out }) {
         out.line(
             result.status === 'logged_out'
-                ? `${out.style('Logged out', 'green', 'bold')} of ${result.host}.`
+                ? `${out.style('Logged out', 'green', 'bold')} of ${escapeControls(result.host ?? '')}.`
                 : 'hog had no stored key to remove.'
         )
         if (result.revokeUrl) {

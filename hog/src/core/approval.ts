@@ -150,7 +150,8 @@ async function waitFor<Pending extends PendingApproval, Value>(
                 failures = 0
                 continue
             case 'approved':
-                await clearPending(runtime, flow.command)
+                // The caller clears the pending approval once it has stored the value, so a failed
+                // save can still be retried with `--wait`.
                 return outcome.value
             case 'rejected':
                 return fail(
