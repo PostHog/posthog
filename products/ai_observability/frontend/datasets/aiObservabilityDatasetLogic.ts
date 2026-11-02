@@ -40,6 +40,7 @@ import type {
     PaginatedDatasetItemReadListApi,
     PaginatedDatasetRevisionReadListApi,
 } from '../generated/api.schemas'
+import { withoutTraceDrawerParams } from '../redesign/trace/traceDrawerRows'
 import { truncateValue } from '../utils'
 import { aiObservabilityDatasetsLogic, getDatasetDetailUrl, getDatasetListUrl } from './aiObservabilityDatasetsLogic'
 import { datasetsApi } from './datasetsApi'
@@ -1281,11 +1282,11 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
         },
     })),
 
-    trackedActionToUrl(({ values }) => ({
+    trackedActionToUrl(({ props, values }) => ({
         setActiveTab: () => [
             router.values.location.pathname,
             {
-                ...router.values.searchParams,
+                ...withoutTraceDrawerParams(router.values.searchParams),
                 tab: values.activeTab === DatasetTab.Metadata ? DatasetTab.Metadata : undefined,
             },
             router.values.hashParams,
@@ -1299,7 +1300,7 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
                 revision: values.filters.revision ?? undefined,
             }
             return [
-                urls.aiObservabilityDataset(isDataset(values.dataset) ? values.dataset.id : 'new'),
+                urls.aiObservabilityDataset(isDataset(values.dataset) ? values.dataset.id : props.datasetId),
                 nextSearchParams,
                 {},
                 { replace: true },
@@ -1308,7 +1309,7 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
         closeModalAndRefetchDatasetItems: () => {
             const nextSearchParams = { ...router.values.searchParams, item: undefined }
             return [
-                urls.aiObservabilityDataset(isDataset(values.dataset) ? values.dataset.id : 'new'),
+                urls.aiObservabilityDataset(isDataset(values.dataset) ? values.dataset.id : props.datasetId),
                 nextSearchParams,
                 {},
                 { replace: false },

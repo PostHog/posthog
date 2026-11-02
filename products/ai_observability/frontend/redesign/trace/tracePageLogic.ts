@@ -70,8 +70,12 @@ export interface tracePageLogicActions {
     publishQuery: (query: string) => {
         query: string
     } // traceViewHostLogic
-    requestStep: (stepId: string | null) => {
+    requestStep: (
+        stepId: string | null,
+        traceId: string | null
+    ) => {
         stepId: string | null
+        traceId: string | null
     } // traceViewHostLogic
     setDetailTab: (tab: import('./types').NodeDetailTab) => {
         tab: import('./types').NodeDetailTab
@@ -162,8 +166,13 @@ export const tracePageLogic = kea<tracePageLogicType>([
                 actions.setMode('spans')
                 actions.setDetailTab('messages')
             }
+            // The page writes its URL on each step, so a later pass here would undo the tab the person picked.
+            if (isNewTrace && tab === 'evals') {
+                actions.setDetailTab('evals')
+            }
             actions.setTraceId(traceId)
-            actions.requestStep(event || null)
+            // An eval link with no event comes from a trace-level run, and only the root shows that run.
+            actions.requestStep(event || (tab === 'evals' ? traceId : null), traceId)
             actions.setOpeningMode(tab === 'summary' ? 'summary' : null)
             actions.setSeedQuery(searchParamFromUrl())
             const dateFrom = timestamp ? parseUrlDate(timestamp) : null
