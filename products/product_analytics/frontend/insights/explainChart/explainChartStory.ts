@@ -1,6 +1,8 @@
 import type { insightLogicValues } from 'scenes/insights/insightLogic'
 
+import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 import type { ExplainChartData } from 'products/product_analytics/mcp/apps/explainChart/explainChartTypes'
+import type { StoryPage } from 'products/product_analytics/mcp/apps/explainChart/storyPages'
 
 const INSIGHT_ID_KEYS = ['insightId', 'insight_id', 'id', 'short_id', 'shortId']
 
@@ -15,6 +17,26 @@ export function explainChartStoryFor(
         return null
     }
     return isExplainChartData(output) ? output : null
+}
+
+export function followUpContextFor(
+    insight: insightLogicValues['insight'],
+    page: StoryPage,
+    step: number
+): AttachedContextItem {
+    const name = insight.name || insight.derived_name || 'this chart'
+    const parts = [
+        `Step ${step} of the chart explanation for the "${name}" insight (${insight.short_id}): ${page.title}.`,
+        page.facts,
+        page.chapter?.summary,
+        page.chapter?.cause && `Likely cause: ${page.chapter.cause}`,
+    ]
+    return {
+        type: 'text',
+        key: `explain-chart-step-${insight.short_id}-${step}`,
+        label: `Step ${step}: ${page.title}`,
+        value: parts.filter(Boolean).join(' '),
+    }
 }
 
 function isExplainChartData(

@@ -47,7 +47,7 @@ export interface ExplainChartViewProps {
     formatValue?: (value: number) => string
     onPageChange?: (change: StoryPageChange) => void
     evidenceCharts?: StoryEvidenceCharts
-    footer?: ReactNode
+    chapterAction?: (page: StoryPage, step: number) => ReactNode
 }
 
 function hasChapter(page: StoryPage): page is StoryPage & { chapter: StoryChapter } {
@@ -77,7 +77,7 @@ export function ExplainChartView({
     formatValue = defaultFormat,
     onPageChange,
     evidenceCharts,
-    footer,
+    chapterAction,
 }: ExplainChartViewProps): ReactElement {
     const pages = useMemo(() => buildStoryPages(data, formatValue), [data, formatValue])
     // With one chapter, a summary page and steps add nothing, so the explanation is that chapter alone.
@@ -222,6 +222,9 @@ export function ExplainChartView({
                                     onPreview={setPreviewIndex}
                                 />
                             )}
+                            {chapterAction && hasChapter(active) && (
+                                <div className="mt-4">{chapterAction(active, activeIndex)}</div>
+                            )}
                         </div>
                         {/* One chapter shows on its own and a chart with none shows its summary alone, so steps add nothing. */}
                         {pages.length > 2 && (
@@ -256,7 +259,6 @@ export function ExplainChartView({
                                 </div>
                             </div>
                         )}
-                        {footer && <div className="border-t border-border px-2 py-1">{footer}</div>}
                     </div>
                 </aside>
             </div>
