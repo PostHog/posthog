@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, afterMount, kea, path, reducers } from 'kea'
 import posthog from 'posthog-js'
 
-import { FeatureFlagKey } from 'lib/constants'
+import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 import { getAppContext } from 'lib/utils/getAppContext'
 
 import { AppContext, PreflightStatus } from '~/types'
@@ -57,6 +57,11 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
         areClientFeatureFlagsHonored(appContext?.preflight ?? null) || process.env.NODE_ENV === 'test'
             ? { ...persistedFlags, ...featureFlags }
             : persistedFlags
+    // PostHog AI 2.0 follows the server's access gate, which also admits beta orgs, so a denied user never sees 2.0 UI.
+    const posthogAiAccess = appContext?.posthog_ai_access
+    if (posthogAiAccess !== undefined) {
+        availableFlags[FEATURE_FLAGS.PHAI_SANDBOX_MODE] = posthogAiAccess
+    }
 
     const serialized = JSON.stringify(availableFlags)
     if (serialized === cachedFlagsSerialized && cachedFlagsProxy) {

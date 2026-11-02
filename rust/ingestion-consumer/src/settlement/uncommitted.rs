@@ -126,6 +126,8 @@ fn publish(topic_partition: &TopicPartition, uncommitted: Held) {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 
     use super::*;
@@ -150,7 +152,10 @@ mod tests {
     }
 
     fn uncommitted() -> Uncommitted {
-        Uncommitted::new(Arc::new(TopicOffsetLedger::new()), CommitPacer::immediate())
+        Uncommitted::new(
+            Arc::new(TopicOffsetLedger::new()),
+            CommitPacer::every(Duration::ZERO),
+        )
     }
 
     fn published(snapshotter: &Snapshotter, topic_partition: &TopicPartition) -> Held {
