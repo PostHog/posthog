@@ -8232,7 +8232,6 @@ export namespace Schemas {
      * * `experiment_results` - Experiment Results
      * * `experiments_list` - Experiments List
      * * `logs_list` - Logs List
-     * * `metrics` - Metrics
      * * `metrics_table` - Metrics Table
      * * `notebook_widget` - Notebook Widget
      * * `session_replay_list` - Session Replay List
@@ -8249,7 +8248,6 @@ export namespace Schemas {
       ExperimentResults: 'experiment_results',
       ExperimentsList: 'experiments_list',
       LogsList: 'logs_list',
-      Metrics: 'metrics',
       MetricsTable: 'metrics_table',
       NotebookWidget: 'notebook_widget',
       SessionReplayList: 'session_replay_list',
@@ -8278,7 +8276,6 @@ export namespace Schemas {
        * * `experiment_results` - Experiment Results
        * * `experiments_list` - Experiments List
        * * `logs_list` - Logs List
-       * * `metrics` - Metrics
        * * `metrics_table` - Metrics Table
        * * `notebook_widget` - Notebook Widget
        * * `session_replay_list` - Session Replay List
@@ -8293,7 +8290,7 @@ export namespace Schemas {
      */
     export interface AddDashboardWidgetsBatchRequestOpenApi {
       /**
-         * Widget tiles to add atomically. Supported widget_type values: activity_events_list, canvas_app, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, metrics, metrics_table, notebook_widget, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
+         * Widget tiles to add atomically. Supported widget_type values: activity_events_list, canvas_app, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, metrics_table, notebook_widget, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
          * @minItems 1
          * @maxItems 10
          */
@@ -12019,193 +12016,7 @@ export namespace Schemas {
       limit?: number;
     }
 
-    export type MetricsAggregation = typeof MetricsAggregation[keyof typeof MetricsAggregation];
-
-
-    export const MetricsAggregation = {
-      Sum: 'sum',
-      Avg: 'avg',
-      Count: 'count',
-      Min: 'min',
-      Max: 'max',
-      Quantile: 'quantile',
-      Rate: 'rate',
-      Increase: 'increase',
-      HistogramQuantile: 'histogram_quantile',
-    } as const;
-
-    export interface MetricsQueryGroupBy {
-      key: string;
-      scope?: MetricsAttributeScope | null;
-    }
-
-    export type MetricsOtelType = typeof MetricsOtelType[keyof typeof MetricsOtelType];
-
-
-    export const MetricsOtelType = {
-      Gauge: 'gauge',
-      Sum: 'sum',
-      Histogram: 'histogram',
-      ExponentialHistogram: 'exponential_histogram',
-      Summary: 'summary',
-    } as const;
-
-    export type MetricsRangeFunction = typeof MetricsRangeFunction[keyof typeof MetricsRangeFunction];
-
-
-    export const MetricsRangeFunction = {
-      Rate: 'rate',
-      Increase: 'increase',
-    } as const;
-
-    export interface MetricsQueryClause {
-      /** Omit to get one line per series (at most 100), without combining them */
-      aggregation?: MetricsAggregation | null;
-      filters?: MetricsQueryFilter[] | null;
-      groupBy?: MetricsQueryGroupBy[] | null;
-      metricName: string;
-      /** Series identity includes the OTel type — one name can exist as e.g. both a counter and a gauge — so a clause pins it to avoid blending distinct series. */
-      metricType?: MetricsOtelType | null;
-      /** Alias a formula refers to (e.g. "a"); must be unique within the query */
-      name: string;
-      /** In (0, 1); required for `quantile` / `histogram_quantile` aggregations */
-      quantile?: number | null;
-      /** Applied to each series before `aggregation`, like `rate()` in PromQL */
-      rangeFunction?: MetricsRangeFunction | null;
-    }
-
-    export type MetricsReducer = typeof MetricsReducer[keyof typeof MetricsReducer];
-
-
-    export const MetricsReducer = {
-      Last: 'last',
-      Mean: 'mean',
-      Min: 'min',
-      Max: 'max',
-      Sum: 'sum',
-      Delta: 'delta',
-    } as const;
-
-    export type MetricsNullMode = typeof MetricsNullMode[keyof typeof MetricsNullMode];
-
-
-    export const MetricsNullMode = {
-      Gap: 'gap',
-      Zero: 'zero',
-      Connect: 'connect',
-    } as const;
-
-    export type MetricsStatSummary = typeof MetricsStatSummary[keyof typeof MetricsStatSummary];
-
-
-    export const MetricsStatSummary = {
-      Latest: 'latest',
-      Average: 'average',
-      Total: 'total',
-    } as const;
-
-    export interface MetricsThreshold {
-      /** A named color token (e.g. "green", "red"), never raw hex, so light and dark themes both work. */
-      color: string;
-      /** Lower bound of this band. The lowest step is the base color below every other step. */
-      value: number;
-    }
-
-    export type MetricsDisplayType = typeof MetricsDisplayType[keyof typeof MetricsDisplayType];
-
-
-    export const MetricsDisplayType = {
-      Line: 'line',
-      Area: 'area',
-      Bar: 'bar',
-      Stat: 'stat',
-      Gauge: 'gauge',
-      Bargauge: 'bargauge',
-      Table: 'table',
-      Heatmap: 'heatmap',
-    } as const;
-
-    export type MetricsAxisScale = typeof MetricsAxisScale[keyof typeof MetricsAxisScale];
-
-
-    export const MetricsAxisScale = {
-      Linear: 'linear',
-      Log: 'log',
-    } as const;
-
-    export interface MetricsYAxisSettings {
-      /** Pins the top of the axis; unset means automatic. Pinning both ends drops the automatic stretch that keeps an off-scale goal line on-plot. */
-      max?: number | null;
-      /** Pins the bottom of the axis; unset means automatic. Ignored while `startAtZero` is on. */
-      min?: number | null;
-      scale?: MetricsAxisScale | null;
-      /** When false the axis floats to the data range instead of starting at zero. Ignored on a logarithmic scale, and on the bar display, where a bar's length encodes magnitude from zero. */
-      startAtZero?: boolean | null;
-    }
-
-    export interface MetricsDisplaySettings {
-      goalLines?: GoalLine[] | null;
-      /** Time-series panels only: which reducers the legend table shows. Empty means no legend calcs. */
-      legendCalcs?: MetricsReducer[] | null;
-      /** How a null bucket renders on a time-series chart. */
-      nullMode?: MetricsNullMode | null;
-      /** How scalar panels and legend calcs collapse a series to one number. */
-      reduce?: MetricsReducer | null;
-      /** `stat` display only: which summary the headline value shows. */
-      statSummary?: MetricsStatSummary | null;
-      /** Color bands for the scalar panels. Sorted by `value` at read time, so entry order does not matter. */
-      thresholds?: MetricsThreshold[] | null;
-      type?: MetricsDisplayType | null;
-      /** UCUM unit string as OTel writes it, e.g. "By", "ms", "%". Defaults from the response unit. */
-      unit?: string | null;
-      yAxis?: MetricsYAxisSettings | null;
-    }
-
-    export type MetricsQueryLanguage = typeof MetricsQueryLanguage[keyof typeof MetricsQueryLanguage];
-
-
-    export const MetricsQueryLanguage = {
-      Builder: 'builder',
-      Promql: 'promql',
-      Sql: 'sql',
-    } as const;
-
-    /**
-     * A `MetricsQuery` as a metrics widget stores it.
-     *
-     * Response, modifier and tag fields are runtime state, so a stored config can't carry them.
-     */
-    export interface MetricsWidgetQuery {
-      /**
-         * Builder series. Empty when `language` is `promql` or `sql`, or until a metric is picked.
-         * @maxItems 10
-         */
-      clauses?: MetricsQueryClause[];
-      /** Defaults to the last 24 hours when omitted; dashboard date filters override it */
-      dateRange?: DateRange | null;
-      /** Chart presentation. A node without it renders as a line chart. */
-      display?: MetricsDisplaySettings | null;
-      /** Arithmetic over clause aliases (e.g. "a / b"); when set, only the formula series are returned */
-      formula?: string | null;
-      /** Bucket size, one of: second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week; auto-picked from the range when omitted. Fixed intervals are coarsened above 500 buckets. A dashboard variable reference such as `$window` pins the interval to its single duration value (15s, 30s, 1m, 5m, 15m, 30m, 1h, 6h, 1d, 1w). Variable intervals that exceed 500 buckets require a larger value or shorter date range, so the step stays consistent with PromQL lookbacks using that variable. */
-      interval?: string | null;
-      kind?: 'MetricsQuery';
-      /** How the query is written; the builder when unset. */
-      language?: MetricsQueryLanguage | null;
-      /** PromQL expression, run as a range query. Used when `language` is `promql`. */
-      promql?: string | null;
-      /** HogQL SELECT over the posthog.metric* tables. Used when `language` is `sql`. It must return a `time` and a `value` column; every other column is a series label. */
-      sql?: string | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export interface MetricsWidgetConfig {
-      /** Metrics query the tile runs and how it draws it (`display.type`: line, area, bar, stat, gauge, bargauge, table or heatmap). `dateRange` is the default window; the dashboard date filter overrides it. A config update replaces the whole query. */
-      query?: MetricsWidgetQuery;
-    }
-
-    export type DashboardWidgetConfig = NotebookWidgetConfig | ActivityEventsListWidgetConfig | ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig | ExperimentsListWidgetConfig | ExperimentResultsWidgetConfig | SurveyResultsWidgetConfig | LogsListWidgetConfig | ConversationsRecentTicketsWidgetConfig | CanvasAppWidgetConfig | MetricsTableWidgetConfig | MetricsWidgetConfig;
+    export type DashboardWidgetConfig = NotebookWidgetConfig | ActivityEventsListWidgetConfig | ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig | ExperimentsListWidgetConfig | ExperimentResultsWidgetConfig | SurveyResultsWidgetConfig | LogsListWidgetConfig | ConversationsRecentTicketsWidgetConfig | CanvasAppWidgetConfig | MetricsTableWidgetConfig;
 
     export interface DashboardWidget {
       readonly id: string;
@@ -30488,7 +30299,6 @@ export namespace Schemas {
        * * `experiment_results` - Experiment Results
        * * `experiments_list` - Experiments List
        * * `logs_list` - Logs List
-       * * `metrics` - Metrics
        * * `metrics_table` - Metrics Table
        * * `notebook_widget` - Notebook Widget
        * * `session_replay_list` - Session Replay List
@@ -30660,8 +30470,6 @@ export namespace Schemas {
          * @nullable
          */
       error: string | null;
-      /** True when `error` explains the failure to the viewer (for example, no access or an invalid query) and can be shown as is. Other errors are generic. */
-      error_is_user_facing?: boolean;
     }
 
     export interface DataCatalogCertification {
@@ -58182,7 +57990,20 @@ export namespace Schemas {
       personal_github_connected: boolean;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface GitHubBranchesResponse {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** List of branch names */
       branches: string[];
       /**
@@ -58337,7 +58158,20 @@ export namespace Schemas {
       installation_status: InstallationStatusEnum;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface GitHubReposResponse {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       repositories: GitHubRepo[];
       /** Whether more repositories are available beyond this page. */
       has_more: boolean;
@@ -58375,7 +58209,20 @@ export namespace Schemas {
       name: string;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface GitHubTeamsResponse {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** List of GitHub teams available to the installation organization. */
       teams: GitHubTeam[];
       /** Whether more teams are available beyond this page. */
@@ -62696,6 +62543,157 @@ export namespace Schemas {
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
+
+    export type MetricsAggregation = typeof MetricsAggregation[keyof typeof MetricsAggregation];
+
+
+    export const MetricsAggregation = {
+      Sum: 'sum',
+      Avg: 'avg',
+      Count: 'count',
+      Min: 'min',
+      Max: 'max',
+      Quantile: 'quantile',
+      Rate: 'rate',
+      Increase: 'increase',
+      HistogramQuantile: 'histogram_quantile',
+    } as const;
+
+    export interface MetricsQueryGroupBy {
+      key: string;
+      scope?: MetricsAttributeScope | null;
+    }
+
+    export type MetricsOtelType = typeof MetricsOtelType[keyof typeof MetricsOtelType];
+
+
+    export const MetricsOtelType = {
+      Gauge: 'gauge',
+      Sum: 'sum',
+      Histogram: 'histogram',
+      ExponentialHistogram: 'exponential_histogram',
+      Summary: 'summary',
+    } as const;
+
+    export type MetricsRangeFunction = typeof MetricsRangeFunction[keyof typeof MetricsRangeFunction];
+
+
+    export const MetricsRangeFunction = {
+      Rate: 'rate',
+      Increase: 'increase',
+    } as const;
+
+    export interface MetricsQueryClause {
+      /** Omit to get one line per series (at most 100), without combining them */
+      aggregation?: MetricsAggregation | null;
+      filters?: MetricsQueryFilter[] | null;
+      groupBy?: MetricsQueryGroupBy[] | null;
+      metricName: string;
+      /** Series identity includes the OTel type — one name can exist as e.g. both a counter and a gauge — so a clause pins it to avoid blending distinct series. */
+      metricType?: MetricsOtelType | null;
+      /** Alias a formula refers to (e.g. "a"); must be unique within the query */
+      name: string;
+      /** In (0, 1); required for `quantile` / `histogram_quantile` aggregations */
+      quantile?: number | null;
+      /** Applied to each series before `aggregation`, like `rate()` in PromQL */
+      rangeFunction?: MetricsRangeFunction | null;
+    }
+
+    export type MetricsReducer = typeof MetricsReducer[keyof typeof MetricsReducer];
+
+
+    export const MetricsReducer = {
+      Last: 'last',
+      Mean: 'mean',
+      Min: 'min',
+      Max: 'max',
+      Sum: 'sum',
+      Delta: 'delta',
+    } as const;
+
+    export type MetricsNullMode = typeof MetricsNullMode[keyof typeof MetricsNullMode];
+
+
+    export const MetricsNullMode = {
+      Gap: 'gap',
+      Zero: 'zero',
+      Connect: 'connect',
+    } as const;
+
+    export type MetricsStatSummary = typeof MetricsStatSummary[keyof typeof MetricsStatSummary];
+
+
+    export const MetricsStatSummary = {
+      Latest: 'latest',
+      Average: 'average',
+      Total: 'total',
+    } as const;
+
+    export interface MetricsThreshold {
+      /** A named color token (e.g. "green", "red"), never raw hex, so light and dark themes both work. */
+      color: string;
+      /** Lower bound of this band. The lowest step is the base color below every other step. */
+      value: number;
+    }
+
+    export type MetricsDisplayType = typeof MetricsDisplayType[keyof typeof MetricsDisplayType];
+
+
+    export const MetricsDisplayType = {
+      Line: 'line',
+      Area: 'area',
+      Bar: 'bar',
+      Stat: 'stat',
+      Gauge: 'gauge',
+      Bargauge: 'bargauge',
+      Table: 'table',
+      Heatmap: 'heatmap',
+    } as const;
+
+    export type MetricsAxisScale = typeof MetricsAxisScale[keyof typeof MetricsAxisScale];
+
+
+    export const MetricsAxisScale = {
+      Linear: 'linear',
+      Log: 'log',
+    } as const;
+
+    export interface MetricsYAxisSettings {
+      /** Pins the top of the axis; unset means automatic. Pinning both ends drops the automatic stretch that keeps an off-scale goal line on-plot. */
+      max?: number | null;
+      /** Pins the bottom of the axis; unset means automatic. Ignored while `startAtZero` is on. */
+      min?: number | null;
+      scale?: MetricsAxisScale | null;
+      /** When false the axis floats to the data range instead of starting at zero. Ignored on a logarithmic scale, and on the bar display, where a bar's length encodes magnitude from zero. */
+      startAtZero?: boolean | null;
+    }
+
+    export interface MetricsDisplaySettings {
+      goalLines?: GoalLine[] | null;
+      /** Time-series panels only: which reducers the legend table shows. Empty means no legend calcs. */
+      legendCalcs?: MetricsReducer[] | null;
+      /** How a null bucket renders on a time-series chart. */
+      nullMode?: MetricsNullMode | null;
+      /** How scalar panels and legend calcs collapse a series to one number. */
+      reduce?: MetricsReducer | null;
+      /** `stat` display only: which summary the headline value shows. */
+      statSummary?: MetricsStatSummary | null;
+      /** Color bands for the scalar panels. Sorted by `value` at read time, so entry order does not matter. */
+      thresholds?: MetricsThreshold[] | null;
+      type?: MetricsDisplayType | null;
+      /** UCUM unit string as OTel writes it, e.g. "By", "ms", "%". Defaults from the response unit. */
+      unit?: string | null;
+      yAxis?: MetricsYAxisSettings | null;
+    }
+
+    export type MetricsQueryLanguage = typeof MetricsQueryLanguage[keyof typeof MetricsQueryLanguage];
+
+
+    export const MetricsQueryLanguage = {
+      Builder: 'builder',
+      Promql: 'promql',
+      Sql: 'sql',
+    } as const;
 
     export interface MetricsQueryPoint {
       /** Bucket start, ISO 8601 */
@@ -73873,37 +73871,6 @@ export namespace Schemas {
       MetricsTable: 'metrics_table',
     } as const;
 
-    export type MetricsWidgetCatalogEntryOpenApiWidgetType = typeof MetricsWidgetCatalogEntryOpenApiWidgetType[keyof typeof MetricsWidgetCatalogEntryOpenApiWidgetType];
-
-
-    export const MetricsWidgetCatalogEntryOpenApiWidgetType = {
-      Metrics: 'metrics',
-    } as const;
-
-    export interface MetricsWidgetCatalogEntryOpenApi {
-      widget_type: MetricsWidgetCatalogEntryOpenApiWidgetType;
-      group_id: string;
-      group_label: string;
-      label: string;
-      description: string;
-      /** Config shape for this widget type. Build the config for the batch add and batch update tools from it, because their schemas do not list config keys. */
-      readonly config_schema: MetricsWidgetConfig;
-      /** @nullable */
-      required_product_access?: string | null;
-      /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
-      live: boolean;
-    }
-
-    /**
-     * * `metrics` - metrics
-     */
-    export type MetricsWidgetTypeEnum = typeof MetricsWidgetTypeEnum[keyof typeof MetricsWidgetTypeEnum];
-
-
-    export const MetricsWidgetTypeEnum = {
-      Metrics: 'metrics',
-    } as const;
-
     export interface MicrosoftDefenderCloudAppsScannerFindingSignalExtra {
       severity_value: string | null;
       resolution_status_value: string | null;
@@ -75881,7 +75848,20 @@ export namespace Schemas {
       prompt_version: string | null;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface OfflineExperimentPage {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Total authorized rows matching the filters, independent of this page. */
       count: number;
       /**
@@ -76017,7 +75997,20 @@ export namespace Schemas {
       summary: OfflineScorerSummary;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface OfflineHistoryPage {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Total authorized rows matching the filters, independent of this page. */
       count: number;
       /**
@@ -76146,7 +76139,20 @@ export namespace Schemas {
       results: OfflineResultCell[];
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface OfflineItemPage {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Total authorized rows matching the filters, independent of this page. */
       count: number;
       /**
@@ -76233,7 +76239,20 @@ export namespace Schemas {
       scorer: OfflineScorerVersionRead;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface OfflineResultPage {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Total authorized rows matching the filters, independent of this page. */
       count: number;
       /**
@@ -76265,7 +76284,20 @@ export namespace Schemas {
       data: OfflineEvaluationResultPayloadInput | null;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface OfflineSummaryPage {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Total authorized rows matching the filters, independent of this page. */
       count: number;
       /**
@@ -77883,6 +77915,7 @@ export namespace Schemas {
     }
 
     export interface PaginatedCommentList {
+      count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
@@ -78829,12 +78862,32 @@ export namespace Schemas {
     }
 
     export interface PaginatedMCPSessionList {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      next: string | null;
+      /**
+         * URL of the previous page, or null on the first page.
+         * @nullable
+         */
+      previous: string | null;
       results: MCPSession[];
       /** Whether more results exist beyond this page; the client fetches the next page with a larger offset. */
       has_next: boolean;
     }
 
     export interface PaginatedMCPToolCallList {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      next: string | null;
+      /**
+         * URL of the previous page, or null on the first page.
+         * @nullable
+         */
+      previous: string | null;
       results: MCPToolCall[];
       /** Whether more results exist beyond this page; the client fetches the next page with a larger offset. */
       has_next: boolean;
@@ -93648,8 +93701,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-         * @maxItems 14
+         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+         * @maxItems 15
          */
       write_scopes?: string[];
       /**
@@ -95507,7 +95560,6 @@ export namespace Schemas {
        * * `experiment_results` - Experiment Results
        * * `experiments_list` - Experiments List
        * * `logs_list` - Logs List
-       * * `metrics` - Metrics
        * * `metrics_table` - Metrics Table
        * * `notebook_widget` - Notebook Widget
        * * `session_replay_list` - Session Replay List
@@ -106703,7 +106755,20 @@ export namespace Schemas {
       updated_at: string;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface ReusableWidgetPage {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Reusable widgets in this page. */
       results: ReusableWidgetSummary[];
       /** Total reusable widgets matching the search. */
@@ -106748,7 +106813,20 @@ export namespace Schemas {
       expected_current_version_id: string;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface ReusableWidgetVersionPage {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Published versions, newest first. */
       results: ReusableWidgetVersionDetail[];
       /** Total number of published versions. */
@@ -107881,7 +107959,20 @@ export namespace Schemas {
       body: string;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface ReviewReviewsTablePage {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** How many reviews match the scope and every filter, across all pages. */
       count: number;
       /** How many reviews have a run in flight under the scope and filters, ignoring `status`. Labels the running quick filter without a second request. */
@@ -108844,8 +108935,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-         * @maxItems 14
+         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+         * @maxItems 15
          */
       write_scopes?: string[];
       /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
@@ -109160,8 +109251,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-         * @maxItems 14
+         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+         * @maxItems 15
          */
       readonly write_scopes: readonly string[];
       /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
@@ -109442,7 +109533,20 @@ export namespace Schemas {
       readonly created_by: UserBasic | null;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface ScoreDefinitionVersionPage {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Total immutable versions for this scorer. */
       count: number;
       /**
@@ -112859,8 +112963,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-         * @maxItems 14
+         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+         * @maxItems 15
          */
       write_scopes?: string[];
       /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
@@ -113467,7 +113571,20 @@ export namespace Schemas {
       is_private_without_access: boolean;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface SlackChannelsResponse {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Slack channels visible to the PostHog Slack app. */
       channels: SlackChannel[];
       /**
@@ -113660,7 +113777,20 @@ export namespace Schemas {
       display_name: string;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface SlackUsersResponse {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Human Slack workspace members the PostHog Slack app can DM. */
       users: SlackUser[];
       /**
@@ -119461,7 +119591,20 @@ export namespace Schemas {
       extra: SurveyResponseExtra;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface SurveyResponsesList {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Survey response rows for the requested page. */
       results: SurveyResponseRow[];
       /** True if more rows exist beyond the current page — fetch the next page with offset + limit. */
@@ -120089,6 +120232,16 @@ export namespace Schemas {
          * @nullable
          */
       next_before_id?: string | null;
+      /**
+         * URL of the next page, with before and before_id set, or null on the final page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * Always null: the feed pages forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
     }
 
     /**
@@ -125454,7 +125607,7 @@ export namespace Schemas {
       generation_id: string;
     }
 
-    export type WidgetCatalogEntry = NotebookWidgetCatalogEntryOpenApi | ActivityEventsListWidgetCatalogEntryOpenApi | ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi | ExperimentsListWidgetCatalogEntryOpenApi | ExperimentResultsWidgetCatalogEntryOpenApi | SurveyResultsWidgetCatalogEntryOpenApi | LogsListWidgetCatalogEntryOpenApi | ConversationsRecentTicketsWidgetCatalogEntryOpenApi | CanvasAppWidgetCatalogEntryOpenApi | MetricsTableWidgetCatalogEntryOpenApi | MetricsWidgetCatalogEntryOpenApi;
+    export type WidgetCatalogEntry = NotebookWidgetCatalogEntryOpenApi | ActivityEventsListWidgetCatalogEntryOpenApi | ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi | ExperimentsListWidgetCatalogEntryOpenApi | ExperimentResultsWidgetCatalogEntryOpenApi | SurveyResultsWidgetCatalogEntryOpenApi | LogsListWidgetCatalogEntryOpenApi | ConversationsRecentTicketsWidgetCatalogEntryOpenApi | CanvasAppWidgetCatalogEntryOpenApi | MetricsTableWidgetCatalogEntryOpenApi;
 
     export interface WidgetCatalogResponse {
       /** Registered dashboard widget types. */
@@ -125832,7 +125985,20 @@ export namespace Schemas {
       build_hash: string | null;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface WidgetVersionPage {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Versions ordered newest first. */
       results: WidgetVersion[];
       /**
@@ -133998,15 +134164,7 @@ export namespace Schemas {
     } as const;
 
     export type DashboardsRunWidgetsRetrieveParams = {
-    /**
-     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
-     */
-    filters_override?: string;
     format?: DashboardsRunWidgetsRetrieveFormat;
-    /**
-     * Recompute widgets that follow dashboard filters (such as metrics) instead of serving their query cache, as a manual refresh of an insight tile does.
-     */
-    refresh?: boolean;
     /**
      * Comma-separated dashboard tile IDs to run widgets for.
      */
@@ -134164,7 +134322,6 @@ export namespace Schemas {
       ExperimentResults: 'experiment_results',
       ExperimentsList: 'experiments_list',
       LogsList: 'logs_list',
-      Metrics: 'metrics',
       MetricsTable: 'metrics_table',
       NotebookWidget: 'notebook_widget',
       SessionReplayList: 'session_replay_list',
