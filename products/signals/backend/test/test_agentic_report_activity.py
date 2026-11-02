@@ -39,7 +39,6 @@ from products.signals.backend.artefact_schemas import (
 from products.signals.backend.enums import ReportLinkKind, SignalSourceProduct, SignalSourceType
 from products.signals.backend.models import (
     ArtefactAttribution,
-    SignalEmissionRecord,
     SignalReport,
     SignalReportArtefact,
     SignalReportCheck,
@@ -1091,20 +1090,7 @@ async def test_run_agentic_report_activity_persists_artefacts(
                         extra={"report_id": str(other.id), "attempt_id": str(other_attempt.id)},
                     )
                 )
-    owner_id = str(uuid4()) if monitoring else None
     if monitoring:
-        await SignalReport.objects.filter(team=ateam, id=report.id).aupdate(triggering_signal_id=owner_id)
-        for source in signals:
-            if source.source_product == SignalSourceProduct.SIGNALS_CHECK:
-                await SignalEmissionRecord.objects.acreate(
-                    team=ateam,
-                    source_product=source.source_product,
-                    source_type=source.source_type,
-                    source_id=str(source.extra["attempt_id"]),
-                    signal_id=source.signal_id,
-                    report_id=str(report.id),
-                    emitted_at=timezone.now(),
-                )
 
         def public_source_context() -> None:
             Integration.objects.create(
@@ -1180,7 +1166,7 @@ async def test_run_agentic_report_activity_persists_artefacts(
         activity_input = RunAgenticReportInput(
             team_id=ateam.id,
             report_id=str(report.id),
-            signal_id=owner_id,
+            signal_id=signals[0].signal_id if monitoring else None,
             signals=signals,
             repo_selection=RepoSelectionResult(
                 repository="posthog/posthog", reason="Single repository connected: posthog/posthog"
@@ -1197,12 +1183,6 @@ async def test_run_agentic_report_activity_persists_artefacts(
             return
         result = await run_agentic_report_activity(activity_input)
         assert not await SignalReportArtefact.objects.filter(report=report, type="safety_judgment").aexists()
-        if monitoring:
-            assert (
-                await SignalReportMonitoringAttempt.objects.for_team(ateam.id)
-                .filter(id=attempt.id, research_delivery_status="delivered")
-                .aexists()
-            )
 
         assert result.title == "Onboarding funnel completion tracking may be regressing"
         selection = await SignalReportArtefact.alatest_content(

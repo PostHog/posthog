@@ -75,7 +75,6 @@ from products.signals.backend.report_monitoring_provenance import monitoring_rep
 from products.signals.backend.report_monitoring_signals import (
     MONITORING_EVIDENCE_MAX_CHARS,
     MONITORING_EVIDENCE_MIN_CHARS,
-    acknowledge_monitoring_research,
     monitoring_research_evidence,
 )
 from products.signals.backend.report_steering import ReportSteering, load_research_steering
@@ -716,8 +715,6 @@ def _append_agentic_report_artefacts(
     artefacts: list[ArtefactDraft],
     priority_judgment_id: UUID | None = None,
     reviewer_proposal: ReviewerProposal | None = None,
-    owner_signal_id: str | None = None,
-    monitoring_signal_ids: list[str] | None = None,
 ) -> bool:
     # Append-only: each (re-promotion) run adds a new version of its artefacts rather than
     # replacing the previous ones. The report's current judgments / repo selection / reviewers are
@@ -736,7 +733,7 @@ def _append_agentic_report_artefacts(
     service = ReviewerRules(team=Team.objects.get(id=team_id), report_id=report_id)
     with transaction.atomic():
         # Priority edits take the same lock, so a correction cannot arrive between this check and append.
-        report = SignalReport.objects.select_for_update().get(id=report_id, team_id=team_id)
+        SignalReport.objects.select_for_update().get(id=report_id, team_id=team_id)
         priority_adjusted_mid_run = any(isinstance(draft.content, PriorityAssessment) for draft in artefacts) and (
             _priority_adjusted_since(team_id, report_id, priority_judgment_id)
         )
@@ -769,9 +766,6 @@ def _append_agentic_report_artefacts(
                 reevaluate_autostart=False,
             )
             wrote_reviewers |= isinstance(draft.content, SuggestedReviewers)
-        acknowledge_monitoring_research(
-            report=report, owner_signal_id=owner_signal_id, signal_ids=monitoring_signal_ids or []
-        )
     return wrote_reviewers
 
 
@@ -834,8 +828,6 @@ async def _persist_agentic_report_artefacts(
     priority_judgment_id: UUID | None = None,
     reviewer_proposal: ReviewerProposal | None = None,
     reviewer_selection_enabled: bool = False,
-    owner_signal_id: str | None = None,
-    monitoring_signal_ids: list[str] | None = None,
 ) -> None:
     reviewer_resolution = None
     reviewers_content: list[ReviewerContent] = []
@@ -1001,8 +993,6 @@ async def _persist_agentic_report_artefacts(
         artefacts=artefacts,
         priority_judgment_id=priority_judgment_id,
         reviewer_proposal=reviewer_proposal,
-        owner_signal_id=owner_signal_id,
-        monitoring_signal_ids=monitoring_signal_ids,
     )
 
     # Telemetry mirrors persistence: fires when a suggested_reviewers artefact was appended
@@ -1363,13 +1353,6 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
                 priority_judgment_id=priority_judgment_id,
                 reviewer_proposal=reviewer_proposal,
                 reviewer_selection_enabled=reviewer_selection_enabled,
-                owner_signal_id=input.signal_id,
-                monitoring_signal_ids=[
-                    signal.signal_id
-                    for signal in input.signals
-                    if signal.source_product == SignalSourceProduct.SIGNALS_CHECK
-                    and signal.source_type == SignalSourceType.MONITORING_UNRESOLVED
-                ],
             )
         actionability = result.effective_actionability()
         priority = result.effective_priority()

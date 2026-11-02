@@ -6,10 +6,8 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
-from django.db import transaction
 from django.utils import timezone
 
-from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
@@ -27,18 +25,11 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.report_monitoring_signals import (
     MONITORING_EVIDENCE_MAX_CHARS,
-    acknowledge_monitoring_research,
     emit_monitoring_research,
     monitoring_research_evidence,
 )
-from products.signals.backend.spend import complete_signal_pipeline
 from products.signals.backend.tasks import sweep_monitoring_research_requests
 from products.signals.backend.temporal.emitter import SignalEmitterInput
-from products.signals.backend.temporal.safety_filter import (
-    SafetyFilterInput,
-    SafetyFilterJudgeResponse,
-    safety_filter_activity,
-)
 
 
 class TestMonitoringSignals(BaseTest):
@@ -82,121 +73,86 @@ class TestMonitoringSignals(BaseTest):
             if isinstance(call.args[1], SignalEmitterInput)
         ]
 
-    def test_monitoring_request_uses_the_normal_emitter_with_stable_identity(self) -> None:
+    def test_monitoring_request_hands_off_once_to_the_normal_emitter(self) -> None:
         self.emit()
         self.emit()
         signals = [item.signal for item in self.emitted()]
-        assert len(signals) == 2
-        assert signals[0].signal_id == signals[1].signal_id
-        assert (
-            self.temporal_client.start_workflow.call_args_list[0].kwargs["id"]
-            != self.temporal_client.start_workflow.call_args_list[1].kwargs["id"]
-        )
+        assert len(signals) == 1
         assert signals[0].source_product == SignalSourceProduct.SIGNALS_CHECK
         assert signals[0].source_type == SignalSourceType.MONITORING_UNRESOLVED
         assert signals[0].source_id == str(self.attempt.id)
+        assert signals[0].sync_with_source
         assert signals[0].weight == 1.0
         assert signals[0].extra["report_id"] == str(self.report.id)
         assert signals[0].extra["attempt_id"] == str(self.attempt.id)
         assert "Uncertainty does not establish an implementation defect" in signals[0].description
-        assert (
-            SignalEmissionRecord.objects.filter(
-                team=self.team, source_id=str(self.attempt.id), report_id__isnull=True
-            ).count()
-            == 1
-        )
         self.report.refresh_from_db()
         self.attempt.refresh_from_db()
         assert self.report.status == "closed"
-        assert self.attempt.research_requested_at == self.now
+        assert self.attempt.research_processed_at == self.now
+        assert not SignalEmissionRecord.objects.filter(team=self.team).exists()
 
-    def test_missed_emission_recovers_until_researched(self) -> None:
+    def test_failed_handoff_recovers_with_the_same_emitter_identity(self) -> None:
         self.temporal_client.start_workflow.side_effect = RuntimeError("Temporal unavailable")
         with self.assertRaisesRegex(RuntimeError, "Temporal unavailable"):
             self.emit()
+        self.attempt.refresh_from_db()
+        assert self.attempt.research_processed_at is None
         self.temporal_client.start_workflow.side_effect = None
         sweep_monitoring_research_requests.apply(throw=True)
         assert self.emitted() == []
         with time_machine.travel(self.now + timedelta(minutes=6), tick=False):
             sweep_monitoring_research_requests.apply(throw=True)
         assert len(self.emitted()) == 1
-        target = SignalReport.objects.create(team=self.team, status="ready")
-        SignalEmissionRecord.objects.filter(team=self.team, source_id=str(self.attempt.id)).update(
-            report_id=str(target.id)
+        SignalReportMonitoringAttempt.objects.for_team(self.team.id).filter(id=self.attempt.id).update(
+            research_processed_at=None
         )
         with time_machine.travel(self.now + timedelta(minutes=12), tick=False):
             sweep_monitoring_research_requests.apply(throw=True)
-        assert len(self.emitted()) == 2
-        signal_id = self.emitted()[0].signal.signal_id
-        assert signal_id
-        SignalReport.objects.filter(team=self.team, id=target.id).update(triggering_signal_id=signal_id)
-        with transaction.atomic():
-            target = SignalReport.objects.select_for_update().get(team=self.team, id=target.id)
-            acknowledge_monitoring_research(report=target, owner_signal_id=str(uuid4()), signal_ids=[signal_id])
-            self.attempt.refresh_from_db()
-            assert self.attempt.research_delivery_status == "pending"
-            acknowledge_monitoring_research(report=target, owner_signal_id=signal_id, signal_ids=[signal_id])
+        emitted = self.emitted()
+        assert len(emitted) == 2
+        assert emitted[0].signal.signal_id == emitted[1].signal.signal_id
+        workflow_ids = [
+            call.kwargs["id"]
+            for call in self.temporal_client.start_workflow.call_args_list
+            if isinstance(call.args[1], SignalEmitterInput)
+        ]
+        assert workflow_ids[0] == workflow_ids[1]
         with time_machine.travel(self.now + timedelta(minutes=18), tick=False):
             sweep_monitoring_research_requests.apply(throw=True)
         assert len(self.emitted()) == 2
-        self.attempt.refresh_from_db()
-        assert self.attempt.research_delivery_status == "delivered"
 
-    @parameterized.expand([("rejected", "rejected"), ("unknown_finalization", None)])
-    def test_finalized_delivery_does_not_restart_without_recorded_retryable_failure(
-        self, _name: str, outcome: str | None
-    ) -> None:
+    @parameterized.expand([("consent",), ("monitoring",)])
+    def test_processing_gates_defer_without_creating_spend_or_receipt(self, gate: str) -> None:
+        if gate == "consent":
+            self.organization.is_ai_data_processing_approved = False
+            self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        else:
+            self.flag.return_value = False
         self.emit()
-        signal_id = self.emitted()[0].signal.signal_id
-        assert signal_id
-        if outcome:
-            with patch(
-                "products.signals.backend.temporal.safety_filter.safety_filter",
-                new=AsyncMock(
-                    return_value=SafetyFilterJudgeResponse(
-                        safe=False, threat_type="instruction_override", explanation="Contains an instruction override"
-                    )
-                ),
-            ):
-                result = async_to_sync(safety_filter_activity)(
-                    SafetyFilterInput(
-                        team_id=self.team.id,
-                        signal_id=signal_id,
-                        source_id=str(self.attempt.id),
-                        source_product="signals_check",
-                        source_type="monitoring_unresolved",
-                        description="Untrusted monitoring evidence",
-                    )
-                )
-                assert not result.safe
-        complete_signal_pipeline(team_id=self.team.id, signal_id=signal_id)
-        with time_machine.travel(self.now + timedelta(minutes=6), tick=False):
-            sweep_monitoring_research_requests.apply(throw=True)
-        assert len(self.emitted()) == 1
         self.attempt.refresh_from_db()
-        assert self.attempt.research_delivery_status == (outcome or "failed")
-
-    def test_unapproved_processing_defers_without_creating_spend_or_receipt(self) -> None:
-        self.organization.is_ai_data_processing_approved = False
-        self.organization.save(update_fields=["is_ai_data_processing_approved"])
-        self.emit()
+        assert self.attempt.research_processed_at is None
         assert not SignalSpend.objects.for_team(self.team.id).exists()
         assert not SignalEmissionRecord.objects.filter(team=self.team).exists()
         self.organization.is_ai_data_processing_approved = True
         self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        self.flag.return_value = True
         with time_machine.travel(self.now + timedelta(minutes=6), tick=False):
             sweep_monitoring_research_requests.apply(throw=True)
         assert len(self.emitted()) == 1
 
-    def test_disabled_monitoring_preserves_the_request_until_enabled(self) -> None:
-        self.flag.return_value = False
+    @parameterized.expand([("reopened",), ("new_attempt",)])
+    def test_obsolete_request_is_processed_without_emitting(self, change: str) -> None:
+        if change == "reopened":
+            self.report.status = SignalReport.Status.READY
+            self.report.save(update_fields=["status"])
+        else:
+            self.report.monitoring_started_at = self.now + timedelta(hours=1)
+            self.report.save(update_fields=["monitoring_started_at"])
         self.emit()
-        assert self.emitted() == []
         self.attempt.refresh_from_db()
-        assert self.attempt.research_requested_at == self.now
-        self.flag.return_value = True
-        self.emit()
-        assert len(self.emitted()) == 1
+        assert self.attempt.research_processed_at == self.now
+        assert self.emitted() == []
 
     def test_query_protected_measurements_stay_out_of_persisted_prompt_inputs(self) -> None:
         value = 7319.25

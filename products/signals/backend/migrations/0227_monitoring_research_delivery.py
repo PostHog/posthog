@@ -12,20 +12,8 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="signalreportmonitoringattempt",
-            name="research_delivery_status",
-            field=models.CharField(
-                blank=True,
-                choices=[
-                    ("pending", "Pending"),
-                    ("retryable", "Retryable"),
-                    ("delivered", "Delivered"),
-                    ("rejected", "Rejected"),
-                    ("cancelled", "Cancelled"),
-                    ("failed", "Failed"),
-                ],
-                max_length=16,
-                null=True,
-            ),
+            name="research_processed_at",
+            field=models.DateTimeField(blank=True, null=True),
         ),
         migrations.AddField(
             model_name="signalreportmonitoringattempt",

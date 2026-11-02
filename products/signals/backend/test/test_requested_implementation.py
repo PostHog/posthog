@@ -1,11 +1,9 @@
 from types import SimpleNamespace
-from uuid import uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.db import transaction
-from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -17,14 +15,7 @@ from products.signals.backend.auto_start import (
     RequestedImplementationUnavailable,
     start_requested_implementation,
 )
-from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
-from products.signals.backend.models import (
-    SignalEmissionRecord,
-    SignalReport,
-    SignalReportArtefact,
-    SignalReportTask,
-    SignalSpend,
-)
+from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask, SignalSpend
 from products.signals.backend.report_generation.research import ActionabilityAssessment, ActionabilityChoice
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.spend import record_task_spend
@@ -95,19 +86,7 @@ class TestRequestedImplementation(BaseTest):
             after_run_count=1,
         )
 
-    @parameterized.expand([("normal", False), ("monitoring_follow_up", True)])
-    def test_resumes_existing_task_once_with_fresh_research(self, _name: str, monitoring: bool) -> None:
-        if monitoring:
-            SignalEmissionRecord.objects.create(
-                team=self.team,
-                source_product=SignalSourceProduct.SIGNALS_CHECK,
-                source_type=SignalSourceType.MONITORING_UNRESOLVED,
-                source_id=str(uuid4()),
-                signal_id=str(uuid4()),
-                report_id=str(self.report.id),
-                emitted_at=timezone.now(),
-            )
-
+    def test_resumes_existing_task_once_with_fresh_research(self) -> None:
         def fake_run_task(*args: object, **kwargs: object) -> SimpleNamespace:
             new_run = TaskRun.objects.create(
                 team=self.team,

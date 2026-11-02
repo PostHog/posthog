@@ -1418,11 +1418,6 @@ class SignalEmissionRecord(UUIDModel):
                 fields=["team", "source_product", "source_type"],
                 name="signals_emission_lookup_idx",
             ),
-            models.Index(
-                fields=["team", "report_id", "emitted_at", "id"],
-                condition=models.Q(source_product="signals_check", source_type="monitoring_unresolved"),
-                name="signals_monitoring_report_idx",
-            ),
         ]
 
 
@@ -2686,23 +2681,6 @@ class SignalReportCheck(UUIDModel):
 
 
 class SignalReportMonitoringAttempt(UUIDModel):
-    class ResearchDeliveryStatus(models.TextChoices):
-        PENDING = "pending"
-        RETRYABLE = "retryable"
-        DELIVERED = "delivered"
-        REJECTED = "rejected"
-        CANCELLED = "cancelled"
-        FAILED = "failed"
-
-    @classmethod
-    def pending_research_filter(cls) -> models.Q:
-        return models.Q(research_requested_at__isnull=False) & (
-            models.Q(research_delivery_status__isnull=True)
-            | models.Q(
-                research_delivery_status__in=[cls.ResearchDeliveryStatus.PENDING, cls.ResearchDeliveryStatus.RETRYABLE]
-            )
-        )
-
     # Attempt evidence belongs to the report's environment, not its canonical project.
     objects = EnvironmentScopedManager()
 
@@ -2716,7 +2694,7 @@ class SignalReportMonitoringAttempt(UUIDModel):
     aggregation_checked_at = models.DateTimeField(null=True, blank=True)
     assessment_requested_at = models.DateTimeField(null=True, blank=True)
     research_requested_at = models.DateTimeField(null=True, blank=True)
-    research_delivery_status = models.CharField(max_length=16, choices=ResearchDeliveryStatus, null=True, blank=True)
+    research_processed_at = models.DateTimeField(null=True, blank=True)
     research_next_attempt_at = models.DateTimeField(null=True, blank=True)
     tracker_issue_close_requested_at = models.DateTimeField(null=True, blank=True)
     tracker_issue_close_processed_at = models.DateTimeField(null=True, blank=True)
@@ -2742,11 +2720,7 @@ class SignalReportMonitoringAttempt(UUIDModel):
                 models.F("research_next_attempt_at").asc(nulls_first=True),
                 models.F("research_requested_at"),
                 models.F("id"),
-                condition=models.Q(research_requested_at__isnull=False)
-                & (
-                    models.Q(research_delivery_status__isnull=True)
-                    | models.Q(research_delivery_status__in=["pending", "retryable"])
-                ),
+                condition=models.Q(research_requested_at__isnull=False, research_processed_at__isnull=True),
                 name="signals_pending_research",
             ),
         ]

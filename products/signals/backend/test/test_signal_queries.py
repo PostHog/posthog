@@ -35,7 +35,6 @@ from products.signals.backend.models import (
     SignalEmissionRecord,
     SignalReport,
     SignalReportArtefact,
-    SignalReportMonitoringAttempt,
     SignalReportPullRequest,
     SignalSpend,
 )
@@ -531,20 +530,6 @@ class TestFetchSignalsForReportSync(_SignalEmbeddingsTestBase):
             triggering_signal_id=required_id,
             pending_triggering_signal_id=pending_id,
         )
-        monitoring_id = signal_ids[-3]
-        origin = SignalReport.objects.create(team=self.team, status="closed")
-        attempt = SignalReportMonitoringAttempt.objects.for_team(self.team.id).create(
-            team=self.team, report=origin, monitoring_started_at=timezone.now(), research_requested_at=timezone.now()
-        )
-        SignalEmissionRecord.objects.create(
-            team=self.team,
-            source_product="signals_check",
-            source_type="monitoring_unresolved",
-            source_id=str(attempt.id),
-            emitted_at=timezone.now(),
-            signal_id=monitoring_id,
-            report_id=str(report.id),
-        )
         for index, signal_id in enumerate(signal_ids):
             self._emit_version(
                 document_id=signal_id,
@@ -565,7 +550,6 @@ class TestFetchSignalsForReportSync(_SignalEmbeddingsTestBase):
         fetched_ids = {signal.signal_id for signal in result.signals}
         assert len(result.signals) == 100
         assert required_id in fetched_ids
-        assert monitoring_id in fetched_ids
         assert (pending_id in fetched_ids) is pending_visible
         assert result.processed_pending_signal_id == (pending_id if pending_visible else None)
         assert [signal.timestamp for signal in result.signals] == sorted(signal.timestamp for signal in result.signals)
