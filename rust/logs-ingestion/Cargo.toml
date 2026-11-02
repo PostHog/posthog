@@ -1,0 +1,18 @@
+[package]
+name = "logs-ingestion"
+version = "0.1.0"
+edition = "2021"
+description = "Rust port of the Node logs ingestion consumer (nodejs/src/logs), kept 1:1 with it by the shared parity corpus"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+rand = { workspace = true }
+thiserror = { workspace = true }
+zstd = { workspace = true }
+
+[dev-dependencies]
+base64 = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }

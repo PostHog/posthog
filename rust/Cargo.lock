@@ -6552,6 +6552,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "ingestion-framework"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "criterion",
+ "futures",
+ "indexmap 2.13.0",
+ "metrics",
+ "metrics-util",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "ingestion-worker-proto"
 version = "0.1.0"
 dependencies = [
@@ -7593,6 +7614,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
 dependencies = [
  "value-bag",
+]
+
+[[package]]
+name = "logs-ingestion"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "rand 0.8.5",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.18",
+ "zstd 0.13.3",
 ]
 
 [[package]]

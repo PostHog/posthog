@@ -1,0 +1,185 @@
+//! Port of `retry.ts` and `retryIfRetriable` from `~/common/utils/retries`.
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use rand::Rng;
+use tokio::time::Instant;
+
+use crate::errors::is_retriable;
+use crate::metrics::record_retry_attempts;
+use crate::results::{dlq, PipelineResult};
+use crate::steps::{ChunkProcessingStep, ProcessingStep};
+
+/// Port of `RetrySchedule` plus `RetryOptions.name`. Defaults match `defaultRetryConfig`.
+#[derive(Debug, Clone, Default)]
+pub struct RetryOptions {
+    /// Total attempts including the first. Default 3.
+    pub tries: Option<u32>,
+    /// Sleep before the first retry. Default 100 ms.
+    pub sleep_ms: Option<u64>,
+    /// Default 2.
+    pub backoff_factor: Option<f64>,
+    /// Default 10 s.
+    pub max_sleep_ms: Option<u64>,
+    /// Fraction of each sleep to jitter down by. Default 0.05. Pass 0 to opt out.
+    pub jitter: Option<f64>,
+    /// No attempt starts after this much time since the first.
+    pub soft_deadline_ms: Option<u64>,
+    /// Identifies the retry site in the attempts metric. Defaults to the step name.
+    pub name: Option<String>,
+}
+
+pub const DEFAULT_TRIES: u32 = 3;
+pub const DEFAULT_SLEEP_MS: u64 = 100;
+pub const DEFAULT_BACKOFF_FACTOR: f64 = 2.0;
+pub const DEFAULT_MAX_SLEEP_MS: u64 = 10_000;
+pub const DEFAULT_JITTER: f64 = 0.05;
+
+/// Retries `f` while the error is not marked non-retriable. Returns the attempt count too.
+pub async fn retry_if_retriable<T, F, Fut>(
+    mut f: F,
+    options: &RetryOptions,
+) -> (anyhow::Result<T>, u32)
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = anyhow::Result<T>>,
+{
+    let tries = options.tries.unwrap_or(DEFAULT_TRIES).max(1);
+    let backoff = options.backoff_factor.unwrap_or(DEFAULT_BACKOFF_FACTOR);
+    let max_sleep = options.max_sleep_ms.unwrap_or(DEFAULT_MAX_SLEEP_MS) as f64;
+    let jitter = options.jitter.unwrap_or(DEFAULT_JITTER);
+    let soft_deadline = options.soft_deadline_ms.map(Duration::from_millis);
+    let started = Instant::now();
+    let past_deadline = || soft_deadline.is_some_and(|d| started.elapsed() >= d);
+
+    let mut sleep_ms = options.sleep_ms.unwrap_or(DEFAULT_SLEEP_MS) as f64;
+    let mut attempts = 0;
+    loop {
+        attempts += 1;
+        match f().await {
+            Ok(value) => return (Ok(value), attempts),
+            Err(error) => {
+                if is_retriable(&error) == Some(false) || attempts >= tries || past_deadline() {
+                    return (Err(error), attempts);
+                }
+                let jittered = if jitter > 0.0 {
+                    sleep_ms * (1.0 - jitter + rand::thread_rng().gen::<f64>() * jitter)
+                } else {
+                    sleep_ms
+                };
+                tokio::time::sleep(Duration::from_secs_f64(jittered / 1000.0)).await;
+                sleep_ms = (sleep_ms * backoff).min(max_sleep);
+                if past_deadline() {
+                    return (Err(error), attempts);
+                }
+            }
+        }
+    }
+}
+
+const NON_RETRIABLE_REASON: &str = "Processing error - non-retriable";
+
+/// Wraps a step with retries. A retriable error retries with backoff. A non-retriable error
+/// becomes a DLQ. An error with no retriable flag fails the batch after the last try.
+pub fn with_step_retry<T, U>(
+    step: ProcessingStep<T, U>,
+    options: RetryOptions,
+) -> ProcessingStep<T, U>
+where
+    T: Clone + Send + Sync + 'static,
+    U: Send + 'static,
+{
+    let name: Arc<str> = Arc::from(
+        options
+            .name
+            .clone()
+            .unwrap_or_else(|| step.name().to_string()),
+    );
+    let step_name = step.name().to_string();
+    let options = Arc::new(options);
+    ProcessingStep::new(&step_name, move |value: T| {
+        let step = step.clone();
+        let options = options.clone();
+        let name = name.clone();
+        async move {
+            let (result, attempts) =
+                retry_if_retriable(|| step.call(value.clone()), &options).await;
+            match result {
+                Ok(result) => {
+                    record_retry_attempts(name, "completed", attempts);
+                    Ok(result)
+                }
+                Err(error) => {
+                    let retriable = is_retriable(&error);
+                    tracing::error!(step = %name, error = %error, ?retriable, "Step failed");
+                    if retriable == Some(false) {
+                        record_retry_attempts(name, "non_retriable", attempts);
+                        Ok(dlq(NON_RETRIABLE_REASON, Some(error)))
+                    } else {
+                        record_retry_attempts(name, "exhausted", attempts);
+                        Err(error)
+                    }
+                }
+            }
+        }
+    })
+}
+
+/// Chunk counterpart of `with_step_retry`. A non-retriable error becomes one DLQ per input.
+pub fn with_chunk_retry<T, U>(
+    step: ChunkProcessingStep<T, U>,
+    options: RetryOptions,
+) -> ChunkProcessingStep<T, U>
+where
+    T: Clone + Send + Sync + 'static,
+    U: Send + 'static,
+{
+    let name: Arc<str> = Arc::from(
+        options
+            .name
+            .clone()
+            .unwrap_or_else(|| step.name().to_string()),
+    );
+    let step_name = step.name().to_string();
+    let options = Arc::new(options);
+    ChunkProcessingStep::new(&step_name, move |values: Vec<T>| {
+        let step = step.clone();
+        let options = options.clone();
+        let name = name.clone();
+        async move {
+            let count = values.len();
+            let (result, attempts) =
+                retry_if_retriable(|| step.call(values.clone()), &options).await;
+            match result {
+                Ok(result) => {
+                    record_retry_attempts(name, "completed", attempts);
+                    Ok(result)
+                }
+                Err(error) => {
+                    let retriable = is_retriable(&error);
+                    tracing::error!(step = %name, error = %error, chunk_size = count, ?retriable, "Chunk step failed");
+                    if retriable == Some(false) {
+                        record_retry_attempts(name, "non_retriable", attempts);
+                        let shared = Arc::new(error);
+                        Ok((0..count)
+                            .map(|_| {
+                                let mut r: PipelineResult<U> = dlq(NON_RETRIABLE_REASON, None);
+                                if let crate::results::Outcome::NonOk(
+                                    crate::results::NonOk::Dlq { error, .. },
+                                ) = &mut r.outcome
+                                {
+                                    *error = Some(shared.clone());
+                                }
+                                r
+                            })
+                            .collect())
+                    } else {
+                        record_retry_attempts(name, "exhausted", attempts);
+                        Err(error)
+                    }
+                }
+            }
+        }
+    })
+}

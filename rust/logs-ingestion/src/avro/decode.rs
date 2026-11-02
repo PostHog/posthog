@@ -1,0 +1,321 @@
+//! Container decoding with avsc's results, including its errors and its silent cases.
+
+use super::schema::Schema;
+use super::value::{AvroMap, AvroValue};
+use super::{AvroError, Container, MAGIC};
+
+/// avsc's `Tap`. A read past the end does not fail: it moves the position past the end, and
+/// the caller checks `is_valid` afterwards, as avsc does.
+pub(crate) struct Tap<'a> {
+    pub buf: &'a [u8],
+    pub pos: usize,
+}
+
+/// avsc's `isSafeLong` bound: one less than 2^53 - 1 on each side, for its rounding.
+const SAFE_LONG: f64 = 9007199254740990.0;
+
+impl<'a> Tap<'a> {
+    pub fn new(buf: &'a [u8]) -> Self {
+        Self { buf, pos: 0 }
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.pos <= self.buf.len()
+    }
+
+    fn invalidate(&mut self) {
+        self.pos = self.buf.len() + 1;
+    }
+
+    /// A byte, or 0 past the end as `buf[pos]` gives `undefined` in JavaScript.
+    fn byte(&mut self) -> u8 {
+        let b = self.buf.get(self.pos).copied().unwrap_or(0);
+        self.pos += 1;
+        b
+    }
+
+    /// avsc's `readLong`: 32-bit integer steps for 28 bits, then float arithmetic.
+    pub fn read_long(&mut self) -> f64 {
+        let mut n: i32 = 0;
+        let mut k = 0;
+        let mut b;
+        let mut h;
+        loop {
+            b = self.byte();
+            h = b & 0x80;
+            n |= ((b & 0x7f) as i32) << k;
+            k += 7;
+            if h == 0 || k >= 28 {
+                break;
+            }
+        }
+        if h != 0 {
+            let mut f = n as f64;
+            let mut fk = 268_435_456.0;
+            loop {
+                b = self.byte();
+                f += (b & 0x7f) as f64 * fk;
+                fk *= 128.0;
+                if b & 0x80 == 0 {
+                    break;
+                }
+            }
+            return (if f % 2.0 != 0.0 { -(f + 1.0) } else { f }) / 2.0;
+        }
+        ((n >> 1) ^ -(n & 1)) as f64
+    }
+
+    fn skip_long(&mut self) {
+        while self.byte() & 0x80 != 0 {}
+    }
+
+    pub fn read_fixed(&mut self, len: usize) -> Option<&'a [u8]> {
+        let start = self.pos;
+        self.pos += len;
+        if self.pos > self.buf.len() {
+            return None;
+        }
+        Some(&self.buf[start..self.pos])
+    }
+
+    pub fn read_bytes(&mut self) -> Option<&'a [u8]> {
+        let len = self.read_long();
+        if len < 0.0 {
+            self.invalidate();
+            return None;
+        }
+        self.read_fixed(len as usize)
+    }
+
+    /// Invalid UTF-8 decodes with U+FFFD for each maximal invalid subpart, as Node does.
+    pub fn read_string(&mut self) -> Option<String> {
+        self.read_bytes()
+            .map(|b| String::from_utf8_lossy(b).into_owned())
+    }
+
+    /// avsc's `readArraySize`: a negative count carries a byte size, which it skips.
+    fn read_array_size(&mut self) -> f64 {
+        let n = self.read_long();
+        if n < 0.0 {
+            self.skip_long();
+            return -n;
+        }
+        n
+    }
+}
+
+/// Reads one value of `schema`. Errors are the ones avsc throws while reading; running out of
+/// data is not an error here, the caller sees it through `is_valid`.
+pub(crate) fn read_value(tap: &mut Tap<'_>, schema: &Schema) -> Result<AvroValue, AvroError> {
+    Ok(match schema {
+        Schema::Null => AvroValue::Null,
+        Schema::Boolean => AvroValue::Boolean(tap.byte() != 0),
+        Schema::Int => AvroValue::Int(tap.read_long() as i64),
+        Schema::Long => {
+            let n = tap.read_long();
+            if !(-SAFE_LONG..=SAFE_LONG).contains(&n) {
+                return Err(AvroError::Decode("potential precision loss".to_string()));
+            }
+            AvroValue::Long(n as i64)
+        }
+        Schema::Float => {
+            let b = tap.read_fixed(4);
+            AvroValue::Float(b.map_or(0.0, |b| f32::from_le_bytes(b.try_into().unwrap()) as f64))
+        }
+        Schema::Double => {
+            let b = tap.read_fixed(8);
+            AvroValue::Double(b.map_or(0.0, |b| f64::from_le_bytes(b.try_into().unwrap())))
+        }
+        Schema::Bytes => AvroValue::Bytes(tap.read_bytes().map(<[u8]>::to_vec).unwrap_or_default()),
+        Schema::String => AvroValue::String(tap.read_string().unwrap_or_default()),
+        Schema::Fixed(f) => AvroValue::Fixed(
+            tap.read_fixed(f.size)
+                .map(<[u8]>::to_vec)
+                .unwrap_or_default(),
+        ),
+        Schema::Enum(e) => {
+            let index = tap.read_long();
+            match e.symbols.get(index as usize).filter(|_| index >= 0.0) {
+                Some(symbol) => AvroValue::Enum(symbol.clone()),
+                None => {
+                    return Err(AvroError::Decode(format!(
+                        "invalid {} enum index: {}",
+                        e.name,
+                        crate::js::number_to_string(index)
+                    )))
+                }
+            }
+        }
+        Schema::Union(branches) => {
+            let index = tap.read_long();
+            match branches
+                .get(index as usize)
+                .filter(|_| index >= 0.0 && index.fract() == 0.0)
+            {
+                Some(branch) => read_value(tap, branch)?,
+                None => {
+                    return Err(AvroError::Decode(format!(
+                        "invalid union index: {}",
+                        crate::js::number_to_string(index)
+                    )))
+                }
+            }
+        }
+        Schema::Array(items) => {
+            let mut out = Vec::new();
+            loop {
+                let mut n = tap.read_long();
+                if n == 0.0 || !tap.is_valid() {
+                    break;
+                }
+                if n < 0.0 {
+                    n = -n;
+                    tap.skip_long();
+                }
+                for _ in 0..n as u64 {
+                    out.push(read_value(tap, items)?);
+                    if !tap.is_valid() {
+                        return Ok(AvroValue::Array(out));
+                    }
+                }
+            }
+            AvroValue::Array(out)
+        }
+        Schema::Map(values) => {
+            let mut out = AvroMap::new();
+            loop {
+                let n = tap.read_array_size();
+                if n == 0.0 || !tap.is_valid() {
+                    break;
+                }
+                for _ in 0..n as u64 {
+                    // avsc names a key it could not read `undefined`; the tap is invalid by then,
+                    // so the record fails as a truncated block either way.
+                    let key = tap.read_string().unwrap_or_else(|| "undefined".to_string());
+                    let value = read_value(tap, values)?;
+                    out.assign(key, value);
+                    if !tap.is_valid() {
+                        return Ok(AvroValue::Map(out));
+                    }
+                }
+            }
+            AvroValue::Map(out)
+        }
+        Schema::Record(record) => {
+            let mut fields = Vec::with_capacity(record.fields.len());
+            for field in &record.fields {
+                fields.push((field.name.clone(), read_value(tap, &field.schema)?));
+            }
+            AvroValue::Record(fields)
+        }
+    })
+}
+
+struct Header {
+    meta: Vec<(String, Vec<u8>)>,
+    sync: [u8; 16],
+}
+
+/// avsc's header read: magic, a `map<bytes>` of metadata, and the sync marker. `None` means it
+/// ran out of data, which avsc treats as "wait for more" and ends with no metadata.
+fn read_header(tap: &mut Tap<'_>) -> Option<Header> {
+    tap.read_fixed(4)?;
+    let mut meta = Vec::new();
+    loop {
+        let n = tap.read_array_size();
+        if n == 0.0 || !tap.is_valid() {
+            break;
+        }
+        for _ in 0..n as u64 {
+            let key = tap.read_string();
+            let value = tap.read_bytes().map(<[u8]>::to_vec);
+            if !tap.is_valid() {
+                return None;
+            }
+            let key = key.unwrap_or_default();
+            // A plain-object assignment: a later duplicate wins.
+            match meta
+                .iter_mut()
+                .find(|(k, _): &&mut (String, Vec<u8>)| *k == key)
+            {
+                Some(entry) => entry.1 = value.unwrap_or_default(),
+                None => meta.push((key, value.unwrap_or_default())),
+            }
+        }
+    }
+    let sync = tap.read_fixed(16)?;
+    if !tap.is_valid() {
+        return None;
+    }
+    Some(Header {
+        meta,
+        sync: sync.try_into().expect("16 bytes"),
+    })
+}
+
+/// `decodeLogRecords` from `log-record-avro.ts`, which registers only the zstandard codec.
+pub fn decode_container(buf: &[u8]) -> Result<Container, AvroError> {
+    if buf.len() < MAGIC.len() {
+        return Err(AvroError::NoMetadata);
+    }
+    if buf[..4] != MAGIC {
+        return Err(AvroError::InvalidMagic);
+    }
+    let mut tap = Tap::new(buf);
+    let header = read_header(&mut tap).ok_or(AvroError::NoMetadata)?;
+    let meta = |key: &str| header.meta.iter().find(|(k, _)| k == key).map(|(_, v)| v);
+    let codec = meta("avro.codec")
+        .map(|v| String::from_utf8_lossy(v).into_owned())
+        .unwrap_or_else(|| "null".to_string());
+    if codec != "zstandard" {
+        return Err(AvroError::UnknownCodec(codec));
+    }
+    let schema_json = meta("avro.schema")
+        .map(|v| String::from_utf8_lossy(v).into_owned())
+        .ok_or_else(|| AvroError::Schema("missing avro.schema".to_string()))?;
+    let schema = Schema::parse_json(&schema_json)?;
+
+    // avsc reads every complete block and checks its sync marker before any block decompresses,
+    // so a bad marker anywhere wins over a bad block before it. An incomplete trailing block
+    // is never read, and the stream ends without an error.
+    let mut blocks = Vec::new();
+    loop {
+        let count = tap.read_long();
+        let data = tap.read_bytes();
+        let sync = tap.read_fixed(16);
+        if !tap.is_valid() {
+            break;
+        }
+        if sync != Some(&header.sync[..]) {
+            return Err(AvroError::InvalidSyncMarker);
+        }
+        blocks.push((count, data.unwrap_or_default()));
+        if tap.pos >= buf.len() {
+            break;
+        }
+    }
+
+    let mut records = Vec::new();
+    for (count, data) in blocks {
+        let inflated = zstd::stream::decode_all(data)
+            .map_err(|_| AvroError::Decompression("zstandard".to_string()))?;
+        if count <= 0.0 {
+            continue;
+        }
+        let mut block = Tap::new(&inflated);
+        for _ in 0..count as u64 {
+            let value = read_value(&mut block, &schema)?;
+            if !block.is_valid() {
+                return Err(AvroError::Decode("truncated block".to_string()));
+            }
+            records.push(value);
+        }
+    }
+
+    Ok(Container {
+        schema_json,
+        schema,
+        codec,
+        records,
+    })
+}
