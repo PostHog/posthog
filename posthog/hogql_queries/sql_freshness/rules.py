@@ -27,7 +27,6 @@ FIXED_PAST_SETTLE_TIME = timedelta(hours=1)
 
 class FreshnessReason(StrEnum):
     WINDOW_AGE = "window_age"
-    CLOCK_DAY = "clock_day"
     NOW_ANCHORED = "now_anchored"
     NO_EVENTS = "no_events"
     UNSUPPORTED_FIELD = "unsupported_field"
@@ -37,7 +36,7 @@ class FreshnessReason(StrEnum):
     UNSUPPORTED_BOUND = "unsupported_bound"
     CLOCK_OUTSIDE_BOUNDS = "clock_outside_bounds"
     UNPARSEABLE = "unparseable"
-    PLACEHOLDER_EXPRESSION = "placeholder_expression"
+    UNSUPPORTED_PLACEHOLDER = "unsupported_placeholder"
 
 
 @frozen
@@ -82,9 +81,7 @@ def reject_reason(facts: QueryFacts) -> Optional[FreshnessReason]:
 def fresh_until(facts: QueryFacts) -> tuple[datetime, FreshnessReason]:
     """Every limit that applies holds at once, so the earliest one sets the expiry."""
     limits = [(facts.now + SQL_WINDOW_MAX_AGE[shortest_lived_window(facts)], FreshnessReason.WINDOW_AGE)]
-    if facts.reads_clock or facts.relative_inputs:
-        limits.append((facts.next_midnight, FreshnessReason.CLOCK_DAY))
-    if facts.reads_now or facts.relative_inputs:
+    if facts.reads_now:
         limits += [
             (facts.now + SQL_WINDOW_MAX_AGE[_class_for_length(window.end - window.start)], FreshnessReason.NOW_ANCHORED)
             for window in facts.windows

@@ -47,7 +47,6 @@ from posthog.hogql_queries.sql_freshness.classifier import (
 from posthog.hogql_queries.sql_freshness.rules import FreshnessReason, Reject
 from posthog.models import User
 from posthog.models.activity_logging.retention import get_activity_log_lookback_restriction
-from posthog.utils import record_relative_date_reads
 
 from products.managed_warehouse.backend.facade import query_labels as managed_warehouse_query_labels
 from products.managed_warehouse.backend.facade.query_execution import (
@@ -125,13 +124,16 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             return {"sql_cache_reason": classification.reason.value}
         return {f"sql_cache_{key}": value for key, value in freshness_record(classification).items()}
 
-    def _classify_sql_freshness(
-        self, query: ast.SelectQuery | ast.SelectSetQuery, relative_inputs: bool
-    ) -> SqlFreshness | Reject:
+    def _classify_sql_freshness(self, query: ast.SelectQuery | ast.SelectSetQuery) -> SqlFreshness | Reject:
         if "events" not in {name.lower() for name in self._queried_table_names}:
             return Reject(reason=FreshnessReason.NO_EVENTS)
-        if find_placeholders(parse_select(self.query.query)).placeholder_expressions:
-            return Reject(reason=FreshnessReason.PLACEHOLDER_EXPRESSION)
+        placeholders = find_placeholders(parse_select(self.query.query))
+        if (
+            placeholders.has_filters
+            or placeholders.placeholder_expressions
+            or any(chain[:1] == ["variables"] for chain in placeholders.placeholder_fields)
+        ):
+            return Reject(reason=FreshnessReason.UNSUPPORTED_PLACEHOLDER)
         try:
             context = self.build_hogql_context(enable_select_queries=True, modifiers=self.modifiers)
             resolved = resolve_types(clone_expr(query), context, dialect="hogql")
@@ -141,9 +143,6 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             resolved,
             now=datetime.now(UTC),
             timezone=UTC if self.modifiers.convertToProjectTimezone is False else self.team.timezone_info,
-            project_timezone=self.team.timezone_info,
-            week_start_day=self.team.week_start_day,
-            relative_inputs=relative_inputs,
         )
 
     def _validate_direct_connection(self, *, user: Optional[User] = None, force: bool = False) -> None:
@@ -327,11 +326,10 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         )
 
     def _build_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        with record_relative_date_reads() as relative_date_reads:
-            query = self._parse_query()[0] if self._direct_engine == "trino" else self.to_query()
+        query = self._parse_query()[0] if self._direct_engine == "trino" else self.to_query()
         if self._api_sql_freshness_enabled:
             with self.timings.measure("sql_freshness"):
-                self._sql_classification = self._classify_sql_freshness(query, bool(relative_date_reads))
+                self._sql_classification = self._classify_sql_freshness(query)
         return query
 
     def _calculate(self) -> HogQLQueryResponse:

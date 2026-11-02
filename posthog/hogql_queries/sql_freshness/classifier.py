@@ -26,23 +26,10 @@ class SqlFreshness:
 
 
 def classify(
-    resolved_query: ast.SelectQuery | ast.SelectSetQuery,
-    *,
-    now: datetime,
-    timezone: tzinfo,
-    project_timezone: tzinfo,
-    week_start_day: Optional[int],
-    relative_inputs: bool,
+    resolved_query: ast.SelectQuery | ast.SelectSetQuery, *, now: datetime, timezone: tzinfo
 ) -> SqlFreshness | Reject:
     try:
-        facts = extract_facts(
-            resolved_query,
-            now=now,
-            timezone=timezone,
-            project_timezone=project_timezone,
-            week_start_day=week_start_day,
-            relative_inputs=relative_inputs,
-        )
+        facts = extract_facts(resolved_query, now=now, timezone=timezone)
     except Exception as error:
         capture_exception(error)
         return Reject(reason=FreshnessReason.UNPARSEABLE)
