@@ -32,15 +32,16 @@ export function redactMetricVariableUrl(text: string): string {
 
 /** Every string at any depth, such as `$current_url`, an autocaptured `href`, or a request in a replay snapshot.
  * A value with nothing to redact is returned as it is, so a large snapshot is not copied. */
-function redactValue(value: unknown, seen: WeakMap<object, unknown>): unknown {
+function redactValue(value: unknown, seen: WeakMap<object, object>): unknown {
     if (typeof value === 'string') {
         return redactMetricVariableUrl(value)
     }
     if (!value || typeof value !== 'object') {
         return value
     }
-    if (seen.has(value)) {
-        return seen.get(value)
+    const existing = seen.get(value)
+    if (existing) {
+        return existing
     }
     seen.set(value, value)
     if (Array.isArray(value)) {
