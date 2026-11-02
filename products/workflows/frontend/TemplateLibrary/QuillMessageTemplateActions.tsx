@@ -1,4 +1,4 @@
-import { IconEllipsis, IconUnlock } from '@posthog/icons'
+import { IconEllipsis } from '@posthog/icons'
 import {
     Button,
     DropdownMenu,
@@ -14,8 +14,6 @@ export function QuillMessageTemplateActions({
     sendTestDisabledReason,
     saveDisabledReason,
     duplicateDisabledReason,
-    releaseDisabledReason,
-    deleteDisabledReason,
     templateChanged,
     saving,
     onSendTest,
@@ -23,23 +21,19 @@ export function QuillMessageTemplateActions({
     onSave,
     onSaveAsNew,
     onDuplicate,
-    onRelease,
     onDelete,
 }: {
     isNew: boolean
     sendTestDisabledReason?: string
     saveDisabledReason?: string
     duplicateDisabledReason?: string
-    releaseDisabledReason?: string
-    deleteDisabledReason?: string
     templateChanged: boolean
     saving: boolean
     onSendTest: () => void
     onDiscard: () => void
     onSave: () => void
-    onSaveAsNew?: () => void
+    onSaveAsNew: () => void
     onDuplicate: () => void
-    onRelease?: () => void
     onDelete: () => void
 }): JSX.Element {
     return (
@@ -73,11 +67,9 @@ export function QuillMessageTemplateActions({
                     <IconEllipsis />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                    {onSaveAsNew && (
-                        <DropdownMenuItem data-attr="save-as-new-template" onClick={onSaveAsNew}>
-                            Save as new template
-                        </DropdownMenuItem>
-                    )}
+                    <DropdownMenuItem data-attr="save-as-new-template" onClick={onSaveAsNew}>
+                        Save as new template
+                    </DropdownMenuItem>
                     {!isNew && (
                         <>
                             <DropdownMenuItem
@@ -87,21 +79,10 @@ export function QuillMessageTemplateActions({
                             >
                                 Duplicate
                             </DropdownMenuItem>
-                            {onRelease && (
-                                <DropdownMenuItem
-                                    data-attr="message-template-release"
-                                    disabledReason={releaseDisabledReason}
-                                    onClick={onRelease}
-                                >
-                                    <IconUnlock />
-                                    Stop managing in code
-                                </DropdownMenuItem>
-                            )}
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                                 data-attr="delete-message-template"
                                 variant="destructive"
-                                disabledReason={deleteDisabledReason}
                                 onClick={onDelete}
                             >
                                 Delete

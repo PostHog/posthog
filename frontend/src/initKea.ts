@@ -144,7 +144,6 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadSummary: 'products.ai_observability.frontend.redesign.trace.traceSummaryLogic',
     requestSummary: 'products.ai_observability.frontend.redesign.trace.traceSummaryLogic',
     loadTracePullRequest: 'products.ai_observability.frontend.redesign.trace.traceGitPullRequestLogic', // The trace view's git chip stays plain when the read fails
-    releaseTemplate: 'products.workflows.frontend.messageTemplateLogic',
 }
 
 // A keyed logic's path ends with its key, so match the owner path as a prefix.
@@ -199,10 +198,6 @@ const FIELD_ERROR_SELF_HANDLED: Record<string, Set<string>> = {
 }
 
 const HAS_DEPENDENTS_SELF_HANDLED = new Set(['deleteDataWarehouseSavedQuery'])
-
-const CODE_MANAGED_REFUSAL_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
-    saveTemplate: 'products.workflows.frontend.messageTemplateLogic',
-}
 
 /*
 Write actions whose owning logic toasts the server message of a validation 400. The 400 is a
@@ -309,9 +304,6 @@ export function initKea({
                 const isSelfHandledValidationError =
                     error?.status === 400 &&
                     isOwnedByLogic(VALIDATION_ERROR_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logic.pathString)
-                const isSelfHandledCodeManagedRefusal =
-                    error?.code === 'immutable' &&
-                    isOwnedByLogic(CODE_MANAGED_REFUSAL_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logic.pathString)
                 if (
                     !ERROR_FILTER_ALLOW_LIST.includes(actionKey) &&
                     !isErrorSelfHandledByLogic(actionKey, logic.pathString) &&
@@ -357,8 +349,7 @@ export function initKea({
                         isFeatureFlagDuplicateKey ||
                         isHasDependentsError ||
                         isSelfHandledFieldError ||
-                        isSelfHandledValidationError ||
-                        isSelfHandledCodeManagedRefusal
+                        isSelfHandledValidationError
                     ) {
                         // These are handled by their own dedicated toasts elsewhere.
                         errorMessage = null
@@ -388,8 +379,7 @@ export function initKea({
                     shouldReportApiFailure(error) &&
                     !isSelfHandledNotFound &&
                     !isSelfHandledExistingMember &&
-                    !isSelfHandledValidationError &&
-                    !isSelfHandledCodeManagedRefusal
+                    !isSelfHandledValidationError
                 ) {
                     posthog.captureException(error)
                 }

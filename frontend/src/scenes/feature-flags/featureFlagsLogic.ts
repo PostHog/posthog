@@ -185,6 +185,23 @@ const DEFAULT_FILTERS: FeatureFlagsFilters = {
 
 const FILTER_PARAM_KEYS = Object.keys(DEFAULT_FILTERS) as (keyof FeatureFlagsFilters)[]
 
+function filtersFromSearchParams(searchParams: Record<string, any>): FeatureFlagsFilters {
+    const { page, created_by_id, active, archived, type, search, order, evaluation_runtime, tags } = searchParams
+    return {
+        ...DEFAULT_FILTERS,
+        created_by_id: parseNumericArrayFilter(created_by_id),
+        type,
+        order,
+        evaluation_runtime,
+        tags: parseTagsFilter(tags),
+        excluded_tags: parseTagsFilter(searchParams['excluded_tags']),
+        active: active !== undefined ? String(active) : undefined,
+        archived: archived !== undefined ? String(archived) : undefined,
+        page: page !== undefined ? parseInt(page) : undefined,
+        search: search !== undefined ? String(search) : undefined,
+    }
+}
+
 /**
  * Prefix for the list's filter params while they ride on a flag detail URL. The prefix keeps them
  * out of the way of the detail page's own params — most importantly `page`, which the History tab's
@@ -349,8 +366,10 @@ export interface featureFlagsLogicActions {
     }
     setFeatureFlagsFilters: (
         filters: Partial<FeatureFlagsFilters>,
-        replace?: boolean
+        replace?: boolean,
+        debounce?: boolean
     ) => {
+        debounce: boolean
         filters: Partial<FeatureFlagsFilters>
         replace: boolean | undefined
     }
@@ -525,7 +544,15 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         updateFlagActive: (id: number, active: boolean) => ({ id, active }),
         deleteFlag: (id: number) => ({ id }),
         setActiveTab: (tabKey: FeatureFlagsTab) => ({ tabKey }),
-        setFeatureFlagsFilters: (filters: Partial<FeatureFlagsFilters>, replace?: boolean) => ({ filters, replace }),
+        setFeatureFlagsFilters: (
+            filters: Partial<FeatureFlagsFilters>,
+            replace?: boolean,
+            debounce: boolean = true
+        ) => ({
+            filters,
+            replace,
+            debounce,
+        }),
         resetFilters: true,
         toggleFeatureFlagActive: (id: number, active: boolean) => ({ id, active }),
         closeEnrichAnalyticsNotice: true,
@@ -825,9 +852,11 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                     actions.updateFeatureFlagArchived({ id, archived: true, via: 'disable-confirmation' }),
             })
         },
-        setFeatureFlagsFilters: async (_, breakpoint) => {
+        setFeatureFlagsFilters: async ({ debounce }, breakpoint) => {
             if (values.activeTab === FeatureFlagsTab.OVERVIEW) {
-                await breakpoint(300)
+                if (debounce) {
+                    await breakpoint(300)
+                }
                 actions.loadFeatureFlags()
             }
         },
@@ -880,41 +909,35 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             setActiveTab: changeUrl,
         }
     }),
-    urlToAction(({ actions, values }) => ({
-        [urls.featureFlags()]: async (_, searchParams) => {
-            const tabInURL = searchParams['tab']
-
-            if (!tabInURL) {
-                if (values.activeTab !== FeatureFlagsTab.OVERVIEW) {
-                    actions.setActiveTab(FeatureFlagsTab.OVERVIEW)
-                }
-            } else if (tabInURL !== values.activeTab) {
-                const availableTab =
+    urlToAction(({ actions, values, cache }) => ({
+        [urls.featureFlags()]: async (_, searchParams, __, { initial }, previousLocation) => {
+            if (cache.settingTabFromUrl) {
+                return
+            }
+            const tabInURL = searchParams['tab'] || FeatureFlagsTab.OVERVIEW
+            if (tabInURL !== values.activeTab) {
+                const tab =
                     tabInURL === FeatureFlagsTab.USAGE &&
                     values.receivedFeatureFlags &&
                     !values.enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE]
                         ? FeatureFlagsTab.OVERVIEW
                         : tabInURL
-                actions.setActiveTab(availableTab)
+                // Ignore actionToUrl's echo of the filter reset in setActiveTab, so the list loads once, with the URL's filters
+                cache.settingTabFromUrl = true
+                try {
+                    actions.setActiveTab(tab)
+                } finally {
+                    cache.settingTabFromUrl = false
+                }
             }
 
-            const { page, created_by_id, active, archived, type, search, order, evaluation_runtime, tags } =
-                searchParams
-            const pageFiltersFromUrl: Partial<FeatureFlagsFilters> = {
-                created_by_id: parseNumericArrayFilter(created_by_id),
-                type,
-                order,
-                evaluation_runtime,
-                tags: parseTagsFilter(tags),
-                excluded_tags: parseTagsFilter(searchParams['excluded_tags']),
+            const filtersFromUrl = filtersFromSearchParams(searchParams)
+            // actionToUrl sends every filter change back here. Skip that echo: it would send the same request
+            // twice, or cut short the debounce of a search the user is still typing.
+            const arrived = initial || previousLocation?.pathname !== router.values.location.pathname
+            if (arrived || !objectsEqual({ ...values.filters, ...filtersFromUrl }, values.filters)) {
+                actions.setFeatureFlagsFilters(filtersFromUrl, false, false)
             }
-
-            pageFiltersFromUrl.active = active !== undefined ? String(active) : undefined
-            pageFiltersFromUrl.archived = archived !== undefined ? String(archived) : undefined
-            pageFiltersFromUrl.page = page !== undefined ? parseInt(page) : undefined
-            pageFiltersFromUrl.search = search !== undefined ? String(search) : undefined
-
-            actions.setFeatureFlagsFilters({ ...DEFAULT_FILTERS, ...pageFiltersFromUrl })
         },
     })),
 ])
