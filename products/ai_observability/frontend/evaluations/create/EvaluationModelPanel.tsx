@@ -32,7 +32,10 @@ export function EvaluationModelPanel(): JSX.Element | null {
                 </p>
             </div>
             {featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_JUDGE_IMAGES] && !usesDecisionModel && (
-                <LemonField.Pure label="Attachments">
+                <LemonField.Pure
+                    label="Attachments"
+                    info="If the judge can't take an attachment, it judges the text without it. This happens when the judge's model can't read the file type, when there are more than 20 attachments, or when the provider rejects a file, such as a PDF with too many pages."
+                >
                     <LemonSwitch
                         checked={includeMedia}
                         onChange={setIncludeMedia}
@@ -41,9 +44,9 @@ export function EvaluationModelPanel(): JSX.Element | null {
                         data-attr="llma-evaluation-include-attachments"
                     />
                     <p className="text-muted text-sm">
-                        The judge sees the images, PDFs and audio in what it evaluates. PDFs need an OpenAI, Anthropic
-                        or Gemini judge, and audio a Gemini judge or an OpenAI audio model. Other file types are not
-                        supported yet.
+                        The judge sees the images, PDFs, audio and video in what it evaluates. PDFs need an OpenAI,
+                        Anthropic or Gemini judge, audio a Gemini judge or an OpenAI audio model, and video a Gemini
+                        judge. Other file types are not supported yet.
                     </p>
                 </LemonField.Pure>
             )}
