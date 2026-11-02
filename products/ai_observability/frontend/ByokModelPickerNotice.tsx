@@ -4,6 +4,7 @@ import { LemonBanner, Link } from '@posthog/lemon-ui'
 
 import { PROVIDER_SETTINGS_URL } from './ModelPicker'
 import { modelPickerLogic } from './modelPickerLogic'
+import { llmProviderKeysLogic } from './settings/llmProviderKeysLogic'
 import { LLMProviderKeysSettings } from './settings/LLMProviderKeysSettings'
 import { providerLabel } from './settings/providerKeyStateUtils'
 
@@ -12,6 +13,17 @@ export function ByokModelPickerNotice({ forEvaluation = false }: { forEvaluation
     const { byokModelNotice: generativeModelNotice, evaluationModelNotice } = useValues(modelPickerLogic)
     const byokModelNotice = forEvaluation ? evaluationModelNotice : generativeModelNotice
     const { loadByokModels } = useActions(modelPickerLogic)
+    const { newKeyModalOpen, providerKeys } = useValues(llmProviderKeysLogic)
+
+    // Saving a key reloads the keys, which clears the notice for a moment. Keep the view mounted
+    // while its add-key modal is open, so a failed save keeps what the person typed.
+    if (byokModelNotice?.kind === 'no-keys' || (newKeyModalOpen && providerKeys.length === 0)) {
+        return (
+            <div className="mt-2">
+                <LLMProviderKeysSettings />
+            </div>
+        )
+    }
 
     switch (byokModelNotice?.kind) {
         case 'models-failed': {
@@ -49,13 +61,6 @@ export function ByokModelPickerNotice({ forEvaluation = false }: { forEvaluation
                 </p>
             )
         }
-        case 'no-keys':
-            // The settings view adds a key in place, so a draft such as a new evaluation stays.
-            return (
-                <div className="mt-2">
-                    <LLMProviderKeysSettings />
-                </div>
-            )
         case 'no-usable-keys':
             return (
                 <p className="text-xs text-secondary mt-1">
