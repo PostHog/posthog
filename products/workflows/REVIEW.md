@@ -22,7 +22,8 @@ When a lint, a type, or a test can enforce a rule, add that check and delete the
 - **Fail loudly on bad configuration and unprocessable input.**
   Crash at startup, reject at validation, or log with a metric; never skip, return null, or warn and continue.
   A step that fails silently looks healthy while its messages are dropped or go out without their credential ([#72913](https://github.com/PostHog/posthog/pull/72913#discussion_r3637166337), [#58997](https://github.com/PostHog/posthog/pull/58997#discussion_r3273407591)).
-- **Ship a new failure counter or fallback path with its alert, and label it with the workflow and the action.**
+- **Ship a new failure counter or fallback path with its alert, and log the workflow and the action with each failure.**
+  Keep metric labels bounded, such as `kind="transient"` or `kind="logical"`, never workflow or action ids.
   Separate transient errors from real ones, so the alert neither stays silent nor pages on a blip ([#57847](https://github.com/PostHog/posthog/pull/57847#discussion_r3332195162), [#60447](https://github.com/PostHog/posthog/pull/60447#discussion_r3322712961)).
 
 ## Saving workflows
