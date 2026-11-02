@@ -81,6 +81,7 @@ def masked_secret_input_keys(stored_inputs: object) -> list[str]:
 # Mirrors FROM_OVERRIDE_EMAIL_REGEX in nodejs/src/cdp/services/messaging/email.service.ts, which
 # is what the send path enforces after rendering. Keep the two in sync.
 FROM_OVERRIDE_EMAIL_REGEX = re.compile(r'^[^\s@"<>,;]+@[^\s@"<>,;]+\.[^\s@"<>,;]+$')
+MAX_FROM_OVERRIDE_EMAIL_LENGTH = 254
 
 
 def _sender_integration_ids(from_value: dict) -> set[int]:
@@ -135,6 +136,14 @@ def _validate_email_sender_override(from_value: dict, context: dict) -> None:
         # No request context (internal re-saves, direct construction); the send path still
         # enforces the domain.
         return
+
+    if len(override) > MAX_FROM_OVERRIDE_EMAIL_LENGTH:
+        raise serializers.ValidationError(
+            {
+                "input": "The custom sender address is too long. "
+                f"Use an address with {MAX_FROM_OVERRIDE_EMAIL_LENGTH} characters or fewer."
+            }
+        )
 
     if not FROM_OVERRIDE_EMAIL_REGEX.match(override):
         raise serializers.ValidationError(

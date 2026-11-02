@@ -235,6 +235,135 @@ query DeploymentEvents($deploymentId: String!, $first: Int!, $after: String) {{
 }}
 """
 
+SERVICE_INSTANCES_QUERY = f"""
+query EnvironmentServiceInstances($environmentId: String!, $first: Int!, $after: String) {{
+  environment(id: $environmentId) {{
+    serviceInstances(first: $first, after: $after) {{
+      edges {{
+        node {{
+          id
+          serviceId
+          serviceName
+          environmentId
+          region
+          numReplicas
+          builder
+          buildCommand
+          startCommand
+          preDeployCommand
+          rootDirectory
+          dockerfilePath
+          railwayConfigFile
+          watchPatterns
+          healthcheckPath
+          healthcheckTimeout
+          cronSchedule
+          nextCronRunAt
+          restartPolicyType
+          restartPolicyMaxRetries
+          sleepApplication
+          upstreamUrl
+          source {{
+            image
+            repo
+          }}
+          createdAt
+          updatedAt
+          deletedAt
+        }}
+      }}
+      {_PAGE_INFO}
+    }}
+  }}
+}}
+"""
+
+VOLUME_INSTANCES_QUERY = f"""
+query EnvironmentVolumeInstances($environmentId: String!, $first: Int!, $after: String) {{
+  environment(id: $environmentId) {{
+    volumeInstances(first: $first, after: $after) {{
+      edges {{
+        node {{
+          id
+          volumeId
+          serviceId
+          environmentId
+          mountPath
+          region
+          state
+          sizeMB
+          currentSizeMB
+          externalId
+          isPendingDeletion
+          createdAt
+          deletedAt
+        }}
+      }}
+      {_PAGE_INFO}
+    }}
+  }}
+}}
+"""
+
+VOLUME_INSTANCE_BACKUPS_QUERY = """
+query VolumeInstanceBackups($volumeInstanceId: String!) {
+  volumeInstanceBackupList(volumeInstanceId: $volumeInstanceId) {
+    id
+    name
+    externalId
+    creatorId
+    scheduleId
+    usedMB
+    referencedMB
+    volumeInstanceSizeMB
+    createdAt
+    expiresAt
+  }
+}
+"""
+
+DEPLOYMENT_TRIGGERS_QUERY = f"""
+query EnvironmentDeploymentTriggers($environmentId: String!, $first: Int!, $after: String) {{
+  environment(id: $environmentId) {{
+    deploymentTriggers(first: $first, after: $after) {{
+      edges {{
+        node {{
+          id
+          projectId
+          environmentId
+          serviceId
+          provider
+          repository
+          branch
+          checkSuites
+          validCheckSuites
+          baseEnvironmentOverrideId
+        }}
+      }}
+      {_PAGE_INFO}
+    }}
+  }}
+}}
+"""
+
+WORKSPACE_QUERY = """
+query Workspace($workspaceId: String!) {
+  workspace(workspaceId: $workspaceId) {
+    id
+    name
+    avatar
+    plan
+    preferredRegion
+    hasSAML
+    has2FAEnforcement
+    hasHipaaBAA
+    restrictProjectVisibilityToGroups
+    createdAt
+    updatedAt
+  }
+}
+"""
+
 USAGE_QUERY = """
 query ProjectServiceUsage(
   $workspaceId: String!
@@ -334,6 +463,8 @@ class RailwayEndpointConfig:
     paginated: bool = True
     # Whether the endpoint runs once per project (projects are enumerated first).
     fan_out_over_projects: bool = True
+    # Whether the endpoint runs once per environment of each project.
+    fan_out_over_environments: bool = False
     sort_mode: Literal["asc", "desc"] | None = "desc"
     # Overlap re-read on incremental syncs, for rows that keep changing after they are created.
     default_incremental_lookback_seconds: int | None = None
@@ -418,6 +549,46 @@ RAILWAY_ENDPOINTS: dict[str, RailwayEndpointConfig] = {
         paginated=False,
         incremental_fields=INCREMENTAL_TIMESTAMP,
         partition_keys=[TIMESTAMP],
+        sort_mode=None,
+    ),
+    "service_instances": RailwayEndpointConfig(
+        name="service_instances",
+        query=SERVICE_INSTANCES_QUERY,
+        data_path=("environment", "serviceInstances"),
+        fan_out_over_environments=True,
+        sort_mode=None,
+    ),
+    "volume_instances": RailwayEndpointConfig(
+        name="volume_instances",
+        query=VOLUME_INSTANCES_QUERY,
+        data_path=("environment", "volumeInstances"),
+        fan_out_over_environments=True,
+        sort_mode=None,
+    ),
+    "volume_instance_backups": RailwayEndpointConfig(
+        name="volume_instance_backups",
+        query=VOLUME_INSTANCE_BACKUPS_QUERY,
+        data_path=("volumeInstanceBackupList",),
+        paginated=False,
+        fan_out_over_environments=True,
+        # Backup ids are not documented as globally unique, so the volume instance id is part of the key.
+        primary_keys=["volume_instance_id", "id"],
+        partition_keys=[CREATED_AT],
+        sort_mode=None,
+    ),
+    "deployment_triggers": RailwayEndpointConfig(
+        name="deployment_triggers",
+        query=DEPLOYMENT_TRIGGERS_QUERY,
+        data_path=("environment", "deploymentTriggers"),
+        fan_out_over_environments=True,
+        sort_mode=None,
+    ),
+    "workspaces": RailwayEndpointConfig(
+        name="workspaces",
+        query=WORKSPACE_QUERY,
+        data_path=("workspace",),
+        paginated=False,
+        fan_out_over_projects=False,
         sort_mode=None,
     ),
 }

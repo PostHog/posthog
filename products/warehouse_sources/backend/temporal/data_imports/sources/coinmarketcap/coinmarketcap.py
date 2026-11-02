@@ -8,6 +8,7 @@ from structlog.types import FilteringBoundLogger
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.coinmarketcap.settings import (
+    CMC_AI_PAGE_SIZE,
     COINMARKETCAP_BATCH_ENDPOINTS,
     COINMARKETCAP_ENDPOINTS,
     COINMARKETCAP_SNAPSHOT_ENDPOINTS,
@@ -61,9 +62,9 @@ class CoinMarketCapPaginator(OffsetPaginator):
     condition (`total_path=None`).
     """
 
-    def __init__(self) -> None:
+    def __init__(self, page_size: int = PAGE_SIZE) -> None:
         super().__init__(
-            limit=PAGE_SIZE,
+            limit=page_size,
             offset=1,  # `start` is 1-based; start=0 is rejected with a 400.
             offset_param="start",
             limit_param="limit",
@@ -113,17 +114,25 @@ def _get(session: requests.Session, path: str, params: dict[str, Any]) -> dict[s
     return body if isinstance(body, dict) else {}
 
 
-def _ids_from_map(session: requests.Session, path: str) -> list[int]:
+def _ids_from_map(
+    session: requests.Session,
+    path: str,
+    id_field: str = "id",
+    page_size: int = PAGE_SIZE,
+    data_key: Optional[str] = None,
+) -> list[int]:
     ids: list[int] = []
     start = 1
     while True:
-        page = _get(session, path, {"start": start, "limit": PAGE_SIZE, "sort": "id"})
-        rows = page.get("data") or []
-        ids.extend(int(row["id"]) for row in rows if isinstance(row, dict) and row.get("id") is not None)
+        page = _get(session, path, {"start": start, "limit": page_size, "sort": id_field})
+        data = page.get("data")
+        rows = (data.get(data_key) if isinstance(data, dict) else None) if data_key else data
+        rows = rows or []
+        ids.extend(int(row[id_field]) for row in rows if isinstance(row, dict) and row.get(id_field) is not None)
         # Counted before filtering: an unusable row on a full page must not end the walk.
-        if len(rows) < PAGE_SIZE:
+        if len(rows) < page_size:
             return ids
-        start += PAGE_SIZE
+        start += page_size
 
 
 def _top_ids_by_rank(session: requests.Session, path: str, sort: str, limit: int) -> list[int]:
@@ -139,6 +148,13 @@ def _universe_ids(session: requests.Session, universe: CoinUniverse) -> list[int
         return _ids_from_map(session, "/v1/cryptocurrency/map")
     if universe == "exchange_map":
         return _ids_from_map(session, "/v1/exchange/map")
+    if universe == "cmc_ai_coverage":
+        # Sorted here too because the map documents no `sort_dir`, and resume relies on ascending ids.
+        return sorted(
+            _ids_from_map(
+                session, "/v5/cmc-ai/coins/map", id_field="crypto_id", page_size=CMC_AI_PAGE_SIZE, data_key="coins"
+            )
+        )
     if universe == "top_by_market_cap":
         return _top_ids_by_rank(session, "/v1/cryptocurrency/listings/latest", "market_cap", HISTORICAL_COIN_LIMIT)
     return _top_ids_by_rank(session, "/v1/exchange/listings/latest", "volume_24h", HISTORICAL_EXCHANGE_LIMIT)
@@ -165,6 +181,18 @@ def _rows_from(row_shape: RowShape, data: Any) -> list[dict[str, Any]]:
     if row_shape == "quote_list":
         quotes = data.get("quotes") if isinstance(data, dict) else None
         return [quote for quote in (quotes or []) if isinstance(quote, dict)]
+
+    if row_shape == "per_coin_insights":
+        coins = data.get("coins") if isinstance(data, dict) else None
+        insight_rows: list[dict[str, Any]] = []
+        for coin in coins or []:
+            if not isinstance(coin, dict):
+                continue
+            identity = {key: value for key, value in coin.items() if key != "insights"}
+            insight_rows.extend(
+                {**identity, **insight} for insight in (coin.get("insights") or []) if isinstance(insight, dict)
+            )
+        return insight_rows
 
     if row_shape == "per_coin_quotes":
         rows: list[dict[str, Any]] = []
@@ -214,7 +242,7 @@ def get_batch_rows(
 
     for index in range(0, len(coin_ids), config.batch_size):
         batch = coin_ids[index : index + config.batch_size]
-        body = _get(session, config.path, {**params, "id": ",".join(str(coin_id) for coin_id in batch)})
+        body = _get(session, config.path, {**params, config.id_param: ",".join(str(coin_id) for coin_id in batch)})
         rows = _rows_from(config.row_shape, body.get("data"))
         if rows:
             yield rows
@@ -385,7 +413,7 @@ def coinmarketcap_source(
                 "name": API_KEY_HEADER,
                 "location": "header",
             },
-            "paginator": CoinMarketCapPaginator(),
+            "paginator": CoinMarketCapPaginator(page_size=endpoint_config.page_size),
             # CoinMarketCap's API responds directly, so there's no legitimate redirect
             # to follow; pinning it off keeps traffic on the validated host.
             "session": make_tracked_session(redact_values=(api_key,), allow_redirects=False),
