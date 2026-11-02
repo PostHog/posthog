@@ -8,6 +8,7 @@ from django.views.decorators.http import require_http_methods
 import structlog
 
 from posthog.api.capture import capture_internal
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.plugins.plugin_server_api import validate_messaging_preferences_token
@@ -30,14 +31,50 @@ from products.workflows.backend.facade.enums import EmailTrackingConsentMode
 logger = structlog.get_logger(__name__)
 
 
-def report_workflows_email_unsubscribed(team_id: int, identifier: str, category_ids: list[str], source: str) -> None:
+@frozen
+class EmailSendReference:
+    workflow_id: str
+    action_id: str | None
+    invocation_id: str
+    workflow_version: int | None
+
+    @classmethod
+    def from_token(cls, token_data: dict[str, Any]) -> "EmailSendReference | None":
+        workflow_id = token_data.get("workflow_id")
+        invocation_id = token_data.get("invocation_id")
+        if not isinstance(workflow_id, str) or not isinstance(invocation_id, str):
+            return None
+        action_id = token_data.get("instance_id")
+        workflow_version = token_data.get("workflow_version")
+        return cls(
+            workflow_id=workflow_id,
+            action_id=action_id if isinstance(action_id, str) else None,
+            invocation_id=invocation_id,
+            workflow_version=workflow_version
+            if isinstance(workflow_version, int) and not isinstance(workflow_version, bool)
+            else None,
+        )
+
+    def event_properties(self) -> dict[str, Any]:
+        properties = {
+            "$workflow_id": self.workflow_id,
+            "$workflow_action_id": self.action_id,
+            "$workflow_invocation_id": self.invocation_id,
+            "$workflow_version": self.workflow_version,
+        }
+        return {key: value for key, value in properties.items() if value is not None}
+
+
+def report_workflows_email_unsubscribed(
+    team_id: int, identifier: str, category_ids: list[str], source: str, send: EmailSendReference | None
+) -> None:
     """
     Emit $workflows_email_unsubscribed engagement events into the customer's project.
 
     Mirrors the plugin-server's $workflows_email_* engagement events (email-tracking.service.ts),
-    gated on the same capture_workflows_engagement_events team flag. The unsubscribe token only
-    carries team_id + identifier, so this event is email-level: distinct_id is the recipient's
-    email, and no workflow/action id is available. Best-effort — never fails the unsubscribe flow.
+    gated on the same capture_workflows_engagement_events team flag. distinct_id is the recipient's
+    email. A link from a workflow email names the workflow, step, run and version that sent it;
+    older links name none. Best-effort — never fails the unsubscribe flow.
     """
     try:
         team = Team.objects.get(id=team_id)
@@ -61,6 +98,7 @@ def report_workflows_email_unsubscribed(team_id: int, identifier: str, category_
             "$email": identifier,
             "category": category_id,
             "source": source,
+            **(send.event_properties() if send else {}),
         }
         try:
             result = capture_internal(
@@ -162,7 +200,13 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
         # Only a genuine transition emits, so token replays and scanner prefetches don't inflate events
         if not was_fully_opted_out:
             record_unsubscribe_metric(team_id, data, [ALL_MESSAGE_PREFERENCE_CATEGORY_ID])
-            report_workflows_email_unsubscribed(team_id, identifier, [ALL_MESSAGE_PREFERENCE_CATEGORY_ID], "one_click")
+            report_workflows_email_unsubscribed(
+                team_id,
+                identifier,
+                [ALL_MESSAGE_PREFERENCE_CATEGORY_ID],
+                "one_click",
+                EmailSendReference.from_token(data),
+            )
 
         if request.method == "POST":
             return HttpResponse(status=200)
@@ -290,7 +334,9 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
         ]
         if newly_opted_out:
             record_unsubscribe_metric(team_id, data, newly_opted_out)
-            report_workflows_email_unsubscribed(team_id, identifier, newly_opted_out, "preferences_page")
+            report_workflows_email_unsubscribed(
+                team_id, identifier, newly_opted_out, "preferences_page", EmailSendReference.from_token(data)
+            )
 
         new_tracking_consent = preferences_dict.get(EMAIL_TRACKING_PREFERENCE_ID)
         if new_tracking_consent is not None and new_tracking_consent != prior_preferences.get(
