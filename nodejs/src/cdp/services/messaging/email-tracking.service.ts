@@ -584,10 +584,19 @@ export class EmailTrackingService {
                         )
                     }
                 }
-                for (const { teamId, emailAddresses, diagnostic } of hardBounceRecipients || []) {
+                for (const {
+                    teamId,
+                    emailAddresses,
+                    diagnostic,
+                    blockedByProvider,
+                    messageId,
+                } of hardBounceRecipients || []) {
                     const parsedTeamId = teamId ? parseInt(teamId, 10) : NaN
                     if (parsedTeamId && !isNaN(parsedTeamId)) {
-                        await this.emailSuppressionService.recordHardBounces(parsedTeamId, emailAddresses, diagnostic)
+                        await this.emailSuppressionService.recordHardBounces(parsedTeamId, emailAddresses, diagnostic, {
+                            blockedByProvider,
+                            messageId,
+                        })
                     }
                 }
                 for (const { teamId, emailAddresses, feedbackType } of complainedRecipients || []) {

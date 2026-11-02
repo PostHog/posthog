@@ -530,9 +530,38 @@ describe('SesWebhookHandler', () => {
         // address from a full mailbox.
         expect(result.metrics?.[0].properties).toMatchObject({ $bounce_type: 'hard' })
         expect(result.hardBounceRecipients).toEqual([
-            { teamId: '1', emailAddresses: ['to@example.com'], diagnostic: 'bad' },
+            { teamId: '1', emailAddresses: ['to@example.com'], diagnostic: 'bad', messageId: 'msg-123' },
         ])
         expect(result.transientBounceRecipients).toEqual([])
+    })
+
+    it('records a send SES refused for its account suppression list as suppressed, not bounced', async () => {
+        const body = [
+            {
+                eventType: 'Bounce',
+                mail: baseMail,
+                bounce: {
+                    bounceType: 'Permanent',
+                    bounceSubType: 'OnAccountSuppressionList',
+                    bouncedRecipients: [
+                        {
+                            emailAddress: 'to@example.com',
+                            action: 'failed',
+                            status: '5.1.1',
+                            diagnosticCode: 'refused',
+                        },
+                    ],
+                    timestamp: '2025-10-03T12:04:00Z',
+                    reportingMTA: 'mta',
+                },
+            },
+        ]
+        const result = await handler.handleWebhook({ body, headers: {} })
+        // email_bounced_hard feeds auto-pause and the sending tier, and SES never attempted this send.
+        expect(result.metrics?.map((m) => m.metricName)).toEqual(['email_suppressed'])
+        expect(result.hardBounceRecipients).toEqual([
+            { teamId: '1', emailAddresses: ['to@example.com'], diagnostic: 'refused', blockedByProvider: true },
+        ])
     })
 
     it('surfaces transient bounces for the soft-bounce counter, not the hard-bounce list', async () => {
@@ -848,6 +877,22 @@ describe('SesWebhookHandler', () => {
                 message: '[Action:act789] Permanent bounce to to@example.com, mailbox does not exist (5.1.1)',
             },
             {
+                name: 'Bounce refused for the SES account suppression list',
+                event: {
+                    eventType: 'Bounce',
+                    mail: baseMail,
+                    bounce: {
+                        bounceType: 'Permanent',
+                        bounceSubType: 'OnAccountSuppressionList',
+                        bouncedRecipients: [{ emailAddress: 'to@example.com', diagnosticCode: 'refused' }],
+                        timestamp: '2025-10-03T12:04:00Z',
+                    },
+                },
+                level: 'warn',
+                message:
+                    '[Action:act789] Not sent to to@example.com: the email provider blocked this address after an earlier bounce or spam complaint. It is now on your suppression list. Remove it there to try again.',
+            },
+            {
                 name: 'Bounce transient',
                 event: {
                     eventType: 'Bounce',
@@ -1058,6 +1103,15 @@ describe('SesWebhookHandler', () => {
                 { eventType: 'Reject', reject: { reason: 'Bad content' } },
                 update('failed', transactionalMail.timestamp, 'provider_rejected'),
             ],
+            [
+                'a refusal for the SES account suppression list',
+                {},
+                {
+                    ...bounce('Permanent'),
+                    bounce: { ...bounce('Permanent').bounce, bounceSubType: 'OnAccountSuppressionList' },
+                },
+                update('failed', '2025-10-03T12:02:00Z', 'provider_rejected'),
+            ],
             ['a delivery of an untagged email', { tags: baseMail.tags }, delivery(['to@example.com']), []],
             ['a delivery to the cc recipient only', {}, delivery(['cc@example.com']), []],
             ['a bounce of the cc recipient', {}, bounce('Permanent', 'cc@example.com'), []],
@@ -1136,7 +1190,7 @@ describe('SesWebhookHandler', () => {
             const result = await restricted.handleWebhook({ body: envelope, headers: {}, verifySignature: false })
             expect(result.status).toBe(200)
             expect(result.hardBounceRecipients).toEqual([
-                { teamId: '1', emailAddresses: ['recipient@example.com'], diagnostic: 'bad' },
+                { teamId: '1', emailAddresses: ['recipient@example.com'], diagnostic: 'bad', messageId: 'msg-123' },
             ])
         })
 
