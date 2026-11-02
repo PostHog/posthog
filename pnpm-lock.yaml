@@ -192,6 +192,7 @@ patchedDependencies:
   '@base-ui/react@1.9.0': e0be9f964398f2e05b65153968c757a2869a3c5ddc6c2d3a32bf3140a4a8b34f
   '@base-ui/utils@0.5.0': c25c4734cc997d0eec882b628a0231f91805610478dba85f65a60f0ba6fbb80a
   '@connectrpc/connect-node@2.1.1': a8248109885bda6ff3ce8663332190cabec9ca5da4deab47603ea6b1dbca27c4
+  avsc@5.7.9: 4d6bb6760158ebf8090f1673f57fbf5adca9b37c2827c0a7de3303f4b3a0873f
   dayjs@1.11.11: 2e3e09d22bbc20d8961e0392c318f12ffada0babb6422f03b5538af8b2707852
   heatmap.js@2.0.5: d95e6638894935a75bd93b60b5243cb825892a1eedcc4c9a125a3e7dce8b64f0
   html-to-image@1.11.13: f0a5786708aab63eb75c89a2c8de10a8da63fce02a5d9ab588fbe684cab8951e
@@ -1293,6 +1294,9 @@ importers:
       ts-pattern:
         specifier: 'catalog:'
         version: 4.3.0
+      url-pattern:
+        specifier: ^1.0.3
+        version: 1.0.3
       use-debounce:
         specifier: 'catalog:'
         version: 9.0.3(react@18.3.1)
@@ -1718,7 +1722,7 @@ importers:
         version: 2.2.1
       avsc:
         specifier: ^5.7.9
-        version: 5.7.9
+        version: 5.7.9(patch_hash=4d6bb6760158ebf8090f1673f57fbf5adca9b37c2827c0a7de3303f4b3a0873f)
       aws-sdk:
         specifier: ^2.927.0
         version: 2.1366.0
@@ -35094,7 +35098,7 @@ snapshots:
     dependencies:
       possible-typed-array-names: 1.0.0
 
-  avsc@5.7.9: {}
+  avsc@5.7.9(patch_hash=4d6bb6760158ebf8090f1673f57fbf5adca9b37c2827c0a7de3303f4b3a0873f): {}
 
   aws-sdk@2.1366.0:
     dependencies:
