@@ -15,6 +15,7 @@ fi
 RUSTFLAGS='' cargo build \
     --manifest-path "$rust_dir/Cargo.toml" \
     --package hogql_parser_wasm \
+    --target-dir "$rust_dir/target" \
     --release \
     --target "$target" \
     --config profile.release.lto=true \

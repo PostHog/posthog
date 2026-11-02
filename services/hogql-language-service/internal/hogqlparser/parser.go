@@ -117,6 +117,9 @@ func ParseSelect(query string) (*Node, error) {
 }
 
 func parseSelectJSON(query string) ([]byte, error) {
+	if !utf8.ValidString(query) {
+		return nil, &SyntaxError{Message: "query is not valid UTF-8", End: len(query)}
+	}
 	parser, err := shared()
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInternal, err)

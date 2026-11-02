@@ -2,9 +2,7 @@ package hogqlparser
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
-	"io"
 	"sort"
 
 	"encoding/json/jsontext"
@@ -67,24 +65,16 @@ func readValue(decoder *jsontext.Decoder) (any, error) {
 }
 
 func readArray(decoder *jsontext.Decoder) (any, error) {
-	var nodes []*Node
 	var values []any
 	for decoder.PeekKind() != ']' {
 		value, err := readValue(decoder)
 		if err != nil {
 			return nil, err
 		}
-		if node, ok := value.(*Node); ok {
-			nodes = append(nodes, node)
-		} else {
-			values = append(values, value)
-		}
+		values = append(values, value)
 	}
 	if _, err := decoder.ReadToken(); err != nil {
 		return nil, err
-	}
-	if len(nodes) > 0 {
-		return nodes, nil
 	}
 	return values, nil
 }
@@ -97,28 +87,31 @@ func readObject(decoder *jsontext.Decoder) (*Node, error) {
 			return nil, err
 		}
 		key := keyToken.String()
-		if key == "start" || key == "end" {
-			offset, err := readOffset(decoder)
-			if err != nil {
-				return nil, err
-			}
-			if key == "start" {
-				node.Start = offset
-			} else {
-				node.End = offset
-			}
-			continue
-		}
 		value, err := readValue(decoder)
 		if err != nil {
 			return nil, err
 		}
+		if key == "start" || key == "end" {
+			if position, ok := value.(*Node); ok && position.Kind == "" {
+				if offset, ok := position.attributes["offset"].(float64); ok {
+					if key == "start" {
+						node.Start = int(offset)
+					} else {
+						node.End = int(offset)
+					}
+					continue
+				}
+			}
+			if value == nil {
+				continue
+			}
+		}
 		switch typed := value.(type) {
 		case *Node:
 			node.addChild(key, typed)
-		case []*Node:
-			for _, child := range typed {
-				node.addChild(key, child)
+		case []any:
+			if !addArrayChildren(node, key, typed) {
+				node.attributes[key] = typed
 			}
 		default:
 			if key == "node" {
@@ -148,42 +141,21 @@ func readObject(decoder *jsontext.Decoder) (*Node, error) {
 	return node, nil
 }
 
-// readOffset reads a position such as {"offset": 12, "line": 1, "column": 12}, or null. It returns -1 for null.
-func readOffset(decoder *jsontext.Decoder) (int, error) {
-	if decoder.PeekKind() == 'n' {
-		_, err := decoder.ReadToken()
-		return -1, err
-	}
-	if _, err := decoder.ReadToken(); err != nil {
-		return -1, err
-	}
-	offset := -1
-	for decoder.PeekKind() != '}' {
-		keyToken, err := decoder.ReadToken()
-		if err != nil {
-			return -1, err
-		}
-		if keyToken.String() != "offset" {
-			if err := decoder.SkipValue(); err != nil {
-				return -1, err
+// addArrayChildren registers nodes nested in arrays without losing descendants of tuple-like arrays.
+func addArrayChildren(node *Node, key string, values []any) bool {
+	found := false
+	for _, value := range values {
+		switch typed := value.(type) {
+		case *Node:
+			node.addChild(key, typed)
+			found = true
+		case []any:
+			if addArrayChildren(node, key, typed) {
+				found = true
 			}
-			continue
 		}
-		valueToken, err := decoder.ReadToken()
-		if err != nil {
-			return -1, err
-		}
-		value, err := valueToken.Int()
-		if err != nil {
-			return -1, err
-		}
-		offset = int(value)
 	}
-	_, err := decoder.ReadToken()
-	if errors.Is(err, io.EOF) {
-		err = io.ErrUnexpectedEOF
-	}
-	return offset, err
+	return found
 }
 
 func convertOffsets(node *Node, offsets offsetMap) {
