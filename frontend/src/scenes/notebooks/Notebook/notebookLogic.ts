@@ -42,6 +42,7 @@ import { downloadFile } from 'lib/utils/dom'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { objectsEqual } from 'lib/utils/objects'
 import { RetainedValues } from 'lib/utils/retainedValues'
+import { retryImport } from 'lib/utils/retryImport'
 import { slugify } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -1059,7 +1060,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         }
                     }
 
-                    const { migrate } = await import('./migrations/migrate')
+                    const { migrate } = await retryImport(() => import('./migrations/migrate'))
                     return await migrate(response, { skipApiUpgrade: !!values.isShared })
                 },
 

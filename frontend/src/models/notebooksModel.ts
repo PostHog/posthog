@@ -7,6 +7,7 @@ import api from 'lib/api'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { addProductIntent } from 'lib/utils/product-intents'
+import { retryImport } from 'lib/utils/retryImport'
 import { withBackLink } from 'scenes/analytics/analyticsBackLink'
 import type { notebookLogicType } from 'scenes/notebooks/Notebook/notebookLogic'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
@@ -63,15 +64,15 @@ export const openNotebook = async (
     }
 
     if (onOpen) {
+        // Queued before the import, so a failed import still leaves the callback for the logic to drain on mount.
+        const ops = pendingNotebookOperations.get(notebookId) || []
+        ops.push(onOpen)
+        pendingNotebookOperations.set(notebookId, ops)
         // A dynamic import keeps the notebook editor and its rich text stack out of every scene that can open a notebook.
-        const { notebookLogic } = await import('scenes/notebooks/Notebook/notebookLogic')
+        const { notebookLogic } = await retryImport(() => import('scenes/notebooks/Notebook/notebookLogic'))
         const mountedLogic = notebookLogic.findMounted({ shortId: notebookId })
         if (mountedLogic) {
-            onOpen(mountedLogic)
-        } else {
-            const ops = pendingNotebookOperations.get(notebookId) || []
-            ops.push(onOpen)
-            pendingNotebookOperations.set(notebookId, ops)
+            drainPendingNotebookOperations(notebookId, mountedLogic)
         }
     }
 }

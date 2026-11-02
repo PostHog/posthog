@@ -54,8 +54,9 @@ export function imageTilePositionToCss(position: ImageTilePosition): string {
     return `${normalizedPosition.x}% ${normalizedPosition.y}%`
 }
 
-// One markdown image, as the text card editor writes it: `![alt](src)` or `![alt](src "title")`.
-const MARKDOWN_IMAGE = /^!\[((?:\\.|[^\\\]])*)\]\(([^\s)]+)(?:\s+"((?:\\.|[^"\\])*)")?\)$/
+// One markdown image: `![alt](src)`, `![alt](<src>)`, either with an optional `"title"`.
+const MARKDOWN_IMAGE =
+    /^!\[((?:\\.|[^\\\]])*)\]\((?:<((?:\\.|[^\\<>\n])*)>|([^\s)<][^\s)]*))(?:\s+"((?:\\.|[^"\\])*)")?\)$/
 const MARKDOWN_ESCAPE = /\\([!-/:-@[-`{-~])/g
 
 /**
@@ -78,9 +79,9 @@ function parseImageOnlyMarkdown(body: string): ImageTileImage | null {
     const markdownImage = MARKDOWN_IMAGE.exec(body)
     if (markdownImage) {
         return toImageTile({
-            src: markdownImage[2],
+            src: (markdownImage[2] ?? markdownImage[3]).replace(MARKDOWN_ESCAPE, '$1'),
             alt: markdownImage[1].replace(MARKDOWN_ESCAPE, '$1'),
-            title: markdownImage[3]?.replace(MARKDOWN_ESCAPE, '$1') ?? null,
+            title: markdownImage[4]?.replace(MARKDOWN_ESCAPE, '$1') ?? null,
         })
     }
     if (!body.startsWith('<')) {

@@ -23,6 +23,12 @@ const reportOnly = process.argv.includes('--report-only')
 const assertReportIndex = process.argv.indexOf('--assert-report')
 const failForbiddenHits = process.argv.includes('--fail-forbidden-hits')
 
+// The rich text stack loads with the first text tile, comment or editor, through
+// lib/components/RichContentEditor/LazyRichContent. A hit means a static import of an editor module.
+const RICH_TEXT_STACK = ['node_modules/@tiptap/', 'node_modules/prosemirror-', 'node_modules/marked/']
+// The emoji picker loads with the editor that opens it.
+const EMOJI_PICKER = 'node_modules/frimousse/'
+
 // The eager graph is everything a root actually SHIPS on the critical path — the bytes a
 // browser downloads and parses before that surface is interactive. It is measured from the
 // esbuild OUTPUT chunks: the root's entry chunk plus every chunk reachable through static
@@ -191,13 +197,8 @@ const ROOTS = [
         budgetBytes: 10_314_000,
         forbidden: [
             QUILL_UMBRELLA_DIST,
-            // The rich text stack loads with the first text tile, comment or editor, through
-            // lib/components/RichContentEditor/LazyRichContent. A hit means a static import of an editor module.
-            'node_modules/@tiptap/',
-            'node_modules/prosemirror-',
-            'node_modules/marked/',
-            // The emoji picker loads with the editor that opens it.
-            'node_modules/frimousse/',
+            ...RICH_TEXT_STACK,
+            EMOJI_PICKER,
             // Neither scene plays recordings. A hit means a static import pulled the playlist and player onto it.
             'src/scenes/session-recordings/playlist/SessionRecordingsPlaylist.tsx',
             // Only web analytics insights render this tile. A hit means a static import put the web
@@ -262,13 +263,8 @@ const ROOTS = [
         budgetBytes: 9_869_000,
         forbidden: [
             QUILL_UMBRELLA_DIST,
-            // The rich text stack loads with the first text tile, comment or editor, through
-            // lib/components/RichContentEditor/LazyRichContent. A hit means a static import of an editor module.
-            'node_modules/@tiptap/',
-            'node_modules/prosemirror-',
-            'node_modules/marked/',
-            // The emoji picker loads with the editor that opens it.
-            'node_modules/frimousse/',
+            ...RICH_TEXT_STACK,
+            EMOJI_PICKER,
             // Neither scene plays recordings. A hit means a static import pulled the playlist and player onto it.
             'src/scenes/session-recordings/playlist/SessionRecordingsPlaylist.tsx',
             // Only web analytics insights render this tile. A hit means a static import put the web
@@ -297,13 +293,8 @@ const ROOTS = [
         budgetBytes: 10_999_000,
         forbidden: [
             QUILL_UMBRELLA_DIST,
-            // The rich text stack loads with the first text tile, comment or editor, through
-            // lib/components/RichContentEditor/LazyRichContent. A hit means a static import of an editor module.
-            'node_modules/@tiptap/',
-            'node_modules/prosemirror-',
-            'node_modules/marked/',
-            // The emoji picker loads with the editor that opens it.
-            'node_modules/frimousse/',
+            ...RICH_TEXT_STACK,
+            EMOJI_PICKER,
             // Only the live tab renders this dashboard. Its world map holds about 1 MiB of country shapes.
             'src/scenes/web-analytics/LiveMetricsDashboard/LiveWebAnalyticsMetrics.tsx',
             'products/product_analytics/frontend/insights/trends/WorldMap/countryVectors.tsx',
@@ -326,11 +317,7 @@ const ROOTS = [
         budgetBytes: 8_520_000,
         forbidden: [
             QUILL_UMBRELLA_DIST,
-            // The rich text stack loads with the first text tile, comment or editor, through
-            // lib/components/RichContentEditor/LazyRichContent. A hit means a static import of an editor module.
-            'node_modules/@tiptap/',
-            'node_modules/prosemirror-',
-            'node_modules/marked/',
+            ...RICH_TEXT_STACK,
             // The player shows a snapshot of a few settings. A hit means it imports settingsLogic again,
             // which holds every settings page.
             'src/scenes/settings/SettingsMap.tsx',

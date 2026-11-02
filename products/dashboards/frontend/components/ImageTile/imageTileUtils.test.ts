@@ -7,6 +7,18 @@ describe('imageTileUtils', () => {
         ['markdown image', '![A diagram](https://example.com/diagram.png)', 'A diagram', 'contain'],
         ['HTML image', '<img src="https://example.com/diagram.png" alt="A diagram" />', 'A diagram', 'contain'],
         [
+            'markdown image with a bracketed source',
+            '![A diagram](<https://example.com/diagram.png>)',
+            'A diagram',
+            'contain',
+        ],
+        [
+            'markdown image with an escaped source',
+            '![A diagram](https://example.com/diagram\\.png)',
+            'A diagram',
+            'contain',
+        ],
+        [
             'markdown image with blank lines',
             '\n\n![A diagram](https://example.com/diagram.png)\n',
             'A diagram',
