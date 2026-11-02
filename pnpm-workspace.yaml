@@ -119,6 +119,10 @@ overrides:
     '@tiptap/extension-underline': 3.20.6
 
 patchedDependencies:
+    # avsc reads a varint of any length. Past about 150 bytes its float path returns NaN, which passes
+    # every length check and corrupts the buffer pool all decoders share. The patch rejects a varint
+    # longer than 10 bytes, as the Avro spec requires. Remove it after an avsc release does the same.
+    avsc@5.7.9: patches/avsc@5.7.9.patch
     # The drag library changes a body-wide selection style, which stalls dense dashboards.
     # Remove this patch after an upstream release avoids that style change, or after the grid
     # passes enableUserSelectHack=false to both drag and resize.
