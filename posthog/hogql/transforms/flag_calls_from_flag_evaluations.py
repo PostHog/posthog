@@ -238,9 +238,7 @@ def swap_flag_calls(
     else:
         swap = FlagCallSwap(
             source=node,
-            resolved=_without_unreadable_inline_cohort_scans(
-                resolve(node), context, database.flag_calls_only_in_flag_evaluations, view_name
-            ),
+            resolved=_without_unreadable_inline_cohort_scans(resolve(node), context, view_name),
         )
     # A view's body names flag calls only after resolution when it filters with `matchesAction`, so its swap never
     # runs. The check reads the whole resolved query, so it runs once, for the top-level query.
@@ -293,7 +291,7 @@ def _resolve_with_swaps(
     if not swapper.swapped and not union.renamed:
         return FlagCallSwap(
             source=node,
-            resolved=_without_unreadable_inline_cohort_scans(original, context, only_in_flag_evaluations, view_name),
+            resolved=_without_unreadable_inline_cohort_scans(original, context, view_name),
         )
     try:
         swapped = resolve(rewritten)
@@ -312,7 +310,9 @@ def _resolve_with_swaps(
         elif not only_in_flag_evaluations and not _swap_reads_properties_alike(original, swapped, context):
             reason = "it reads a property from a different kind of column there"
         else:
-            context.flag_called_union_spans.update(union.literal_spans)
+            # A view body's offsets come from the view's own text, not from the query the editor shows.
+            if view_name is None:
+                context.flag_called_union_spans.update(union.literal_spans)
             return FlagCallSwap(source=rewritten, resolved=swapped)
     if only_in_flag_evaluations:
         # events gets no new flag calls, so the original query would return only calls from before the move.
@@ -321,19 +321,11 @@ def _resolve_with_swaps(
     return FlagCallSwap(source=node, resolved=original)
 
 
-def _without_unreadable_inline_cohort_scans(
-    resolved: _T_AST, context: HogQLContext, only_in_flag_evaluations: bool, view_name: str | None
-) -> _T_AST:
-    """`resolved`, or a QueryError when an organization with flag calls only in `flag_evaluations` reads a union scan
-    that the union cannot supply. The resolver splices an inline cohort in after the rename, so only the resolved
-    query shows its scans."""
-    if only_in_flag_evaluations:
-        # Deferred: flag_calls_union imports this module.
-        from posthog.hogql.transforms.flag_calls_union import union_unreadable_reason  # noqa: PLC0415
+def _without_unreadable_inline_cohort_scans(resolved: _T_AST, context: HogQLContext, view_name: str | None) -> _T_AST:
+    # Deferred: flag_calls_union imports this module.
+    from posthog.hogql.transforms.flag_calls_union import require_union_readable  # noqa: PLC0415
 
-        unreadable = union_unreadable_reason(resolved, context)
-        if unreadable is not None:
-            raise flag_calls_only_in_flag_evaluations_error(unreadable, view_name)
+    require_union_readable(resolved, context, view_name)
     return resolved
 
 
@@ -1016,11 +1008,8 @@ class _EventsScanSwapper(ScanVisitor):
         ):
             self._swap(node, scan, conjuncts)
         else:
-            # On mode 2 the union reads a scan of `events` with a ratio SAMPLE, so this refuses only the other shapes.
-            union_reads_sample = (
-                self.union_reads_ratio_samples and ".".join(_table_chain(scan.join) or []) in EVENTS_NAMES
-            )
-            refusal = scan.shape_refusal(node, ratio_sample_ok=union_reads_sample)
+            # On mode 2 the union reads a scan with a ratio SAMPLE, so this refuses only the other shapes.
+            refusal = scan.shape_refusal(node, ratio_sample_ok=self.union_reads_ratio_samples)
             if refusal is not None and scan.pins_flag_calls(conjuncts, needs_flag_key=False):
                 self.refusals.append(refusal)
 

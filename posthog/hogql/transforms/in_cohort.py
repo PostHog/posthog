@@ -376,7 +376,7 @@ class InCohortResolver(TraversingVisitor):
         negative: bool,
     ):
         from posthog.hogql.functions.cohort import inline_cohort_query
-        from posthog.hogql.transforms.flag_calls_union import require_inline_cohort_join_readable
+        from posthog.hogql.transforms.flag_calls_union import require_union_readable
         from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 
         assert self.context is not None
@@ -444,7 +444,7 @@ class InCohortResolver(TraversingVisitor):
                 ),
             )
             if inline_ast is not None:
-                require_inline_cohort_join_readable(new_join, self.context)
+                require_union_readable(new_join, self.context)
                 resolve_lazy_tables(
                     new_join, self.dialect, [self.stack[-1]], self.context, resolver_factory=self.resolver_factory
                 )

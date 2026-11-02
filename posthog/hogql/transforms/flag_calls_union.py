@@ -137,13 +137,13 @@ def read_flag_calls_in_inline_cohort(
 ) -> ast.SelectQuery | ast.SelectSetQuery:
     """Points each flag-call scan in an inline cohort `query` at the union, in place, and returns `query`.
 
-    The resolver and the `IN COHORT` transforms splice an inline cohort in after the swap in
+    The resolver and the subquery and LEFTJOIN paths of `IN COHORT` splice an inline cohort in after the swap in
     `resolve_flag_calls_from_flag_evaluations` has run, so that swap never sees its scans. Only the rename applies
     here, because the swap's binding check needs the whole query.
 
     Only an organization whose flag calls are only in `flag_evaluations` reads the union here. While `events` holds
-    every flag call, an inline cohort reads them from `events` as before. A cohort that `IN COHORT` splices in before
-    the swap runs needs no rename, because the swap sees its scans.
+    every flag call, an inline cohort reads them from `events` as before. `resolve_in_cohorts_conjoined` splices its
+    cohorts in before the swap runs, so its caller passes `read_flag_calls_from_union=False`: the swap sees those scans.
     """
     database = _union_database(context)
     if database is None or not database.flag_calls_only_in_flag_evaluations:
@@ -159,16 +159,17 @@ def read_flag_calls_in_inline_cohort(
     return query
 
 
-def require_inline_cohort_join_readable(resolved: ast.JoinExpr, context: HogQLContext) -> None:
-    """Raises a QueryError when an organization with flag calls only in `flag_evaluations` has a resolved inline
-    cohort join that reads a field the union cannot supply. `IN COHORT` resolves the join after the rename and before
-    lazy table resolution builds the union, so this is the last point where ClickHouse has not yet rejected it."""
+def require_union_readable(resolved: ast.AST, context: HogQLContext, view_name: str | None = None) -> None:
+    """Raises a QueryError when an organization with flag calls only in `flag_evaluations` has a union scan in
+    `resolved` that reads a field the union cannot supply. An inline cohort is spliced in after the rename, so only
+    the resolved query shows its scans. `IN COHORT` resolves its join before lazy table resolution builds the
+    union, so that call is the last point where ClickHouse has not yet rejected the query."""
     database = _union_database(context)
     if database is None or not database.flag_calls_only_in_flag_evaluations:
         return
     unreadable = union_unreadable_reason(resolved, context)
     if unreadable is not None:
-        raise flag_calls_only_in_flag_evaluations_error(unreadable)
+        raise flag_calls_only_in_flag_evaluations_error(unreadable, view_name)
 
 
 def union_unreadable_reason(node: ast.AST, context: HogQLContext) -> str | None:
@@ -735,7 +736,7 @@ class _UnionRenamer(ScanVisitor):
         # Only the first scan can be renamed, and it comes first, so each refusal reads the query as written.
         for found in _flag_call_scans(node, self.flag_key_compares_as_string, self.ctes):
             position, scan, literals = found.position, found.scan, found.literals
-            if position == 0 and self._reads_only_flag_calls(node, scan):
+            if position == 0 and self._left_to_the_swap(node, scan):
                 continue
             refusal = _union_refusal(node, scan, position)
             if refusal is not None:
@@ -753,7 +754,7 @@ class _UnionRenamer(ScanVisitor):
                     if literal.start is not None and literal.end is not None
                 )
 
-    def _reads_only_flag_calls(self, node: ast.SelectQuery, scan: EventsScan) -> bool:
+    def _left_to_the_swap(self, node: ast.SelectQuery, scan: EventsScan) -> bool:
         # The flag_evaluations swap handles a first scan whose `event` filter it reads as only flag calls. It swaps or
         # refuses that scan on mode 2. On mode 1 events holds every flag call, so the union would read the same calls
         # twice there.

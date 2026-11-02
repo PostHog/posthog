@@ -27,6 +27,7 @@ from posthog.hogql.flag_called_warnings import (
     FLAG_CALLED_FROM_BOTH_TABLES_NOTICE,
     FLAG_CALLED_FROM_FLAG_EVALUATIONS_NOTICE,
     FLAG_CALLED_ON_EVENTS_WARNING,
+    FLAG_CALLED_SPLIT_BY_AGE_NOTICE,
 )
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.parser import parse_select
@@ -465,6 +466,26 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 expected_union_notices=1,
             ),
             param(
+                "mixed_scan_read_from_both_tables_once_events_gets_no_flag_calls",
+                "SELECT count() FROM events WHERE event IN ('$pageview', '$feature_flag_called')",
+                True,
+                0,
+                _move_notices("https://example.com/announcement"),
+                "https://example.com/announcement",
+                mode=FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                union_enabled=True,
+                expected_union_notices=1,
+                union_notice=FLAG_CALLED_FROM_BOTH_TABLES_NOTICE,
+            ),
+            param(
+                "mixed_scan_the_union_declines",
+                "SELECT goe_0.properties FROM events WHERE event IN ('$pageview', '$feature_flag_called')",
+                True,
+                1,
+                mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                union_enabled=True,
+            ),
+            param(
                 "mixed_scan_with_the_union_off",
                 "SELECT count() FROM events WHERE event IN ('$pageview', '$feature_flag_called')",
                 True,
@@ -511,6 +532,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         mode: FlagEvaluationsMode = FlagEvaluationsMode.EVENTS,
         union_enabled: bool = False,
         expected_union_notices: int = 0,
+        union_notice: str = FLAG_CALLED_SPLIT_BY_AGE_NOTICE,
     ) -> None:
         OrganizationFeatureFlagsConfig.objects.update_or_create(
             organization=self.organization,
@@ -546,7 +568,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(metadata.isValid, metadata.errors)
         warnings = [w for w in metadata.warnings if w.message == FLAG_CALLED_ON_EVENTS_WARNING]
         notices = [n for n in metadata.notices if n.message == FLAG_CALLED_FROM_FLAG_EVALUATIONS_NOTICE]
-        union_notices = [n for n in metadata.notices if n.message == FLAG_CALLED_FROM_BOTH_TABLES_NOTICE]
+        union_notices = [n for n in metadata.notices if n.message == union_notice]
         literal_start = query.rindex("'$feature_flag_called'")
         literal_end = literal_start + len("'$feature_flag_called'")
         self.assertEqual(

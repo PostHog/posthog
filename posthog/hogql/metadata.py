@@ -38,6 +38,7 @@ from posthog.hogql.filters import replace_filters
 from posthog.hogql.flag_called_warnings import (
     FLAG_CALLED_FROM_BOTH_TABLES_NOTICE,
     FLAG_CALLED_FROM_FLAG_EVALUATIONS_NOTICE,
+    FLAG_CALLED_SPLIT_BY_AGE_NOTICE,
     LiteralSpan,
     flag_called_on_events_warnings,
     flag_called_spans_read_from_flag_evaluations,
@@ -349,9 +350,9 @@ def _flag_called_notices(
     context: HogQLContext,
     team: Team,
 ) -> _FlagCalledNotices:
-    """The move warning on each flag-call literal that reads events, and a notice on each literal whose query
-    reads posthog.flag_evaluations instead. `prepared_ast` is what the printer ran, so it says which scans it
-    swapped."""
+    """The move warning on each flag-call literal that reads events, a notice on each literal whose query reads
+    posthog.flag_evaluations instead, and a notice on each literal whose scan reads events and
+    posthog.flag_evaluations together. `prepared_ast` is what the printer ran, so it says which scans it swapped."""
     try:
         move_notices = _flag_called_move_notices(team)
         if move_notices is None or not move_notices.enabled:
@@ -365,6 +366,11 @@ def _flag_called_notices(
         flag_evaluations_notices: list[HogQLNotice] = []
         both_tables_notices: list[HogQLNotice] = []
         read_from_both_tables = flag_called_spans_read_from_union(context)
+        both_tables_message = (
+            FLAG_CALLED_FROM_BOTH_TABLES_NOTICE
+            if context.database is not None and context.database.flag_calls_only_in_flag_evaluations
+            else FLAG_CALLED_SPLIT_BY_AGE_NOTICE
+        )
         for warning in warnings:
             span = LiteralSpan(start=warning.start, end=warning.end)
             if span in swapped:
@@ -372,9 +378,7 @@ def _flag_called_notices(
                     warning.model_copy(update={"message": FLAG_CALLED_FROM_FLAG_EVALUATIONS_NOTICE, "url": url})
                 )
             elif span in read_from_both_tables:
-                both_tables_notices.append(
-                    warning.model_copy(update={"message": FLAG_CALLED_FROM_BOTH_TABLES_NOTICE, "url": url})
-                )
+                both_tables_notices.append(warning.model_copy(update={"message": both_tables_message, "url": url}))
             else:
                 move_warnings.append(warning.model_copy(update={"url": url}))
         return _FlagCalledNotices(

@@ -29,6 +29,12 @@ FLAG_CALLED_FROM_BOTH_TABLES_NOTICE = (
     "of flag calls, and other events from events."
 )
 
+# While events still holds every flag call, the union reads only the recent ones from posthog.flag_evaluations.
+FLAG_CALLED_SPLIT_BY_AGE_NOTICE = (
+    f"This query reads {FLAG_CALLED_EVENT} events from the last 90 days from posthog.flag_evaluations. "
+    "It reads older ones and all other events from events."
+)
+
 
 class _FlagCalledLiteralFinder(TraversingVisitor):
     def __init__(self, table_class: type[Table]) -> None:
