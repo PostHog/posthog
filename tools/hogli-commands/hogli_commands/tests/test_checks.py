@@ -1691,6 +1691,16 @@ _CANONICAL_SINGLE_NAME_TACH = (
 )
 
 
+_FACADE_PLUS_LEGACY_TACH = (
+    "[[interfaces]]\n"
+    'expose = ["backend\\\\.facade.*"]\n'
+    'from = ["products.alpha"]\n'
+    "[[interfaces]]\n"
+    'expose = ["backend\\\\.models.*"]\n'
+    'from = ["products.alpha"]\n'
+)
+
+
 class TestValidateFacadeAlternation:
     @pytest.mark.parametrize(
         "products, tach, expected_substrings",
@@ -1712,6 +1722,8 @@ class TestValidateFacadeAlternation:
             ),
             # On-disk single-name `from` (no alternation) parses.
             ([("alpha", True)], _CANONICAL_SINGLE_NAME_TACH, []),
+            # A product still draining legacy leaks may expose its facade without contracts.py.
+            ([("alpha", False)], _FACADE_PLUS_LEGACY_TACH, []),
             # Non-listed isolated products are tolerated — having
             # facade/contracts.py is just scaffolding, not a commitment to
             # canonical exposure.
@@ -1728,6 +1740,7 @@ class TestValidateFacadeAlternation:
             "stale_entry_missing_on_disk",
             "stale_entry_not_isolated",
             "on_disk_single_name_form_parses",
+            "facade_block_with_legacy_leaks_needs_no_contracts",
             "isolated_but_not_in_alternation_is_tolerated",
         ],
     )

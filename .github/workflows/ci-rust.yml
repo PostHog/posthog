@@ -77,6 +77,7 @@ jobs:
                         - 'proto/**'
                         - '.github/workflows/ci-rust.yml'
                         - '.github/scripts/rust_test_shards.py'
+                        - '.github/scripts/resolve-changed-files.sh'
                         - '.github/actions/setup-uv/**'
                         - '.github/workflows/rust.yml'
                         - '.github/workflows/rust-docker-build.yml'
@@ -129,17 +130,32 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  fetch-depth: 0
+                  fetch-depth: 1
                   filter: blob:none
                   sparse-checkout: |
                       rust/
                       proto/
                       .github/rust-images.yml
                       .github/scripts/rust_test_shards.py
+                      .github/scripts/resolve-changed-files.sh
                       .github/actions/rust-compute-affected/
                       .github/actions/setup-rust/
                   sparse-checkout-cone-mode: false
                   clean: false
+
+            - name: Resolve the changed files
+              id: changed-files
+              if: github.event_name != 'workflow_dispatch' && needs.changes.outputs.all_crates != 'true'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPOSITORY: ${{ github.repository }}
+                  MERGE_TARGET: ${{ github.event_name == 'push' && github.event.before || github.event.pull_request.base.ref }}
+              run: |
+                  if [ -f .github/scripts/resolve-changed-files.sh ]; then
+                      bash .github/scripts/resolve-changed-files.sh
+                  else
+                      echo 'resolved=false' >> "$GITHUB_OUTPUT"
+                  fi
 
             - name: Install rust
               uses: ./.github/actions/setup-rust
@@ -153,7 +169,9 @@ jobs:
                   event-name: ${{ github.event_name }}
                   pr-base-sha: ${{ github.event.pull_request.base.sha }}
                   push-before-sha: ${{ github.event.before }}
-                  rebuild-all: ${{ (github.event_name == 'workflow_dispatch' || needs.changes.outputs.all_crates == 'true') && 'true' || 'false' }}
+                  base-ref: ${{ github.event_name == 'push' && github.event.before || steps.changed-files.outputs.merge_base }}
+                  changed-files: ${{ runner.temp }}/changed-files.txt
+                  rebuild-all: ${{ steps.changed-files.outputs.resolved != 'true' && 'true' || 'false' }}
 
             # Bin-pack affected packages into balanced test shards.
             - name: Compute test shards
