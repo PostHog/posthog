@@ -196,11 +196,12 @@ def _fail_if_other_provider_box_exists(record: WorktreeBoxRecord) -> None:
     else:
         live = get_workspace(record.workspace, _list_workspaces_or_fail())
         command = f"hogli devbox:destroy {extract_workspace_label(record.workspace) or ''}"
-    if live is not None and record.owns(live):
+    if live is not None and record.may_adopt(live):
         _fail(
             f"This worktree already has the {record.provider} devbox '{record.workspace}'. "
             f"Remove it with `{command}` before you switch providers."
         )
+    mutagen.sync_terminate(mutagen.workspace_label_selector(record.workspace))
 
 
 def _resolve_target(

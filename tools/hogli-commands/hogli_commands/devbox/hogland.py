@@ -18,7 +18,6 @@ NAME_MAX_LENGTH = 32
 _UP_TIMEOUT_SECONDS = 900
 _CALL_TIMEOUT_SECONDS = 120
 _SSH_DIR = Path.home() / ".hogli" / "hogland-ssh"
-_FRESH_BOX_ACTIONS = frozenset({"running"})
 
 
 @dataclass(frozen=True)
@@ -26,7 +25,6 @@ class HoglandEndpoint:
     box_id: str
     host: str
     port: int
-    fresh_box: bool
 
 
 def ssh_config_path() -> Path:
@@ -107,12 +105,7 @@ def parse_endpoint(payload: Any) -> HoglandEndpoint:
             f"{payload.get('warning', '')}".strip(),
             cause="hogland_box_not_running",
         )
-    return HoglandEndpoint(
-        box_id=str(box_id),
-        host=host,
-        port=port,
-        fresh_box=payload.get("action") in _FRESH_BOX_ACTIONS,
-    )
+    return HoglandEndpoint(box_id=str(box_id), host=host, port=port)
 
 
 def up(name: str, branch: str | None) -> HoglandEndpoint:
@@ -154,16 +147,21 @@ def write_ssh_entry(name: str, endpoint: HoglandEndpoint) -> None:
     _SSH_DIR.chmod(0o700)
     ssh_config_path().write_text(render_main_config(hosts_dir))
     (hosts_dir / f"{name}.conf").write_text(render_host_entry(name, endpoint, known_hosts))
-    if endpoint.fresh_box and known_hosts.exists():
+    box_id_path = hosts_dir / f"{name}.box-id"
+    known_box_id = box_id_path.read_text().strip() if box_id_path.exists() else None
+    if known_box_id != endpoint.box_id and known_hosts.exists():
         subprocess.run(
             ["ssh-keygen", "-R", ssh_alias(name), "-f", str(known_hosts)],
             capture_output=True,
             check=False,
         )
+    box_id_path.write_text(endpoint.box_id)
 
 
 def forget_ssh_entry(name: str) -> None:
-    (_SSH_DIR / "hosts" / f"{name}.conf").unlink(missing_ok=True)
+    hosts_dir = _SSH_DIR / "hosts"
+    (hosts_dir / f"{name}.conf").unlink(missing_ok=True)
+    (hosts_dir / f"{name}.box-id").unlink(missing_ok=True)
 
 
 def run_in_devbox(name: str, command: list[str], *, timeout: float) -> subprocess.CompletedProcess[str]:

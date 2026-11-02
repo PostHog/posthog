@@ -1089,6 +1089,44 @@ class TestDevboxWorktreeCommand:
         assert str(other) in result.output
         assert str(worktree_root) not in devbox_config.load_worktree_boxes()
 
+    @pytest.mark.parametrize(
+        "recorded_id, live_boxes, expected_exit",
+        [
+            pytest.param("box-1", [{"name": "wt-feat", "id": "box-1"}], 1, id="live-box-blocks-the-switch"),
+            pytest.param(None, [{"name": "wt-feat", "id": "box-1"}], 1, id="live-box-with-unrecorded-id-blocks"),
+            pytest.param("box-1", [], 0, id="deleted-box-switches-and-drops-its-mirror"),
+        ],
+    )
+    def test_switching_provider_away_from_hogland(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        worktree_root: Path,
+        recorded_id: str | None,
+        live_boxes: list[dict[str, str]],
+        expected_exit: int,
+    ) -> None:
+        devbox_config.record_worktree_box(
+            worktree_root,
+            devbox_config.WorktreeBoxRecord(
+                workspace="wt-feat", git_dir="admin", workspace_id=recorded_id, provider="hogland"
+            ),
+        )
+        monkeypatch.setattr(devbox_worktree.hogland, "ensure_cli", lambda: None)
+        monkeypatch.setattr(devbox_worktree.hogland, "fetch_devboxes", lambda: live_boxes)
+        monkeypatch.setattr(devbox_worktree, "fetch_user_workspaces", lambda: [])
+        monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: [])
+        monkeypatch.setattr(devbox_worktree, "devbox_start", lambda **kwargs: None)
+        monkeypatch.setattr(devbox_worktree, "ensure_sync_session", lambda *a, **kw: None)
+        terminated: list[str] = []
+        monkeypatch.setattr(devbox_worktree.mutagen, "sync_terminate", terminated.append)
+
+        result = runner.invoke(cli, ["devbox:worktree", "--provider", "coder", "--label", "feat"])
+
+        assert result.exit_code == expected_exit, result.output
+        expected_record = "wt-feat" if expected_exit else "devbox-test-user-feat"
+        assert devbox_config.load_worktree_boxes()[str(worktree_root)].workspace == expected_record
+        assert terminated == ([] if expected_exit else [devbox_worktree.mutagen.workspace_label_selector("wt-feat")])
+
 
 class TestWorkspaceRegion:
     """Reading the region back from the workspace `region` metadata item."""
@@ -4877,21 +4915,38 @@ class TestRenderSyncStatus:
 
 class TestHoglandEndpoint:
     @pytest.mark.parametrize(
-        ("action", "fresh_box"),
-        [("running", True), ("noop-already-running", False)],
-        ids=["new-box-resets-host-key", "running-box-keeps-host-key"],
+        "known_box_id, box_id, key_reset",
+        [
+            pytest.param("box-1", "box-1", False, id="same-box-keeps-host-key"),
+            pytest.param("box-1", "box-2", True, id="replacement-box-resets-host-key"),
+            pytest.param(None, "box-1", True, id="unknown-box-resets-host-key"),
+        ],
     )
-    def test_only_a_new_box_resets_the_host_key(self, action: str, fresh_box: bool) -> None:
-        payload = {
-            "action": action,
-            "box": {"id": "box-1", "status": "running", "public_ip": "192.0.2.10", "guest_ssh_port": 2222},
-        }
-
-        endpoint = devbox_hogland.parse_endpoint(payload)
-
-        assert endpoint == devbox_hogland.HoglandEndpoint(
-            box_id="box-1", host="192.0.2.10", port=2222, fresh_box=fresh_box
+    def test_host_key_resets_when_the_box_changes(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        known_box_id: str | None,
+        box_id: str,
+        key_reset: bool,
+    ) -> None:
+        monkeypatch.setattr(devbox_hogland, "_SSH_DIR", tmp_path)
+        (tmp_path / "known_hosts").write_text("hogland.wt-feat ssh-ed25519 AAAA\n")
+        if known_box_id is not None:
+            (tmp_path / "hosts").mkdir()
+            (tmp_path / "hosts" / "wt-feat.box-id").write_text(known_box_id)
+        endpoint = devbox_hogland.parse_endpoint(
+            {
+                "action": "noop-already-running",
+                "box": {"id": box_id, "status": "running", "public_ip": "192.0.2.10", "guest_ssh_port": 2222},
+            }
         )
+
+        with patch.object(devbox_hogland.subprocess, "run") as run:
+            devbox_hogland.write_ssh_entry("wt-feat", endpoint)
+
+        assert run.called is key_reset
+        assert (tmp_path / "hosts" / "wt-feat.box-id").read_text() == box_id
 
     def test_box_without_ssh_fails(self) -> None:
         with pytest.raises(SystemExit):
