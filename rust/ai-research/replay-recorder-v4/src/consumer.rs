@@ -392,11 +392,8 @@ fn header<'m>(message: &'m BorrowedMessage<'_>, name: &str) -> Option<&'m str> {
         .and_then(|v| std::str::from_utf8(v).ok())
 }
 
-/// Takes the messages that are ready after `first`, until the poll is full or they would fill `room`. A flush holds
-/// every decompressed payload until it ends, and the flush size is only checked between polls, so without `room` one
-/// poll of small compressed messages could decompress to more memory than the process has. The message that crosses
-/// `room` is kept, so a flush holds at most one message more than its size. A message that is later skipped also uses
-/// `room`, which only makes that poll shorter.
+/// A flush holds every decompressed payload until it ends and its size is only checked between polls, so one poll of
+/// small compressed messages must not decompress to more than the `room` left in the buffer.
 fn take_ready<M, E>(
     first: M,
     room: usize,

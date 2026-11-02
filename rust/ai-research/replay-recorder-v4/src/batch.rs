@@ -207,7 +207,6 @@ impl Batch {
             .push(raw);
     }
 
-    /// The decoded bytes the buffer can still take before it reaches `max_bytes`.
     pub fn room(&self, max_bytes: usize) -> usize {
         max_bytes.saturating_sub(self.bytes)
     }
