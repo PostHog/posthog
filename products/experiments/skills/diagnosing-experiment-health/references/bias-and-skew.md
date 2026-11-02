@@ -379,6 +379,11 @@ Five states exist, checked from `experiment-get` alone:
 | "The experiment is not running, but users are exposed to multiple variants" | Ended, the flag is active, more than one variant is above 0%, and a release condition is above 0%                                           | Disable the flag, or resume the experiment                                                 |
 | "The experiment is not running, but users are exposed to multiple variants" | Not launched (also after a reset), not archived, the flag is active, more than one variant is above 0%, and a release condition is above 0% | Disable the flag, or start the experiment                                                  |
 
+The banners come from the page's own rules. For an ended experiment, the `flag_live_after_end` health finding also reads the flag's calls and the other experiments on the flag:
+
+- When another experiment on the flag is running, or launched after this one ended, the flag belongs to that experiment, and disabling it stops that experiment. The finding is absent, but the banner still shows. Do not repeat the banner's advice then.
+- A draft experiment on the flag, no recorded call of the flag in the last 3 days, or calls that PostHog can't read yet make the finding info, not a warning.
+
 "Adjust the variant distribution" on a running experiment is a change of the split, with what that does to the people already exposed (E3 in `mid-run-changes.md`).
 Say so before the user restores a split.
 
