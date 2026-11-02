@@ -1,4 +1,3 @@
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import {
     GitLabIntegration,
     GithubIntegration,
@@ -17,8 +16,6 @@ import { LinearStatusSyncSetting } from 'products/error_tracking/frontend/scenes
 const NEXT_URL = urls.settings('environment-error-tracking', 'error-tracking-integrations')
 
 export function ErrorTrackingIntegrations(): JSX.Element {
-    const showLinearStatusSync = useFeatureFlag('ERROR_TRACKING_LINEAR_STATUS_SYNC')
-
     return (
         <div className="flex flex-col gap-y-6">
             <div>
@@ -28,7 +25,7 @@ export function ErrorTrackingIntegrations(): JSX.Element {
                 </h3>
                 <div className="flex flex-col gap-y-4">
                     <LinearIntegration next={NEXT_URL} />
-                    {showLinearStatusSync && <LinearStatusSyncSetting />}
+                    <LinearStatusSyncSetting />
                 </div>
             </div>
             <div>
