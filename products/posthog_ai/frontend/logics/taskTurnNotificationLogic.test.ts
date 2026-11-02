@@ -1,22 +1,17 @@
 import { initKeaTests } from '~/test/init'
 
-import { playTurnSound } from '../lib/turnSounds'
 import { taskTurnNotificationLogic } from './taskTurnNotificationLogic'
 import { toolStreamEventsLogic } from './toolStreamEventsLogic'
-
-jest.mock('../lib/turnSounds', () => ({
-    ...jest.requireActual('../lib/turnSounds'),
-    playTurnSound: jest.fn(),
-}))
 
 describe('taskTurnNotificationLogic', () => {
     let logic: ReturnType<typeof taskTurnNotificationLogic.build>
     const notificationMock = jest.fn()
+    let playMock: jest.SpyInstance
 
     beforeEach(() => {
         localStorage.clear()
         initKeaTests()
-        jest.mocked(playTurnSound).mockClear()
+        playMock = jest.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
         notificationMock.mockClear()
         Object.defineProperty(window, 'Notification', {
             configurable: true,
@@ -43,11 +38,11 @@ describe('taskTurnNotificationLogic', () => {
         jest.spyOn(document, 'hasFocus').mockReturnValue(!hidden)
         logic.actions.setSound(sound)
         logic.actions.setBrowserNotificationsEnabled(browser)
-        jest.mocked(playTurnSound).mockClear()
+        playMock.mockClear()
 
         toolStreamEventsLogic.actions.emitTurnCompleteEvent({ streamKey: 'run-1', taskId: 'task-1' })
 
-        expect(playTurnSound).toHaveBeenCalledTimes(played)
+        expect(playMock).toHaveBeenCalledTimes(played)
         expect(notificationMock).toHaveBeenCalledTimes(shown)
     })
 })

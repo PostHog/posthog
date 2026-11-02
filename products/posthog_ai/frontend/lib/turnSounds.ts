@@ -47,7 +47,7 @@ export interface CustomTurnSound {
     dataUrl: string
 }
 
-export const MAX_CUSTOM_TURN_SOUND_BYTES = 500_000
+export const MAX_CUSTOM_TURN_SOUND_BYTES = 200_000
 export const MAX_CUSTOM_TURN_SOUND_SECONDS = 5
 // Decoders can report a duration a little over the real one.
 const DURATION_TOLERANCE_SECONDS = 0.3

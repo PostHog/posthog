@@ -1,18 +1,16 @@
 import { useActions, useValues } from 'kea'
-import { useRef } from 'react'
 
 import { IconPlay, IconTrash, IconUpload } from '@posthog/icons'
-import { LemonButton, LemonSelect, LemonSlider, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonFileInput, LemonSelect, LemonSlider, LemonSwitch } from '@posthog/lemon-ui'
 
-import { MAX_CUSTOM_TURN_SOUND_SECONDS, TURN_SOUND_OPTIONS } from 'products/posthog_ai/frontend/lib/turnSounds'
-import { taskTurnNotificationLogic } from 'products/posthog_ai/frontend/logics/taskTurnNotificationLogic'
+import { MAX_CUSTOM_TURN_SOUND_SECONDS, TURN_SOUND_OPTIONS } from '../lib/turnSounds'
+import { taskTurnNotificationLogic } from '../logics/taskTurnNotificationLogic'
 
 export function TaskTurnNotificationSettings(): JSX.Element {
     const { browserNotificationsEnabled, sound, volume, customSound, isNotificationSupported, isPermissionDenied } =
         useValues(taskTurnNotificationLogic)
     const { setBrowserNotificationsEnabled, setSound, setVolume, previewSound, uploadCustomSound, removeCustomSound } =
         useActions(taskTurnNotificationLogic)
-    const fileInputRef = useRef<HTMLInputElement>(null)
 
     const soundOptions = customSound
         ? [...TURN_SOUND_OPTIONS, { value: 'custom' as const, label: `Custom: ${customSound.name}` }]
@@ -52,16 +50,6 @@ export function TaskTurnNotificationSettings(): JSX.Element {
                 >
                     Play
                 </LemonButton>
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconUpload />}
-                    onClick={() => fileInputRef.current?.click()}
-                    tooltip={`An audio file of ${MAX_CUSTOM_TURN_SOUND_SECONDS} seconds or less`}
-                    data-attr="task-turn-notification-upload"
-                >
-                    {customSound ? 'Replace custom sound' : 'Upload custom sound'}
-                </LemonButton>
                 {customSound && (
                     <LemonButton
                         type="secondary"
@@ -72,20 +60,19 @@ export function TaskTurnNotificationSettings(): JSX.Element {
                         tooltip="Remove custom sound"
                     />
                 )}
-                <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="audio/*"
-                    className="hidden"
-                    onChange={(e) => {
-                        const file = e.target.files?.[0]
-                        if (file) {
-                            uploadCustomSound(file)
-                        }
-                        e.target.value = ''
-                    }}
-                />
             </div>
+            <LemonFileInput
+                accept="audio/*"
+                multiple={false}
+                showUploadedFiles={false}
+                onChange={(files) => files[0] && uploadCustomSound(files[0])}
+                callToAction={
+                    <span className="flex items-center gap-1" data-attr="task-turn-notification-upload">
+                        <IconUpload />
+                        {`${customSound ? 'Replace the custom sound' : 'Upload a custom sound'} (${MAX_CUSTOM_TURN_SOUND_SECONDS} seconds or less)`}
+                    </span>
+                }
+            />
             {sound !== 'none' && (
                 <div className="flex items-center gap-3 max-w-100">
                     <span className="text-secondary shrink-0">Volume</span>
