@@ -415,7 +415,6 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
                 groupingFlagEnabled: boolean
             ): boolean => canGroupAlert(alert, alerts, groupingFlagEnabled),
         ],
-        // With the flag off, an alert that already groups may only keep its grouping or drop it, as the API allows.
         lockedGroupBy: [
             (s) => [(_, props) => props.alert, s.groupingFlagEnabled],
             (alert: LogsAlertConfigurationApi | null, groupingFlagEnabled: boolean): LogsAlertGroupBy | null =>
