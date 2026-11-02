@@ -72,11 +72,12 @@ test.describe('SQL editor axis labels', () => {
         await page.getByTestId('sql-editor-visualization-settings-button').click()
         await page.getByRole('tab', { name: 'Display' }).click()
 
+        await page.getByText('Axes', { exact: true }).click()
         await page.getByTestId('data-visualization-x-axis-label-input').fill('Event name')
-        await page.getByText('Left Y-axis').click()
         await page.getByTestId('data-visualization-left-y-axis-label-input').fill('Events')
-        await page.getByText('Right Y-axis').click()
         await page.getByTestId('data-visualization-right-y-axis-label-input').fill('People')
+        // Labels save when the field loses focus.
+        await page.keyboard.press('Tab')
 
         const saveRequestPromise = page.waitForResponse(
             (response) =>
@@ -93,10 +94,9 @@ test.describe('SQL editor axis labels', () => {
         await page.getByTestId('sql-editor-visualization-settings-button').click()
         await page.getByRole('tab', { name: 'Display' }).click()
 
+        await page.getByText('Axes', { exact: true }).click()
         await expect(page.getByTestId('data-visualization-x-axis-label-input')).toHaveValue('Event name')
-        await page.getByText('Left Y-axis').click()
         await expect(page.getByTestId('data-visualization-left-y-axis-label-input')).toHaveValue('Events')
-        await page.getByText('Right Y-axis').click()
         await expect(page.getByTestId('data-visualization-right-y-axis-label-input')).toHaveValue('People')
     })
 })
