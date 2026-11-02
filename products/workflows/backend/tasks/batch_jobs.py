@@ -1,12 +1,13 @@
 from django.db import DatabaseError
 
-from celery import shared_task
+from celery import Task, shared_task
 
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
 from products.workflows.backend.services.batch_audience_snapshot import (
     delete_audience_snapshot,
+    record_audience_snapshot_failure,
     resolve_audience_snapshot,
 )
 from products.workflows.backend.services.batch_jobs import resume_batch_jobs_waiting_for_cohort
@@ -33,6 +34,7 @@ def resume_batch_jobs_waiting_for_realtime_cohort(team_id: int, cohort_id: int) 
 
 
 @shared_task(
+    bind=True,
     ignore_result=True,
     queue=CeleryQueue.LONG_RUNNING.value,
     # The run parks until this finishes, so a task a dying worker held runs again instead of waiting out the deadline.
@@ -45,11 +47,19 @@ def resume_batch_jobs_waiting_for_realtime_cohort(team_id: int, cohort_id: int) 
 )
 @skip_team_scope_audit
 def resolve_batch_job_audience_snapshot(
-    team_id: int, batch_job_id: str, dedupe_key: str | None, max_audience_size: int
+    self: Task, team_id: int, batch_job_id: str, dedupe_key: str | None, max_audience_size: int
 ) -> None:
-    resolve_audience_snapshot(
-        team_id=team_id, batch_job_id=batch_job_id, dedupe_key=dedupe_key, max_audience_size=max_audience_size
-    )
+    try:
+        resolve_audience_snapshot(
+            team_id=team_id, batch_job_id=batch_job_id, dedupe_key=dedupe_key, max_audience_size=max_audience_size
+        )
+    except DatabaseError:
+        # Without this the run waits out the resolver's two-hour limit for an audience nothing resolves.
+        if self.request.retries >= self.max_retries:
+            record_audience_snapshot_failure(
+                team_id=team_id, batch_job_id=batch_job_id, reason="Audience couldn't be saved. Start the run again."
+            )
+        raise
 
 
 @shared_task(
