@@ -384,7 +384,7 @@ const SPARSE_SERIES: Series[] = [
     {
         key: 'rps',
         label: 'Requests',
-        data: SPARSE_HOURS.map((h) => 200 + 60 * Math.sin(h / 3)),
+        data: SPARSE_HOURS.map((h) => (h === 15 ? NaN : 200 + 60 * Math.sin(h / 3))),
         fill: { opacity: 0.2 },
     },
 ]
@@ -397,10 +397,11 @@ export const TimeScale: Story = {
             { title: 'index (default)', config: {} },
             { title: "xScale: 'time'", config: { xScale: 'time' } },
             { title: "xScale: 'time', xDomain: whole day", config: { xScale: 'time', xDomain: WHOLE_DAY } },
+            { title: "xScale: 'time', connectNulls", config: { xScale: 'time', connectNulls: true } },
         ]
         return (
             // eslint-disable-next-line react/forbid-dom-props
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, auto)', gap: 24 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, auto)', gap: 24 }}>
                 {cells.map(({ title, config }) => (
                     <div key={title}>
                         <div>{title}</div>
