@@ -481,38 +481,33 @@ jobs:
                   fetch-depth: 2
                   persist-credentials: false
 
-            # Pass 1: print WARNING-severity findings. No --error — this step
-            # does not fail CI. Backlogs from migration-in-progress rules show
-            # up here.
-            - name: Warnings (informational)
+            # One scan feeds every verdict below. Each `semgrep` run starts from a cold cache,
+            # because the container is discarded, so the passes used to re-parse the same tree
+            # once per severity. They now read this one report instead.
+            - name: Scan
               run: |
                   docker run --rm -v "${{ github.workspace }}:/src" -w /src \
                     -e SEMGREP_ENABLE_VERSION_CHECK=false \
                     ${{ env.SEMGREP_IMAGE }} \
                     semgrep \
                       --config ".semgrep/rules/devex/" \
-                      --severity=WARNING \
+                      --json \
+                      --output semgrep-devex.json \
                       --metrics=off \
                       --verbose \
                       --timeout 300 \
                       bin/ common/ docs/onboarding/ ee/ frontend/ packages/ posthog/ products/ services/ tools/
 
+            # Pass 1: print WARNING-severity findings. No exit code — this step
+            # does not fail CI. Backlogs from migration-in-progress rules show
+            # up here.
+            - name: Warnings (informational)
+              run: python3 bin/semgrep_devex_report.py backlog --findings semgrep-devex.json
+
             # Pass 2: enforce ERROR-severity rules. Any finding fails the
             # job — regression guards live here.
             - name: Errors (blocking)
-              run: |
-                  docker run --rm -v "${{ github.workspace }}:/src" -w /src \
-                    -e SEMGREP_ENABLE_VERSION_CHECK=false \
-                    ${{ env.SEMGREP_IMAGE }} \
-                    semgrep \
-                      --config ".semgrep/rules/devex/" \
-                      --severity=ERROR \
-                      --exclude "products/desktop" \
-                      --error \
-                      --metrics=off \
-                      --verbose \
-                      --timeout 300 \
-                      bin/ common/ docs/onboarding/ ee/ frontend/ packages/ posthog/ products/ services/ tools/
+              run: python3 bin/semgrep_devex_report.py errors --findings semgrep-devex.json --exclude products/desktop/
 
             # Per-file ratchet: the INFO rule integration-model-through-sdk has a backlog, and its
             # baseline file lists the allowed count per file. More findings than the baseline fails, and
@@ -524,16 +519,11 @@ jobs:
                       echo "integration-model-through-sdk not present on this branch yet, skipping (rebase to pick it up)"
                       exit 0
                   fi
-                  docker run --rm -v "${{ github.workspace }}:/src" -w /src \
-                    -e SEMGREP_ENABLE_VERSION_CHECK=false \
-                    ${{ env.SEMGREP_IMAGE }} \
-                    semgrep \
-                      --config ".semgrep/rules/devex/integration-model-through-sdk.yaml" \
-                      --json \
-                      --output semgrep-integration-model.json \
-                      --metrics=off \
-                      --timeout 300 \
-                      common/ ee/ posthog/ products/
+                  python3 bin/semgrep_devex_report.py ratchet-input \
+                    --findings semgrep-devex.json \
+                    --rule integration-model-through-sdk \
+                    --output semgrep-integration-model.json \
+                    --path common/ --path ee/ --path posthog/ --path products/
                   python3 bin/semgrep_ratchet.py \
                     --findings semgrep-integration-model.json \
                     --baseline posthog/integrations/model_access_baseline.txt
