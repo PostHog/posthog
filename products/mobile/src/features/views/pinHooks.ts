@@ -17,7 +17,7 @@ import { useDemoViews } from '@/demo/views'
 import { abortError } from '@/lib/abort'
 import { toError } from '@/lib/errors'
 import { mergeRecent, pinsFromShortcuts, shortcutMatchKey } from '@/model/adapters/viewPins'
-import { errorQuery, loadingQuery, successQuery } from '@/model/queryStates'
+import { connectionLoadingQuery, errorQuery, loadingQuery, successQuery } from '@/model/queryStates'
 import type { QueryState } from '@/model/types'
 import type {
     DashboardTileView,
@@ -141,7 +141,7 @@ export function usePins({ refetchOnMount = false }: { refetchOnMount?: boolean }
     } else if (query.isError) {
         state = errorQuery(toError(query.error), refetch)
     } else {
-        state = { ...loadingQuery<PinView[]>(), refetch }
+        state = connectionLoadingQuery<PinView[]>(context.offline, refetch)
     }
     return {
         pins: state,
@@ -498,7 +498,7 @@ export function useRecentViews(pinnedKeys: ReadonlySet<string>): RecentState {
         // A failed web read still shows the phone's own views.
         recent = successQuery(merged, { isRefetching: server.isRefetching, refetch })
     } else {
-        recent = { ...loadingQuery<RecentView[]>(), refetch }
+        recent = connectionLoadingQuery<RecentView[]>(context.offline, refetch)
     }
     return { recent, list }
 }
@@ -635,7 +635,7 @@ export function useViewsList(): ViewsListState {
         items,
         visibleKeys: visibility.visibleKeys,
         lists,
-        enabled: context.ready,
+        enabled: context.ready && !context.offline,
     })
     return {
         pins,

@@ -389,7 +389,10 @@ function ViewsBody(): ReactElement {
                       ? {
                             type: 'note',
                             key: `${key}:error`,
-                            text: `Couldn't search ${title.toLowerCase()}. Try again in a moment.`,
+                            text:
+                                context.offline && state.error
+                                    ? state.error.message
+                                    : `Couldn't search ${title.toLowerCase()}. Try again in a moment.`,
                         }
                       : null
                 add(key, title, note ? [note] : viewItems(rows, 'search', key))
@@ -455,7 +458,7 @@ function ViewsBody(): ReactElement {
             ),
         })
         return result
-    }, [search, pins, recent, list.pinsTruncated, now, hintTargetId, browseEntries])
+    }, [search, pins, recent, list.pinsTruncated, now, hintTargetId, browseEntries, context.offline])
 
     const renderItem = useCallback(
         ({ item }: { item: ListItem }): ReactElement | null => {
