@@ -474,6 +474,39 @@ def observe_compute_quota_check(outcome: ComputeQuotaOutcome) -> None:
     COMPUTE_QUOTA_CHECK_TOTAL.labels(outcome=outcome).inc()
 
 
+ComputeSettlementOutcome = Literal[
+    "settled",
+    "duplicate",
+    "settled_locally",
+    "conflict",
+    "retry",
+    "attempts_exhausted",
+    "contract_error",
+    "deployment_error",
+    "skipped",
+]
+
+COMPUTE_SETTLEMENTS_TOTAL = Counter(
+    "posthog_tasks_compute_settlements_total",
+    "Sandbox compute settlement attempts against the gateway ledger, by outcome",
+    labelnames=["outcome"],
+)
+
+HOGLAND_SANDBOX_SESSIONS_OPEN_OVER_DAY = Gauge(
+    "posthog_tasks_hogland_sandbox_sessions_open_over_day",
+    "Hogland sandbox sessions with no end stamp that opened more than a day ago",
+    multiprocess_mode="mostrecent",
+)
+
+
+def observe_compute_settlement(outcome: ComputeSettlementOutcome) -> None:
+    COMPUTE_SETTLEMENTS_TOTAL.labels(outcome=outcome).inc()
+
+
+def set_hogland_sandbox_sessions_open_over_day(count: int) -> None:
+    HOGLAND_SANDBOX_SESSIONS_OPEN_OVER_DAY.set(count)
+
+
 # scoped: "true" when the delivery's installation resolved to at least one team, so the
 # TaskRun lookup could ride the team_id index. "false" means no team links the installation,
 # so the lookup is skipped and the delivery matches no run.

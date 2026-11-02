@@ -144,6 +144,7 @@ from products.tasks.backend.facade.tasks import (
     bake_dev_stack_image_task,
     refresh_dev_stack_image_task,
     refresh_stale_sandbox_custom_images_task,
+    settle_overdue_sandbox_compute_task,
     sweep_inactive_tasks_task,
 )
 from products.visual_review.backend.facade.tasks import (
@@ -516,6 +517,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="15"),
         sweep_inactive_tasks_task.s(),
         name="archive inactive tasks",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="47"),
+        settle_overdue_sandbox_compute_task.s(),
+        name="settle overdue sandbox compute",
     )
 
     # AWS SES account reputation → gauges for team-facing alerting (charts alerts/specs/ses.yaml)

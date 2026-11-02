@@ -16,6 +16,7 @@ def mint_private_gateway_token(
     user: str | None = None,
     expires_in_seconds: int | None = None,
     gateway_config: "AIGatewayConfig | None" = None,
+    run_id: str | None = None,
 ) -> str:
     from products.tasks.backend.temporal.process_task.ai_gateway_token import (  # noqa: PLC0415 -- breaks the Temporal aggregate's import cycle through process_task.utils
         mint_scoped_token,
@@ -28,6 +29,7 @@ def mint_private_gateway_token(
         capture_mode="none",
         expires_in_seconds=expires_in_seconds,
         gateway_config=gateway_config,
+        run_id=run_id,
     )
     if token is None:
         raise GatewayNotConfiguredError("Scout trials require a private AI gateway credential")
