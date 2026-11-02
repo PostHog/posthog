@@ -4,33 +4,8 @@ import { HogError } from '@/core/errors'
 import { hogFile } from '@/core/paths'
 import type { Runtime } from '@/core/runtime'
 
-// A login as commands see it. The store keeps only its secrets, and settings.json keeps the rest,
-// so a keychain item stays small however many scopes a login gains.
-export interface PersonalApiKeyCredential {
-    type: 'personal_api_key'
-    host: string
-    projectId: string
-    apiKey: string
-}
-
-// What `hog auth login` gets from the OAuth device grant. The access token is scoped to one project.
-export interface OAuthCredential {
-    type: 'oauth'
-    host: string
-    projectId: string
-    accessToken: string
-    refreshToken: string
-    // Epoch milliseconds after which the access token stops working.
-    expiresAt: number
-    scopes: string[]
-    // A random id the login keeps for life. The refresh token changes on each renewal, so it can't
-    // name the login.
-    loginId: string
-}
-
-export type StoredCredential = PersonalApiKeyCredential | OAuthCredential
-
-// The part of a login the credential store keeps.
+// The part of a login the credential store keeps. settings.json keeps the rest, so a keychain item
+// stays small however many scopes a login gains.
 export interface PersonalApiKeySecret {
     apiKey: string
 }

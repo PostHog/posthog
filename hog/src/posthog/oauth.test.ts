@@ -50,7 +50,8 @@ describe('OAuth credentials', () => {
 
         const credentials = await resolveCredentials(runtime, {})
 
-        expect(credentials).toMatchObject({ token: 'pha_new', kind: 'oauth', projectId: '42', scopes: ['openid'] })
+        expect(credentials).toMatchObject({ token: 'pha_new', projectId: '42' })
+        expect(credentials.credential.status()).toMatchObject({ kind: 'oauth', scopes: ['openid'] })
         expect(tokenRequests(runtime).map((request) => request.body)).toEqual([
             { grant_type: 'refresh_token', refresh_token: 'phr_old', client_id: HOG_CLIENT_ID },
         ])

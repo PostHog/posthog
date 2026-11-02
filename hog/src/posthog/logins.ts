@@ -1,15 +1,9 @@
 import { withFileLock } from '@/core/file-lock'
 import type { Runtime } from '@/core/runtime'
 
-import {
-    hostKey,
-    openStore,
-    type FileStore,
-    type KeychainStore,
-    type StoredCredential,
-    type StoredSecret,
-} from './credential-store'
-import { loginFor, readSettings, withLogin, writeSettings, type HogSettings, type LoginRecord } from './settings'
+import { credentialFromStorage, type Credential, type CredentialStorage } from './credential'
+import { hostKey, openStore, type FileStore, type KeychainStore } from './credential-store'
+import { loginFor, readSettings, withLogin, writeSettings, type HogSettings } from './settings'
 
 // settings.json and the credentials file hold every host's login, so each write reads them, changes
 // one entry and writes them back. The lock keeps two hog processes from dropping each other's entry.
@@ -17,33 +11,8 @@ const LOGINS_LOCK = 'logins.lock'
 
 // A login hog stored, and the store that holds its secrets.
 export interface StoredLogin {
-    credential: StoredCredential
+    credential: Credential
     store: KeychainStore | FileStore
-}
-
-function splitLogin(credential: StoredCredential, store: KeychainStore | FileStore): [StoredSecret, LoginRecord] {
-    const { projectId } = credential
-    if (credential.type === 'personal_api_key') {
-        return [{ apiKey: credential.apiKey }, { store: store.kind, type: credential.type, projectId }]
-    }
-    const { accessToken, refreshToken, expiresAt, scopes, loginId } = credential
-    return [
-        { accessToken, refreshToken },
-        { store: store.kind, type: credential.type, projectId, expiresAt, scopes, loginId },
-    ]
-}
-
-// A secret of the wrong kind for its record, such as one an older hog wrote, reads as no login.
-function joinLogin(host: string, record: LoginRecord, secret: StoredSecret): StoredCredential | undefined {
-    const { projectId } = record
-    if (record.type === 'personal_api_key' && 'apiKey' in secret) {
-        return { type: record.type, host, projectId, apiKey: secret.apiKey }
-    }
-    if (record.type === 'oauth' && 'accessToken' in secret) {
-        const { expiresAt, scopes, loginId } = record
-        return { type: record.type, host, projectId, expiresAt, scopes, loginId, ...secret }
-    }
-    return undefined
 }
 
 export async function readLogin(
@@ -57,8 +26,17 @@ export async function readLogin(
     }
     const store = openStore(runtime, record.store)
     const secret = await store.read(host)
-    const credential = secret && joinLogin(hostKey(host), record, secret)
+    const credential = secret && credentialFromStorage(hostKey(host), record, secret)
     return credential ? { credential, store } : undefined
+}
+
+// How a login's credential reads and saves its stored copy when it renews itself.
+export function loginStorage(runtime: Runtime, login: StoredLogin): CredentialStorage {
+    const { host } = login.credential
+    return {
+        reread: async () => (await readLogin(runtime, await readSettings(runtime), host))?.credential,
+        save: (credential) => writeLogin(runtime, login.store, credential),
+    }
 }
 
 // Writes the secrets first, so settings.json never names a login whose secrets aren't stored yet.
@@ -67,13 +45,12 @@ export async function readLogin(
 export async function writeLogin(
     runtime: Runtime,
     store: KeychainStore | FileStore,
-    credential: StoredCredential,
+    credential: Credential,
     options: { lastLogin?: boolean } = {}
 ): Promise<void> {
-    const [secret, record] = splitLogin(credential, store)
     await withFileLock(runtime, LOGINS_LOCK, async () => {
-        await store.write(credential.host, secret)
-        const settings = withLogin(await readSettings(runtime), credential.host, record)
+        await store.write(credential.host, credential.secret())
+        const settings = withLogin(await readSettings(runtime), credential.host, credential.record(store.kind))
         await writeSettings(runtime, options.lastLogin ? { ...settings, host: credential.host } : settings)
     })
 }

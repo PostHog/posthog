@@ -16,6 +16,7 @@ The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tas
 | `hog auth login`                          | Logs in through the browser and saves a personal API key. Agents finish with `hog auth login --wait`.                   |
 | `hog auth status`                         | Shows whether hog is logged in, whose key it is, and where the key comes from. Exits with code 1 without a working key. |
 | `hog auth logout`                         | Removes the stored key. The key stays valid in PostHog until you delete it there.                                       |
+| `hog auth migrate`                        | Moves the key `posthog-cli login` saved into hog's store, so you don't have to log in again.                            |
 | `hog query run <query>`                   | Runs a HogQL query. `-` reads the query from stdin.                                                                     |
 | `hog query check <query>`                 | Checks a query without running it. Exits with code 1 when the query has errors.                                         |
 | `hog api groups`, `hog api tools [group]` | List the PostHog MCP tools by group, with the scopes the key is missing for each.                                       |
@@ -184,7 +185,8 @@ hog uploads the same bytes and content hashes as posthog-cli, so either CLI can 
 1. `HOG_PERSONAL_API_KEY` and `HOG_PROJECT_ID` in the environment, plus an optional `HOG_HOST`. The key is a personal API key: it acts as you, with your access.
 2. The same variables in the file `--dotenv-file` or `HOG_DOTENV_FILE` names. A missing file prints a warning and hog moves on to the next source.
 3. What `hog auth login` stored, one login per host: the system keychain (Keychain on macOS, Credential Manager on Windows, Secret Service on Linux), or `credentials.json` in hog's folder when hog can't use the keychain, such as over SSH or in a container. Only you can read that file.
-4. `~/.posthog/credentials.json`, which `posthog-cli login` writes (`HOG_HOME` moves the folder). hog reads it but never changes it.
+
+hog doesn't read `~/.posthog/credentials.json`, the file `posthog-cli login` writes (`HOG_HOME` moves the folder). Run `hog auth migrate` once to move its key into hog's store.
 
 `--host` and `HOG_HOST` override the host from any of these, and pick which stored login to use.
 A `host` in `posthog.json` also picks a stored login, but never sends a key to a host it wasn't made for.
@@ -197,7 +199,7 @@ hog's folder is `~/Library/Application Support/hog` on macOS, `$XDG_CONFIG_HOME/
 - An agent or a script cannot answer prompts, so `hog auth login --region us` returns at once with a link and a code for a person to approve. `hog auth login --wait` then saves the key. Running `hog auth login` again before the code expires returns the same link.
 - Each login checks that hog can use the keychain, and records where it stored the key in `settings.json` in hog's folder, so other commands don't check again. The keychain, or the credentials file, keeps only the secret. The rest of the login, such as the project, is in `settings.json`. When the keychain shows a dialog, choose "Always Allow".
 - In CI, skip login and set the environment variables above.
-- `hog auth status` checks the key against PostHog and names where it comes from. `hog auth logout` removes hog's login, and warns when an environment variable or posthog-cli's file still holds a key.
+- `hog auth status` checks the key against PostHog and names where it comes from. `hog auth logout` removes hog's login, and warns when an environment variable still holds a key.
 
 ## Develop
 

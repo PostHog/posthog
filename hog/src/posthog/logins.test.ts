@@ -2,14 +2,15 @@ import { describe, expect, test } from 'bun:test'
 
 import { fakeRuntime } from '@/testing'
 
-import { FileStore, type StoredCredential } from './credential-store'
+import { PersonalApiKey } from './credential'
+import { FileStore } from './credential-store'
 import { writeLogin } from './logins'
 
 const EU = 'https://eu.posthog.com'
 const US = 'https://us.posthog.com'
 
-function login(host: string, apiKey: string): StoredCredential {
-    return { type: 'personal_api_key', host, projectId: '42', apiKey }
+function login(host: string, apiKey: string): PersonalApiKey {
+    return new PersonalApiKey(host, '42', apiKey)
 }
 
 describe('writeLogin', () => {

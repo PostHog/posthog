@@ -1,7 +1,8 @@
 import { clearPending, type ApprovalFlow } from '@/core/approval'
 import type { Runtime } from '@/core/runtime'
 
-import { FileStore, openStore, probeKeychain, type StoreChoice, type StoredCredential } from './credential-store'
+import type { Credential } from './credential'
+import { FileStore, openStore, probeKeychain, type StoreChoice } from './credential-store'
 import { pollDeviceLogin, startDeviceLogin, type Approval, type PendingLogin } from './device-auth'
 import { writeLogin } from './logins'
 import { loginFor, readSettings } from './settings'
@@ -39,7 +40,7 @@ export function loginFlow(runtime: Runtime, host?: string): ApprovalFlow<Pending
 // Each login probes the keychain again, so a login at the desk moves credentials out of the file a
 // login over SSH had to use. Clears any pending login too, so a later `--wait` can't replace these
 // credentials with an older approval.
-export async function saveLogin(runtime: Runtime, credential: StoredCredential): Promise<LoggedIn> {
+export async function saveLogin(runtime: Runtime, credential: Credential): Promise<LoggedIn> {
     const probe = await probeKeychain(runtime)
     const store = openStore(runtime, probe.usable ? 'keychain' : 'file')
     const previous = await readSettings(runtime)

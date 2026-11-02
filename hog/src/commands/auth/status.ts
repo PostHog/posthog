@@ -12,8 +12,6 @@ function sourceLabel(source: CredentialSource, store: StoreChoice | null, path: 
             return `HOG_PERSONAL_API_KEY in ${path}`
         case 'store':
             return store === 'keychain' ? 'the system keychain' : `${path}`
-        case 'posthog-cli-file':
-            return `posthog-cli's credentials file, ${path}`
     }
 }
 
