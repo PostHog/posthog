@@ -34,6 +34,9 @@ APIScopeObject = Literal[
     "billing",
     "business_knowledge",
     "canvas",
+    # Reads a project's CI trust policies. Policies are only written from a browser session, so
+    # no token can use the write half.
+    "ci_trust_policy",
     "clickhouse_test_cluster_perf",
     "cohort",
     "comment",

@@ -45,6 +45,7 @@ from posthog.models.activity_logging.personal_api_key_utils import (
 from posthog.models.activity_logging.project_secret_api_key_utils import log_project_secret_api_key_activity
 from posthog.models.activity_logging.tag_utils import get_tagged_item_related_object_info
 from posthog.models.activity_logging.utils import activity_storage
+from posthog.models.ci_trust_policy import CITrustPolicy
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import OrganizationMembership
@@ -490,6 +491,35 @@ def handle_oauth_application_scopes_change(
                 is_dcr_client=application.is_dcr_client,
                 is_first_party=application.is_first_party,
             ),
+        ),
+    )
+
+
+@mutable_receiver(model_activity_signal, sender=CITrustPolicy)
+def handle_ci_trust_policy_change(
+    sender: type[CITrustPolicy],
+    scope: ActivityScope,
+    before_update: CITrustPolicy | None,
+    after_update: CITrustPolicy | None,
+    activity: str,
+    user: User | None,
+    was_impersonated: bool = False,
+    **kwargs,
+) -> None:
+    policy = after_update or before_update
+    if policy is None:
+        return
+    log_activity(
+        organization_id=policy.team.organization_id,
+        team_id=policy.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=policy.pk,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            name=policy.name,
+            changes=changes_between(scope, previous=before_update, current=after_update),
         ),
     )
 

@@ -658,6 +658,158 @@ export const OrganizationsProjectsRotateSecretTokenPartialUpdateBody = /* @__PUR
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
+export const ciTrustPoliciesCreateBodyNameMax = 200
+
+export const ciTrustPoliciesCreateBodyIssuerMax = 255
+
+export const ciTrustPoliciesCreateBodyRepositoryMax = 255
+
+export const ciTrustPoliciesCreateBodyRepositoryIdMax = 100
+
+export const ciTrustPoliciesCreateBodyRefMax = 255
+
+export const ciTrustPoliciesCreateBodyEnvironmentMax = 255
+
+export const ciTrustPoliciesCreateBodyScopesItemMax = 100
+
+export const CiTrustPoliciesCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(ciTrustPoliciesCreateBodyNameMax).describe('A name that says what the policy is for.'),
+    issuer: zod
+        .string()
+        .max(ciTrustPoliciesCreateBodyIssuerMax)
+        .describe('The OIDC issuer of the CI provider, from the list of supported providers.'),
+    repository: zod
+        .string()
+        .max(ciTrustPoliciesCreateBodyRepositoryMax)
+        .describe("The repository's full name, for example `acme\/web`. Matched exactly."),
+    repository_id: zod
+        .string()
+        .max(ciTrustPoliciesCreateBodyRepositoryIdMax)
+        .describe(
+            "The repository's immutable ID from the CI provider. Matched together with the name, so a deleted and re-created repository with the same name does not match."
+        ),
+    ref: zod
+        .string()
+        .max(ciTrustPoliciesCreateBodyRefMax)
+        .optional()
+        .describe('The git ref the job must run on, for example `refs\/heads\/main`. Empty matches any ref.'),
+    environment: zod
+        .string()
+        .max(ciTrustPoliciesCreateBodyEnvironmentMax)
+        .optional()
+        .describe('The deployment environment the job must run in. Empty matches any environment.'),
+    scopes: zod
+        .array(zod.string().max(ciTrustPoliciesCreateBodyScopesItemMax))
+        .describe(
+            'The scopes every token minted under this policy carries. Scopes that manage credentials or access are refused.'
+        ),
+    enabled: zod.boolean().optional().describe('Whether the policy can mint tokens. Disabling it cuts off its tokens.'),
+})
+
+export const ciTrustPoliciesUpdateBodyNameMax = 200
+
+export const ciTrustPoliciesUpdateBodyIssuerMax = 255
+
+export const ciTrustPoliciesUpdateBodyRepositoryMax = 255
+
+export const ciTrustPoliciesUpdateBodyRepositoryIdMax = 100
+
+export const ciTrustPoliciesUpdateBodyRefMax = 255
+
+export const ciTrustPoliciesUpdateBodyEnvironmentMax = 255
+
+export const ciTrustPoliciesUpdateBodyScopesItemMax = 100
+
+export const CiTrustPoliciesUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(ciTrustPoliciesUpdateBodyNameMax).describe('A name that says what the policy is for.'),
+    issuer: zod
+        .string()
+        .max(ciTrustPoliciesUpdateBodyIssuerMax)
+        .describe('The OIDC issuer of the CI provider, from the list of supported providers.'),
+    repository: zod
+        .string()
+        .max(ciTrustPoliciesUpdateBodyRepositoryMax)
+        .describe("The repository's full name, for example `acme\/web`. Matched exactly."),
+    repository_id: zod
+        .string()
+        .max(ciTrustPoliciesUpdateBodyRepositoryIdMax)
+        .describe(
+            "The repository's immutable ID from the CI provider. Matched together with the name, so a deleted and re-created repository with the same name does not match."
+        ),
+    ref: zod
+        .string()
+        .max(ciTrustPoliciesUpdateBodyRefMax)
+        .optional()
+        .describe('The git ref the job must run on, for example `refs\/heads\/main`. Empty matches any ref.'),
+    environment: zod
+        .string()
+        .max(ciTrustPoliciesUpdateBodyEnvironmentMax)
+        .optional()
+        .describe('The deployment environment the job must run in. Empty matches any environment.'),
+    scopes: zod
+        .array(zod.string().max(ciTrustPoliciesUpdateBodyScopesItemMax))
+        .describe(
+            'The scopes every token minted under this policy carries. Scopes that manage credentials or access are refused.'
+        ),
+    enabled: zod.boolean().optional().describe('Whether the policy can mint tokens. Disabling it cuts off its tokens.'),
+})
+
+export const ciTrustPoliciesPartialUpdateBodyNameMax = 200
+
+export const ciTrustPoliciesPartialUpdateBodyIssuerMax = 255
+
+export const ciTrustPoliciesPartialUpdateBodyRepositoryMax = 255
+
+export const ciTrustPoliciesPartialUpdateBodyRepositoryIdMax = 100
+
+export const ciTrustPoliciesPartialUpdateBodyRefMax = 255
+
+export const ciTrustPoliciesPartialUpdateBodyEnvironmentMax = 255
+
+export const ciTrustPoliciesPartialUpdateBodyScopesItemMax = 100
+
+export const CiTrustPoliciesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(ciTrustPoliciesPartialUpdateBodyNameMax)
+        .optional()
+        .describe('A name that says what the policy is for.'),
+    issuer: zod
+        .string()
+        .max(ciTrustPoliciesPartialUpdateBodyIssuerMax)
+        .optional()
+        .describe('The OIDC issuer of the CI provider, from the list of supported providers.'),
+    repository: zod
+        .string()
+        .max(ciTrustPoliciesPartialUpdateBodyRepositoryMax)
+        .optional()
+        .describe("The repository's full name, for example `acme\/web`. Matched exactly."),
+    repository_id: zod
+        .string()
+        .max(ciTrustPoliciesPartialUpdateBodyRepositoryIdMax)
+        .optional()
+        .describe(
+            "The repository's immutable ID from the CI provider. Matched together with the name, so a deleted and re-created repository with the same name does not match."
+        ),
+    ref: zod
+        .string()
+        .max(ciTrustPoliciesPartialUpdateBodyRefMax)
+        .optional()
+        .describe('The git ref the job must run on, for example `refs\/heads\/main`. Empty matches any ref.'),
+    environment: zod
+        .string()
+        .max(ciTrustPoliciesPartialUpdateBodyEnvironmentMax)
+        .optional()
+        .describe('The deployment environment the job must run in. Empty matches any environment.'),
+    scopes: zod
+        .array(zod.string().max(ciTrustPoliciesPartialUpdateBodyScopesItemMax))
+        .optional()
+        .describe(
+            'The scopes every token minted under this policy carries. Scopes that manage credentials or access are refused.'
+        ),
+    enabled: zod.boolean().optional().describe('Whether the policy can mint tokens. Disabling it cuts off its tokens.'),
+})
+
 /**
  * Create a new password for the sharing configuration.
  */

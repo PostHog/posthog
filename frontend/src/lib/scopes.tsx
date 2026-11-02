@@ -151,6 +151,12 @@ export const API_SCOPES: APIScope[] = [
     { key: 'billing', objectName: 'Billing', objectPlural: 'billing' },
     { key: 'business_knowledge', objectName: 'Business knowledge', objectPlural: 'business knowledge' },
     { key: 'canvas', objectName: 'Canvas', objectPlural: 'canvases' },
+    {
+        key: 'ci_trust_policy',
+        objectName: 'CI trust policy',
+        objectPlural: 'CI trust policies',
+        disabledActions: ['write'],
+    },
     { key: 'cohort', objectName: 'Cohort', objectPlural: 'cohorts' },
     { key: 'comment', objectName: 'Comment', objectPlural: 'comments' },
     {
@@ -662,6 +668,7 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'organization',
             'organization_member',
             'project',
+            'ci_trust_policy',
             'user',
             'billing',
             'access_control',

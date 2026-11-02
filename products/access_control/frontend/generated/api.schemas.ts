@@ -59,6 +59,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `billing` - billing
  * * `business_knowledge` - business_knowledge
  * * `canvas` - canvas
+ * * `ci_trust_policy` - ci_trust_policy
  * * `cohort` - cohort
  * * `comment` - comment
  * * `conversation` - conversation
@@ -181,6 +182,7 @@ export const ScopeObjectEnumApi = {
     Billing: 'billing',
     BusinessKnowledge: 'business_knowledge',
     Canvas: 'canvas',
+    CiTrustPolicy: 'ci_trust_policy',
     Cohort: 'cohort',
     Comment: 'comment',
     Conversation: 'conversation',
@@ -326,6 +328,7 @@ export interface ProjectAccessSourceApi {
      * * `billing` - billing
      * * `business_knowledge` - business_knowledge
      * * `canvas` - canvas
+     * * `ci_trust_policy` - ci_trust_policy
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
@@ -491,6 +494,7 @@ export interface AccessControlObjectRuleApi {
      * * `billing` - billing
      * * `business_knowledge` - business_knowledge
      * * `canvas` - canvas
+     * * `ci_trust_policy` - ci_trust_policy
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
@@ -881,6 +885,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `billing` - billing
      * * `business_knowledge` - business_knowledge
      * * `canvas` - canvas
+     * * `ci_trust_policy` - ci_trust_policy
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
@@ -1168,6 +1173,7 @@ export interface ResolvedAccessApi {
      * * `billing` - billing
      * * `business_knowledge` - business_knowledge
      * * `canvas` - canvas
+     * * `ci_trust_policy` - ci_trust_policy
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation

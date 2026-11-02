@@ -102,6 +102,7 @@ ActivityScope = Literal[
     "PersonalAPIKey",
     "ProjectSecretAPIKey",
     "OAuthApplication",
+    "CITrustPolicy",
     "User",
     "Action",
     "AccountView",

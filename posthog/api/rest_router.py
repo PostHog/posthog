@@ -85,6 +85,7 @@ from .event_filter_config import EventFilterConfigViewSet
 from .file_system import file_system, file_system_shortcut
 from .llm_prompt import LLMPromptViewSet
 from .oauth import OrganizationOAuthApplicationViewSet
+from .oauth.ci_trust_policy import CITrustPolicyViewSet
 from .organization_notification_locks import OrganizationNotificationLockViewSet
 from .session import SessionViewSet
 from .taxonomic_search_intent import SearchIntentViewSet
@@ -546,6 +547,8 @@ projects_router.register(
     "project_project_secret_api_keys",
     ["team_id"],
 )
+
+projects_router.register(r"ci_trust_policies", CITrustPolicyViewSet, "project_ci_trust_policies", ["project_id"])
 
 projects_router.register(
     r"data_color_themes", data_color_theme.DataColorThemeViewSet, "project_data_color_themes", ["team_id"]

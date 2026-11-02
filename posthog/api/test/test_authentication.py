@@ -2497,6 +2497,12 @@ class TestTimeSensitivePermissions(APIBaseTest):
             ("github_disconnect", "delete", "/api/users/@me/integrations/github/123/"),
             ("slack_start", "post", "/api/users/@me/integrations/slack/start/"),
             ("slack_disconnect", "delete", "/api/users/@me/integrations/slack/U0123ABC/"),
+            ("ci_trust_policy_create", "post", "/api/projects/@current/ci_trust_policies/"),
+            (
+                "ci_trust_policy_delete",
+                "delete",
+                "/api/projects/@current/ci_trust_policies/00000000-0000-0000-0000-000000000001/",
+            ),
         ]
     )
     def test_credential_writes_require_recent_authentication(self, _name, method, url):
@@ -2511,6 +2517,7 @@ class TestTimeSensitivePermissions(APIBaseTest):
             ("passkey_list", "get", "/api/webauthn/credentials/"),
             ("connected_app_list", "get", "/api/oauth/connected-apps"),
             ("personal_integration_list", "get", "/api/users/@me/integrations/"),
+            ("ci_trust_policy_list", "get", "/api/projects/@current/ci_trust_policies/"),
             ("github_repos_refresh", "post", "/api/users/@me/integrations/github/123/repos/refresh/"),
             (
                 "github_install_request_cancel",

@@ -40,6 +40,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'business_knowledge:write',
     'canvas:read',
     'canvas:write',
+    'ci_trust_policy:read',
+    'ci_trust_policy:write',
     'cohort:read',
     'cohort:write',
     'comment:read',
