@@ -22,6 +22,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.integrations import IntegrationKind, IntegrationRecord
 from posthog.integrations.fields import IntegrationReferenceField
 from posthog.models import Team, User
+from posthog.models.integer_field_bounds import INTEGER_FIELD_MAX
 from posthog.models.integration import SUPPORTED_EXTERNAL_ISSUE_PROVIDERS
 
 from products.signals.backend import contracts
@@ -471,7 +472,7 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
         allow_null=True,
         min_value=1,
         # Ceiling at the int4 column max so an out-of-range value returns 400, not a DB write error.
-        max_value=2147483647,
+        max_value=INTEGER_FIELD_MAX,
         help_text=(
             "Daily cap on new reports surfacing to the inbox, counted per calendar day in the "
             "project's timezone. Once reached, signal ingestion, scout runs, and report research "

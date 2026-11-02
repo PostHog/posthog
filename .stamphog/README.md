@@ -25,7 +25,7 @@ A path rule cannot see these, because the marker sits in product code or in a bu
 
 `ownership` comes from the shipped default, which declares one `hogli-resolver` source at the repo root, so stamphog reads the same merged view the reviewer auto-assigner builds.
 
-`overrides` comes from the shipped default and grants folders a ceiling of 50 files and 1000 lines.
+`overrides` comes from the shipped default and grants folders a ceiling of 75 files and 1500 lines.
 Two folders currently take it up: [`products/desktop/`](../products/desktop/AGENT_APPROVALS.md) and [`products/visual_review/`](../products/visual_review/AGENT_APPROVALS.md).
 
 ## Proposing a change

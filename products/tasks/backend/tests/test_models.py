@@ -41,6 +41,7 @@ from products.tasks.backend.models import (
     MAX_PENDING_FOLLOWUP_MESSAGES,
     MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY,
     TASK_OWNERSHIP_VERSION_STATE_KEY,
+    TASK_RUN_FINISH_REPORT_STATE_KEY,
     SandboxEnvironment,
     SandboxSnapshot,
     Task,
@@ -1720,7 +1721,9 @@ class TestTaskRun(TestCase):
                 "failure_error_type": "poll_timeout",
                 "cancel_requested_at": requested_at.isoformat(),
                 "startup_requested_at": requested_at.isoformat(),
+                TASK_RUN_FINISH_REPORT_STATE_KEY: True,
             },
+            output={"final_message": "Previous report"},
         )
 
         run.prepare_for_cloud_resume()
@@ -1741,6 +1744,7 @@ class TestTaskRun(TestCase):
         self.assertNotIn("sandbox_backend", run.state)
         self.assertNotIn("pending_user_message", run.state)
         self.assertNotIn("pending_user_artifact_ids", run.state)
+        self.assertIsNone(run.finish_report)
         self.assertEqual(run.state["snapshot_external_id"], "snapshot-1")
         self.assertTrue(run.state["same_run_resume"])
 
