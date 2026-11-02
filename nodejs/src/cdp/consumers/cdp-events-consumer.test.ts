@@ -842,9 +842,7 @@ describe('CdpEventsConsumer', () => {
                 const parked = mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')
                 expect(parked).toHaveLength(1)
                 expect(parked[0].headers).toMatchObject({ dlq_step: 'parse' })
-                expect(mockQueueInvocations).not.toHaveBeenCalledWith([
-                    expect.objectContaining({ teamId: team.id }),
-                ])
+                expect(mockQueueInvocations).not.toHaveBeenCalledWith([expect.objectContaining({ teamId: team.id })])
             })
 
             it('fails the batch when the record cannot be written, so the offsets stay put', async () => {
