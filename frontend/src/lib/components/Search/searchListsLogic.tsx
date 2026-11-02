@@ -26,7 +26,6 @@ import {
     newSearchItems,
     peopleSearchItems,
     productSearchItems,
-    sentenceCaseId,
     settingsSearchItems,
     starredSearchItems,
 } from './searchListItems'
@@ -39,23 +38,18 @@ const summarizeSettingsSection = (section: SettingSection): SettingsSectionSumma
     flag: section.flag,
     to: section.to,
     keywords: section.keywords,
-    settings: section.settings
+    settings: section.settings.map((setting) => ({
+        id: setting.id,
         // A setting can render a title that getTitleText cannot read, such as a whole
         // component, and it must stay findable via its id token.
-        .filter((setting) => !!setting.title)
-        .map((setting) => {
-            const titleString = getTitleText(setting.title)
-            return {
-                keywords: [
-                    sentenceCaseId(setting.id),
-                    ...(titleString ? [titleString] : []),
-                    ...(setting.keywords ?? []),
-                ],
-                description:
-                    setting.searchDescription ?? (typeof setting.description === 'string' ? setting.description : null),
-                flag: setting.flag,
-            }
-        }),
+        // hasTitle preserves that distinction.
+        hasTitle: !!setting.title,
+        titleString: getTitleText(setting.title) || null,
+        descriptionString:
+            setting.searchDescription ?? (typeof setting.description === 'string' ? setting.description : null),
+        keywords: setting.keywords,
+        flag: setting.flag,
+    })),
 })
 
 export interface SearchListsLogicProps {

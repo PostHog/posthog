@@ -1,5 +1,3 @@
-import { parentPathOf } from 'lib/components/Search/utils'
-
 const WORD = /[\p{L}\p{N}_]+/gu
 
 export type RankKey = number[]
@@ -215,24 +213,16 @@ export function highlightSegments(name: string, words: string[]): HighlightSegme
     return segments
 }
 
-interface LocalSearchable {
-    name: string
-    displayName?: string
-    parentName?: string
-    searchKeywords?: string[]
-}
-
-export function rankLocalSearchItem(query: string, item: LocalSearchable, isTab = false): LocalRank | null {
-    const parentPath = parentPathOf(item)
-    const aliases = parentPath ? [...(item.searchKeywords ?? []), parentPath] : item.searchKeywords
-    const ranked = rankLocalItem(query, String(item.displayName || item.name), aliases, isTab)
-    return parentPath && ranked?.matchedAlias === parentPath ? { ...ranked, matchedAlias: null } : ranked
-}
-
-export function strictLocalMatches<T extends LocalSearchable>(items: T[], query: string): T[] {
+export function strictLocalMatches<T extends { name: string; displayName?: string; searchKeywords?: string[] }>(
+    items: T[],
+    query: string
+): T[] {
     const words = searchWords(query).length
     return items
-        .map((item) => ({ item, ranked: rankLocalSearchItem(query, item) }))
+        .map((item) => ({
+            item,
+            ranked: rankLocalItem(query, String(item.displayName || item.name), item.searchKeywords),
+        }))
         .filter(({ ranked }) => ranked !== null && -ranked.rank[0] === words && ranked.rank[1] === 0)
         .sort((a, b) => compareRanks(a.ranked!.rank, b.ranked!.rank))
         .map(({ item }) => item)

@@ -1,5 +1,4 @@
 import { SearchItem } from 'lib/components/Search/searchItems'
-import { SEARCH_TAB_CATEGORY } from 'lib/components/Search/utils'
 
 import { buildRankedResults } from './commandKRankedResults'
 import type { CommandKSection } from './commandKSections'
@@ -70,7 +69,6 @@ describe('buildRankedResults', () => {
                 {
                     ...product('Business knowledge Playground'),
                     displayName: 'Playground',
-                    category: SEARCH_TAB_CATEGORY,
                     parentName: 'Business knowledge',
                 },
                 product('Playground'),
