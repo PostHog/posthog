@@ -31,7 +31,7 @@ def repin_loop_returns_v1_to_2026_10(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("warehouse_sources", "0190_repin_profound_api_version_v2"),
+        ("warehouse_sources", "0191_repin_qualys_vmdr_api_version_6_0"),
     ]
 
     operations = [
