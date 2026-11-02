@@ -67,6 +67,13 @@ class NoSeedFixturesError(Exception):
 
 
 @frozen
+class _SeedFixture:
+    name: str
+    repository: str
+    result: ReportResearchOutput
+
+
+@frozen
 class SeededInbox:
     report_ids: tuple[str, ...]
     task_ids: tuple[str, ...]
@@ -107,11 +114,12 @@ def seed_demo_inbox(
     report_ids: list[str] = []
     task_ids: list[str] = []
     for index in range(count or len(fixtures)):
-        name, fixture_repository, result = fixtures[index % len(fixtures)]
-        repository = None if github_optional else fixture_repository
+        fixture = fixtures[index % len(fixtures)]
+        result = fixture.result
+        repository = None if github_optional else fixture.repository
         final_status = _FINAL_STATES[index % len(_FINAL_STATES)]
         report = _seed_report(team, result, repository, final_status, write)
-        write(f"  · {report.status:<13} {result.title[:70]} ({name})")
+        write(f"  · {report.status:<13} {result.title[:70]} ({fixture.name})")
 
         _add_extra_log_artefacts(team.id, str(report.id), repository, index)
         _add_suggested_reviewers(team.id, str(report.id), repository, index, user_uuid)
@@ -164,8 +172,8 @@ def seed_demo_chat(*, team_id: int, user_id: int) -> SeededChat:
 # ── setup ──────────────────────────────────────────────────────────────────
 
 
-def _load_fixtures(write: Callable[[str], None]) -> list[tuple[str, str, ReportResearchOutput]]:
-    fixtures: list[tuple[str, str, ReportResearchOutput]] = []
+def _load_fixtures(write: Callable[[str], None]) -> list[_SeedFixture]:
+    fixtures: list[_SeedFixture] = []
     for path in sorted(_FIXTURES_DIR.glob("*.json")):
         try:
             payload = json.loads(path.read_text())
@@ -183,7 +191,7 @@ def _load_fixtures(write: Callable[[str], None]) -> list[tuple[str, str, ReportR
             write(f"Skipping invalid fixture {path.name}: {e}")
             continue
         repository = payload.get("repository") or _DEFAULT_REPOSITORY
-        fixtures.append((path.stem, repository, result))
+        fixtures.append(_SeedFixture(name=path.stem, repository=repository, result=result))
     if not fixtures:
         raise NoSeedFixturesError(f"No usable report fixtures found in {_FIXTURES_DIR}")
     return fixtures
