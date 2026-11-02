@@ -789,16 +789,17 @@ describe("App", () => {
       mouse.emit("keys", text);
       mouse.emit("keys", "\r");
     };
-    // The first chat under the tabs: the sidebar has two list rows here, and a chat the list dropped sits above it as the pane's own row.
-    const topOfList = (): string | undefined => {
+    // The chats under the tabs on the latest frame; with the pane empty, the whole list fits.
+    const listed = (): string[] => {
       const rows = stripTerminalSequences(output()).split("\n");
       const tabs = rows.findLastIndex((row) => row.includes("My chats"));
       return rows
         .slice(tabs + 1)
-        .flatMap((row) => row.match(/Other|Old name/)?.[0] ?? [])[0];
+        .flatMap((row) => row.match(/Other|Old name/)?.[0] ?? []);
     };
     try {
-      await vi.waitFor(() => expect(topOfList()).toBe("Other"));
+      // The sidebar has two list rows here: the pane's own chat and one more.
+      await vi.waitFor(() => expect(listed()).toEqual(["Other"]));
       type("/pin");
       await vi.waitFor(() =>
         expect(loadPrefs().pinnedChats).toEqual([
@@ -814,20 +815,35 @@ describe("App", () => {
       await vi.waitFor(() =>
         expect(setArchived).toHaveBeenCalledWith("t1", true),
       );
-      // Out of the list before the server answers, so the pane's own row leads; refused, it is back where it was.
-      await vi.waitFor(() => expect(topOfList()).toBe("Old name"));
+      // Out of the list and its pane before the server answers, as a close; the empty pane remembers it.
+      await vi.waitFor(() => expect(listed()).toEqual(["Other"]));
+      expect(allPanes(loadLayout())[0]).toMatchObject({
+        taskId: null,
+        previous: { taskId: "t1" },
+      });
+      // Refused, it is back in the list and in its pane.
       answer();
       await vi.waitFor(() => expect(output()).toContain("Couldn't archive"));
-      await vi.waitFor(() => expect(topOfList()).toBe("Other"));
+      await vi.waitFor(() =>
+        expect(allPanes(loadLayout())[0].taskId).toBe("t1"),
+      );
+      await vi.waitFor(() => expect(listed()).toEqual(["Other"]));
       type("/archive");
       await vi.waitFor(() => expect(setArchived).toHaveBeenCalledTimes(2));
-      await vi.waitFor(() => expect(topOfList()).toBe("Old name"));
+      await vi.waitFor(() => expect(listed()).toEqual(["Other"]));
       answer();
+      await vi.waitFor(() => expect(output()).toContain("Archived"));
+      // Brought back into the pane, /unarchive lists it again.
+      mouse.emit("keys", "\u001b");
+      mouse.emit("keys", "\u001b");
+      await vi.waitFor(() =>
+        expect(allPanes(loadLayout())[0].taskId).toBe("t1"),
+      );
       type("/unarchive");
       await vi.waitFor(() =>
         expect(setArchived).toHaveBeenCalledWith("t1", false),
       );
-      await vi.waitFor(() => expect(topOfList()).toBe("Other"));
+      await vi.waitFor(() => expect(listed()).toEqual(["Other"]));
     } finally {
       instance.unmount();
     }

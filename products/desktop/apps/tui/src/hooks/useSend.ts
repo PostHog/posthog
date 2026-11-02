@@ -8,6 +8,7 @@ import { messageOf } from "../errors";
 import type { Attachment } from "../images";
 import {
   assignTask,
+  backToPrevious,
   expandPane,
   findPane,
   type LayoutState,
@@ -284,12 +285,17 @@ export function useSend({
       else if (!chats)
         flashNotice("Sign in to archive a chat: type /login", here);
       else {
-        // Shown at once; a failed call puts the chat back where it was.
-        if (archived) listed.drop(taskId);
-        else listed.restore(taskId, current);
+        // Shown at once; a failed call puts the chat back where it was. An archived chat leaves its pane as a close
+        // does, so the pane is a new chat and a double Esc on it brings the chat back.
+        if (archived) {
+          listed.drop(taskId);
+          setLayout((state) => newChatIn(state, paneId));
+        } else listed.restore(taskId, current);
         flashNotice(
-          archived ? "Archived. /unarchive brings it back" : "Back in the list",
-          { taskId },
+          archived
+            ? "Archived. Double Esc brings it back; /unarchive lists it again"
+            : "Back in the list",
+          archived ? { paneId } : { taskId },
         );
         chats.setArchived(taskId, archived).then(
           (task) => {
@@ -298,8 +304,10 @@ export function useSend({
             listed.release(taskId);
           },
           (error: unknown) => {
-            if (archived) listed.restore(taskId, current);
-            else listed.drop(taskId);
+            if (archived) {
+              listed.restore(taskId, current);
+              setLayout((state) => backToPrevious(state, paneId));
+            } else listed.drop(taskId);
             flashNotice(
               `Couldn't ${slash.command} this chat: ${messageOf(error)}`,
               { taskId },

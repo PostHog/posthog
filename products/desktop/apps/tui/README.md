@@ -76,7 +76,7 @@ Cmd works in place of Ctrl where the terminal passes it on.
 | `/new` | Start a new chat: in the focused pane of a split, else the main view |
 | `/rename`, `/rename-workspace` | Rename this chat or workspace; with no name, edit the current one |
 | `/pin`, `/unpin` | Pin this chat above the workspaces, like Ctrl+P, or unpin it |
-| `/archive`, `/unarchive` | Archive this chat out of the list, or bring it back |
+| `/archive`, `/unarchive` | Archive this chat, closing its pane (double Esc brings it back), or list it again |
 | `/optimize` | Lay out this workspace's panes in an even grid |
 | `/expand` | Open this chat full width |
 | `/search` | Search your tasks |
