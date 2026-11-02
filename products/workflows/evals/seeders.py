@@ -4,7 +4,7 @@ import uuid
 from collections.abc import Callable
 from typing import Any
 
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -79,12 +79,11 @@ def seed_new_sender(sender: str) -> Callable[[CustomPromptSandboxContext], dict[
     return seed
 
 
-def _create_sender(context: CustomPromptSandboxContext, address: str, *, mail_from_subdomain: str) -> Integration:
+def _create_sender(context: CustomPromptSandboxContext, address: str, *, mail_from_subdomain: str) -> IntegrationRecord:
     domain = domain_of(address)
-    return Integration.objects.create(
-        team_id=context.team_id,
-        kind="email",
-        integration_id=address,
+    return IntegrationManager.email.credentials.create(
+        context.team_id,
+        external_id=address,
         created_by_id=context.user_id,
         config={
             "email": address,
