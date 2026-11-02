@@ -2173,19 +2173,20 @@ describe('EmailService', () => {
         })
 
         it.each([
-            { link: 'adds', outcome: 'succeeds', failing: false, linked: true, savedCopies: 1 },
-            { link: 'leaves out', outcome: 'fails', failing: true, linked: false, savedCopies: 0 },
-        ])('$link the View email link when saving the copy $outcome', async ({ failing, linked, savedCopies }) => {
+            { link: 'adds', outcome: 'succeeds' },
+            { link: 'leaves out', outcome: 'fails' },
+        ])('$link the View email link when saving the copy $outcome', async ({ outcome }) => {
+            const saved = outcome === 'succeeds'
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             invocation.state.actionId = 'email_1'
-            useMessageAssets({ failing })
+            useMessageAssets({ failing: !saved })
 
             const result = await service.executeSendEmail(invocation)
 
             const sentLine = result.logs.find((log) => log.message.startsWith('Email sent to '))
             expect(sentLine).toBeDefined()
-            expect(sentLine?.message.includes(`[Email:${invocation.id}:email_1]`)).toBe(linked)
-            expect(result.messageAssets).toHaveLength(savedCopies)
+            expect(sentLine?.message.includes(`[Email:${invocation.id}:email_1]`)).toBe(saved)
+            expect(result.messageAssets).toHaveLength(saved ? 1 : 0)
         })
 
         it('records a failed send as failed when the engagement setting read also fails', async () => {
