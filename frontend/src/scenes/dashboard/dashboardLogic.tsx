@@ -28,6 +28,7 @@ import { LemonButton, LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import { dashboardsCopyGroupCreate } from '@posthog/products-dashboards/frontend/generated/api'
 import type { DashboardWidgetRunResultApi } from '@posthog/products-dashboards/frontend/generated/api.schemas'
 import { isWidgetConfigValidationError, updateDashboardWidgetTile } from '@posthog/products-dashboards/frontend/utils'
+import { tryGetDashboardWidgetCatalogEntry } from '@posthog/products-dashboards/frontend/widget_types/catalog'
 import { DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE } from '@posthog/products-dashboards/frontend/widgets/constants'
 import {
     applyIssueMetadataToWidgetListResult,
@@ -830,6 +831,8 @@ export interface dashboardLogicValues {
     urlVariables: Record<string, HogQLVariable>
     variablesDirty: boolean
     waitingTileRefresh: WaitingTileRefresh | null
+    widgetEditorTileId: number | null
+    widgetFiltersKeys: Record<number, string>
     widgetRefreshStatus: Record<
         number,
         {
@@ -1462,6 +1465,16 @@ export interface dashboardLogicActions {
     setWaitingTileRefresh: (waiting: WaitingTileRefresh) => {
         waiting: WaitingTileRefresh
     }
+    setWidgetEditorTileId: (tileId: number | null) => {
+        tileId: number | null
+    }
+    setWidgetFiltersKeys: (
+        tileIds: number[],
+        filtersKey: string
+    ) => {
+        filtersKey: string
+        tileIds: number[]
+    }
     setWidgetRefreshStatuses: (
         tileIds: number[],
         loading: boolean,
@@ -1750,7 +1763,10 @@ export interface dashboardLogicMeta {
         collapsedTileIds: (tileGroupKeys: Map<number, string>, collapsedTileGroupKeys: string[]) => Set<number>
         insightTiles: (tiles: DashboardTile[]) => DashboardTile[]
         textTiles: (tiles: DashboardTile[]) => DashboardTile[]
-        dashboardControlScopes: (insightTiles: DashboardTile[]) => Record<DashboardControl, DashboardControlScope>
+        dashboardControlScopes: (
+            insightTiles: DashboardTile[],
+            widgetTiles: DashboardTile[]
+        ) => Record<DashboardControl, DashboardControlScope>
         itemsLoading: (
             dashboardLoading: boolean,
             dashboardStreaming: boolean,
@@ -2064,6 +2080,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             widgets: { widgetType: string; config: Record<string, unknown> }[]
         }) => payload,
         setAddWidgetModalOpen: (open: boolean) => ({ open }),
+        /** A newly added tile whose widget settings open as soon as it renders. */
+        setWidgetEditorTileId: (tileId: number | null) => ({ tileId }),
+        setWidgetFiltersKeys: (tileIds: number[], filtersKey: string) => ({ tileIds, filtersKey }),
         toggleAddWidgetSelectedType: (widgetType: string) => ({ widgetType }),
         clearAddWidgetSelectedTypes: true,
         toggleAddWidgetCollapsedGroup: (groupId: string) => ({ groupId }),
@@ -3418,6 +3437,22 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }),
             },
         ],
+        // The dashboard filters each widget tile last ran with, for widgets that follow dashboard filters.
+        widgetFiltersKeys: [
+            {} as Record<number, string>,
+            {
+                setWidgetFiltersKeys: (state, { tileIds, filtersKey }) => ({
+                    ...state,
+                    ...Object.fromEntries(tileIds.map((tileId) => [tileId, filtersKey])),
+                }),
+            },
+        ],
+        widgetEditorTileId: [
+            null as number | null,
+            {
+                setWidgetEditorTileId: (_, { tileId }) => tileId,
+            },
+        ],
         refreshEligibilityTick: [0, { recheckRefreshEligibility: (state) => state + 1 }],
         addWidgetTileLoading: [
             false,
@@ -3959,9 +3994,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         textTiles: [(s) => [s.tiles], (tiles: DashboardTile[]) => tiles.filter((t) => !!t.text)],
         dashboardControlScopes: [
-            (s) => [s.insightTiles],
-            (insightTiles: DashboardTile[]): Record<DashboardControl, DashboardControlScope> =>
-                getDashboardControlScopes(insightTiles),
+            (s) => [s.insightTiles, s.widgetTiles],
+            (
+                insightTiles: DashboardTile[],
+                widgetTiles: DashboardTile[]
+            ): Record<DashboardControl, DashboardControlScope> =>
+                getDashboardControlScopes(
+                    insightTiles,
+                    widgetTiles.flatMap((tile) => {
+                        const widget = tile.widget
+                        const dashboardControls = widget
+                            ? tryGetDashboardWidgetCatalogEntry(widget.widget_type)?.dashboardControls
+                            : undefined
+                        return widget && dashboardControls ? [dashboardControls(widget.config)] : []
+                    })
+                ),
         ],
         itemsLoading: [
             (s) => [s.dashboardLoading, s.dashboardStreaming, s.refreshStatus, s.initialVariablesLoaded],
@@ -5752,6 +5799,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 if (forceRefresh) {
                     return true
                 }
+                if (
+                    tilesFollowingDashboardFilters.has(tileId) &&
+                    values.widgetFiltersKeys[tileId] !== undefined &&
+                    values.widgetFiltersKeys[tileId] !== filtersKey
+                ) {
+                    return true
+                }
                 const fetchedAt = values.widgetRefreshStatus[tileId]?.fetchedAt
                 return (
                     !loadingTileIds.includes(tileId) &&
@@ -5830,6 +5884,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     { widgets: widgetsPayload }
                 )
                 const createdTiles = findNewlyAddedWidgetTiles(previousWidgetTileIds, response.tiles)
+                const [onlyCreatedTile] = createdTiles.length === 1 ? createdTiles : []
+                // Set before the tile renders, so it mounts with its settings open.
+                if (
+                    onlyCreatedTile?.widget &&
+                    tryGetDashboardWidgetCatalogEntry(onlyCreatedTile.widget.widget_type)?.openEditorOnAdd
+                ) {
+                    actions.setWidgetEditorTileId(onlyCreatedTile.id)
+                }
                 if (createdTiles.length > 0 && values.dashboard?.id === dashboardId) {
                     const dashboard = {
                         ...values.dashboard,

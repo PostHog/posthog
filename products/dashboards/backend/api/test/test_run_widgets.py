@@ -45,6 +45,7 @@ from products.dashboards.backend.widget_specs.configs import (
     ACTIVITY_EVENTS_LIST_WIDGET_TYPE,
     ERROR_TRACKING_LIST_WIDGET_TYPE,
     LOGS_LIST_WIDGET_TYPE,
+    METRICS_WIDGET_TYPE,
     SESSION_REPLAY_LIST_WIDGET_TYPE,
     ErrorTrackingListWidgetConfig,
     SessionReplayOrderBy,
@@ -125,6 +126,18 @@ class TestWidgetRegistry(SimpleTestCase):
     def test_validate_logs_list_config_rejects_invalid_values(self, _label: str, config: dict) -> None:
         with self.assertRaises(Exception):
             validate_widget_config(LOGS_LIST_WIDGET_TYPE, config)
+
+    @parameterized.expand(
+        [
+            ("runtime_response", {"clauses": [], "response": {"results": []}}),
+            ("variables", {"clauses": [], "variables": {"service": {"selection": "checkout"}}}),
+            ("oversized_sql", {"clauses": [], "language": "sql", "sql": "x" * 10_001}),
+            ("too_many_series", {"clauses": [{"name": f"s{i}", "metricName": "cpu"} for i in range(11)]}),
+        ]
+    )
+    def test_validate_metrics_config_rejects_what_a_stored_widget_must_not_hold(self, _label: str, query: dict) -> None:
+        with self.assertRaises(Exception):
+            validate_widget_config(METRICS_WIDGET_TYPE, {"query": {"kind": "MetricsQuery", **query}})
 
     def test_validate_logs_list_config_accepts_severity_and_services(self) -> None:
         validated = validate_widget_config(

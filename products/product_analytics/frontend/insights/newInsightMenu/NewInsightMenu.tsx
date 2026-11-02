@@ -195,8 +195,11 @@ function useNewInsightCards(): {
         }
         byType[insightType as InsightType] = spec
     }
+    // With dashboard widgets on, new metrics charts are metric widgets, so the menu doesn't offer metrics insights.
     const metricsEnabled =
-        !!featureFlags[FEATURE_FLAGS.METRICS] && !!featureFlags[FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]
+        !!featureFlags[FEATURE_FLAGS.METRICS] &&
+        !!featureFlags[FEATURE_FLAGS.METRICS_INSIGHT_BUILDER] &&
+        !featureFlags[FEATURE_FLAGS.DASHBOARD_WIDGETS]
     return { ai: AI_CARD, metrics: metricsEnabled ? METRICS_CARD : undefined, byType }
 }
 

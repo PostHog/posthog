@@ -5,16 +5,18 @@ import { objectsEqual } from 'lib/utils/objects'
 
 import type { MetricsQuery, MetricsQueryLanguage } from '~/queries/schema/schema-general'
 
-import { MetricsQueryControls } from './MetricsQueryControls'
+import { MetricsQueryControls, type MetricsQueryControlsProps } from './MetricsQueryControls'
 import { metricsViewerLogic } from './metricsViewerLogic'
 
-/** The `/metrics` viewer's builder, editing a `MetricsQuery` in the insight editor. */
+/** The `/metrics` viewer's builder, editing a `MetricsQuery` in the insight editor or a metric widget. */
 export function MetricsQueryEditor({
     editorKey,
     query,
     setQuery,
     onSwitchLanguage,
     onRerun,
+    dataAttrPrefix = 'metrics-query-editor',
+    allPanels,
 }: {
     editorKey: string
     query: MetricsQuery
@@ -23,6 +25,9 @@ export function MetricsQueryEditor({
     onSwitchLanguage?: (current: MetricsQuery, to: MetricsQueryLanguage) => void
     /** Runs the current PromQL or SQL query again when Run is pressed without a change, as after a failure. */
     onRerun?: () => void
+    dataAttrPrefix?: MetricsQueryControlsProps['dataAttrPrefix']
+    /** Offers every panel, the heatmap included, whatever the panels flag says. */
+    allPanels?: boolean
 }): JSX.Element {
     // The query seeds the logic once. After that the builder only writes the query, so the two cannot loop.
     const logicProps = useMemo(() => ({ key: editorKey, initialQuery: query }), [editorKey]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -30,13 +35,31 @@ export function MetricsQueryEditor({
     return (
         <BindLogic logic={metricsViewerLogic} props={logicProps}>
             <MetricsQuerySync query={query} setQuery={setQuery} />
-            <MetricsQueryControls
-                dataAttrPrefix="metrics-query-editor"
+            <MetricsQueryEditorControls
+                dataAttrPrefix={dataAttrPrefix}
                 fallbackQuery={query}
                 onSwitchLanguage={onSwitchLanguage}
                 onRerun={onRerun}
+                allPanels={allPanels}
             />
         </BindLogic>
+    )
+}
+
+function MetricsQueryEditorControls({
+    allPanels,
+    ...props
+}: Pick<
+    MetricsQueryControlsProps,
+    'dataAttrPrefix' | 'fallbackQuery' | 'onSwitchLanguage' | 'onRerun' | 'allPanels'
+>): JSX.Element {
+    const { heatmapEligible } = useValues(metricsViewerLogic)
+    return (
+        <MetricsQueryControls
+            {...props}
+            allPanels={allPanels}
+            heatmap={allPanels ? { eligible: heatmapEligible } : undefined}
+        />
     )
 }
 

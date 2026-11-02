@@ -6,22 +6,17 @@ import { LemonBanner, SpinnerOverlay } from '@posthog/lemon-ui'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { cn } from 'lib/utils/css-classes'
-import { truncate } from 'lib/utils/strings'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { AnyResponseType, MetricsQuery, MetricsQueryLanguage } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
-import { MetricsQueryEditor } from '../components/MetricsQueryEditor'
-import { MetricsQueryLanguagePicker } from '../components/MetricsQueryLanguagePicker'
-import { switchMetricsQueryLanguage } from '../components/metricsQueryLanguageSwitch'
-import { isBuilderCompatibleQuery } from '../components/metricsViewerLogic'
+import { MetricsQueryEditorSection } from '../components/MetricsQueryEditorSection'
 import { MetricsPanel } from '../panels/MetricsPanel'
 import { metricsQueryText, queryLanguage } from '../queryLanguages/convert'
-import { seriesFromMetricsResponse } from './metricsResponseSeries'
+import { metricsQueryFallbackName, seriesFromMetricsResponse } from './metricsResponseSeries'
 
 let uniqueNode = 0
-let uniqueEditor = 0
 
 interface MetricsQueryNodeProps {
     query: MetricsQuery
@@ -45,9 +40,6 @@ const EMPTY_QUERY_MESSAGE: Record<MetricsQueryLanguage, string> = {
 
 export function MetricsQueryNode(props: MetricsQueryNodeProps): JSX.Element | null {
     const builderEnabled = useFeatureFlag('METRICS_INSIGHT_BUILDER')
-    const languagesEnabled = useFeatureFlag('METRICS_QUERY_LANGUAGES')
-    // A language switch replaces the query, so the editor remounts to seed its logic from the new one.
-    const [editorKey, setEditorKey] = useState(() => `MetricsQueryEditor.${uniqueEditor++}`)
     const [dataKey] = useState(() => `MetricsQueryNode.${uniqueNode++}`)
     const language = queryLanguage(props.query)
 
@@ -66,41 +58,14 @@ export function MetricsQueryNode(props: MetricsQueryNodeProps): JSX.Element | nu
         return results
     }
 
-    const setQuery = props.setQuery
-    const onSwitchLanguage = languagesEnabled
-        ? (current: MetricsQuery, to: MetricsQueryLanguage): void =>
-              switchMetricsQueryLanguage(current, to, (converted) => {
-                  setQuery(converted)
-                  setEditorKey(`MetricsQueryEditor.${uniqueEditor++}`)
-              })
-        : undefined
-
     return (
         <div className="flex flex-col gap-3 w-full">
-            {language !== 'builder' || isBuilderCompatibleQuery(props.query) ? (
-                <MetricsQueryEditor
-                    key={editorKey}
-                    editorKey={editorKey}
-                    query={props.query}
-                    setQuery={setQuery}
-                    onSwitchLanguage={onSwitchLanguage}
-                    onRerun={() => dataNodeLogic.findMounted({ key: dataKey })?.actions.loadData('force_blocking')}
-                />
-            ) : (
-                <div className="flex flex-col items-start gap-2">
-                    {onSwitchLanguage && (
-                        <MetricsQueryLanguagePicker
-                            value="builder"
-                            onChange={(to) => onSwitchLanguage(props.query, to)}
-                        />
-                    )}
-                    <LemonBanner type="info" className="w-full">
-                        {onSwitchLanguage
-                            ? 'The builder cannot show this query. Switch to PromQL or SQL to edit it.'
-                            : 'This insight uses settings that the builder cannot show, so the builder is off for this insight.'}
-                    </LemonBanner>
-                </div>
-            )}
+            <MetricsQueryEditorSection
+                query={props.query}
+                setQuery={props.setQuery}
+                onRerun={() => dataNodeLogic.findMounted({ key: dataKey })?.actions.loadData('force_blocking')}
+                surface="insight"
+            />
             <div className="relative flex h-[360px] border rounded p-3">{results}</div>
         </div>
     )
@@ -131,12 +96,7 @@ function MetricsQueryResults({ dataKey: key, ...props }: MetricsQueryNodeProps &
     const { response, responseLoading, responseError } = useValues(logic)
     const series = seriesFromMetricsResponse(response)
     const hasPoints = series.some((s) => s.points.length > 0)
-    // A formula query returns only the formula result (metricName is null on it),
-    // so the formula text itself is the honest name for an unlabelled series.
-    const fallbackName =
-        props.query.formula ??
-        props.query.clauses[0]?.metricName ??
-        (props.query.language === 'promql' && props.query.promql ? truncate(props.query.promql, 80) : 'metric')
+    const fallbackName = metricsQueryFallbackName(props.query)
 
     return (
         // A dashboard tile sets the height, so a minimum would overflow a short tile. Elsewhere the

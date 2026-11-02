@@ -64,6 +64,8 @@ Dashboards already have **insight tiles** for HogQL/query visualizations — com
 
 If intake is chart-only, **stop** — help the engineer add the right insight to the dashboard instead of a new `widget_type`. Lists may include small non-chart metadata (badges, sparklines in a row) when the product scene does; the tile body is still a list, not a chart canvas.
 
+**Exception: `metrics`.** Metrics are not an insight type, so the `metrics` widget is the dashboard chart for them. It reuses the metrics product's editor (builder, PromQL, SQL), runner, and panels, and follows the dashboard date range and metric label filters like an insight tile (`receives_dashboard_filters`). Do not use it as a precedent for a chart over an insight query kind.
+
 Per-type add flow (ordered checklist): [checklist-new-widget-type.md](checklist-new-widget-type.md).
 
 ## Backend registry entry shape
@@ -93,6 +95,8 @@ WIDGET_SPECS[YOUR_TYPE] = WidgetSpec(
 ```
 
 - Config validation is **Pydantic-only** — no per-type `validate_<type>_config` functions
+- Optional `WidgetSpec` fields: `receives_dashboard_filters` (run_widgets passes `dashboard_id` and the dashboard's date range and metric label filters, saved merged with the viewer's override), `throttle_policy="query_runner"` (session requests skip the shared widget throttle; API keys and OAuth keep it), `public_config_exclude` (config keys shared dashboards never receive), `creation_flag` (also written to `widget-form-fields.json` as `creationFlag`, which hides the type in the picker)
+- Raise `WidgetQueryError(message)` from `widgets/errors.py` for an expected failure the viewer should read (no access, an invalid query). The tile shows the message; other exceptions show a generic error and are logged
 - `run_<type>_widget` lives in `widgets/<widget_type>.py` — call the **same** query runner the standalone product uses
 - Registry wiring checklist: [checklist-new-widget-type.md §1–2](checklist-new-widget-type.md)
 - Product RBAC: [permissions-and-sharing.md § Product RBAC](permissions-and-sharing.md#product-rbac)
@@ -120,6 +124,8 @@ Checklist steps: [checklist-new-widget-type.md §7](checklist-new-widget-type.md
 Catalog entry in `widget_types/catalog.ts` drives add modal, layouts, headers, and **public/shared placeholder copy** (previews live in `widgets/previews/dashboardWidgetPreviews.ts`) — registry alone is not enough.
 
 Optional catalog `availability` declares project setup prerequisites (exception autocapture, etc.). Gating runs at **tile render** via `WidgetRuntimeAvailabilityGuard`, not in the add modal — see [availability-and-gating.md](availability-and-gating.md).
+
+Other optional catalog fields: `pickerPresets` (several picker cards for one `widget_type`, each with its own label and `defaultConfig`; selection keys are `<widget_type>:<preset id>` and previews get `presetId`), `openEditorOnAdd` (the settings modal opens when one such tile is added), and `dashboardControls(config)` (the dashboard filter controls the tile follows, for a spec with `receives_dashboard_filters`). Registry entries can set `getDefaultTitle(config)` for the card title of an unnamed tile.
 
 ## Widget type vs catalog group
 
