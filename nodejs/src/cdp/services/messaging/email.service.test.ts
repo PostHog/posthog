@@ -286,7 +286,8 @@ describe('EmailService', () => {
                 membersPostgres: PostgresRouter = hub.postgres,
                 routeSettings: Partial<SandboxEmailSenderConfig> = {},
                 teamEmailRateLimiter: RateLimiterService | null = null,
-                messageAssetsService?: MessageAssetsService
+                messageAssetsService?: MessageAssetsService,
+                blockedEventRedis?: ConstructorParameters<typeof SandboxEmailSender>[2]
             ): EmailService => {
                 const workflowsConfig = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
                 jest.spyOn(workflowsConfig, 'getEmailSendingTier').mockResolvedValue(0)
@@ -322,7 +323,7 @@ describe('EmailService', () => {
                             ...routeSettings,
                         },
                         hub.teamManager,
-                        {
+                        blockedEventRedis ?? {
                             useClient: async (_options, callback) => {
                                 const client = await hub.redisPool.acquire()
                                 try {
@@ -713,6 +714,35 @@ describe('EmailService', () => {
                     'workflows sandbox email blocked',
                     expect.objectContaining({ reason: 'recipient_not_member' })
                 )
+            })
+
+            it('fails closed instead of waiting when the member lookup stalls', async () => {
+                service = createSandboxService(true)
+
+                await hub.postgres.transaction(PostgresUse.COMMON_WRITE, 'test:stall-member-lookup', async (tx) => {
+                    await hub.postgres.query(
+                        tx,
+                        'LOCK TABLE posthog_organizationmembership IN ACCESS EXCLUSIVE MODE',
+                        undefined,
+                        'test:lock-memberships'
+                    )
+                    const result = await service.executeSendEmail(invocation)
+
+                    expectSkipped(result)
+                    expectBlockedEvent('check_failed', false, 1)
+                })
+            }, 15_000)
+
+            it('finishes a blocked send when the blocked-event store stalls', async () => {
+                service = createSandboxService(true, hub.postgres, {}, null, undefined, {
+                    useClient: () => new Promise(() => {}),
+                })
+                invocation.queueParameters = createSandboxParams({ to: { email: 'outsider@example.com', name: '' } })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expectSkipped(result)
+                expect(capture).not.toHaveBeenCalled()
             })
 
             it('fails closed when the member check fails', async () => {

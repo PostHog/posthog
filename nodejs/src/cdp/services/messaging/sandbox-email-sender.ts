@@ -30,6 +30,9 @@ function emptyRouteSettings(config: SandboxEmailSenderConfig): string[] {
 export type SandboxEmailBlockReason = 'switch_off' | 'recipient_not_member' | 'recipient_unverified' | 'check_failed'
 
 const BLOCKED_EVENT_WINDOW_SECONDS = 3600
+// The send is already decided when this runs, and the worker's batch waits for it, so a stalled
+// store must not hold the invocation open.
+const EVENT_CAPTURE_TIMEOUT_MS = 1000
 
 function htmlBody(document: DefaultTreeAdapterMap['document']): DefaultTreeAdapterMap['element'] | undefined {
     const root = document.childNodes.find(defaultTreeAdapter.isElementNode)
@@ -187,6 +190,29 @@ export class SandboxEmailSender {
         event: string,
         properties: Record<string, string | number | boolean>,
         shouldCapture: () => Promise<boolean> = () => Promise.resolve(true)
+    ): Promise<void> {
+        let timer: NodeJS.Timeout | undefined
+        const deadline = new Promise<void>((resolve) => {
+            timer = setTimeout(() => {
+                logger.warn('Gave up capturing a sandbox email event: the event store did not answer', {
+                    teamId,
+                    event,
+                })
+                resolve()
+            }, EVENT_CAPTURE_TIMEOUT_MS)
+        })
+        try {
+            await Promise.race([this.captureEventNow(teamId, event, properties, shouldCapture), deadline])
+        } finally {
+            clearTimeout(timer)
+        }
+    }
+
+    private async captureEventNow(
+        teamId: number,
+        event: string,
+        properties: Record<string, string | number | boolean>,
+        shouldCapture: () => Promise<boolean>
     ): Promise<void> {
         try {
             if (!(await shouldCapture())) {
