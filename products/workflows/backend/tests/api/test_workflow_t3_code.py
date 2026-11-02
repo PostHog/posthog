@@ -141,6 +141,25 @@ class TestWorkflowT3Code(APIBaseTest):
         assert later.json()["next_cursor"] is None
         assert [call.args[2] for call in upstream.call_args_list] == [{"limit": 100}, {"limit": 100, "cursor": 100}]
 
+    @parameterized.expand(
+        [
+            ("projects is not a list", {"projects": {"id": "p1", "title": "first"}}),
+            ("a project is not an object", {"projects": ["p1"]}),
+            ("a project has no id", {"projects": [{"title": "first"}]}),
+        ]
+    )
+    @patch(UPSTREAM_CALL)
+    def test_a_project_list_posthog_cannot_read_asks_to_update_t3_code(
+        self, _name: str, structured: dict[str, object], upstream: MagicMock, _flag: MagicMock
+    ) -> None:
+        self._connect("laptop.t3coderelay.com")
+        upstream.return_value = {"structuredContent": structured}
+
+        response = self.client.post(self._url("projects"), {"machine": "laptop.t3coderelay.com"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "Update T3 Code" in response.json()["detail"]
+
     @patch(UPSTREAM_CALL)
     def test_creating_a_webhook_task_returns_its_url(self, upstream: MagicMock, _flag: MagicMock) -> None:
         self._connect("laptop.t3coderelay.com")

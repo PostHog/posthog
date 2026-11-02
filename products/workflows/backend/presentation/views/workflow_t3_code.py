@@ -164,7 +164,7 @@ class WorkflowT3CodeViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if outcome.status != "ok":
             return Response(T3CodeProjectsSerializer(outcome).data)
         structured = _structured(outcome)
-        projects = [_project(project) for project in structured.get("projects") or []]
+        projects = [_project(project) for project in _project_list(structured)]
         next_cursor = structured.get("nextCursor")
         return Response(
             T3CodeProjectsSerializer(
@@ -238,6 +238,18 @@ class WorkflowT3CodeViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
 def _structured(outcome: ConnectorCallOutcome) -> dict[str, Any]:
     return outcome.structured_content if isinstance(outcome.structured_content, dict) else {}
+
+
+def _project_list(structured: dict[str, Any]) -> list[dict[str, Any]]:
+    projects = structured.get("projects") or []
+    if isinstance(projects, list) and all(
+        isinstance(project, dict) and isinstance(project.get("id"), str) and isinstance(project.get("title"), str)
+        for project in projects
+    ):
+        return projects
+    raise exceptions.ValidationError(
+        {"detail": "T3 Code sent a project list PostHog can't read. Update T3 Code on this machine, then try again."}
+    )
 
 
 def _project(project: dict[str, Any]) -> dict[str, Any]:
