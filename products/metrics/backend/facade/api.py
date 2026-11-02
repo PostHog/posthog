@@ -30,7 +30,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
 from posthog.models import Team, User
 
-from products.error_tracking.backend.facade.api import list_spike_events
+from products.error_tracking.backend.facade.api import list_latest_spike_events
 from products.metrics.backend.anomaly import characterize_anomaly as _characterize_anomaly
 from products.metrics.backend.date_range import metrics_query_date_range
 from products.metrics.backend.facade.contracts import (
@@ -662,12 +662,11 @@ def list_metric_error_spikes(*, team: Team, date_from: dt.datetime, date_to: dt.
     Team-wide: Error Tracking issues carry no service attribution today, so
     this cannot be scoped to the metric's own service yet.
     """
-    events, _total = list_spike_events(
+    events = list_latest_spike_events(
         team_id=team.id,
         date_from=date_from.isoformat(),
         date_to=date_to.isoformat(),
         limit=_ERROR_SPIKES_LIMIT,
-        include_total_count=False,
     )
     return [
         MetricErrorSpike(
