@@ -7,7 +7,7 @@ returns DTO-shaped responses. No model imports.
 
 import time
 from collections.abc import AsyncIterator, Mapping
-from typing import Any
+from typing import Any, cast
 
 from django.conf import settings
 from django.http import HttpResponse
@@ -23,6 +23,7 @@ from rest_framework.renderers import BaseRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import sse_streaming_response
@@ -116,9 +117,20 @@ def _wizard_sync_killswitch_enabled(distinct_id: str) -> bool:
 
 
 class WizardSessionPagination(FacadeLimitOffsetPagination):
-    # Matches `WizardSessionListQuerySerializer.limit`, which rejects a limit out of range before the paginator reads it.
+    """Pages with the limit and offset that `WizardSessionListQuerySerializer` validated.
+
+    The base class parses the raw query params again, which turns an accepted value such as
+    `limit=1.0` into the default limit.
+    """
+
     default_limit = DEFAULT_LIST_LIMIT
     max_limit = MAX_LIST_LIMIT
+
+    def get_limit(self, request: Request) -> int:
+        return cast(ValidatedRequest, request).validated_query_data["limit"]
+
+    def get_offset(self, request: Request) -> int:
+        return cast(ValidatedRequest, request).validated_query_data["offset"]
 
 
 class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -149,21 +161,19 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         _log_request_auth(request, action=getattr(self, "action", "<unknown>"), team_id=team_id)
         super().check_permissions(request)
 
-    @extend_schema(
+    @validated_request(
+        query_serializer=WizardSessionListQuerySerializer,
         description=(
             "List wizard sessions for the project, ordered by started_at desc. "
             "This should only be called by the PostHog Wizard. "
             "Optional filters: ?workflow_id=<id> and ?skill_id=<id>."
         ),
-        parameters=[WizardSessionListQuerySerializer],
         responses={200: WizardSessionSerializer(many=True)},
     )
-    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+    def list(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         # GET /projects/:projectId/wizard/sessions
-        query = WizardSessionListQuerySerializer(data=request.query_params)
-        query.is_valid(raise_exception=True)
-        workflow_id = query.validated_data.get("workflow_id")
-        skill_id = query.validated_data.get("skill_id") or None
+        workflow_id = request.validated_query_data.get("workflow_id")
+        skill_id = request.validated_query_data.get("skill_id") or None
         return facade_page_response(
             self,
             lambda page: wizard_facade.list_for_team(
