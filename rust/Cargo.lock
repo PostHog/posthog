@@ -2940,6 +2940,7 @@ dependencies = [
  "common-types",
  "lifecycle",
  "metrics",
+ "metrics-util",
  "rand 0.8.5",
  "sqlx",
  "thiserror 2.0.18",

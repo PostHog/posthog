@@ -162,7 +162,7 @@ impl TeamAccess {
         })
     }
 
-    pub fn processing(&self, team_id: i32) -> bool {
+    pub fn processes(&self, team_id: i32) -> bool {
         self.rows
             .load()
             .as_ref()
@@ -259,6 +259,7 @@ fn now_unix_seconds() -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use metrics_util::debugging::DebuggingRecorder;
 
     fn rows(rows: &[(i32, &str)]) -> AccessRows {
         AccessRows::parse(
@@ -273,12 +274,24 @@ mod tests {
         TeamAllowlist::Only(teams.iter().copied().collect())
     }
 
+    fn sets_last_success<T>(f: impl FnOnce() -> T) -> (T, bool) {
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let out = metrics::with_local_recorder(&recorder, f);
+        let set = snapshotter
+            .snapshot()
+            .into_vec()
+            .iter()
+            .any(|(key, ..)| key.key().name() == LAST_SUCCESS);
+        (out, set)
+    }
+
     #[test]
     fn no_team_processes_before_the_first_accepted_read() {
         let (access, _poller) = TeamAccess::new(TeamAllowlist::All);
 
         assert!(!access.is_loaded());
-        assert!(!access.processing(2));
+        assert!(!access.processes(2));
     }
 
     #[test]
@@ -301,7 +314,7 @@ mod tests {
             (7, false),
             (8, false),
         ] {
-            assert_eq!(access.processing(team_id), expected, "team {team_id}");
+            assert_eq!(access.processes(team_id), expected, "team {team_id}");
         }
     }
 
@@ -310,14 +323,19 @@ mod tests {
         let (access, mut poller) = TeamAccess::new(env_only(&[]));
         assert_eq!(poller.accept(rows(&[])).unwrap(), 0);
         assert!(access.is_loaded());
-        poller
-            .accept(rows(&[(5, "off"), (6, "processing"), (7, "processing")]))
-            .unwrap();
+        let (accepted, set) = sets_last_success(|| {
+            poller.accept(rows(&[(5, "off"), (6, "processing"), (7, "processing")]))
+        });
+        accepted.unwrap();
+        assert!(set);
 
-        let regressed = poller.accept(rows(&[(5, "processing"), (6, "off"), (8, "processing")]));
+        let (regressed, set) = sets_last_success(|| {
+            poller.accept(rows(&[(5, "processing"), (6, "off"), (8, "processing")]))
+        });
         assert!(matches!(regressed, Err(PollError::RegressedRows(teams)) if teams == [5, 7]));
+        assert!(!set, "a reader that keeps a regressed row must look stale");
         for (team_id, expected) in [(5, false), (6, false), (7, true), (8, true)] {
-            assert_eq!(access.processing(team_id), expected, "team {team_id}");
+            assert_eq!(access.processes(team_id), expected, "team {team_id}");
         }
     }
 
@@ -332,8 +350,8 @@ mod tests {
             .unwrap();
 
         assert_eq!(poller.accept(rows(&[(5, "off"), (6, "off")])).unwrap(), 0);
-        assert!(!access.processing(5));
-        assert!(!access.processing(6));
+        assert!(!access.processes(5));
+        assert!(!access.processes(6));
     }
 
     #[test]

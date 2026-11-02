@@ -102,7 +102,7 @@ impl TeamGate {
     }
 
     pub fn passes(&self, team_id: i32) -> bool {
-        self.index.contains(team_id) && self.access.processing(team_id)
+        self.index.contains(team_id) && self.access.processes(team_id)
     }
 
     /// False until both halves have loaded once.
@@ -115,7 +115,7 @@ impl TeamGate {
             .teams
             .load()
             .iter()
-            .filter(|&&team_id| self.access.processing(team_id))
+            .filter(|&&team_id| self.access.processes(team_id))
             .count()
     }
 }

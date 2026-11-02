@@ -3,7 +3,7 @@
 
 use std::collections::HashSet;
 
-use common_cohort_team_access::TeamAccess;
+use common_cohort_team_access::{PollError, TeamAccess};
 use common_types::cohort::TeamAllowlist;
 use rand::Rng;
 use sqlx::PgPool;
@@ -11,7 +11,7 @@ use sqlx::PgPool;
 const DEFAULT_TEST_DATABASE_URL: &str = "postgres://posthog:posthog@localhost:5432/test_posthog";
 
 #[tokio::test]
-async fn poll_reads_every_level_django_writes() {
+async fn poll_reads_every_level_django_writes_and_times_out_on_the_server() {
     let url =
         std::env::var("DATABASE_URL").unwrap_or_else(|_| DEFAULT_TEST_DATABASE_URL.to_string());
     let pool = PgPool::connect(&url)
@@ -44,7 +44,22 @@ async fn poll_reads_every_level_django_writes() {
         .expect("delete access rows");
 
     polled.expect("poll the access table");
-    assert!(access.processing(teams[0]));
-    assert!(access.processing(teams[1]));
-    assert!(!access.processing(teams[2]));
+    assert!(access.processes(teams[0]));
+    assert!(access.processes(teams[1]));
+    assert!(!access.processes(teams[2]));
+
+    // A blocked read must end on the server's statement timeout (57014, query_canceled), not on the
+    // longer client timeout, which leaves the read running on the server. Keep this check in this
+    // test, because tests run in parallel and the table lock would stall another test's poll.
+    let mut lock = pool.begin().await.expect("begin the lock transaction");
+    sqlx::query("LOCK TABLE cohort_realtime_team_access IN ACCESS EXCLUSIVE MODE")
+        .execute(&mut *lock)
+        .await
+        .expect("lock the access table");
+    let blocked = poller.poll(&pool).await;
+    lock.rollback().await.expect("release the table lock");
+    assert!(
+        matches!(&blocked, Err(PollError::Query(sqlx::Error::Database(e))) if e.code().as_deref() == Some("57014")),
+        "the server must cancel a blocked read: {blocked:?}"
+    );
 }
