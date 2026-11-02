@@ -592,14 +592,8 @@ def get_refreshable_session(credentials: AWSCredentials, refresh_using: RefreshC
 
 
 class PinnedS3HTTPSession(AIOHTTPSession):
-    def __init__(
-        self,
-        *,
-        bypass_validation: bool = False,
-        **kwargs: typing.Any,
-    ) -> None:
+    def __init__(self, **kwargs: typing.Any) -> None:
         super().__init__(**kwargs)
-        self._bypass_validation = bypass_validation
         self._host_to_resolved_ips: dict[str, ResolvedIPs] = {}
         self._hosts_to_refresh: set[str] = set()
         self._pin_lock = asyncio.Lock()
@@ -639,9 +633,6 @@ class PinnedS3HTTPSession(AIOHTTPSession):
 
     async def send(self, request):
         """Validate IPs before sending the request."""
-        if self._bypass_validation:
-            return await super().send(request)
-
         url = urlsplit(request.url)
         host = url.hostname
 
@@ -693,10 +684,8 @@ async def s3_client(
     if use_virtual_style_addressing:
         config["s3"] = {"addressing_style": "virtual"}
 
-    if endpoint_url is not None:
-        config["http_session_cls"] = functools.partial(
-            PinnedS3HTTPSession, bypass_validation=_dev_bypass_enabled() or _test_bypass_enabled()
-        )
+    if endpoint_url is not None and not (_dev_bypass_enabled() or _test_bypass_enabled()):
+        config["http_session_cls"] = PinnedS3HTTPSession
 
     try:
         async with session.client(
