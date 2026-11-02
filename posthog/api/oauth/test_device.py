@@ -95,8 +95,8 @@ class TestOAuthDeviceGrant(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("a live token", 1, None, ["insight:read"]),
-            ("an expired token with a live refresh token", -1, False, ["insight:read"]),
+            ("a live token", 1, None, ["insight:read", "openid"]),
+            ("an expired token with a live refresh token", -1, False, ["insight:read", "openid"]),
             ("an expired token whose refresh token was revoked", -1, True, []),
         ]
     )
@@ -124,7 +124,11 @@ class TestOAuthDeviceGrant(APIBaseTest):
 
         lookup = self.client.post("/api/oauth_device/lookup/", {"user_code": started["user_code"]})
 
-        self.assertEqual([scope for scope in lookup.json()["granted_scopes"] if scope != "openid"], expected)
+        # Scopes are listed per project, because a grant in one project grants nothing in another.
+        self.assertEqual(
+            lookup.json()["granted_scopes"],
+            [{"project_id": self.team.id, "scopes": expected}] if expected else [],
+        )
 
     @parameterized.expand(
         [

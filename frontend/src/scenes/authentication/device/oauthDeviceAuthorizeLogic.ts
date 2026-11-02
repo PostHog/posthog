@@ -36,10 +36,18 @@ function deviceErrorMessage(error: unknown): string {
     return "Couldn't reach PostHog. Check your connection and try again."
 }
 
-// The scopes a step-up asks for beyond what the person already granted. Approving still grants
-// every requested scope, so the client's token keeps the ones it had.
-function addedScopes(grant: DeviceGrantDetailsApi): string[] {
-    const granted = new Set(grant.granted_scopes)
+// The project picker loads every page, so a project past the first page can still be picked.
+const PROJECTS_PAGE_SIZE = 100
+
+// The scopes a step-up asks for beyond what the person already granted in the chosen project. A
+// grant in another project gives nothing here. Approving still grants every requested scope, so
+// the client's token keeps the ones it had.
+function addedScopes(grant: DeviceGrantDetailsApi, projectId: number | null): string[] {
+    const granted = new Set(
+        grant.granted_scopes
+            .filter((entry) => entry.project_id === null || entry.project_id === projectId)
+            .flatMap((entry) => entry.scopes)
+    )
     return grant.scopes.filter((scope) => !granted.has(scope))
 }
 
@@ -56,6 +64,7 @@ export interface oauthDeviceAuthorizeLogicValues {
     organizations: OrganizationBasicType[]
     projectId: number | null
     projects: DeviceProject[]
+    projectsError: string | null
     projectsLoading: boolean
     scopeDescriptions: string[]
     userCode: string
@@ -102,16 +111,10 @@ export interface oauthDeviceAuthorizeLogicActions {
         errorObject?: any
     }
     loadProjectsSuccess: (
-        projects: {
-            id: number
-            name: string
-        }[],
+        projects: DeviceProject[],
         payload?: string
     ) => {
-        projects: {
-            id: number
-            name: string
-        }[]
+        projects: DeviceProject[]
         payload?: string
     }
     lookUpCode: () => any
@@ -144,8 +147,12 @@ export interface oauthDeviceAuthorizeLogicActions {
 export interface oauthDeviceAuthorizeLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         organizations: (user: UserType | null) => OrganizationBasicType[]
-        isStepUp: (deviceGrant: DeviceGrantDetailsApi | null) => boolean
-        scopeDescriptions: (deviceGrant: DeviceGrantDetailsApi | null, isStepUp: boolean) => string[]
+        isStepUp: (deviceGrant: DeviceGrantDetailsApi | null, projectId: number | null) => boolean
+        scopeDescriptions: (
+            deviceGrant: DeviceGrantDetailsApi | null,
+            projectId: number | null,
+            isStepUp: boolean
+        ) => string[]
     }
 }
 
@@ -176,6 +183,13 @@ export const oauthDeviceAuthorizeLogic = kea<oauthDeviceAuthorizeLogicType>([
                 setOrganizationId: () => null,
             },
         ],
+        projectsError: [
+            null as string | null,
+            {
+                loadProjects: () => null,
+                loadProjectsFailure: (_, { errorObject }) => deviceErrorMessage(errorObject),
+            },
+        ],
         error: [
             null as string | null,
             {
@@ -199,8 +213,19 @@ export const oauthDeviceAuthorizeLogic = kea<oauthDeviceAuthorizeLogicType>([
         projects: [
             [] as DeviceProject[],
             {
-                loadProjects: async (organizationId: string) =>
-                    (await organizationsProjectsList(organizationId)).results.map(({ id, name }) => ({ id, name })),
+                loadProjects: async (organizationId: string) => {
+                    const projects: DeviceProject[] = []
+                    for (let offset = 0; ; offset += PROJECTS_PAGE_SIZE) {
+                        const page = await organizationsProjectsList(organizationId, {
+                            limit: PROJECTS_PAGE_SIZE,
+                            offset,
+                        })
+                        projects.push(...page.results.map(({ id, name }) => ({ id, name })))
+                        if (!page.next) {
+                            return projects
+                        }
+                    }
+                },
             },
         ],
         decision: [
@@ -223,22 +248,30 @@ export const oauthDeviceAuthorizeLogic = kea<oauthDeviceAuthorizeLogicType>([
             },
         ],
     })),
+    reducers({
+        // Another organization, or a failed load, must not leave the previous organization's projects
+        // selectable while the organization picker shows a different one.
+        projects: {
+            setOrganizationId: () => [],
+            loadProjectsFailure: () => [],
+        },
+    }),
     selectors({
         organizations: [(s) => [s.user], (user: UserType | null) => user?.organizations ?? []],
         isStepUp: [
-            (s) => [s.deviceGrant],
-            // A login that adds nothing, such as logging in again for another project, lists every scope.
-            (deviceGrant: DeviceGrantDetailsApi | null): boolean => {
-                const added = deviceGrant ? addedScopes(deviceGrant).length : 0
+            (s) => [s.deviceGrant, s.projectId],
+            // A login that adds nothing, such as logging in again for the same project, lists every scope.
+            (deviceGrant: DeviceGrantDetailsApi | null, projectId: number | null): boolean => {
+                const added = deviceGrant ? addedScopes(deviceGrant, projectId).length : 0
                 return added > 0 && added < (deviceGrant?.scopes.length ?? 0)
             },
         ],
         // The page lists one line per resource, at the highest level asked for.
         scopeDescriptions: [
-            (s) => [s.deviceGrant, s.isStepUp],
-            (deviceGrant: DeviceGrantDetailsApi | null, isStepUp: boolean): string[] =>
+            (s) => [s.deviceGrant, s.projectId, s.isStepUp],
+            (deviceGrant: DeviceGrantDetailsApi | null, projectId: number | null, isStepUp: boolean): string[] =>
                 deviceGrant
-                    ? getMinimumEquivalentScopes(isStepUp ? addedScopes(deviceGrant) : deviceGrant.scopes)
+                    ? getMinimumEquivalentScopes(isStepUp ? addedScopes(deviceGrant, projectId) : deviceGrant.scopes)
                           .map(getScopeDescription)
                           .filter((description): description is string => !!description)
                     : [],
