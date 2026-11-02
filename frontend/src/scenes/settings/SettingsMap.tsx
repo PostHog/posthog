@@ -20,6 +20,7 @@ import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSupport'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { PersonalPosthogConnections } from 'lib/integrations/PosthogConnect'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { DefaultMinimumDetectableEffect } from 'scenes/experiments/DefaultMinimumDetectableEffect'
 import { GitHub, Linear, Slack } from 'scenes/integrations/definitions'
 import { AgentPersonalInstructionsSettings } from 'scenes/settings/environment/AgentPersonalInstructionsSettings'
@@ -2150,8 +2151,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: (
                     <div className="flex flex-col gap-y-4">
                         <Linear.SettingsSection />
+                        {/* This section has no error tracking access gate, and without viewer access the
+                        switch's settings request fails with 403. The check runs at render time, because
+                        this map is built once at import. */}
                         <FlaggedFeature flag={FEATURE_FLAGS.ERROR_TRACKING_LINEAR_STATUS_SYNC}>
-                            <LinearStatusSyncSetting />
+                            {() =>
+                                userHasAccess(AccessControlResourceType.ErrorTracking, AccessControlLevel.Viewer) ? (
+                                    <LinearStatusSyncSetting />
+                                ) : null
+                            }
                         </FlaggedFeature>
                     </div>
                 ),
