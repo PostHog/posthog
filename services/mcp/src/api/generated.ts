@@ -77747,6 +77747,7 @@ export namespace Schemas {
     }
 
     export interface PaginatedBatchExportBackfillList {
+      count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
@@ -77764,6 +77765,7 @@ export namespace Schemas {
     }
 
     export interface PaginatedBatchExportRunList {
+      count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
@@ -82235,6 +82237,7 @@ export namespace Schemas {
     }
 
     export interface PaginatedSubscriptionDeliveryList {
+      count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
@@ -82470,6 +82473,7 @@ export namespace Schemas {
     }
 
     export interface PaginatedSubscriptionSummaryList {
+      count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
@@ -132525,6 +132529,7 @@ export namespace Schemas {
     export type BatchExportsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -137808,6 +137813,7 @@ export namespace Schemas {
     export type FileDownloadBatchExportsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -143654,6 +143660,7 @@ export namespace Schemas {
     insights?: string;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
