@@ -572,7 +572,9 @@ function AnomalyThresholdInput({ value, onChange }: { value: number; onChange: (
                 max={0.99}
                 step={0.05}
                 value={value}
-                onChange={(val) => onChange(val ? parseFloat(String(val)) : DEFAULT_ANOMALY_DETECTION_THRESHOLD)}
+                onChange={(val) =>
+                    onChange(val === undefined || Number.isNaN(val) ? DEFAULT_ANOMALY_DETECTION_THRESHOLD : val)
+                }
             />
         </div>
     )

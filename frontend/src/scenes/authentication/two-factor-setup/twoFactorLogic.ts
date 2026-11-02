@@ -7,12 +7,12 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { membersLogic } from 'scenes/organization/membersLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { usersTwoFactorStatusRetrieve } from '~/generated/core/api'
 import type { TwoFactorStatusApi } from '~/generated/core/api.schemas'
+import { membersLogic } from '~/models/membersLogic'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { PreflightStatus, UserType } from '../../../types'

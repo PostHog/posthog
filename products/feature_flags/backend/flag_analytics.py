@@ -33,6 +33,7 @@ logger = structlog.get_logger(__name__)
 
 REDIS_LOCK_TOKEN = "posthog:decide_analytics:lock"
 CACHE_BUCKET_SIZE = 60 * 2  # duration in seconds
+TEAM_KEY_CHECK_BATCH_SIZE = 1000
 
 # Per-team counts of the local evaluation requests that Django served, held until the next usage report.
 # The legacy local evaluation counter also holds requests that the Rust definitions service counted
@@ -86,6 +87,8 @@ _REQUEST_BUCKET_PREFIXES = {
     FlagRequestType.LOCAL_EVALUATION: "local_evaluation_requests",
     FlagRequestType.REMOTE_CONFIG: "remote_config_requests",
 }
+
+EXPORTED_REQUEST_TYPES = (FlagRequestType.DECIDE, FlagRequestType.LOCAL_EVALUATION, FlagRequestType.REMOTE_CONFIG)
 
 USAGE_EVENT_NAMES = {
     FlagRequestType.DECIDE: "decide usage",
@@ -234,8 +237,23 @@ def _extract_sdk_breakdown_from_redis(
 
 
 def capture_usage_for_all_teams(ph_client: "Posthog") -> None:
-    for team in Team.objects.exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True)).only("id", "uuid"):
-        capture_team_decide_usage(ph_client, team.id, team.uuid)
+    client = get_client()
+    teams = Team.objects.exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True)).only("id", "uuid")
+    # Most teams have no flag requests, so one pipelined key check per batch skips them in bulk.
+    for batch in batched(teams, TEAM_KEY_CHECK_BATCH_SIZE, strict=False):
+        pipe = client.pipeline(transaction=False)
+        for team in batch:
+            pipe.exists(*(get_team_request_key(team.id, request_type) for request_type in EXPORTED_REQUEST_TYPES))
+        try:
+            key_counts = pipe.execute()
+        except redis.exceptions.RedisError as error:
+            # Export the whole batch so that one failed check does not stop the pass.
+            # The per-team export catches its own Redis errors.
+            capture_exception(error)
+            key_counts = [len(EXPORTED_REQUEST_TYPES)] * len(batch)
+        for team, existing_keys in zip(batch, key_counts):
+            if existing_keys:
+                capture_team_decide_usage(ph_client, team.id, team.uuid)
 
 
 def _capture_team_usage_for_request_type(
@@ -277,11 +295,7 @@ def capture_team_decide_usage(ph_client: "Posthog", team_id: int, team_uuid: str
 
         with client.lock(f"{REDIS_LOCK_TOKEN}:{team_id}", timeout=60, blocking=False):
             billing_token = settings.DECIDE_BILLING_ANALYTICS_TOKEN
-            for request_type in (
-                FlagRequestType.DECIDE,
-                FlagRequestType.LOCAL_EVALUATION,
-                FlagRequestType.REMOTE_CONFIG,
-            ):
+            for request_type in EXPORTED_REQUEST_TYPES:
                 _capture_team_usage_for_request_type(ph_client, client, team_id, team_uuid, request_type, billing_token)
 
     except redis.exceptions.LockError:

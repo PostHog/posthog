@@ -1,6 +1,7 @@
 import type { ApiClient, GroupType } from '@/api/client'
 import type { Schemas } from '@/api/generated'
 import { hasScope } from '@/lib/api'
+import { classifyAuthFailure } from '@/lib/auth-errors'
 import { classifyAuthMethod } from '@/lib/auth-method'
 import type { ScopedCache } from '@/lib/cache/ScopedCache'
 import { StateLookupCache } from '@/lib/cache/StateLookupCache'
@@ -16,6 +17,7 @@ import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeHeaderValue } from '@/lib/utils'
 import type { ApiUser } from '@/schema/api'
 import type {
+    BusinessKnowledgeContent,
     CachedOrg,
     CachedProject,
     CachedUser,
@@ -36,6 +38,7 @@ export const NO_DATA_CACHE_TTL_MS = 60 * 1000 // 1 minute
 // The integration list only adds a line to the environment prompt, so a slow response must not
 // hold `switch-project` for the full default request deadline. The caller serves the cached list.
 const INTEGRATION_KINDS_TIMEOUT_MS = 10 * 1000
+const BUSINESS_KNOWLEDGE_CONTENT_TIMEOUT_MS = 3 * 1000
 // Cached for the short TTL like an empty answer, so an unreadable list is not requested on every call.
 const UNKNOWN_WAREHOUSE_COUNT = -1
 
@@ -207,7 +210,11 @@ export class StateManager {
             }
             // A failed refresh must not end a live session. Every API call is authorized again
             // server-side, so the last known scopes cannot grant access the key does not hold.
-            this._reportException(error, 'api_key_refresh_failed')
+            // A rejected credential is an expected outcome, not a fault, so only report other failures.
+            const { reason } = classifyAuthFailure(error)
+            if (reason !== 'invalid_api_key' && reason !== 'inactive_oauth_token') {
+                this._reportException(error, 'api_key_refresh_failed')
+            }
             await this._cache.set('apiKeyFetchedAt', Date.now()).catch(() => {})
             return cached
         }
@@ -680,6 +687,31 @@ export class StateManager {
                 })
                 return [...new Set((result.results ?? []).map((integration) => String(integration.kind)))].sort()
             },
+            expectTimeouts: true,
+        })
+    }
+
+    /** An empty project is re-read on the short TTL, so a source the user just added gets its search guidance within a minute. */
+    async getOrFetchBusinessKnowledgeContent(projectId: string): Promise<BusinessKnowledgeContent | undefined> {
+        return this.getOrFetchCached({
+            name: 'business_knowledge_content',
+            cacheKey: `businessKnowledgeContent:${projectId}` as const,
+            fetchedAtKey: `businessKnowledgeContentFetchedAt:${projectId}` as const,
+            fetcher: async () => {
+                const availability = await this._api.request<{ has_sources?: unknown; has_repositories?: unknown }>({
+                    method: 'GET',
+                    path: `/api/projects/${encodeURIComponent(projectId)}/business_knowledge/sources/availability/`,
+                    timeoutMs: BUSINESS_KNOWLEDGE_CONTENT_TIMEOUT_MS,
+                    signal: AbortSignal.timeout(BUSINESS_KNOWLEDGE_CONTENT_TIMEOUT_MS),
+                })
+                return {
+                    hasSources: typeof availability.has_sources === 'boolean' ? availability.has_sources : undefined,
+                    hasRepositories:
+                        typeof availability.has_repositories === 'boolean' ? availability.has_repositories : undefined,
+                }
+            },
+            ttlMs: (cached) =>
+                cached?.hasSources === false && cached.hasRepositories === false ? NO_DATA_CACHE_TTL_MS : CACHE_TTL_MS,
             expectTimeouts: true,
         })
     }

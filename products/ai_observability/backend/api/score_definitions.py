@@ -22,6 +22,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.models import User
+from posthog.models.integer_field_bounds import INTEGER_FIELD_MAX
 from posthog.permissions import AccessControlPermission
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
@@ -125,7 +126,7 @@ class ScoreDefinitionVersionQuerySerializer(StrictQuerySerializer):
         try:
             version, version_id = decode_cursor(value, 2)
             number = int(version)
-            if not 1 <= number <= 2147483647:
+            if not 1 <= number <= INTEGER_FIELD_MAX:
                 raise ValueError
             return number, UUID(version_id)
         except ValueError as error:
