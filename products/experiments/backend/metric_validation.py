@@ -118,7 +118,8 @@ def _semantic_error(metric: ExperimentMetric) -> str | None:
         if not metric.source.math_property:
             return "percentile metrics require a numeric property (math_property) on the source."
         # The runner sums breakdown rows to get the overall row of each variant, and quantiles cannot be summed.
-        if metric.breakdownFilter and metric.breakdownFilter.breakdowns:
+        breakdown_filter = metric.breakdownFilter
+        if breakdown_filter and (breakdown_filter.breakdowns or breakdown_filter.breakdown not in (None, "", [])):
             return "breakdowns are not supported for percentile metrics yet."
     return None
 

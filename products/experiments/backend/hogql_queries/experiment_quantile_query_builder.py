@@ -89,12 +89,16 @@ class QuantileQueryBuilder:
                 GROUP BY variant_events.variant
             ),
 
+            -- ClickHouse runs a CTE once per reference, so the grid travels through entity_stats and the
+            -- quantile aggregation runs once. An exposed user without events gets an empty grid from the
+            -- LEFT JOIN, and anyIf skips it, so a variant without events keeps an empty grid.
             entity_stats AS (
                 SELECT
                     variant_events.variant AS variant,
                     variant_events.entity_id AS entity_id,
                     countIf(variant_events.value <= variant_quantiles.quantile_grid[1]) AS events_below_quantile,
-                    count() AS event_count
+                    count() AS event_count,
+                    any(variant_quantiles.quantile_grid) AS quantile_grid
                 FROM variant_events
                 JOIN variant_quantiles ON variant_events.variant = variant_quantiles.variant
                 GROUP BY variant_events.variant, variant_events.entity_id
@@ -108,12 +112,11 @@ class QuantileQueryBuilder:
                 sum(coalesce(entity_stats.event_count, 0)) AS denominator_sum,
                 sum(power(coalesce(entity_stats.event_count, 0), 2)) AS denominator_sum_squares,
                 sum(coalesce(entity_stats.events_below_quantile, 0) * coalesce(entity_stats.event_count, 0)) AS numerator_denominator_sum_product,
-                any(variant_quantiles.quantile_grid) AS quantile_grid
+                anyIf(entity_stats.quantile_grid, notEmpty(entity_stats.quantile_grid)) AS quantile_grid
             FROM exposures
             LEFT JOIN entity_stats
                 ON exposures.entity_id = entity_stats.entity_id
                 AND exposures.variant = entity_stats.variant
-            LEFT JOIN variant_quantiles ON exposures.variant = variant_quantiles.variant
             GROUP BY exposures.variant
             """,
             placeholders={
