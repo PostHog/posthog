@@ -49,6 +49,8 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
     onMetadataLoading?: (loading: boolean) => void
     onFixWithAI?: (prompt: string) => void
     onError?: (error: string | null) => void
+    /** How long to wait after an edit before validating. Set it higher where an error interrupts the user. */
+    metadataDebounceMs?: number
     /** Override the query sent for metadata validation (e.g. active query in multi-query mode) */
     metadataQuery?: string
     /** Character offset of metadataQuery within the full editor text, for correct marker positioning */
@@ -166,6 +168,7 @@ export function CodeEditor({
     onMetadata,
     onMetadataLoading,
     onFixWithAI,
+    metadataDebounceMs,
     metadataQuery,
     metadataQueryOffset,
     originalValue,
@@ -212,6 +215,7 @@ export function CodeEditor({
         onMetadata,
         onMetadataLoading,
         onFixWithAI,
+        metadataDebounceMs,
         metadataFilters: sourceQuery?.kind === NodeKind.HogQLQuery ? sourceQuery.filters : undefined,
     })
     useMountedLogic(builtCodeEditorLogic)

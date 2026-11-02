@@ -136,6 +136,17 @@ describe('dataCatalogNewMetricSceneLogic', () => {
         expect(logic.values.metricFormValidationErrors.sql).toBeTruthy()
     })
 
+    it.each([
+        ['sql', true],
+        ['insight', false],
+        ['markdown', false],
+    ] as const)('known query error with a %s definition disables saving: %s', (definitionType, disabled) => {
+        logic.actions.setMetricFormValues({ definitionType })
+        logic.actions.setSqlEditorError('Error on line 10, column 5')
+
+        expect(!!logic.values.saveDisabledReason).toBe(disabled)
+    })
+
     it('never approves a confirmed overwrite', async () => {
         ;(dataCatalogMetricsCreate as jest.Mock).mockRejectedValueOnce(takenNameError())
         logic.actions.setMetricFormValues(SQL_FORM)
@@ -164,6 +175,19 @@ describe('dataCatalogNewMetricSceneLogic', () => {
             'Metric created, but approving it failed. Approve it from the banner.'
         )
         expect(router.values.location.pathname).toContain(urls.dataCatalogMetric('monthly_active_users'))
+    })
+
+    it('shows the validation message until the query is valid', () => {
+        const invalid = { errors: [{ message: 'Unable to resolve field: foo' }], warnings: [], notices: [] }
+        logic.actions.setSqlEditorError('Error on line 10, column 5')
+        logic.actions.setSqlMetadata(invalid)
+
+        expect(logic.values.sqlValidationMessage).toEqual('Error on line 10, column 5: Unable to resolve field: foo')
+
+        logic.actions.setSqlEditorError(null)
+        logic.actions.setSqlMetadata({ errors: [], warnings: [], notices: [] })
+
+        expect(logic.values.sqlValidationMessage).toBeNull()
     })
 
     it('runs one test query at a time', () => {

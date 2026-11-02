@@ -10,6 +10,9 @@ import { SqlTestResult } from './SqlTestResult'
 
 const NEW_METRIC_SQL_QUERY_KEY = 'data-catalog-new-metric'
 
+// The banner below the editor moves the page, so wait for a longer pause in typing than the editor default.
+const SQL_VALIDATION_DEBOUNCE_MS = 600
+
 const SQL_PLACEHOLDER = '-- e.g. SELECT count(DISTINCT person_id) FROM events WHERE timestamp > now() - INTERVAL 30 DAY'
 
 export function NewMetricSqlDefinition({ onAddUnit }: { onAddUnit: () => void }): JSX.Element {
@@ -21,8 +24,10 @@ export function NewMetricSqlDefinition({ onAddUnit }: { onAddUnit: () => void })
         sqlPreviewError,
         sqlPreviewStale,
         sqlEditorError,
+        sqlValidationMessage,
     } = useValues(dataCatalogNewMetricSceneLogic)
-    const { testSqlQuery, setSqlEditorError, openInSqlEditor } = useActions(dataCatalogNewMetricSceneLogic)
+    const { testSqlQuery, setSqlEditorError, setSqlMetadata, openInSqlEditor } =
+        useActions(dataCatalogNewMetricSceneLogic)
 
     const testDisabledReason = !metricForm.sql.trim()
         ? 'Write a query before testing it'
@@ -39,6 +44,8 @@ export function NewMetricSqlDefinition({ onAddUnit }: { onAddUnit: () => void })
                         queryKey={NEW_METRIC_SQL_QUERY_KEY}
                         sourceQuery={sqlSourceQuery}
                         onError={setSqlEditorError}
+                        onMetadata={setSqlMetadata}
+                        metadataDebounceMs={SQL_VALIDATION_DEBOUNCE_MS}
                         onPressCmdEnter={testSqlQuery}
                         options={{ placeholder: SQL_PLACEHOLDER }}
                         minHeight="10rem"
@@ -67,7 +74,8 @@ export function NewMetricSqlDefinition({ onAddUnit }: { onAddUnit: () => void })
                     Open in SQL editor
                 </LemonButton>
             </div>
-            {sqlPreviewError ? (
+            {sqlValidationMessage && <LemonBanner type="error">{sqlValidationMessage}</LemonBanner>}
+            {sqlPreviewError && !sqlValidationMessage ? (
                 <LemonBanner type="error">{sqlPreviewError}</LemonBanner>
             ) : sqlPreview ? (
                 <SqlTestResult
