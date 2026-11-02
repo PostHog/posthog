@@ -10,7 +10,7 @@ import {
 } from 'd3-scale'
 import { stack as stackGen, stackOffsetDiverging, stackOffsetExpand, stackOffsetNone } from 'd3-shape'
 
-import type { BandSlot, ChartDimensions, ResolveValueFn, Series, ValueDomain, YAxisScale } from './types'
+import type { BandSlot, ChartDimensions, ResolveValueFn, Series, TimeScale, ValueDomain, YAxisScale } from './types'
 import { DEFAULT_Y_AXIS_ID } from './types'
 
 /** Inner padding fraction applied to the band scale when `BarChartConfig.bars.bandPadding` is unset. */
@@ -142,6 +142,19 @@ export function createXScale(labels: string[], dimensions: ChartDimensions): Sca
         .domain(labels)
         .range([dimensions.plotLeft, dimensions.plotLeft + dimensions.plotWidth])
         .padding(0)
+}
+
+export function createTimeXScale(
+    { parse, domain }: TimeScale,
+    dimensions: ChartDimensions
+): (label: string) => number | undefined {
+    const scale = scaleLinear()
+        .domain(domain)
+        .range([dimensions.plotLeft, dimensions.plotLeft + dimensions.plotWidth])
+    return (label) => {
+        const t = parse(label)
+        return t >= domain[0] && t <= domain[1] ? scale(t) : undefined
+    }
 }
 
 /** Min/max y-axis tick counts. `MIN_Y_TICKS` doubles as the floor for a non-finite/non-positive

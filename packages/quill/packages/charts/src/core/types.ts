@@ -513,8 +513,17 @@ export interface BarChartConfig extends ChartConfig {
     legend?: ChartLegendConfig
 }
 
+export interface TimeScale {
+    parse: (label: string) => number
+    domain: readonly [number, number]
+}
+
 export interface LineChartConfig extends ChartConfig {
     percentStackView?: boolean
+    /** Place each label at its time instead of evenly by index. Labels must be ascending. Memoize it. */
+    timeScale?: TimeScale
+    /** Draw lines and areas across missing (non-finite) values instead of breaking them. */
+    connectNulls?: boolean
     /** Value-axis domain control — omit for data-derived auto-scaling. See {@link ValueDomain}. */
     valueDomain?: ValueDomain
     /** Float the value axis to its data range instead of clamping the baseline to 0 (a y-axis "start

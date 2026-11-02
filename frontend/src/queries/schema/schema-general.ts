@@ -2,7 +2,7 @@ import { DataColorToken } from 'lib/colors'
 // eslint-disable-next-line import/no-cycle
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import type { FunnelLayout } from 'lib/constants'
-import type { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
+import type { AggregationAxisFormat } from 'lib/insights/aggregationAxisFormat'
 
 import { ConversionGoalSchema } from '~/taxonomy/marketingAnalytics'
 import {
@@ -31,7 +31,6 @@ import {
     ExperimentStatsMethod,
     FileSystemIconColor,
     FilterLogicalOperator,
-    FilterType,
     FunnelConversionWindowTimeUnit,
     FunnelMathType,
     FunnelPathType,
@@ -827,8 +826,8 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
      * */
     date_from?: string | null
     date_to?: string | null
-    events?: FilterType['events']
-    actions?: FilterType['actions']
+    events?: Record<string, any>[]
+    actions?: Record<string, any>[]
     properties?: AnyPropertyFilter[]
     console_log_filters?: LogEntryPropertyFilter[]
     having_predicates?: AnyPropertyFilter[] // duration and snapshot_source filters
@@ -4443,7 +4442,11 @@ export interface WebVitalsItem {
     days: string[]
     /** The index of the row's series in the query. */
     order: integer
-    action: WebVitalsItemAction
+    /**
+     * @deprecated The runner no longer writes this field. Only responses cached before 2026-10-30 carry it, and it goes
+     * once those entries expire. Read the series from the query at `order` instead.
+     */
+    action?: WebVitalsItemAction
 }
 
 export interface WebVitalsQueryResponse extends AnalyticsQueryResponseBase {
@@ -6548,6 +6551,7 @@ export type ExperimentExposureHealthFindingCode =
     | 'srm'
     | 'bias_risk_multiple_excluded'
     | 'multiple_variants_share'
+    | 'test_account_filter_removes_exposures'
 
 export type ExperimentExposureHealthFindingSeverity = 'critical' | 'warning' | 'info'
 
@@ -6584,6 +6588,7 @@ export type ExperimentExposureHealthCheckKey =
     | 'srm'
     | 'bias_risk_multiple_excluded'
     | 'multiple_variants_share'
+    | 'test_account_filter_removes_exposures'
 
 export type ExperimentExposureHealthCheckStatus = 'passed' | 'finding' | 'not_applicable' | 'not_checked'
 
@@ -8126,8 +8131,12 @@ export interface MarketingAnalyticsTableQueryResponse extends AnalyticsQueryResp
     /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a
      * "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
     precomputeNotReady?: boolean
-    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    /** ISO timestamp of the oldest precompute window backing this result. */
     dataComputedAt?: string
+    /** ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or
+     * later. It is the oldest stamp among the precompute windows that hold that day, across costs and
+     * conversion goals. Unset when no precompute was read or a window has no stamp. */
+    latestDayComputedAt?: string
 }
 
 export type CachedMarketingAnalyticsTableQueryResponse = CachedQueryResponse<MarketingAnalyticsTableQueryResponse>
@@ -8139,8 +8148,12 @@ export interface MarketingAnalyticsAggregatedQueryResponse extends AnalyticsQuer
     /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a
      * "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
     precomputeNotReady?: boolean
-    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    /** ISO timestamp of the oldest precompute window backing this result. */
     dataComputedAt?: string
+    /** ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or
+     * later. It is the oldest stamp among the precompute windows that hold that day, across costs and
+     * conversion goals. Unset when no precompute was read or a window has no stamp. */
+    latestDayComputedAt?: string
 }
 
 export type CachedMarketingAnalyticsAggregatedQueryResponse =
