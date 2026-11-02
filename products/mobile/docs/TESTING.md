@@ -97,6 +97,114 @@ physical iOS and Android before-and-after screenshots.
 6. Check empty and error states, long titles, and asymmetric safe areas on both sides. No
    control should overlap system UI, clip, or require a particular fold pose.
 
+### Repeatable screenshot comparisons
+
+Use `.argent/flows/screenshot-capture.yaml` to capture Inbox, Report, Handoff, Chat with the keyboard,
+and Views from repository demo data. It launches the production app identity on either platform:
+`com.posthog.code.mobile` on iOS and `com.posthog.mobile` on Android. It leaves Views open.
+`.argent/flows/screenshot-landscape.yaml` continues from there on iOS and captures the same surfaces after rotation.
+These flows collect review images; they do not perform pixel-diff assertions or replace the smoke flows.
+
+Keep the base captures, then repeat on the same virtual devices after each layout revision.
+Record the source commit, model, OS, pixel dimensions, orientation, posture, theme, and text size beside each set.
+Use separate artifact directories such as `before/iphone-portrait` and `after/duo-inner-landscape`.
+Do not compare portrait-locked base screens with landscape screenshots as though the orientations match.
+
+| Virtual device                                           | Capture matrix                                | Reference native pixels                        |
+| -------------------------------------------------------- | --------------------------------------------- | ---------------------------------------------- |
+| Ordinary iPhone, initially iPhone 17 Pro / iOS 27.0      | Portrait and landscape                        | 1206×2622 and 2622×1206                        |
+| Android, initially Pixel 9 / Android 16 API 36 at 420dpi | Portrait and landscape                        | 1080×2424 and 2424×1080                        |
+| iPhone Duo / iOS 27.1                                    | Closed cover, inner portrait, inner landscape | Cover 1398×2034; inner 2007×2853 and 2853×2007 |
+
+#### Build and prepare
+
+Use bundled Release builds with analytics and OTA updates disabled, so screenshots show the selected checkout.
+For iOS, use `scripts/ci-argent-build.sh` below. For Android, generate the native project in a disposable checkout
+with `CI=1 EXPO_NO_DOTENV=1 APP_VARIANT=production pnpm exec expo prebuild --platform android --no-install`.
+Set `expo.modules.updates.ENABLED` to `false` in the generated `android/app/src/main/AndroidManifest.xml` before building.
+With JDK 17, Android SDK/build tools 36 and the generated project's NDK installed, run:
+
+```sh
+cd android
+CI=1 EXPO_NO_DOTENV=1 EXPO_NO_TELEMETRY=1 DO_NOT_TRACK=1 APP_VARIANT=production \
+EXPO_PUBLIC_POSTHOG_KEY='' EXPO_PUBLIC_POSTHOG_HOST='' \
+./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a --max-workers=2 --console=plain
+```
+
+The APK is `android/app/build/outputs/apk/release/app-release.apk`. Use the emulator's architecture if it differs.
+Reinstall the selected build on a dedicated test device before each run to reset demo state; the flow expects **Try the demo**.
+Select explicit device IDs from `xcrun simctl list devices` or `adb devices`. Never reset a person's device or account for these captures.
+Use light appearance and the default text size for matching pairs; record accessibility variants separately.
+
+#### Capture and keep the PNGs
+
+From `products/mobile`, with the pinned private Argent install on PATH:
+
+```sh
+capture_device='<explicit simulator UDID>'
+capture_dir='/tmp/mobile-screenshots/after/iphone-portrait'
+mkdir -p "$capture_dir"
+argent run rotate --udid "$capture_device" --orientation Portrait
+argent e2e run screenshot-capture --platform ios --device "$capture_device" \
+    --output "$capture_dir" --json > "$capture_dir/report.json"
+```
+
+For Android, use its serial and `--platform android`. For Duo, select the posture before the portrait run:
+`argent run fold --udid "$capture_device" --posture closed` for the cover, or `--posture open` for the inner screen.
+An open posture initially turns the UI landscape, so rotate to Portrait again before `screenshot-capture`.
+For iOS landscape, run `screenshot-landscape` immediately after a successful portrait run, with a separate output directory.
+Its explicit `rotation: LandscapeLeft` makes the exported iOS framebuffer upright.
+
+Successful tool screenshots live in temporary Argent storage, even when `--output` is supplied.
+Copy them out before stopping the server. This exports stable names from either flow's JSON report:
+
+```sh
+python3 - "$capture_dir/report.json" "$capture_dir" <<'PY'
+import json
+import shutil
+import sys
+from pathlib import Path
+
+report = json.loads(Path(sys.argv[1]).read_text())
+if not report['ok']:
+    raise SystemExit('Capture failed; inspect the report before using its screenshots.')
+output = Path(sys.argv[2])
+output.mkdir(parents=True, exist_ok=True)
+for step in report['steps']:
+    if step['kind'] == 'echo':
+        name = step['message'].lower()
+    if step.get('tool') == 'screenshot':
+        shutil.copyfile(step['result']['image']['hostPath'], output / f'{name}.png')
+PY
+```
+
+Inspect every PNG, including the fully settled keyboard. Use an invented unsent draft if keyboard suggestions expose clipboard contents.
+Preserve raw images and label matching pairs **before** and **after**. The PR composites resize each portrait capture to 600px wide,
+place the pair on a neutral canvas with padding, and label the model and surface. Compare the native PNGs when checking small details.
+For a bezel view, capture the actual Device Hub window and crop surrounding controls while retaining about 60px of padding.
+Keep that framed presentation separate from the raw app screenshots.
+Upload reviewed images using `hogli pr:upload-image --print-markdown <files...>`; acknowledge its public-upload warning with `--yes`.
+Insert the resulting pinned image URLs into the existing PR description without removing earlier evidence.
+
+#### Capture tooling workarounds
+
+- Keep Argent 0.30.1 in a private install and expose the Android SDK and `adb` on PATH before starting its server.
+  If an emulator is visible to `adb` but absent from Argent, launch that dedicated AVD with `-grpc-use-token`.
+  Keep connection tokens out of screenshots, logs attached to the PR, and source control.
+- A native-devtools launch failure can need one restart of that private server. Retry the capture, then use direct device inspection
+  if it still cannot connect. Do not restart another task's server or report a skipped capture as a pass.
+  `argent run describe --udid "$capture_device"` can still read the iOS accessibility tree when selector flows cannot run.
+  Navigate with its current element coordinates and `gesture-tap`, then capture each state with `argent run screenshot`.
+- On Android, dismiss Gboard's first-run handwriting prompt. For a dedicated emulator, disable stylus handwriting with
+  `adb -s "$capture_device" shell settings put secure stylus_handwriting_enabled 0` and enable its software keyboard with
+  `adb -s "$capture_device" shell settings put secure show_ime_with_hard_keyboard 1`.
+- Android selector taps after rotation mis-targeted controls in the reference run. Inspect the current screenshot or element tree,
+  then use `adb -s "$capture_device" shell input tap <x-pixels> <y-pixels>` and `adb ... exec-out screencap -p` if needed.
+  Recalculate coordinates for each device and posture. Do not reuse the old screen's coordinates.
+- If the dedicated emulator stops answering shell requests, restart that AVD rather than restarting the shared `adb` server.
+- Capture landscape chat separately even when it fails the visual check. The reference iPhone keyboard covers the composer toolbar;
+  Gboard uses a full-screen editor. Record these limitations until a layout change resolves them.
+
 ## Chat navigation and header
 
 On iOS and Android, open an existing chat and start a new chat. Both must fill the screen without a
