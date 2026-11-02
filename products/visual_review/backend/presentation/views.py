@@ -162,6 +162,8 @@ class SnapshotsPagination(PrecountedLimitOffsetPagination):
     through the facade, then sets the total and `quarantined_count` on the paginator
     instance before rendering the response."""
 
+    # The run scene loads every changed snapshot of a run in one request with `limit=10000`.
+    max_limit = 10000
     quarantined_count = 0
 
     def get_paginated_response(self, data: object) -> Response:

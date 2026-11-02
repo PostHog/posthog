@@ -2,11 +2,12 @@ import json
 
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema
-from rest_framework import pagination, serializers, viewsets
+from rest_framework import serializers, viewsets
 from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from posthog.schema import ProductKey
 
+from posthog.api.pagination import BoundedPageNumberPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 
@@ -180,7 +181,7 @@ class InsightVariableSerializer(serializers.ModelSerializer):
         return InsightVariable.objects.create(**validated_data)
 
 
-class InsightVariablePagination(pagination.PageNumberPagination):
+class InsightVariablePagination(BoundedPageNumberPagination):
     page_size = 500
 
 
