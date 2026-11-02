@@ -236,7 +236,7 @@ struct CssRewrites {
 
 #[derive(Debug, Default)]
 struct SrcsetValues {
-    values: HashMap<Vec<u8>, (String, SrcsetSlot)>,
+    values: HashMap<Vec<u8>, (String, Vec<SrcsetSlot>)>,
     bytes: usize,
 }
 
@@ -267,19 +267,22 @@ impl RemoteUrls {
         };
     }
 
-    /// A value seen in two kinds of slot becomes [`SrcsetSlot::Alone`], which keeps what either kind keeps.
-    /// Keyed by the value as the event holds it, so the writer finds that value again after it stores the event.
+    /// A value in several kinds of slot keeps each kind, so that the writer keeps the candidates that some slot shows
+    /// and no other. Keyed by the value as the event holds it, so the writer finds that value again after it stores the
+    /// event.
     fn insert_srcset(&mut self, raw: &[u8], text: &str, slot: SrcsetSlot) {
         let srcsets = self.srcsets.get_or_insert_with(Box::default);
-        if let Some((_, known)) = srcsets.values.get_mut(raw) {
-            if *known != slot {
-                *known = SrcsetSlot::Alone;
+        if let Some((_, slots)) = srcsets.values.get_mut(raw) {
+            if !slots.contains(&slot) {
+                slots.push(slot);
             }
         } else if srcsets.values.len() < MAX_BLOCK_REMOTE_URLS
             && srcsets.bytes + raw.len() + text.len() <= MAX_BLOCK_REMOTE_URL_BYTES
         {
             srcsets.bytes += raw.len() + text.len();
-            srcsets.values.insert(raw.to_vec(), (text.to_owned(), slot));
+            srcsets
+                .values
+                .insert(raw.to_vec(), (text.to_owned(), vec![slot]));
         }
     }
 
@@ -315,8 +318,10 @@ impl RemoteUrls {
             self.insert(url);
         }
         self.limit = self.limit.or(other.limit);
-        for (raw, (text, slot)) in other.srcsets.iter().flat_map(|s| &s.values) {
-            self.insert_srcset(raw, text, *slot);
+        for (raw, (text, slots)) in other.srcsets.iter().flat_map(|s| &s.values) {
+            for &slot in slots {
+                self.insert_srcset(raw, text, slot);
+            }
         }
         for (text, rewrite) in other.css_rewrites.into_iter().flat_map(|r| r.values) {
             self.insert_css_rewrite(text, rewrite);
@@ -339,7 +344,13 @@ impl RemoteUrls {
             .map(|srcsets| srcsets.values)
             .unwrap_or_default()
             .into_iter()
-            .map(|(raw, (text, slot))| Srcset { text, raw, slot })
+            .flat_map(|(raw, (text, slots))| {
+                slots.into_iter().map(move |slot| Srcset {
+                    text: text.clone(),
+                    raw: raw.clone(),
+                    slot,
+                })
+            })
             .collect()
     }
 

@@ -51,7 +51,6 @@ impl Candidate<'_> {
     }
 }
 
-/// The candidate of a srcset that the recorder keeps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct KeptCandidate<'s> {
     pub index: usize,
@@ -61,7 +60,6 @@ pub struct KeptCandidate<'s> {
     pub yields_to_img_src: bool,
 }
 
-/// The element that holds a srcset, which decides whether it shows the kept candidate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SrcsetSlot {
     /// Nothing else competes with the candidate: an img with no `src`, an img whose `src` the event does not hold, or
@@ -73,7 +71,7 @@ pub enum SrcsetSlot {
     UnfetchedTypeSource,
 }
 
-/// The kept candidate. `None` for a malformed srcset, or one that mixes width and density descriptors.
+/// `None` for a malformed srcset, or one that mixes width and density descriptors.
 pub fn kept_candidate(srcset: &str) -> Option<KeptCandidate<'_>> {
     let mut first_kind = None;
     let mut mixed = false;
@@ -105,8 +103,7 @@ pub fn usable_candidate(srcset: &str) -> Option<KeptCandidate<'_>> {
     })
 }
 
-/// The usable candidate when the slot shows it. The inspector fetches it and the writer keeps it alone. Otherwise the
-/// writer empties the srcset, so that an img shows its `src` and a picture moves on to its next source.
+/// The inspector fetches this candidate and the writer keeps only it, so that the two agree on what the slot shows.
 pub fn shown_candidate(srcset: &str, slot: SrcsetSlot) -> Option<KeptCandidate<'_>> {
     usable_candidate(srcset).filter(|kept| match slot {
         SrcsetSlot::Alone => true,

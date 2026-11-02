@@ -1052,6 +1052,10 @@ mod tests {
         let remote_svg = "https://cdn.example.com/a.svg";
         let avif_typed_svg = "data:image/svg+xml,%3Csvg%2F%3E";
         let shared = "https://cdn.example.com/shared.webp";
+        let (beside_img_src, img_src) = (
+            "https://cdn.example.com/beside-img-src.png",
+            "https://cdn.example.com/img-src.png",
+        );
         let (also_in_webp, webp_1x) = (
             "https://cdn.example.com/also-in-webp.png",
             "https://cdn.example.com/webp-1x.webp",
@@ -1081,6 +1085,8 @@ mod tests {
             // The WebP source keeps its other candidate, so no source fetches the URL the two share.
             source(13, json!({"type": "image/avif", "srcset": format!("{also_in_webp} 1x")})),
             source(14, json!({"type": "image/webp", "srcset": format!("{also_in_webp} 2x, {webp_1x} 1x")})),
+            // Neither this source nor the img below with the same srcset shows the candidate, so neither keeps it.
+            source(16, json!({"type": "image/avif", "srcset": format!("{beside_img_src} 2x")})),
             // An empty type gives no hint, so the source keeps its candidate.
             source(9, json!({"type": "", "srcset": format!("{typeless} 1x")})),
             // Only the kept candidate stays, so a declined URL and an inline image the image scrub cannot read leave too.
@@ -1088,7 +1094,8 @@ mod tests {
             {"type": 2, "tagName": "img", "attributes": {"src": fallback}, "childNodes": [], "id": 5},
         ]});
         let img = json!({"type": 2, "tagName": "img", "attributes": {"src": bare}, "childNodes": [], "id": 10});
-        let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": [picture, img]}}}]).to_string();
+        let img_with_src = json!({"type": 2, "tagName": "img", "attributes": {"src": img_src, "srcset": format!("{beside_img_src} 2x")}, "childNodes": [], "id": 17});
+        let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": [picture, img, img_with_src]}}}]).to_string();
 
         let block = block_of("kept", &events);
         let mut inspector = replay_core_v4::inspect::session::SessionInspector::default();
@@ -1098,7 +1105,10 @@ mod tests {
         }
         // The fetcher stores no AVIF, so the AVIF source gets no fetch job.
         let fetched = inspection.finish().image_urls;
-        assert!(!fetched.iter().any(|u| u == avif || u == also_in_webp));
+        assert!(!fetched
+            .iter()
+            .any(|u| u == avif || u == also_in_webp || u == beside_img_src));
+        assert!(fetched.iter().any(|u| u == img_src));
         assert!(fetched.iter().any(|u| u == webp_1x));
 
         let lines = stored_lines(&events, &[]);
@@ -1134,7 +1144,8 @@ mod tests {
         );
         assert!(
             lines.contains(&format!(r#""srcset":"{} 1x""#, reference(webp_1x)))
-                && !lines.contains(&reference(also_in_webp)),
+                && !lines.contains(&reference(also_in_webp))
+                && !lines.contains(&reference(beside_img_src)),
             "{lines}"
         );
         assert!(
