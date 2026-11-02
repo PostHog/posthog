@@ -328,4 +328,30 @@ describe('chat draft persistence', () => {
         expect(reopened.result.current.draft.text).toBe(newerTyping ? 'New question' : '')
         reopened.unmount()
     })
+    it('keeps newer typing only in the adopted task after a queued write resolves', async () => {
+        const hook = renderHook(({ taskId }: { taskId: string | null }) => useChatDraft(taskId, undefined), {
+            initialProps: { taskId: null },
+        })
+        await waitFor(() => expect(hook.result.current.ready).toBe(true))
+        act(() => hook.result.current.change({ text: 'Queued question', reportIds: [] }))
+        let finish!: () => void
+        mockWriteGate = new Promise<void>((resolve) => {
+            finish = resolve
+        })
+        let saving!: Promise<boolean>
+        act(() => {
+            saving = hook.result.current.updateQueue(queueActions.enqueue('Queued question'), true)
+        })
+        act(() => hook.result.current.change({ text: 'New question', reportIds: [] }))
+        hook.rerender({ taskId: 'adopted-task' })
+        await act(async () => {
+            finish()
+            await saving
+        })
+        await waitFor(() => expect(hook.result.current.ready).toBe(true))
+        expect(hook.result.current.draft.text).toBe('New question')
+        expect((await chatDrafts.load('scope-1', 'task:adopted-task'))?.text).toBe('New question')
+        expect(await chatDrafts.load('scope-1', 'new-chat')).toBeNull()
+        hook.unmount()
+    })
 })

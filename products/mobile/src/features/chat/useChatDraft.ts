@@ -129,7 +129,9 @@ export function useChatDraft(
                 return
             }
             if (adopting && previous) {
-                await chatDrafts.move(scope, previous.key, key)
+                const source = previous.key
+                previous.key = key
+                await chatDrafts.move(scope, source, key)
             }
             const saved = await chatDrafts.load(scope, key)
             const savedQueue = await chatDrafts.loadQueue(scope, key)
@@ -137,7 +139,6 @@ export function useChatDraft(
                 return
             }
             if (adopting && previous) {
-                previous.key = key
                 target.current = previous
             } else {
                 target.current = { identity, scope, key }
