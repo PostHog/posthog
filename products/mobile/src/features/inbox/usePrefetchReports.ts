@@ -60,9 +60,19 @@ async function prefetchReport(
             return
         const query = queryClient.getQueryCache().find({ queryKey: options.queryKey, exact: true })
         if (query && (query.getObserversCount() > 0 || query.state.fetchStatus !== 'idle')) return
+        const configuredRetry = queryClient.defaultQueryOptions(options).retry
+        const retry = (failureCount: number, error: DefaultError): boolean => {
+            const current = queryClient.getQueryCache().find({ queryKey: options.queryKey, exact: true })
+            if (!current || current.getObserversCount() === 0) return false
+            // The retryer captures this callback, even after an opened report replaces the query's options.
+            const policy = current.options.retry === retry ? configuredRetry : current.options.retry
+            return typeof policy === 'function'
+                ? policy(failureCount, error)
+                : policy === true || (typeof policy === 'number' && failureCount < policy)
+        }
         owned.add(options.queryKey)
         try {
-            await queryClient.prefetchQuery({ ...options, staleTime: PREFETCH_STALE_MS, retry: false })
+            await queryClient.prefetchQuery({ ...options, staleTime: PREFETCH_STALE_MS, retry })
         } finally {
             owned.delete(options.queryKey)
         }

@@ -193,6 +193,58 @@ describe('usePrefetchReports', () => {
         }
     })
 
+    test.each(['unobserved', 'adopted', 'observer-policy'] as const)(
+        'a transient prefetch failure follows the %s retry policy',
+        async (mode) => {
+            const requests = controlledRequests()
+            globalThis.fetch = requests.fetch
+            const client = new QueryClient({
+                defaultOptions: { queries: { retry: 1, retryDelay: 0, gcTime: Infinity } },
+            })
+            const wrapper = ({ children }: { children: ReactNode }): ReactElement => (
+                <QueryClientProvider client={client}>{children}</QueryClientProvider>
+            )
+            const options = reportDetailQuery(mockScope, 'a')
+            const items = inboxFromReports([reportFixture({ id: 'a' })])
+            const screen = renderHook(() => usePrefetchReports(items, true), { wrapper })
+            let stop = (): void => undefined
+            const observerPolicy = jest.fn(() => false)
+            try {
+                act(() => showRows(screen.result.current, 0, 0))
+                await waitFor(() => expect(requests.pending).toHaveLength(1))
+                const observer = new QueryObserver(client, {
+                    ...options,
+                    ...(mode === 'observer-policy' ? { retry: observerPolicy } : {}),
+                })
+                if (mode !== 'unobserved')
+                    act(() => {
+                        stop = observer.subscribe(() => undefined)
+                    })
+                const detailPath = requests.pending[0]?.path
+                await act(async () => requests.pending[0]?.resolve(response(503, { detail: 'Try again' })))
+                if (mode === 'adopted') {
+                    await waitFor(() =>
+                        expect(requests.pending.filter((request) => request.path === detailPath)).toHaveLength(2)
+                    )
+                    await act(async () =>
+                        requests.pending
+                            .find((request, index) => index > 0 && request.path === detailPath)
+                            ?.resolve(response(200, reportFixture({ id: 'a' })))
+                    )
+                    await waitFor(() => expect(observer.getCurrentResult().data?.id).toBe('a'))
+                } else {
+                    await waitFor(() => expect(client.getQueryState(options.queryKey)?.status).toBe('error'))
+                    expect(requests.pending.filter((request) => request.path === detailPath)).toHaveLength(1)
+                    if (mode === 'observer-policy') expect(observerPolicy).toHaveBeenCalledWith(0, expect.any(Error))
+                }
+            } finally {
+                stop()
+                screen.unmount()
+                client.clear()
+            }
+        }
+    )
+
     test('foreground reads finish before speculation begins', async () => {
         const requests = controlledRequests()
         globalThis.fetch = requests.fetch
