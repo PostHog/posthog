@@ -58,7 +58,8 @@ def usage_billing_cutoffs(
     if organization_ids is not None:
         organizations = organizations.filter(id__in=organization_ids)
     cutoffs: dict[UUID, datetime] = {}
-    for org_id, value in organizations.values_list("id", "usage__signals_spend_credits__billing_start_date"):
+    for org_id, usage in organizations.values_list("id", "usage__signals_spend_credits"):
+        value = usage.get("billing_cutover_date") or usage["billing_start_date"]
         cutoff = date.fromisoformat(value)
         if cutoff.isoformat() != value:
             raise ValueError(f"Invalid Inbox billing cutoff for organization {org_id}")

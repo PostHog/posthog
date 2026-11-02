@@ -54,8 +54,11 @@ function App() {
 }
 ```
 
-- `useChartTheme(opts?)` — React hook; re-reads the vars when the `class` / `theme`
-  attribute flips on `<html>` or `<body>`.
+- `useChartTheme(opts?)` — React hook; re-reads the vars when the `class`, `theme` or
+  `data-theme` attribute changes on `<html>` or `<body>`. All calls with the same
+  options share one observer and one theme object, so calling it in every chart is
+  cheap. A chart re-renders only when a theme value changes. Treat the result as
+  read-only, because other charts hold the same object.
 - `themeFromCssVars(opts?)` — one-shot, non-React read.
 - `DEFAULT_CHART_COLORS` — fallback palette used when the token vars aren't loaded
   (no quill-tokens stylesheet, or SSR). Without tokens loaded you get this palette,

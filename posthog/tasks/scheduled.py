@@ -78,6 +78,7 @@ from posthog.utils import get_crontab, get_instance_region
 
 from products.account_audits.backend.facade.tasks import reconcile_account_audits
 from products.aeo.backend.facade.tasks import run_aeo_citation_checks_task
+from products.ai_observability.backend.facade.tasks import expire_offline_evaluation_payloads
 from products.ai_training.backend.facade.api import privacy_enabled
 from products.ai_training.backend.facade.tasks import process_ai_training_privacy_requests
 from products.approvals.backend.tasks import (
@@ -109,6 +110,7 @@ from products.feature_flags.backend.tasks import (
     feature_flags_local_eval_canary_task,
     refresh_expiring_flag_definitions_cache_entries,
     refresh_expiring_flags_cache_entries,
+    report_django_local_evaluation_usage_task,
     sync_cross_region_flags_task,
 )
 from products.legal_documents.backend.facade.tasks import reconcile_pending_legal_documents
@@ -118,6 +120,7 @@ from products.notebooks.backend.facade.tasks import cleanup_widget_snapshots
 from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
 from products.signals.backend.tasks import (
+    enqueue_signals_rated_usage,
     pause_inactive_signal_scouts,
     prune_expired_scratchpad_entries_task,
     reconcile_report_inbox_state_cache,
@@ -125,6 +128,7 @@ from products.signals.backend.tasks import (
     refresh_signal_scout_background_bands,
     sweep_first_report_notifications,
     sweep_implementation_dispatches,
+    sweep_monitoring_tracker_issues,
     sync_pending_signals_refund_credits,
 )
 from products.skills.backend.tasks import sync_community_skills
@@ -271,6 +275,12 @@ def add_periodic_task_with_expiry(
 
 
 def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="23"),
+        expire_offline_evaluation_payloads.s(),
+        name="expire offline evaluation payloads",
+    )
     add_periodic_task_with_expiry(
         sender, crontab(minute="*"), reconcile_account_audits.s(), name="reconcile-account-audits"
     )
@@ -433,6 +443,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         expires_seconds=2 * 60,
     )
 
+    if settings.CLOUD_DEPLOYMENT:
+        add_periodic_task_with_expiry(
+            sender,
+            crontab(hour="3", minute="17"),
+            enqueue_signals_rated_usage.s(),
+            name="report self-driving rated usage",
+        )
+
     add_periodic_task_with_expiry(
         sender,
         crontab(minute="*/5"),
@@ -447,6 +465,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         sweep_first_report_notifications.s(),
         name="send first self-driving report emails",
         expires_seconds=5 * 60,
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*"),
+        sweep_monitoring_tracker_issues.s(),
+        name="complete verified signals tracker issues",
+        expires_seconds=60,
     )
 
     # Re-enqueue signals PR refunds whose billing credit sync hasn't landed - hourly at minute 25
@@ -654,6 +680,16 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             name="cross-region flags sync",
             expires=30,
         )
+
+    # Every minute, send the local evaluation requests that Django counted to usage ingestion.
+    # The interval sets only how fresh the records are, because unsent counts wait in Redis.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*"),
+        report_django_local_evaluation_usage_task.s(),
+        name="report django local evaluation usage",
+        expires_seconds=60,
+    )
 
     add_periodic_task_with_expiry(
         sender,

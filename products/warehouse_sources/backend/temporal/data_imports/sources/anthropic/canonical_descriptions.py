@@ -51,7 +51,11 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "id": "Unique identifier for the API key.",
             "type": 'Object type, always "api_key".',
             "name": "Display name of the API key.",
-            "workspace_id": "ID of the workspace the key belongs to, or null for the default workspace.",
+            "workspace_id": (
+                "ID of the workspace the key belongs to. On API version 2023-06-01 it is null for the default "
+                "workspace. From 2026-10-21 it holds the default workspace's real ID, and is null only for a key "
+                "scoped to the whole organization."
+            ),
             "created_at": "RFC 3339 timestamp of when the API key was created.",
             "created_by_id": "ID of the actor that created the API key.",
             "created_by_type": "Type of the actor that created the API key.",

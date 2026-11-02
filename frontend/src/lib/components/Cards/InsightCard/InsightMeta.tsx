@@ -49,13 +49,13 @@ import { QueryScanTileTooltip } from '~/queries/nodes/DataNode/QueryScanTileTool
 import { WarehouseSyncWarningList } from '~/queries/nodes/DataNode/WarehouseSyncWarningList'
 import { outOfDateSyncWarnings } from '~/queries/nodes/DataNode/warehouseSyncWarnings'
 import { copyTableData, getInsightExportAdapter } from '~/queries/nodes/InsightViz/exportAdapters'
-import { Node, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import {
     isDataVisualizationNode,
     isDataVisualizationNodeWithHogQLQuery,
     isInsightVizNode,
     isTrendsQuery,
-} from '~/queries/utils'
+} from '~/queries/schema/node-guards'
+import { Node, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,

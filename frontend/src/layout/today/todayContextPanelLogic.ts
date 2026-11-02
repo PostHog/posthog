@@ -74,8 +74,8 @@ export interface todayContextPanelLogicValues {
     fullScreenUrl: string | null
     launcherAlign: TodayLauncherAlign
     launcherHidden: boolean
-    launcherHiddenByUser: boolean
     launcherHintVisible: boolean
+    launcherShown: boolean
     panelTabs: SidePanelTab[]
 }
 
@@ -143,7 +143,7 @@ export interface todayContextPanelLogicMeta {
         ) => TodayFloatingSession | null
         launcherHidden: (
             docked: boolean,
-            launcherHiddenByUser: boolean,
+            launcherShown: boolean,
             floatingOpen: boolean,
             panelTabs: SidePanelTab[]
         ) => boolean
@@ -239,13 +239,15 @@ export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
                 setLauncherAlign: (_, { align }) => align,
             },
         ],
-        launcherHiddenByUser: [
+        launcherShown: [
             false,
             { persist: true },
             {
-                hideLauncher: () => true,
-                // The card closes back into the floating button, so closing it brings the button back.
-                setFloatingOpen: (state, { open }) => (open ? state : false),
+                undock: () => true,
+                // The card closes back into the floating button, so opening it floating counts as undocking.
+                setFloatingOpen: (state, { open }) => open || state,
+                dock: () => false,
+                hideLauncher: () => false,
             },
         ],
         launcherHintVisible: [
@@ -277,17 +279,13 @@ export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
                 floatingOpen ? { tab: floatingActiveTab, offset: floatingOffset } : null,
         ],
         /**
-         * The button sinks away while docked and where the scene has no PostHog AI. The open card hangs off it, so it
-         * shows for as long as the card is open, even after the user dismissed it.
+         * The button sinks away while docked, until the user undocks, and where the scene has no PostHog AI. The
+         * open card hangs off it, so it shows for as long as the card is open.
          */
         launcherHidden: [
-            (s) => [s.docked, s.launcherHiddenByUser, s.floatingOpen, s.panelTabs],
-            (
-                docked: boolean,
-                launcherHiddenByUser: boolean,
-                floatingOpen: boolean,
-                panelTabs: SidePanelTab[]
-            ): boolean => docked || (launcherHiddenByUser && !floatingOpen) || !panelTabs.includes(SidePanelTab.Max),
+            (s) => [s.docked, s.launcherShown, s.floatingOpen, s.panelTabs],
+            (docked: boolean, launcherShown: boolean, floatingOpen: boolean, panelTabs: SidePanelTab[]): boolean =>
+                docked || !(launcherShown || floatingOpen) || !panelTabs.includes(SidePanelTab.Max),
         ],
         panelTabs: [
             (s) => [s.enabledTabs],

@@ -181,6 +181,11 @@ export const Settings: Story = {
     decorators: [routeTo(urls.inbox('settings'))],
 }
 
+export const Sources: Story = {
+    decorators: [routeTo(urls.inbox('sources'))],
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+}
+
 // Set up (sources enabled) but no reports yet – exercises the empty list states.
 export const Empty: Story = {
     decorators: [

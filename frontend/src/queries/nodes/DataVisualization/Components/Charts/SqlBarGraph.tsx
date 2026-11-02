@@ -10,11 +10,10 @@ import {
     type ValueLabelContext,
 } from '@posthog/quill-charts'
 
+import { makeChartErrorHandler } from 'lib/charts/chartErrorHandler'
 import { AnnotationsLayer } from 'lib/components/AnnotationsOverlay/AnnotationsLayer'
 
 import { ChartDisplayType } from '~/types'
-
-import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { type SqlChartProps } from './SqlChart'
 import { SqlChartTooltip } from './SqlChartTooltip'
@@ -24,6 +23,7 @@ import {
     buildBarChartConfig,
     buildBarValueChartConfig,
     formatSqlSeriesValue,
+    hasValueLabels,
 } from './sqlLineGraphAdapter'
 import { useSqlChartModel } from './useSqlChartModel'
 
@@ -85,7 +85,7 @@ export const SqlBarGraph = (props: SqlChartProps): JSX.Element => {
                     >
                         <ReferenceLines lines={model.config.referenceLines ?? []} />
                         {props.children}
-                        {props.chartSettings.showValuesOnSeries && (
+                        {hasValueLabels(props.chartSettings, props.yData) && (
                             <ValueLabels
                                 valueFormatter={valueLabelFormatter}
                                 position={props.chartSettings.valueLabelPosition}

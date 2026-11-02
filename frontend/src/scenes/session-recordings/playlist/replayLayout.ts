@@ -20,7 +20,6 @@ export function replayLayoutFrom(
     return offered && !preferClassicLayout ? offered : 'classic'
 }
 
-/** Every arm shares the compact list, the filter header and the watch player until its own surfaces exist. */
 export function isNewReplayLayout(layout: ReplayLayout): boolean {
     return layout !== 'classic'
 }
@@ -28,4 +27,8 @@ export function isNewReplayLayout(layout: ReplayLayout): boolean {
 /** The watch layout only shapes players whose host opted in, which is the replay playlist. */
 export function playerUsesWatchLayout(layout: ReplayLayout, logicProps: { watchLayout?: boolean }): boolean {
     return isNewReplayLayout(layout) && !!logicProps.watchLayout
+}
+
+export function isFeedReplayLayout(layout: ReplayLayout): boolean {
+    return layout === 'youtube'
 }
