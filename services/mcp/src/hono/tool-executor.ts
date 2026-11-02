@@ -1092,7 +1092,8 @@ export class ToolExecutor {
 
     /**
      * Runs the call the render-ui app would make for its data, through the normal dispatch so
-     * scopes, validation and per-tool metrics apply. Any failure leaves the app to fetch.
+     * scopes, validation and per-tool metrics apply. Any failure, or a preload slower than
+     * `RENDER_UI_PRELOAD_TIMEOUT_MS`, leaves the app to fetch.
      */
     private async loadRenderUiAppData(
         toolName: string,
@@ -1102,17 +1103,20 @@ export class ToolExecutor {
         analyticsMeta: ToolCallAnalyticsMeta
     ): Promise<unknown> {
         const request = renderUiDataRequest(toolName, toolInput, appKey)
+        const preload = this.dispatchToolCall(request.name, { arguments: request.arguments }, state, analyticsMeta)
+            .then((result) => {
+                const data = readRenderUiData(result as CallToolResult, appKey)
+                return data.isError ? undefined : (data.structuredContent ?? undefined)
+            })
+            .catch(() => undefined)
+        let timer: ReturnType<typeof setTimeout> | undefined
+        const timeout = new Promise<undefined>((resolve) => {
+            timer = setTimeout(() => resolve(undefined), RENDER_UI_PRELOAD_TIMEOUT_MS)
+        })
         try {
-            const result = await this.dispatchToolCall(
-                request.name,
-                { arguments: request.arguments },
-                state,
-                analyticsMeta
-            )
-            const data = readRenderUiData(result as CallToolResult, appKey)
-            return data.isError ? undefined : (data.structuredContent ?? undefined)
-        } catch {
-            return undefined
+            return await Promise.race([preload, timeout])
+        } finally {
+            clearTimeout(timer)
         }
     }
 
@@ -1288,6 +1292,10 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
 // Mirrors the SDK's MAX_ERROR_MESSAGE_LENGTH so `$mcp_error_message` stays within
 // the bound external servers get when they pass `error` to the SDK.
 const MAX_ERROR_MESSAGE_LENGTH = 2048
+
+// Below the render-ui app's result watchdog (`DEFAULT_WAIT_TIMEOUT_MS`, 20s), so a slow
+// query returns the render directive in time and the app fetches the data itself.
+const RENDER_UI_PRELOAD_TIMEOUT_MS = 15_000
 
 /**
  * Collapses array indexes in a DRF attr path (`actions__2__inputs__email`) to

@@ -921,6 +921,21 @@ describe('ToolExecutor', () => {
                 expect(result.structuredContent.tool_name).toBe('survey-get')
                 expect(result._meta).not.toHaveProperty(APP_DATA_META_KEY)
             })
+
+            it('stops waiting for a slow preload before the app gives up on the result', async () => {
+                vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+                try {
+                    stubInnerTool(() => new Promise(() => {}))
+
+                    const pending = renderSurvey()
+                    await vi.advanceTimersByTimeAsync(15_000)
+                    const result = await pending
+
+                    expect(result._meta).not.toHaveProperty(APP_DATA_META_KEY)
+                } finally {
+                    vi.useRealTimers()
+                }
+            })
         })
 
         it('rejects a cached render-ui choice that is not allowed for the current account', async () => {
