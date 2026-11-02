@@ -103,7 +103,7 @@ describe('ScoutRunBoxes', () => {
         expect(strip.querySelectorAll('*')).toHaveLength(runs.length * 2)
     })
 
-    it('shows the hovered run in one tooltip, and mounts no tooltip before a hover', () => {
+    it('shows the hovered run in one tooltip, and closes it on Escape or when the pointer leaves the box', () => {
         jest.useFakeTimers()
         try {
             const { container } = render(
@@ -124,6 +124,19 @@ describe('ScoutRunBoxes', () => {
             const tooltips = document.querySelectorAll('.Tooltip')
             expect(tooltips).toHaveLength(1)
             expect(tooltips[0]).toHaveTextContent('open task run')
+
+            fireEvent.keyDown(document, { key: 'Escape' })
+            act(() => {
+                jest.advanceTimersByTime(400)
+            })
+            expect(document.querySelector('.Tooltip')).toBeNull()
+
+            fireEvent.mouseOver(container.querySelector('[data-run-id="run-plain"]') as Element)
+            fireEvent.mouseOver(container.firstElementChild as Element)
+            act(() => {
+                jest.advanceTimersByTime(400)
+            })
+            expect(document.querySelector('.Tooltip')).toBeNull()
         } finally {
             jest.useRealTimers()
         }

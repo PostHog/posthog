@@ -129,15 +129,41 @@ export const ScoutRunBoxes = memo(function ScoutRunBoxes({
     }, [runs, costs, costThreshold])
     const [activeBox, setActiveBox] = useState<ActiveBox | null>(null)
     const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const pendingRunId = useRef<string | null>(null)
+    const isOpen = activeBox !== null
 
     const clearHoverTimer = (): void => {
         if (hoverTimer.current !== null) {
             clearTimeout(hoverTimer.current)
             hoverTimer.current = null
         }
+        pendingRunId.current = null
+    }
+
+    const close = (): void => {
+        clearHoverTimer()
+        setActiveBox(null)
     }
 
     useEffect(() => clearHoverTimer, [])
+
+    useEffect(() => {
+        if (!isOpen) {
+            return
+        }
+        const dismiss = (): void => setActiveBox(null)
+        const onKeyDown = (event: KeyboardEvent): void => {
+            if (event.key === 'Escape') {
+                dismiss()
+            }
+        }
+        window.addEventListener('scroll', dismiss, { capture: true, passive: true })
+        document.addEventListener('keydown', onKeyDown)
+        return () => {
+            window.removeEventListener('scroll', dismiss, { capture: true })
+            document.removeEventListener('keydown', onKeyDown)
+        }
+    }, [isOpen])
 
     if (runs.length === 0) {
         return null
@@ -151,7 +177,12 @@ export const ScoutRunBoxes = memo(function ScoutRunBoxes({
 
     const onMouseOver = (event: MouseEvent<HTMLDivElement>): void => {
         const column = columnOf(event.target, event.currentTarget)
-        if (!column || column.dataset.runId === activeBox?.runId) {
+        if (!column) {
+            close()
+            return
+        }
+        const runId = column.dataset.runId
+        if (runId === activeBox?.runId || runId === pendingRunId.current) {
             return
         }
         clearHoverTimer()
@@ -159,7 +190,9 @@ export const ScoutRunBoxes = memo(function ScoutRunBoxes({
             setActiveBox(activeBoxOf(column))
             return
         }
+        pendingRunId.current = runId ?? null
         hoverTimer.current = setTimeout(() => {
+            pendingRunId.current = null
             hoverTimer.current = null
             setActiveBox(activeBoxOf(column))
         }, TOOLTIP_DELAY_MS)
@@ -171,11 +204,6 @@ export const ScoutRunBoxes = memo(function ScoutRunBoxes({
             clearHoverTimer()
             setActiveBox(activeBoxOf(column))
         }
-    }
-
-    const close = (): void => {
-        clearHoverTimer()
-        setActiveBox(null)
     }
 
     return (
