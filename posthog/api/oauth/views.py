@@ -687,7 +687,9 @@ class OAuthValidator(OAuth2Validator):
             return False
         # oauthlib's device grant authenticates a confidential client twice per request. The first
         # check spends the assertion's jti, so a second verification would reject it as a replay.
-        if getattr(request, "verified_client_assertion", None) == assertion.client_assertion:
+        # Read from `__dict__` only: oauthlib's Request answers a missing attribute from the request
+        # parameters, so getattr would let a caller send the "verified" value itself.
+        if request.__dict__.get("verified_client_assertion") == assertion.client_assertion:
             return True
 
         app = self._load_application(assertion.client_id, request)
