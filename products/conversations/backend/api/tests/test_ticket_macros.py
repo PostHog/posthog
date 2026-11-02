@@ -241,6 +241,7 @@ class TestTicketMacroAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["visibility"] == "personal"
         log = ActivityLog.objects.filter(scope="TicketMacro", item_id=mine["id"], activity="updated").get()
+        assert log.detail is not None
         assert log.detail["name"] == "Cancellation"
         assert [change["field"] for change in log.detail["changes"]] == ["visibility"]
 
