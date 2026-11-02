@@ -71,6 +71,19 @@ export function expiresAtForOption(
 /** A picker row for a personal API key, with the scope it stands for so the search can match it. */
 export type PersonalAPIKeyScopeRow = ScopePickerRow & { scope: APIScope }
 
+function combineWarnings(
+    builtIn: string | JSX.Element | undefined,
+    risky: string | undefined
+): string | JSX.Element | undefined {
+    return builtIn && risky ? (
+        <>
+            {builtIn} {risky}
+        </>
+    ) : (
+        (builtIn ?? risky)
+    )
+}
+
 export type PersonalAPIKeyScopeGroup = ScopePickerGroup<PersonalAPIKeyScopeRow>
 
 // The scopes array with each key set to its level. A write on a survey or early access feature also
@@ -579,13 +592,10 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                         label: scope.objectName,
                         info: scope.info,
                         value,
-                        warning:
-                            [
-                                value === 'none' ? undefined : scope.warnings?.[value],
-                                riskyScopeWarning(scope.key, value, riskyScopes),
-                            ]
-                                .filter(Boolean)
-                                .join(' ') || undefined,
+                        warning: combineWarnings(
+                            value === 'none' ? undefined : scope.warnings?.[value],
+                            riskyScopeWarning(scope.key, value, riskyScopes)
+                        ),
                         muted: Boolean(projectScoped),
                         disabledReasons: { read: disabledReason('read'), write: disabledReason('write') },
                     }
