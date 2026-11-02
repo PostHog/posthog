@@ -338,11 +338,10 @@ Organization admins set the retention in project and organization settings, and 
 `monthly_retention_events_cleanup_job` has six steps:
 
 - `update_plan_deletions` tracks each team's pass window in `TeamEventsPlanDeletion`: the set window or the 24-month default, never past the plan's window. It reads the teams that have a set window or where `should_enforce_events_retention` is true.
-  - It admits new teams in organization order, then team order. A team whose first pass, 3 months out, would delete events takes one place in `max_new_plan_deletion_teams` and gets a notice. Any other team is admitted without a notice.
-  - A shorter window, from a downgrade or a change in Django admin, moves the team's next pass to at least 3 months out and sends a notice.
-  - The notice goes to the organization's admins and owners. When it doesn't go out, the step doesn't admit its teams, and a team with a shorter window keeps its old one so that the next run sends the notice again.
+  - It admits new teams in organization order, then team order. A team whose first pass, 3 months out, would delete events takes one place in `max_new_plan_deletion_teams`. Any other team is admitted without counting.
+  - A shorter window, from a downgrade or a change in Django admin, moves the team's next pass to at least 3 months out.
   - It writes all its changes in one transaction at the end, then hands on the teams whose pass is due.
-- Saving a window in settings writes the team's row straight away, so the settings page can show the next deletion. A shorter window moves the next pass to at least 3 months out without a notice. That row is admitted without the cap.
+- Saving a window in settings writes the team's row straight away, so the settings page can show the next deletion. A shorter window moves the next pass to at least 3 months out. That row is admitted without the cap.
 - Pass dates fall on the 3rd, so the date shown is the run that deletes.
 - `plan_old_events_cleanup` reads every team's set window when the run starts. A team whose window deletes monthly uses it. A team whose pass is due uses its pass window, or the shorter of the two. It logs each team's window in months, then finds the months that hold events for each team and keeps the ones entirely past that team's window. It logs the teams due in each month.
 - `cleanup_old_events_by_partition` deletes each planned month for the teams due in that month only. A team with 13 months and a team with 18 months share the older months, and the 13-month team also has months of its own.
@@ -354,7 +353,7 @@ A manual run can narrow the events plan with `team_ids` and `partitions`, and th
 A pass completes only for a team the events plan includes, and only when its `partitions` is empty. Otherwise the pass stays due for the next full run.
 The `update_plan_deletions` config has its own `team_ids` for admission, and a manual run admits no team unless that config sets `max_new_plan_deletion_teams`.
 `monthly_retention_events_cleanup_schedule` starts one run on the 3rd of each month at 21:00 local time (Europe/Paris in EU, America/Los_Angeles elsewhere), and skips when no team has a retention or a row and `PLAN_DELETION_TEAMS_PER_RUN` is 0. It is stopped by default.
-Pass dates are dates in that local time zone, so the date in a notice is the day its deletes start.
+Pass dates are dates in that local time zone, so the date shown in settings is the day its deletes start.
 The job runs `ensure_no_concurrent_deletes_run` before it plans, and that guard also runs in `deletes_job`. Each job fails at the start while a `deletes_job`, cleanup or squash run is executing, so the two never mutate the events tables at the same time.
 Both jobs and `squash_person_overrides` carry the `deletes_job_concurrency` tag. The Dagster deployment settings put a run-queue limit of 1 on that tag, so a second run of any of the three queues instead of starting.
 `sharded_events_json` keeps events dated before 2020, because it stores them in its 202001 partition and the delete addresses the event's own month.

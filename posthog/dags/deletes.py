@@ -3,10 +3,9 @@ import time
 import uuid
 from collections import defaultdict
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from functools import partial
-from itertools import chain
 
 from django.conf import settings
 from django.db import transaction
@@ -92,7 +91,6 @@ from posthog.models.sessions.sql import (
 from posthog.models.team import Team
 from posthog.models.team.event_retention import events_deletion_applies
 from posthog.run_mode import run_mode
-from posthog.tasks.email import send_events_deletion_notice
 
 from products.error_tracking.backend.facade.api import (
     DocumentEmbeddingTable,
@@ -216,21 +214,13 @@ class PlanDeletionPasses:
 @frozen
 class _PlanTeam:
     team_id: int
-    organization_id: uuid.UUID
-    window_months: int
-
-
-@frozen
-class _Notice:
-    organization_id: uuid.UUID
-    deletion_on: date
     window_months: int
 
 
 @frozen
 class _Admissions:
-    with_notice: list[_PlanTeam]
-    without_notice: list[_PlanTeam]
+    losing_events: list[_PlanTeam]
+    losing_nothing: list[_PlanTeam]
 
 
 @frozen
@@ -1664,13 +1654,9 @@ def _deletion_teams(team_ids: list[int]) -> list[_PlanTeam]:
     setting_months = {item.team_id: item.months for item in effective_events_retention(team_ids=team_ids or None)}
     teams = Team.objects.filter(id__in=team_ids) if team_ids else Team.objects.all()
     return [
-        _PlanTeam(
-            team_id=team_id,
-            organization_id=organization_id,
-            window_months=retention_window(plan_months, setting_months.get(team_id)),
-        )
-        for team_id, organization_id, plan_months in teams.order_by("organization_id", "id")
-        .values_list("id", "organization_id", "event_retention_months")
+        _PlanTeam(team_id=team_id, window_months=retention_window(plan_months, setting_months.get(team_id)))
+        for team_id, plan_months in teams.order_by("organization_id", "id")
+        .values_list("id", "event_retention_months")
         .iterator(chunk_size=_ADMISSION_CHUNK_SIZE)
         if events_deletion_applies(team_id, setting_months.get(team_id))
     ]
@@ -1678,7 +1664,7 @@ def _deletion_teams(team_ids: list[int]) -> list[_PlanTeam]:
 
 def _admit(cluster: ClickhouseCluster, queue: list[_PlanTeam], cap: int, today: date) -> _Admissions:
     """Walk the queue in order. A team that loses events at its first pass uses the cap, and any other team is free."""
-    admissions = _Admissions(with_notice=[], without_notice=[])
+    admissions = _Admissions(losing_events=[], losing_nothing=[])
     if cap <= 0:
         return admissions
     for chunk in chunked(queue, _ADMISSION_CHUNK_SIZE):
@@ -1687,33 +1673,12 @@ def _admit(cluster: ClickhouseCluster, queue: list[_PlanTeam], cap: int, today: 
         )
         for team in chunk:
             if team.team_id not in losing:
-                admissions.without_notice.append(team)
-            elif len(admissions.with_notice) < cap:
-                admissions.with_notice.append(team)
-        if len(admissions.with_notice) >= cap:
+                admissions.losing_nothing.append(team)
+            elif len(admissions.losing_events) < cap:
+                admissions.losing_events.append(team)
+        if len(admissions.losing_events) >= cap:
             break
     return admissions
-
-
-def _send_notices(
-    context: dagster.OpExecutionContext, notices: dict[_Notice, list[_PlanTeam]]
-) -> dict[_Notice, list[_PlanTeam]]:
-    """Email each organization its deletion notices, and return the notices that didn't go out."""
-    unsent: dict[_Notice, list[_PlanTeam]] = {}
-    for notice, notice_teams in notices.items():
-        try:
-            send_events_deletion_notice(
-                str(notice.organization_id),
-                sorted(team.team_id for team in notice_teams),
-                notice.deletion_on,
-                notice.window_months,
-            )
-        except Exception as error:
-            context.log.warning(
-                f"org {notice.organization_id}: no deletion notice went out, so its teams wait: {error!r}"
-            )
-            unsent[notice] = notice_teams
-    return unsent
 
 
 @dagster.op(ins={"start_after": dagster.In(dagster.Nothing)})
@@ -1722,7 +1687,7 @@ def update_plan_deletions(
     config: PlanDeletionConfig,
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> PlanDeletionPasses:
-    """Admit teams to window deletion, follow their window changes, notify their organizations, and find the passes due."""
+    """Admit teams to window deletion, follow their window changes, and find the passes due."""
     today = cleanup_date()
     teams = _deletion_teams(config.team_ids)
     states = {
@@ -1731,44 +1696,20 @@ def update_plan_deletions(
     }
 
     changed: dict[int, PlanDeletionState] = {}
-    notices: dict[_Notice, list[_PlanTeam]] = defaultdict(list)
     shorter_windows = 0
     for team in teams:
         if (state := states.get(team.team_id)) is None:
             continue
-        updated = with_window(state, team.window_months, today)
         if is_shorter_window(state, team.window_months):
             shorter_windows += 1
-            notices[
-                _Notice(
-                    organization_id=team.organization_id,
-                    deletion_on=updated.next_deletion_on,
-                    window_months=team.window_months,
-                )
-            ].append(team)
+        updated = with_window(state, team.window_months, today)
         if updated != state:
             changed[team.team_id] = updated
 
     queue = [team for team in teams if team.team_id not in states]
     admissions = _admit(cluster, queue, config.max_new_plan_deletion_teams, today)
-    for team in admissions.with_notice + admissions.without_notice:
+    for team in admissions.losing_events + admissions.losing_nothing:
         changed[team.team_id] = admitted(team.window_months, today)
-    for team in admissions.with_notice:
-        notices[
-            _Notice(
-                organization_id=team.organization_id,
-                deletion_on=changed[team.team_id].next_deletion_on,
-                window_months=team.window_months,
-            )
-        ].append(team)
-
-    unsent = _send_notices(context, notices)
-    for team in chain.from_iterable(unsent.values()):
-        if team.team_id in states:
-            # The old window makes the next run see the downgrade again and retry the notice.
-            changed[team.team_id] = replace(changed[team.team_id], months=states[team.team_id].months)
-        else:
-            del changed[team.team_id]
 
     passes = {
         team.team_id: team.window_months
@@ -1791,11 +1732,9 @@ def update_plan_deletions(
     context.add_output_metadata(
         {
             "enforced_teams": dagster.MetadataValue.int(len(teams)),
-            "admitted": dagster.MetadataValue.int(sum(team.team_id in changed for team in admissions.with_notice)),
-            "admitted_without_notice": dagster.MetadataValue.int(len(admissions.without_notice)),
+            "admitted_losing_events": dagster.MetadataValue.int(len(admissions.losing_events)),
+            "admitted_losing_nothing": dagster.MetadataValue.int(len(admissions.losing_nothing)),
             "shorter_windows": dagster.MetadataValue.int(shorter_windows),
-            "orgs_notified": dagster.MetadataValue.int(len(notices) - len(unsent)),
-            "orgs_not_notified": dagster.MetadataValue.int(len(unsent)),
             "passes_due": dagster.MetadataValue.int(len(passes)),
         }
     )

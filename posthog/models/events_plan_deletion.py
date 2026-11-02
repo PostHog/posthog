@@ -43,7 +43,7 @@ def cleanup_timezone() -> str:
 
 
 def cleanup_date() -> date:
-    """Today where the cleanup schedule runs, so that a pass date in a notice is the local day its deletes start."""
+    """Today where the cleanup schedule runs, so that a pass date shown to users is the local day its deletes start."""
     return datetime.now(ZoneInfo(cleanup_timezone())).date()
 
 

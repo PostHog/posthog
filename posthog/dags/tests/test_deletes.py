@@ -63,7 +63,6 @@ from posthog.models.events_retention_config import OrganizationEventsRetentionCo
 from posthog.models.organization import Organization
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 from posthog.models.team import Team
-from posthog.tasks.email import EventsDeletionNoticeNotSent
 
 
 def surviving_flag_evaluations(client: Client) -> set[tuple[int, UUID, UUID]]:
@@ -893,8 +892,7 @@ def _plan_state(team: Team) -> tuple[int, date] | None:
 
 @pytest.mark.django_db
 @override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
-@patch("posthog.dags.deletes.send_events_deletion_notice")
-def test_update_plan_deletions_admits_at_most_the_cap(send_notice: Mock, cluster: ClickhouseCluster):
+def test_update_plan_deletions_admits_at_most_the_cap(cluster: ClickhouseCluster):
     organization = Organization.objects.create(name="One year plan")
     first, second, third = (
         Team.objects.create(organization=organization, name=f"Old events {i}", event_retention_months=12)
@@ -918,7 +916,6 @@ def test_update_plan_deletions_admits_at_most_the_cap(send_notice: Mock, cluster
         None,
         (12, _first_pass()),
     ]
-    send_notice.assert_called_once_with(str(organization.id), [first.id, second.id], _first_pass(), 12)
 
 
 @pytest.mark.django_db
@@ -931,9 +928,7 @@ def test_update_plan_deletions_admits_at_most_the_cap(send_notice: Mock, cluster
     ],
 )
 @override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
-@patch("posthog.dags.deletes.send_events_deletion_notice")
 def test_pass_deletes_events_and_sessions_past_the_window_and_moves_only_a_completed_pass(
-    send_notice: Mock,
     cluster: ClickhouseCluster,
     cleanup_config: Callable[[Team], dict],
     months_left: dict[int, int],
@@ -964,7 +959,6 @@ def test_pass_deletes_events_and_sessions_past_the_window_and_moves_only_a_compl
         SESSIONS_RETENTION_TABLES, {(team.id, _partition(_mid_month(months))) for months in months_left}
     )
     assert _plan_state(team) == (12, _first_pass() if pass_completed else cleanup_date())
-    send_notice.assert_not_called()
 
 
 @pytest.mark.django_db
@@ -976,9 +970,8 @@ def test_pass_deletes_events_and_sessions_past_the_window_and_moves_only_a_compl
     ],
 )
 @override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
-@patch("posthog.dags.deletes.send_events_deletion_notice")
 def test_update_plan_deletions_downgrade_pushes_the_next_pass(
-    send_notice: Mock, cluster: ClickhouseCluster, deployment: str, now: str, next_pass: date
+    cluster: ClickhouseCluster, deployment: str, now: str, next_pass: date
 ):
     organization = Organization.objects.create(name="Downgraded")
     team = Team.objects.create(organization=organization, name="Downgraded", event_retention_months=12)
@@ -989,15 +982,11 @@ def test_update_plan_deletions_downgrade_pushes_the_next_pass(
 
     assert passes.window_months_by_team == {}
     assert _plan_state(team) == (12, next_pass)
-    send_notice.assert_called_once_with(str(organization.id), [team.id], next_pass, 12)
 
 
 @pytest.mark.django_db
 @override_settings(EVENTS_DATA_RETENTION_ENFORCED=False)
-@patch("posthog.dags.deletes.send_events_deletion_notice")
-def test_update_plan_deletions_without_enforcement_passes_only_set_windows(
-    send_notice: Mock, cluster: ClickhouseCluster
-):
+def test_update_plan_deletions_without_enforcement_passes_only_set_windows(cluster: ClickhouseCluster):
     organization = Organization.objects.create(name="Not enforced")
     waiting = Team.objects.create(organization=organization, name="Waiting", event_retention_months=12)
     due = Team.objects.create(organization=organization, name="Due", event_retention_months=12)
@@ -1012,29 +1001,6 @@ def test_update_plan_deletions_without_enforcement_passes_only_set_windows(
     assert passes.window_months_by_team == {set_window.id: 6}
     assert _plan_state(waiting) is None
     assert _plan_state(due) == (6, cleanup_date())
-    send_notice.assert_not_called()
-
-
-@pytest.mark.django_db
-@override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
-@patch("posthog.dags.deletes.send_events_deletion_notice", side_effect=EventsDeletionNoticeNotSent)
-def test_update_plan_deletions_without_a_notice_admits_no_team_that_would_lose_events(
-    send_notice: Mock, cluster: ClickhouseCluster
-):
-    organization = Organization.objects.create(name="Unreachable")
-    waiting = Team.objects.create(organization=organization, name="Waiting", event_retention_months=12)
-    downgraded = Team.objects.create(organization=organization, name="Downgraded", event_retention_months=12)
-    TeamEventsPlanDeletion.objects.create(
-        team=downgraded, months=24, next_deletion_on=cleanup_date() + timedelta(days=7)
-    )
-    _insert_events(cluster, _events(waiting.id, _mid_month(11), 0, 1))
-
-    passes = update_plan_deletions(build_op_context(), PlanDeletionConfig(max_new_plan_deletion_teams=1), cluster)
-
-    assert passes.window_months_by_team == {}
-    assert _plan_state(waiting) is None
-    assert _plan_state(downgraded) == (24, _first_pass())
-    send_notice.assert_called_once_with(str(organization.id), [waiting.id, downgraded.id], _first_pass(), 12)
 
 
 def _insert_pending_deletes(table: PendingDeletesTable, client: Client, count: int = 5, first_id: int = 0) -> None:

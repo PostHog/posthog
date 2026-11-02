@@ -91,7 +91,7 @@ def _queryable_months(team: Team) -> int:
         plan_months = team.event_retention_months or DEFAULT_EVENT_RETENTION_MONTHS
         setting = effective_events_retention(team_ids=[team.id])
         setting_months = setting[0].months if setting else None
-        # The default waits for admission, so that a team's notice arrives before its window shrinks.
+        # The default waits for admission, so that queries hide no events before the team has a deletion date.
         if setting_months is None and not TeamEventsPlanDeletion.objects.filter(team_id=team.id).exists():
             months = plan_months
         else:
