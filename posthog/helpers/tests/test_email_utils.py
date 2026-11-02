@@ -1,6 +1,7 @@
 from datetime import timedelta
 from typing import Optional, cast
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 from django.db import connection
@@ -654,6 +655,7 @@ class TestValidateMessageBody(SimpleTestCase):
             ("bracket", "hello <there>", "invalid_bracket"),
             ("invisible", "foo\u200bbar", "invalid_invisible_char"),
             ("rtl_override", "foo\u202ebar", "invalid_invisible_char"),
+            ("lone_surrogate", "foo\ud83dbar", "invalid_invisible_char"),
             ("non_newline_control", "foo\x01bar", "invalid_control_char"),
             ("carriage_return", "foo\rbar", "invalid_control_char"),
             ("del", "foo\x7fbar", "invalid_control_char"),
@@ -801,6 +803,11 @@ class TestSanitizeEmailString(SimpleTestCase):
                 '<img src="x" onerror="javascript:alert(1)">',
                 "&lt;img src=&quot;x&quot; onerror=&quot;javascript:​alert(1)&quot;&gt;",
             ),
+            ("uppercase_domain", "join EVIL.COM now", "join EVIL.\u200bCOM now"),
+            ("long_domain_chain", "pad." * 200 + "evil.com", "pad.\u200b" * 200 + "evil.\u200bcom"),
+            ("long_scheme", "a" * 100 + "://x", "a" * 100 + ":\u200b//x"),
+            ("accented_letter_before_domain", "\u00e9vil.com", "\u00e9vil.\u200bcom"),
+            ("lone_surrogate", "evil.com \ud83d", "evil.\u200bcom "),
         ]
     )
     def test_sanitizes(self, _name: str, value: str, expected: str) -> None:
@@ -814,3 +821,17 @@ class TestSanitizeEmailString(SimpleTestCase):
         # the entity, which is the existing trade-off of running sanitize_email_string
         # over already-sanitized data. Documented as a guardrail.
         self.assertEqual(sanitize_email_string("&amp;"), "&amp;amp;")
+
+
+# A regex that backtracks quadratically cannot finish these inputs inside this limit.
+@pytest.mark.timeout(60)
+class TestEmailTextChecksOnLongInput(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("dotted_run", "a." * 500_000),
+            ("letter_run", "a" * 1_000_000 + "."),
+        ]
+    )
+    def test_returns_long_input_unchanged(self, _name: str, value: str) -> None:
+        self.assertTrue(sanitize_email_string(value) == value)
+        self.assertTrue(validate_message_body(value) == value)

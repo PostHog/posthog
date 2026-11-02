@@ -21,6 +21,7 @@ from django.core.exceptions import MultipleObjectsReturned
 from django.db.models import CharField, F, Func, Q, QuerySet, Value
 from django.db.models.functions import Lower, Replace
 
+import re2
 import requests
 import structlog
 import posthoganalytics
@@ -32,20 +33,21 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 
+# The `{0,32}` limit keeps the scan linear. A longer scheme still matches from a letter nearer to `://`.
 _URL_SCHEME_RE = re.compile(
-    r"[a-z][a-z0-9+.\-]*://"
+    r"[a-z][a-z0-9+.\-]{0,32}://"
     r"|\b(?:javascript|data|vbscript|file|ftp|mailto|tel|sms):"
     r"|www\.",
     re.IGNORECASE,
 )
-_BARE_DOMAIN_RE = re.compile(
-    r"\b(?:[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}\b",
-    re.IGNORECASE,
-)
+# re2 keeps the scan linear. Do not limit the label count to get this with `re`, because a match
+# would then stop inside a long chain and leave the domain at its end linkable.
+_BARE_DOMAIN_RE = re2.compile(r"(?i)\b(?:[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}\b")
 _CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f\u0085\u2028\u2029]")
 _NON_NEWLINE_CONTROL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f\u0085\u2028\u2029]")
 _BRACKET_RE = re.compile(r"[<>]")
-_INVISIBLE_CHAR_RE = re.compile(r"[\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]")
+# Includes lone surrogates, because re2 raises UnicodeEncodeError on them.
+_INVISIBLE_CHAR_RE = re.compile(r"[\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff\ud800-\udfff]")
 
 _URL_ERROR = "URLs are not allowed in this field."
 _CONTROL_ERROR = "Line breaks and control characters are not allowed in this field."
@@ -110,18 +112,6 @@ def validate_message_body(value: str | None) -> str | None:
         raise serializers.ValidationError(_CONTROL_ERROR, code="invalid_control_char")
     _check_shared(value)
     return value
-
-
-def contains_bare_domain(value: str | None) -> bool:
-    """
-    True if `value` contains a bare domain (e.g. `example.com`) after NFKC
-    normalization. The `validate_*` helpers above intentionally *allow* bare
-    domains; callers that want to reject domains entirely (e.g. so mail clients
-    can't auto-link them in a branded email) layer this check on top.
-    """
-    if not value:
-        return False
-    return bool(_BARE_DOMAIN_RE.search(unicodedata.normalize("NFKC", value)))
 
 
 def _extract_error_code(err: serializers.ValidationError) -> str:
