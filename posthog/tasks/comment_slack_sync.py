@@ -14,6 +14,7 @@ from posthog.models.comment.comment import COMMENT_SCOPES_BLOCKED_FROM_GENERIC_A
 from posthog.models.comment.slack_thread import DISCUSSIONS_SLACK_SYNC_FLAG
 from posthog.models.integration import SlackIntegration
 from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.slack.identity import resolve_posthog_user_for_slack, resolve_slack_user
 
@@ -134,6 +135,62 @@ def _reply_skip_reason(reply: Comment) -> str | None:
     return None
 
 
+def slack_message_comment_content(text: str, blocks: list | None, files: list | None) -> tuple[str, Any] | None:
+    """A Slack message as discussion-comment ``(content, rich_content)``, or None when it has nothing to show.
+
+    Shared by the live reply ingest, the opening comment of a linked thread and the import of its
+    history, so a message reads the same whichever path brought it in.
+    """
+    content, rich_content = slack_to_content_and_rich_content(text, blocks)
+    file_placeholders = slack_files_to_placeholder_lines(files)
+    if not content and not rich_content and not file_placeholders:
+        return None
+    # Slack text has no markdown image syntax, so neutralizing it is lossless — and keeps an
+    # external participant's reply from making the discussion UI load remote images. The UI
+    # prefers rich_content (flattened back to markdown), so its text nodes need the same
+    # treatment or the escape would be sidestepped whenever the message carries blocks.
+    content = content.replace("![", "!\\[")
+    _neutralize_rich_content_images(rich_content)
+
+    if file_placeholders:
+        # Appended after the image neutralization above, which would otherwise escape the very
+        # markdown links being added. Their filenames are escaped at construction instead.
+        placeholder_text = "\n\n".join(file_placeholders)
+        content = f"{content}\n\n{placeholder_text}" if content else placeholder_text
+        # The UI prefers rich_content whenever it's set, so placeholders added only to content
+        # would be invisible for any upload that arrived with a caption (and so with blocks).
+        if isinstance(rich_content, dict):
+            nodes = rich_content.get("content")
+            if not isinstance(nodes, list):
+                nodes = []
+                rich_content["content"] = nodes
+            nodes.extend(
+                {"type": "paragraph", "content": [{"type": "text", "text": line}]} for line in file_placeholders
+            )
+    return content, rich_content
+
+
+def slack_author_fields(user_info: dict, *, workspace_id: str | None, team: Team) -> tuple[User | None, dict[str, Any]]:
+    """Who a Slack-authored comment is by: the PostHog user to credit, and its item_context stamp.
+
+    Only attributes the comment to a PostHog user when Slack confirms the author belongs to the
+    integration's own workspace (``workspace_id``). In externally-shared (Slack Connect) channels the other
+    workspace's admin controls its users' profile emails, so trusting the email there would let
+    an outsider post as any org member.
+    """
+    posthog_user = None
+    if user_info.get("team_id") and user_info.get("team_id") == workspace_id:
+        posthog_user = resolve_posthog_user_for_slack(user_info.get("email"), team)
+    # Slack users without a verified PostHog account stay author-less; their display identity
+    # rides in item_context (name + avatar only — no email or Slack user id, which would leak
+    # external participants' PII through the comments API).
+    return posthog_user, {
+        "from_slack": True,
+        "slack_author_name": user_info["name"],
+        "slack_author_avatar": user_info.get("avatar"),
+    }
+
+
 # Retry budget must outlast a slow root post in send_to_slack (up to two 10s Slack calls),
 # or a reply created mid-send would exhaust retries and never reach the thread.
 @shared_task(bind=True, ignore_result=True, max_retries=6, default_retry_delay=10)
@@ -225,51 +282,24 @@ def ingest_slack_discussion_reply(
     ).exists():
         return
 
-    content, rich_content = slack_to_content_and_rich_content(text, blocks)
-    file_placeholders = slack_files_to_placeholder_lines(files)
-    if not content and not rich_content and not file_placeholders:
+    converted = slack_message_comment_content(text, blocks, files)
+    if converted is None:
         return
-    # Slack text has no markdown image syntax, so neutralizing it is lossless — and keeps an
-    # external participant's reply from making the discussion UI load remote images. The UI
-    # prefers rich_content (flattened back to markdown), so its text nodes need the same
-    # treatment or the escape would be sidestepped whenever the message carries blocks.
-    content = content.replace("![", "!\\[")
-    _neutralize_rich_content_images(rich_content)
-
-    if file_placeholders:
-        # Appended after the image neutralization above, which would otherwise escape the very
-        # markdown links being added. Their filenames are escaped at construction instead.
-        placeholder_text = "\n\n".join(file_placeholders)
-        content = f"{content}\n\n{placeholder_text}" if content else placeholder_text
-        # The UI prefers rich_content whenever it's set, so placeholders added only to content
-        # would be invisible for any upload that arrived with a caption (and so with blocks).
-        if isinstance(rich_content, dict):
-            nodes = rich_content.get("content")
-            if not isinstance(nodes, list):
-                nodes = []
-                rich_content["content"] = nodes
-            nodes.extend(
-                {"type": "paragraph", "content": [{"type": "text", "text": line}]} for line in file_placeholders
-            )
+    content, rich_content = converted
 
     try:
         client = SlackIntegration(mirror.integration).client
         client.timeout = 10
-        # The profile feeds the workspace-membership trust check below — namespace the cache by
-        # this integration's workspace so a colliding user id from another workspace (Slack
-        # Connect) can't be served from a stale entry.
+        # The profile feeds the workspace-membership trust check in slack_author_fields — namespace
+        # the cache by this integration's workspace so a colliding user id from another workspace
+        # (Slack Connect) can't be served from a stale entry.
         user_info = resolve_slack_user(client, slack_user_id, workspace=mirror.integration.integration_id or "")
     except Exception as exc:
         raise self.retry(exc=exc)
 
-    # Only attribute the comment to a PostHog user when Slack confirms the author belongs to
-    # this integration's own workspace. In externally-shared (Slack Connect) channels the other
-    # workspace's admin controls its users' profile emails, so trusting the email there would
-    # let an outsider post as any org member.
-    posthog_user = None
-    if user_info.get("team_id") and user_info.get("team_id") == mirror.integration.integration_id:
-        posthog_user = resolve_posthog_user_for_slack(user_info.get("email"), team)
-
+    posthog_user, author_context = slack_author_fields(
+        user_info, workspace_id=mirror.integration.integration_id, team=team
+    )
     Comment.objects.create(
         team=team,
         scope=mirror.scope,
@@ -278,16 +308,8 @@ def ingest_slack_discussion_reply(
         source_comment_id=mirror.source_comment_id,
         content=content,
         rich_content=rich_content,
-        # Slack users without a verified PostHog account stay author-less; their display
-        # identity rides in item_context (name + avatar only — no email or Slack user id,
-        # which would leak external participants' PII through the comments API).
         created_by=posthog_user,
-        item_context={
-            "from_slack": True,
-            SLACK_MESSAGE_TS_KEY: message_ts,
-            "slack_author_name": user_info["name"],
-            "slack_author_avatar": user_info.get("avatar"),
-        },
+        item_context={**author_context, SLACK_MESSAGE_TS_KEY: message_ts},
     )
     logger.info(
         "slack_discussion_reply_ingested",
