@@ -11,12 +11,12 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
-from posthog.integrations import IntegrationManager
+from posthog.integrations import IntegrationManager, IntegrationReference
 from posthog.models import Team
 from posthog.models.integration import ANY, Integration
 
 from products.warehouse_sources.backend.facade.contracts import (
-    CREDENTIALS_REFERENCE_KEY,
+    CREDENTIALS_REFERENCE_INPUT_KEY,
     SharedCredentialsEdit,
     SharedCredentialsError,
     UnusableCredentialsReferenceError,
@@ -24,7 +24,11 @@ from products.warehouse_sources.backend.facade.contracts import (
 from products.warehouse_sources.backend.logic import source_credentials_rollout as rollout
 from products.warehouse_sources.backend.logic.source_credentials import WarehouseSourceCredentialsStore
 from products.warehouse_sources.backend.logic.source_credentials_rollout import reset_caches
-from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore, UnreadableSourceInputsError
+from products.warehouse_sources.backend.logic.source_inputs import (
+    INPUTS_UPDATE_FIELDS,
+    SourceInputsStore,
+    UnreadableSourceInputsError,
+)
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports import schema_flags
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -182,7 +186,6 @@ def _sample(name: str, labels: dict[str, str]) -> float:
 
 
 DUAL_WRITE_TOTAL = "posthog_warehouse_source_credentials_dual_write_total"
-REF = CREDENTIALS_REFERENCE_KEY
 
 
 def _compare_count(result: str) -> float:
@@ -221,7 +224,16 @@ class TestSourceInputsStoreCredentialsMirror(BaseTest):
 
     def _shared_sources(self) -> list[ExternalDataSource]:
         first = self._create()
-        return [first, self._create({**STORED_POSTGRES_INPUTS, CREDENTIALS_REFERENCE_KEY: self._stored(first)[REF]})]
+        second = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id="other",
+            connection_id="other",
+            status="Running",
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs=STORED_POSTGRES_INPUTS,
+            credentials_integration_id=_column(first),
+        )
+        return [first, second]
 
     @parameterized.expand(
         [
@@ -237,6 +249,7 @@ class TestSourceInputsStoreCredentialsMirror(BaseTest):
             SourceInputsStore.save(source, {**STORED_POSTGRES_INPUTS, "password": "fake-rotated"})
 
         assert self._rows() == []
+        assert _column(source) is None
         assert self._stored(source) == {**STORED_POSTGRES_INPUTS, "password": "fake-rotated"}
 
     def test_a_flag_error_is_not_cached(self) -> None:
@@ -249,22 +262,24 @@ class TestSourceInputsStoreCredentialsMirror(BaseTest):
 
         [row] = self._rows()
         assert row.sensitive_config == {"fields": POSTGRES_CONNECTION_FIELDS}
+        assert _column(source) == str(row.id)
 
     def test_create_makes_a_row_and_later_saves_update_it(self) -> None:
         with self._flag(return_value=True):
             source = self._create()
             [row] = self._rows()
-            assert self._stored(source) == {**STORED_POSTGRES_INPUTS, REF: str(row.id)}
+            assert _column(source) == str(row.id)
+            assert self._stored(source) == STORED_POSTGRES_INPUTS
             assert row.config["warehouse_source_type"] == "Postgres"
             assert row.sensitive_config == {"fields": POSTGRES_CONNECTION_FIELDS}
 
-            # A writer that builds the inputs from a parsed config sends no reference.
             SourceInputsStore.save(source, {**STORED_POSTGRES_INPUTS, "password": "fake-rotated"})
 
         [updated] = self._rows()
         assert updated.id == row.id
         assert updated.sensitive_config == {"fields": {**POSTGRES_CONNECTION_FIELDS, "password": "fake-rotated"}}
-        assert self._stored(source) == {**STORED_POSTGRES_INPUTS, "password": "fake-rotated", REF: str(row.id)}
+        assert self._stored(source) == {**STORED_POSTGRES_INPUTS, "password": "fake-rotated"}
+        assert _column(source) == str(row.id)
 
     def test_a_failed_insert_leaves_no_row(self) -> None:
         with self._flag(return_value=True):
@@ -285,21 +300,134 @@ class TestSourceInputsStoreCredentialsMirror(BaseTest):
 
     @parameterized.expand(
         [
-            ("oauth_only", ExternalDataSourceType.HUBSPOT, {"hubspot_integration_id": "7"}),
-            ("custom_has_no_kind", ExternalDataSourceType.CUSTOM, {"manifest": "{}"}),
-            ("stripe_oauth_option", ExternalDataSourceType.STRIPE, None),
+            ("oauth_only_int", ExternalDataSourceType.HUBSPOT, {"hubspot_integration_id": 7}, "7"),
+            ("oauth_only_string", ExternalDataSourceType.HUBSPOT, {"hubspot_integration_id": "7"}, "7"),
+            ("oauth_only_short_key", ExternalDataSourceType.TIKTOKADS, {"tiktok_integration_id": "7"}, "7"),
+            ("oauth_only_without_pointer", ExternalDataSourceType.HUBSPOT, {}, None),
+            ("custom_has_no_kind", ExternalDataSourceType.CUSTOM, {"manifest": "{}"}, None),
+            (
+                "stripe_oauth_option",
+                ExternalDataSourceType.STRIPE,
+                {"auth_method": {"selection": "oauth", "stripe_integration_id": "7"}},
+                "7",
+            ),
+            (
+                "bigquery_service_account",
+                ExternalDataSourceType.BIGQUERY,
+                {
+                    "auth_type": {"selection": "service_account", "google_cloud_service_account_integration_id": 7},
+                    "project_id": "p",
+                    "dataset_id": "d",
+                },
+                "7",
+            ),
+            # An OAuth pointer wins over typed-in fields next to it, so the source never gets a second row.
+            (
+                "pardot_oauth_with_typed_in_environment",
+                ExternalDataSourceType.PARDOT,
+                {"pardot_integration_id": "7", "environment": "sandbox", "business_unit_id": "b"},
+                "7",
+            ),
+            ("slack_legacy_pointer", ExternalDataSourceType.SLACK, {"slack_integration_id": "7"}, "7"),
         ]
     )
-    def test_a_source_without_typed_in_credentials_gets_no_row(
-        self, _name: str, source_type: str, inputs: dict[str, Any] | None
+    def test_an_oauth_source_points_at_its_in_use_oauth_row_and_gets_no_typed_in_row(
+        self, _name: str, source_type: str, inputs: dict[str, Any], column: str | None
     ) -> None:
-        if inputs is None:
-            inputs = {"auth_method": {"selection": "oauth", "stripe_integration_id": "7"}}
         with self._flag(return_value=True):
             source = self._create(inputs, source_type=source_type)
 
         assert IntegrationManager.any.with_source_rows().list(self.team.pk) == []
-        assert REF not in SourceInputsStore.load(source)
+        assert _column(source) == column
+        assert "credentials_integration_id" not in SourceInputsStore.load(source)
+
+    @parameterized.expand(
+        [
+            (
+                "github_stale_pointer_under_pat",
+                ExternalDataSourceType.GITHUB,
+                "github",
+                {
+                    "auth_method": {
+                        "selection": "pat",
+                        "personal_access_token": "fake-pat",
+                        "github_integration_id": "7",
+                    },
+                    "repository": "posthog/posthog",
+                },
+            ),
+            (
+                "slack_token_wins_over_legacy_pointer",
+                ExternalDataSourceType.SLACK,
+                "slack",
+                {"slack_access_token": "fake-token", "slack_integration_id": "7"},
+            ),
+        ]
+    )
+    def test_a_stale_oauth_pointer_does_not_hide_typed_in_credentials(
+        self, _name: str, source_type: str, kind: str, inputs: dict[str, Any]
+    ) -> None:
+        with self._flag(return_value=True):
+            source = self._create(inputs, source_type=source_type)
+
+        [row] = IntegrationManager.any.with_source_rows().list(self.team.pk)
+        assert row.kind == kind
+        assert _column(source) == str(row.id)
+
+    def test_a_shape_the_walk_cannot_read_keeps_the_column(self) -> None:
+        with self._flag(return_value=True):
+            source = self._create(
+                {"auth_method": {"selection": "oauth", "stripe_integration_id": "7"}},
+                source_type=ExternalDataSourceType.STRIPE,
+            )
+            before = _sample(DUAL_WRITE_TOTAL, {"outcome": "split_error"})
+
+            SourceInputsStore.save(source, {"auth_method": "oauth", "stripe_integration_id": "8"})
+
+        assert _column(source) == "7"
+        assert _sample(DUAL_WRITE_TOTAL, {"outcome": "split_error"}) - before == 1
+
+    @parameterized.expand(
+        [
+            # (name, flag on, column before, column after)
+            ("flag_on_writes_the_pointer", True, None, "7"),
+            ("flag_on_replaces_a_typed_in_reference", True, "999", "7"),
+            ("flag_off_writes_no_pointer", False, None, None),
+            ("flag_off_keeps_the_column", False, "999", "999"),
+        ]
+    )
+    def test_oauth_reference_with_the_flag_on_and_off(
+        self, _name: str, flag_on: bool, before: str | None, after: str | None
+    ) -> None:
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id="source",
+            connection_id="connection",
+            status="Running",
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={},
+            credentials_integration_id=before,
+        )
+
+        with self._flag(return_value=flag_on):
+            SourceInputsStore.save(source, {"auth_method": {"selection": "oauth", "stripe_integration_id": "7"}})
+
+        assert _column(source) == after
+
+    def test_a_switch_from_the_oauth_option_to_typed_in_fields_makes_a_new_row(self) -> None:
+        with self._flag(return_value=True):
+            source = self._create(
+                {"auth_method": {"selection": "oauth", "stripe_integration_id": "7"}},
+                source_type=ExternalDataSourceType.STRIPE,
+            )
+            assert _column(source) == "7"
+            recreated = _sample(DUAL_WRITE_TOTAL, {"outcome": "missing_row_recreated"})
+
+            SourceInputsStore.save(source, {"auth_method": {"selection": "api_key", "stripe_secret_key": "fake-key"}})
+
+        [row] = IntegrationManager.source("stripe").token.list(self.team.pk)
+        assert _column(source) == str(row.id)
+        assert _sample(DUAL_WRITE_TOTAL, {"outcome": "missing_row_recreated"}) == recreated
 
     @parameterized.expand(
         [
@@ -323,6 +451,7 @@ class TestSourceInputsStoreCredentialsMirror(BaseTest):
             [row] = self._rows()
         assert row.sensitive_config["fields"]["password"] == row_password
         assert self._stored(first)["password"] == "fake-rotated"
+        assert _column(first) == str(row.id)
         assert _sample(DUAL_WRITE_TOTAL, {"outcome": outcome}) - before == 1
 
     def test_refused_edit_of_a_shared_row_raises_and_unchanged_fields_do_not(self) -> None:
@@ -339,26 +468,33 @@ class TestSourceInputsStoreCredentialsMirror(BaseTest):
                 )
 
         assert [(usage.type, usage.id) for usage in raised.exception.usages] == [("warehouse_source", str(second.id))]
+        assert first.credentials_integration_id == _column(second)
 
     def test_a_host_change_on_a_shared_row_makes_a_new_row(self) -> None:
         with self._flag(return_value=True):
             first, second = self._shared_sources()
-            shared_id = self._stored(first)[REF]
+            shared_id = _column(first)
             first.refresh_from_db()
 
             SourceInputsStore.save(first, {**STORED_POSTGRES_INPUTS, "host": "other.example.com"})
 
-        assert self._stored(second)[REF] == shared_id
-        assert self._stored(first)[REF] != shared_id
+        assert _column(second) == shared_id
+        assert _column(first) != shared_id
         assert len(self._rows()) == 2
 
     def test_a_dangling_reference_gets_a_new_row(self) -> None:
         with self._flag(return_value=True):
-            source = self._create({**STORED_POSTGRES_INPUTS, REF: "999999999"})
+            source = self._create()
+            ExternalDataSource.objects.filter(pk=source.pk).update(credentials_integration_id="999999999")
+            source.refresh_from_db()
+            before = _sample(DUAL_WRITE_TOTAL, {"outcome": "missing_row_recreated"})
 
-        [row] = self._rows()
-        assert self._stored(source)[REF] == str(row.id)
-        assert row.sensitive_config == {"fields": POSTGRES_CONNECTION_FIELDS}
+            SourceInputsStore.save(source, STORED_POSTGRES_INPUTS)
+
+        rows = self._rows()
+        assert len(rows) == 2
+        assert _column(source) == str(max(row.id for row in rows))
+        assert _sample(DUAL_WRITE_TOTAL, {"outcome": "missing_row_recreated"}) - before == 1
 
     def test_upsert_failure_does_not_block_the_job_inputs_save(self) -> None:
         before = _sample(DUAL_WRITE_TOTAL, {"outcome": "upsert_error"})
@@ -370,6 +506,7 @@ class TestSourceInputsStoreCredentialsMirror(BaseTest):
             SourceInputsStore.save(source, {**STORED_POSTGRES_INPUTS, "password": "fake-rotated"})
 
         assert self._stored(source) == {**STORED_POSTGRES_INPUTS, "password": "fake-rotated"}
+        assert _column(source) is None
         assert _sample(DUAL_WRITE_TOTAL, {"outcome": "upsert_error"}) - before == 2
 
     def test_two_writers_of_a_source_without_a_reference_make_one_row(self) -> None:
@@ -390,29 +527,25 @@ class TestSourceInputsStoreCredentialsMirror(BaseTest):
 
         [row] = self._rows()
         assert row.sensitive_config == {"fields": {**POSTGRES_CONNECTION_FIELDS, "password": "fake-rotated"}}
-        assert self._stored(source)[REF] == str(row.id)
+        assert _column(source) == str(row.id)
 
-    @parameterized.expand(
-        [
-            ("cleared", ExternalDataSourceType.POSTGRES, STORED_POSTGRES_INPUTS, {}),
-            (
-                "oauth_option",
-                ExternalDataSourceType.STRIPE,
-                {"auth_method": {"selection": "api_key", "stripe_secret_key": "fake-key"}},
-                {"auth_method": {"selection": "oauth", "stripe_integration_id": "7"}},
-            ),
-        ]
-    )
-    def test_a_write_without_connection_fields_drops_the_reference(
-        self, _name: str, source_type: str, before: dict[str, Any], after: dict[str, Any]
-    ) -> None:
+    def test_a_write_without_connection_fields_drops_the_reference(self) -> None:
         with self._flag(return_value=True):
-            source = self._create(before, source_type=source_type)
-            assert REF in SourceInputsStore.load(ExternalDataSource.objects.get(pk=source.pk))
+            source = self._create()
+            assert _column(source) is not None
 
-            SourceInputsStore.save(source, after)
+            SourceInputsStore.save(source, {})
 
-            assert SourceInputsStore.load(ExternalDataSource.objects.get(pk=source.pk)) == after
+        assert _column(source) is None
+        assert self._stored(source) == {}
+
+    def test_a_caller_that_saves_the_update_fields_writes_the_column_with_the_inputs(self) -> None:
+        with self._flag(return_value=True):
+            source = self._create()
+            SourceInputsStore.assign(source, {})
+            source.save(update_fields=[*INPUTS_UPDATE_FIELDS, "updated_at"])
+
+        assert _column(source) is None
 
     def test_a_failed_flag_lookup_leaves_the_callers_transaction_usable(self) -> None:
         with self._flag(return_value=False):
@@ -443,34 +576,53 @@ class TestSourceInputsStoreCredentialsMirror(BaseTest):
 
         assert _compare_count("match") - before == 1
 
-    def test_update_runtime_does_not_touch_the_integration(self) -> None:
+    def test_update_runtime_does_not_touch_the_integration_or_the_column(self) -> None:
         with self._flag(return_value=True):
             source = self._create()
             [row] = self._rows()
+            # A sync holds an old copy of the source while another writer changes the column.
+            ExternalDataSource.objects.filter(pk=source.pk).update(credentials_integration_id="123")
 
             SourceInputsStore.update_runtime(source, {"cdc_consistent_point": "0/16B3748"})
 
         [after] = self._rows()
         assert after.sensitive_config == row.sensitive_config
-        assert self._stored(source)[REF] == str(row.id)
+        assert _column(source) == "123"
+
+    def test_update_oauth_inputs_keeps_the_stored_column(self) -> None:
+        with self._flag(return_value=True):
+            source = self._create({"hubspot_secret_key": "fake-old"}, source_type=ExternalDataSourceType.HUBSPOT)
+            ExternalDataSource.objects.filter(pk=source.pk).update(credentials_integration_id="123")
+
+            SourceInputsStore.update_oauth_inputs(source, {"hubspot_secret_key": "fake-new"})
+
+        assert self._stored(source) == {"hubspot_secret_key": "fake-new"}
+        assert _column(source) == "123"
+
+    def test_update_oauth_inputs_refuses_a_source_with_typed_in_credentials(self) -> None:
+        source = _source(ExternalDataSourceType.POSTGRES, dict(STORED_POSTGRES_INPUTS))
+        with self.assertRaises(ValueError):
+            SourceInputsStore.update_oauth_inputs(source, {"password": "fake-new"})
+        assert source.job_inputs == STORED_POSTGRES_INPUTS
 
     @parameterized.expand(
         [
             ("match", lambda source: None, "match"),
-            ("missing_row", lambda source: _set_reference(source, "999999999"), "missing_row"),
+            ("missing_row", lambda source: _set_column(source, "999999999"), "missing_row"),
             # A parsed config writes its unset optional fields as None. The row has no such key.
             ("optional_field_none", lambda source: _set_inputs(source, {"connection_string": None}), "match"),
             (
                 "unreadable",
                 lambda source: (
-                    Integration.objects._with_auth(ANY).filter(id=_reference(source)).update(sensitive_config={})
+                    Integration.objects._with_auth(ANY).filter(id=int(_column(source) or 0)).update(sensitive_config={})
                 ),
                 "unreadable",
             ),
             (
                 "field_mismatch",
                 lambda source: WarehouseSourceCredentialsStore.update(
-                    source, _reference(source), {**POSTGRES_CONNECTION_FIELDS, "password": "fake-other"}
+                    ExternalDataSource.objects.get(pk=source.pk),
+                    {**POSTGRES_CONNECTION_FIELDS, "password": "fake-other"},
                 ),
                 "field_mismatch",
             ),
@@ -492,6 +644,28 @@ class TestSourceInputsStoreCredentialsMirror(BaseTest):
                 before = _compare_count(expected_result)
                 assert load() == expected
                 assert _compare_count(expected_result) - before == 1
+
+    def test_shadow_compare_skips_an_oauth_source(self) -> None:
+        with self._flag(return_value=True):
+            source = self._create(
+                {"pardot_integration_id": "7", "environment": "sandbox", "business_unit_id": "b"},
+                source_type=ExternalDataSourceType.PARDOT,
+            )
+            reset_caches()
+            before = _sample(
+                "posthog_warehouse_source_credentials_shadow_compare_total",
+                {"result": "missing_row", "source_type": ExternalDataSourceType.PARDOT.value},
+            )
+
+            SourceInputsStore.load(ExternalDataSource.objects.get(pk=source.pk))
+
+        assert (
+            _sample(
+                "posthog_warehouse_source_credentials_shadow_compare_total",
+                {"result": "missing_row", "source_type": ExternalDataSourceType.PARDOT.value},
+            )
+            == before
+        )
 
     def test_shadow_compare_runs_once_per_interval_for_a_source(self) -> None:
         with self._flag(return_value=True):
@@ -524,8 +698,8 @@ class TestRequestedCredentialsReference(BaseTest):
         self.source = ExternalDataSource.objects.create(
             team_id=self.team.pk, source_id="s", connection_id="c", source_type=ExternalDataSourceType.POSTGRES
         )
-        self.own = WarehouseSourceCredentialsStore.create(self.source, POSTGRES_CONNECTION_FIELDS)
         self.other = WarehouseSourceCredentialsStore.create(self.source, POSTGRES_CONNECTION_FIELDS)
+        self.own = WarehouseSourceCredentialsStore.create(self.source, POSTGRES_CONNECTION_FIELDS)
         other_team = Team.objects.create(organization=self.organization, name="Other")
         other_source = ExternalDataSource.objects.create(
             team_id=other_team.pk, source_id="s", connection_id="c", source_type=ExternalDataSourceType.POSTGRES
@@ -535,24 +709,25 @@ class TestRequestedCredentialsReference(BaseTest):
             team_id=self.team.pk, source_id="s", connection_id="c", source_type=ExternalDataSourceType.STRIPE
         )
         self.other_kind_row = WarehouseSourceCredentialsStore.create(stripe, {"stripe_secret_key": "fake"})
-        self.unmarked_row = IntegrationManager.postgresql.credentials.create(
-            self.team.pk, external_id="unmarked", config={}
-        ).id
+        self.unmarked_row = IntegrationReference.from_legacy_id(
+            IntegrationManager.postgresql.credentials.create(self.team.pk, external_id="unmarked", config={}).id
+        )
 
     @parameterized.expand(
         [
             ("absent", lambda t: None, None),
             ("blank", lambda t: "", None),
             ("unchanged", lambda t: str(t.own), None),
-            ("other_row_of_the_kind", lambda t: t.other, "other"),
+            ("other_row_as_string", lambda t: str(t.other), "other"),
+            ("other_row_as_number", lambda t: t.other.legacy_id, "other"),
         ]
     )
     def test_returns_the_reference_to_set(
         self, _name: str, requested: Callable[[Any], Any], expected_attr: str | None
     ) -> None:
-        incoming = {} if requested(self) is None else {REF: requested(self)}
+        incoming = {} if requested(self) is None else {CREDENTIALS_REFERENCE_INPUT_KEY: requested(self)}
 
-        result = rollout.requested_credentials_reference(self.source, {REF: str(self.own)}, incoming)
+        result = rollout.requested_credentials_reference(self.source, incoming)
 
         assert result == (None if expected_attr is None else getattr(self, expected_attr))
 
@@ -563,21 +738,22 @@ class TestRequestedCredentialsReference(BaseTest):
             ("not_a_source_row", "unmarked_row"),
             ("missing", None),
             ("not_a_number", "not-a-number"),
+            ("leading_zero", "007"),
         ]
     )
     def test_refuses_a_row_the_source_cannot_use(self, _name: str, attr: str | None) -> None:
         requested = 999999999 if attr is None else getattr(self, attr, attr)
 
         with self.assertRaises(UnusableCredentialsReferenceError):
-            rollout.requested_credentials_reference(self.source, {REF: str(self.own)}, {REF: requested})
+            rollout.requested_credentials_reference(self.source, {CREDENTIALS_REFERENCE_INPUT_KEY: str(requested)})
 
 
-def _reference(source: ExternalDataSource) -> str:
-    return SourceInputsStore.load(ExternalDataSource.objects.get(pk=source.pk))[REF]
+def _column(source: ExternalDataSource) -> str | None:
+    return ExternalDataSource.objects.get(pk=source.pk).credentials_integration_id
 
 
-def _set_reference(source: ExternalDataSource, ref: str) -> None:
-    _set_inputs(source, {REF: ref})
+def _set_column(source: ExternalDataSource, ref: str) -> None:
+    ExternalDataSource.objects.filter(pk=source.pk).update(credentials_integration_id=ref)
 
 
 def _set_inputs(source: ExternalDataSource, changes: dict[str, Any]) -> None:

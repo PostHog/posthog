@@ -15,6 +15,7 @@ import type { ReportPageApi } from 'products/today/frontend/generated/api.schema
 
 import { todayReportLogic } from './todayReportLogic'
 import { todayReportQueueLogic } from './todayReportQueueLogic'
+import { todayVerdictLogic } from './todayVerdictLogic'
 
 const PAGE: ReportPageApi = {
     lead: 'Checkout fails for Safari users.',
@@ -175,6 +176,29 @@ describe('todayReportLogic', () => {
                 )
             )
             .toNotHaveDispatchedActions([other])
+    })
+
+    // A verdict that timed out can still have saved, so the page must not keep showing the old state.
+    test.each([
+        { failedReportId: 'report-a', fetches: 2 },
+        { failedReportId: 'report-b', fetches: 1 },
+    ])('a failed verdict on $failedReportId fetches report-a $fetches times', async ({ failedReportId, fetches }) => {
+        const reportGet = jest.fn(() => [200, makeReport({ id: 'report-a' })])
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/:id/': reportGet,
+                '/api/projects/:team_id/today/reports/:id/page/': () => [200, PAGE],
+            },
+        })
+        initKeaTests()
+        const logic = todayReportLogic({ reportId: 'report-a' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadFullReportSuccess']).toFinishAllListeners()
+
+        todayVerdictLogic.actions.setReportVerdictFailure(failedReportId)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(reportGet).toHaveBeenCalledTimes(fetches)
     })
 
     test('asks Jev once per mark while a request is in flight and hides the marks when the flag turns off', async () => {

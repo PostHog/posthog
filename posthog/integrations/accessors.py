@@ -37,6 +37,7 @@ from posthog.integrations.contracts import (
     UnsupportedIntegrationFilter,
 )
 from posthog.integrations.enums import AuthType
+from posthog.integrations.observability import instrumented, record_token_refresh
 from posthog.integrations.source_kinds import is_source_kind
 from posthog.integrations.usages import integration_usages
 from posthog.models.integration.auth_types import ANY, AUTH_TYPE_CONFIG_KEY, default_auth_type, kind_auth_types
@@ -207,14 +208,17 @@ class IntegrationReader:
         except (Integration.DoesNotExist, ValueError, TypeError) as error:
             raise IntegrationNotFound(f"No integration {id!r} in {self!r} for team {team_id}") from error
 
+    @instrumented("get")
     def get(self, team_id: int, id: int) -> IntegrationRecord:
         """The row with this id. Raises `IntegrationNotFound` when the row is not in the scope."""
         return self._row(team_id, id)
 
+    @instrumented("get_many", rows="returned")
     def get_many(self, team_id: int, ids: Iterable[int]) -> dict[int, IntegrationRecord]:
         """The rows with these ids, keyed by id. Ids that are not in the scope are missing from the result."""
         return {row.id: row for row in self._team_rows(team_id).filter(id__in=list(ids))}
 
+    @instrumented("find")
     def find(
         self,
         team_id: int | None = None,
@@ -229,6 +233,7 @@ class IntegrationReader:
         """
         return self._matching(team_id, external_id, where, team_ids).order_by("created_at", "id").first()
 
+    @instrumented("list", rows="returned")
     def list(
         self,
         team_id: int,
@@ -240,6 +245,7 @@ class IntegrationReader:
         order = ("-created_at", "-id") if newest_first else ("created_at", "id")
         return list(self._matching(team_id, external_id, where).order_by(*order))
 
+    @instrumented("exists")
     def exists(
         self,
         team_id: int | None = None,
@@ -251,6 +257,7 @@ class IntegrationReader:
         """Pass `team_id` or `team_ids`, not both. An empty `team_ids` is False."""
         return self._matching(team_id, external_id, where, team_ids).exists()
 
+    @instrumented("list_by_external_id", rows="returned")
     def list_by_external_id(
         self, external_id: str, *, team_ids: Iterable[int] | None = None
     ) -> builtins.list[IntegrationRecord]:
@@ -263,6 +270,7 @@ class IntegrationReader:
             rows = rows.filter(team_id__in=list(team_ids))
         return list(rows.order_by("created_at", "id"))
 
+    @instrumented("get_by_external_id")
     def get_by_external_id(self, external_id: str, id: int) -> IntegrationRecord:
         """The row with this id and this external id, in any team.
 
@@ -275,19 +283,23 @@ class IntegrationReader:
         except (Integration.DoesNotExist, ValueError, TypeError) as error:
             raise IntegrationNotFound(f"No integration {id!r} with external id {external_id!r} in {self!r}") from error
 
+    @instrumented("count_by_external_id")
     def count_by_external_id(self, external_id: str) -> int:
         """The number of rows of every team with this external id."""
         return self._cross_team_rows("count_by_external_id").filter(integration_id=external_id).count()
 
+    @instrumented("exists_by_external_id")
     def exists_by_external_id(self, external_id: str) -> bool:
         """True when a row of any team has this external id."""
         return self._cross_team_rows("exists_by_external_id").filter(integration_id=external_id).exists()
 
+    @instrumented("usages")
     def usages(self, team_id: int, id: int) -> builtins.list[IntegrationUsage]:
         """The PostHog objects of the team that use the row. See `usages.py`."""
-        row = self.get(team_id, id)
+        row = self._row(team_id, id)
         return integration_usages(team_id, row.id)
 
+    @instrumented("delete")
     def delete(self, team_id: int, id: int, *, ignore_usages: bool = False) -> None:
         """Delete the row. Raises `IntegrationInUse` when other objects use it, unless `ignore_usages`."""
         row = self._row(team_id, id)
@@ -297,6 +309,7 @@ class IntegrationReader:
                 raise IntegrationInUse(usages)
         row.delete()
 
+    @instrumented("delete_by_external_id", rows="written")
     def delete_by_external_id(self, external_id: str) -> int:
         """Delete the rows of every team with this external id, for example after an app is uninstalled.
 
@@ -388,6 +401,7 @@ class AuthAccessor(IntegrationReader):
     def _in_scope(self, row: Integration) -> bool:
         return self._team_rows(row.team_id).filter(id=row.id).exists()
 
+    @instrumented("create")
     def create(
         self,
         team_id: int,
@@ -419,6 +433,7 @@ class AuthAccessor(IntegrationReader):
                 f"Team {team_id} already has a {self._kind!r} integration with external id {external_id!r}"
             ) from error
 
+    @instrumented("upsert")
     def upsert(
         self,
         team_id: int,
@@ -460,6 +475,7 @@ class AuthAccessor(IntegrationReader):
             row.save(update_fields=update_fields)
             return row, False
 
+    @instrumented("update")
     def update(
         self,
         team_id: int,
@@ -487,6 +503,7 @@ class AuthAccessor(IntegrationReader):
                 row.save(update_fields=update_fields)
             return row
 
+    @instrumented("update_by_external_id", rows="written")
     def update_by_external_id(self, external_id: str, patch: IntegrationPatch) -> int:
         """Apply `patch` to the rows of every team with this external id. Returns the number of rows that changed.
 
@@ -592,6 +609,7 @@ class OAuthAccessor(AuthAccessor):
     def __init__(self, *, kind: str, source_rows: SourceRows = SourceRows.EXCLUDE) -> None:
         super().__init__(kind=kind, auth_type=AuthType.OAUTH, source_rows=source_rows)
 
+    @instrumented("refresh_access_token")
     def refresh_access_token(
         self, team_id: int, id: int, *, stale_access_token: str | None = None
     ) -> IntegrationRecord:
@@ -613,8 +631,15 @@ class OAuthAccessor(AuthAccessor):
             row = self._row(team_id, id, lock=True)
             oauth = OauthIntegration(row)
             stale = stale_access_token is not None and row.access_token == stale_access_token
-            if stale or oauth.access_token_expired():
+            if not (stale or oauth.access_token_expired()):
+                record_token_refresh(self._kind, "fresh")
+                return row
+            try:
                 oauth.refresh_access_token()
+            except Exception:
+                record_token_refresh(self._kind, "error")
+                raise
+            record_token_refresh(self._kind, "error" if row.errors else "stale_token" if stale else "refreshed")
             return row
 
     async def arefresh_access_token(

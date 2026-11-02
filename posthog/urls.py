@@ -30,10 +30,10 @@ from posthog.api.oauth.toolbar_views import authorize_and_redirect
 from posthog.api.scim import views as scim_views
 from posthog.api.sdk_health import sdk_health
 from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
-from posthog.api.web_experiment import web_experiments
 from posthog.ee_urls import ee_urlpatterns
 from posthog.frontend_views import app_context, home, home_with_region_redirect
 from posthog.ingress.github.provider import build_github_provider
+from posthog.ingress.linear.provider import build_linear_provider
 from posthog.ingress.views import build_webhook_view
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
 from posthog.product_urls import ProductRootRoutes
@@ -49,6 +49,7 @@ from products.customer_analytics.backend.presentation.views.internal import (
     InternalAccountView as CustomerAnalyticsInternalAccountView,
 )
 from products.early_access_features.backend.api import early_access_features
+from products.experiments.backend.routes import web_experiments
 from products.messaging.backend.presentation.views.customerio_webhook import CustomerIOWebhookView
 from products.messaging.backend.presentation.views.recipient_preferences import preferences_page, update_preferences
 from products.notebooks.backend.facade.sql_v2 import (
@@ -359,6 +360,8 @@ urlpatterns = [
     # It stays in core because the App is shared: no single product owns its registration.
     opt_slash_path("webhooks/github/pr", github_app_webhook),
     opt_slash_path("webhooks/github", github_app_webhook),
+    # Linear App webhook. It stays in core for the same reason: the Linear integration is shared.
+    opt_slash_path("webhooks/linear", build_webhook_view(build_linear_provider("posthog"))),
     # Message preferences
     path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
     opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),

@@ -16,6 +16,7 @@ import {
 import { subscriptions } from 'kea-subscriptions'
 
 import { dayjs } from 'lib/dayjs'
+import { escapeHogQLString } from 'lib/utils/hogql'
 import { isAbortedRequest } from 'lib/utils/requests'
 import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
@@ -39,7 +40,6 @@ import {
     WebStatsBreakdown,
     WebStatsTableQuery,
 } from '~/queries/schema/schema-general'
-import { escapeHogQLString } from '~/queries/utils'
 import { ActionType, BaseMathType, ChartDisplayType, InsightLogicProps, TeamType } from '~/types'
 
 import {

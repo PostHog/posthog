@@ -19,12 +19,11 @@ import { inboxReportDetailUrl } from '../../utils/inboxReportUrls'
 import {
     deriveHeadline,
     displayConventionalCommitTitle,
-    parseConventionalCommitTitle,
     parsePrUrlParts,
     safeHttpUrl,
 } from '../../utils/reportPresentation'
 import { primaryReportPullRequest } from '../../utils/reportPullRequests'
-import { ReportClaimTag } from '../badges/ReportClaimTag'
+import { ReportClaimAvatar } from '../badges/ReportClaimAvatar'
 import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import {
@@ -32,6 +31,7 @@ import {
     SourceProductIconRow,
     sourceProductsTooltipTitle,
 } from '../badges/sourceProductIcons'
+import { useReportClaim } from '../badges/useReportClaim'
 import { inboxCardRowClassName } from './inboxCardRowClassName'
 import { ReportCardImpactMetric } from './ReportCardImpactMetric'
 import { ReportCardRankingTag } from './ReportCardRankingTag'
@@ -116,6 +116,7 @@ function ReportCardRaw({
     selectable = false,
     rankingSortField = null,
     timestampField = 'updated_at',
+    hideOwnClaim = false,
 }: {
     report: SignalReport
     attached?: boolean
@@ -133,6 +134,8 @@ function ReportCardRaw({
     rankingSortField?: InboxRankingSortField | null
     /** The time the card shows. Match it to the active time sort, so the list reads in order. */
     timestampField?: 'created_at' | 'updated_at'
+    /** Hide the user's own claim marker, for views where every card is theirs. */
+    hideOwnClaim?: boolean
 }): JSX.Element {
     const isDismissed = report.status === SignalReportStatus.SUPPRESSED
     // Resolved reports are terminal (a merged PR or a resolve) – shown for reference in the Resolved
@@ -145,12 +148,10 @@ function ReportCardRaw({
     const repoSlug = prUrlParts?.repoSlug ?? null
 
     const isReady = report.status === 'ready'
-    const conventionalTitle = parseConventionalCommitTitle(report.title)
     const cardTitle = displayConventionalCommitTitle(report.title, hasPr ? 'Untitled pull request' : 'Untitled report')
     const headline = deriveHeadline(report.summary)
     const cardTime = timestampField === 'created_at' ? report.created_at : (report.updated_at ?? report.created_at)
     const cardTimeTitle = timestampField === 'created_at' ? 'Created' : 'Last updated'
-    const plainReportTitles = useFeatureFlag('SIGNALS_PLAIN_REPORT_TITLES', 'test')
     // The impact column carries its own flag: its figures come from live queries, so it rolls out
     // per team as the metric quality is verified.
     const showImpactColumn = useFeatureFlag('SIGNALS_REPORT_METRICS')
@@ -179,6 +180,10 @@ function ReportCardRaw({
     const glyphStatus = prCiGlyphStatus(prState, ciStatus)
 
     const isRefunded = !!report.refund
+
+    const claim = useReportClaim(report.assignee)
+    const showsClaim = !!claim && !isDismissed && !isResolved && !(claim.isMine && hideOwnClaim)
+    const claimAvatar = showsClaim ? <ReportClaimAvatar claim={claim} /> : null
     const showsDismiss = !!onDismiss
 
     // Why the report left the inbox (reason tag + note tooltip) when we have it: the dismiss reason
@@ -218,9 +223,6 @@ function ReportCardRaw({
                         hasPr && showImpactColumn && '@lg:pr-0'
                     )}
                 >
-                    {hasPr && !plainReportTitles && conventionalTitle && (
-                        <ConventionalCommitScopeTag type={conventionalTitle.type} scope={conventionalTitle.scope} />
-                    )}
                     {cardTitle}
                 </div>
 
@@ -273,15 +275,17 @@ function ReportCardRaw({
                             </LemonTag>
                         </Tooltip>
                     )}
-                    {!isDismissed && !isResolved && <ReportClaimTag report={report} />}
                     <SignalReportBillingBadge report={report} />
                     {rankingSortField && <ReportCardRankingTag report={report} sortField={rankingSortField} />}
                     {!showImpactColumn && (
-                        <TZLabel
-                            time={cardTime}
-                            className="ml-auto shrink-0 text-xs text-tertiary tabular-nums"
-                            title={cardTimeTitle}
-                        />
+                        <span className="ml-auto flex shrink-0 items-center gap-2">
+                            {claimAvatar}
+                            <TZLabel
+                                time={cardTime}
+                                className="shrink-0 text-xs text-tertiary tabular-nums"
+                                title={cardTimeTitle}
+                            />
+                        </span>
                     )}
                 </div>
             </div>
@@ -291,11 +295,14 @@ function ReportCardRaw({
             {showImpactColumn ? (
                 <div className="flex w-full items-center gap-3 @lg:relative @lg:w-auto @lg:min-h-23 @lg:min-w-39 @lg:flex-none @lg:self-stretch @lg:justify-end">
                     <ReportCardImpactMetric metrics={report.metrics} />
-                    <TZLabel
-                        time={cardTime}
-                        className="ml-auto shrink-0 whitespace-nowrap text-xs leading-none text-tertiary tabular-nums @lg:absolute @lg:right-0 @lg:bottom-0 @lg:ml-0"
-                        title={cardTimeTitle}
-                    />
+                    <span className="ml-auto flex shrink-0 items-center gap-2 @lg:absolute @lg:right-0 @lg:bottom-0 @lg:ml-0">
+                        {claimAvatar}
+                        <TZLabel
+                            time={cardTime}
+                            className="shrink-0 whitespace-nowrap text-xs leading-none text-tertiary tabular-nums"
+                            title={cardTimeTitle}
+                        />
+                    </span>
                 </div>
             ) : null}
         </>

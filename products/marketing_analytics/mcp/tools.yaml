@@ -239,3 +239,24 @@ tools:
             integrations, unmatched custom sources, and total spend at risk. Use when the user asks why their events
             appear in 'non-integrated', or why UTMs are not matching the ad platform data.
         feature_flag: marketing-analytics-mcp
+wrappers:
+    query-marketing-recommendations:
+        schema_ref: MarketingAnalyticsRecommendationsQuery
+        enabled: true
+        scopes:
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get paid and organic search recommendations
+        description_file: ./prompts/query-marketing-recommendations.md
+        system_prompt_hint: Google Ads and Search Console recommendations - wasted spend, budgets, brand and organic overlap
+        exclude_properties:
+            - response
+            - modifiers
+            - sources
+        use_optimized_output: false
+        url_prefix: /marketing
+        feature_flag: marketing-analytics-recommendations
+        reads_ingested_data: events_or_warehouse

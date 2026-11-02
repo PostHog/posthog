@@ -37,6 +37,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.con
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.credential_kind import (
     default_credential_kind,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.oauth_pointers import (
+    OAuthPointer,
+    PointerPath,
+    declared_oauth_pointer_paths,
+    find_in_use_oauth_pointer,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import (
@@ -586,6 +592,20 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
         return derive_credential_auth_type(self.get_source_config)
 
+    def in_use_oauth_pointer(self, job_inputs: Mapping[str, Any]) -> OAuthPointer | None:
+        """The OAuth pointer (`*_integration_id`) that the sync of these inputs uses, or None.
+
+        The default walks the form: a pointer under a select option or a switch group is in use only when
+        that option is selected or the group is on. Override it for a pointer that no form field declares
+        (Slack's legacy ``slack_integration_id``), together with ``oauth_pointer_paths``. Raises
+        `OAuthPointerShapeError` when the inputs cannot tell which pointer is in use."""
+        return find_in_use_oauth_pointer(self.get_source_config.fields, job_inputs)
+
+    @property
+    def oauth_pointer_paths(self) -> frozenset[PointerPath]:
+        """Every place in ``job_inputs`` that can hold an OAuth pointer, also under options that are not selected."""
+        return declared_oauth_pointer_paths(self.get_source_config.fields)
+
     def is_unreachable_validation_error(self, error: str) -> bool:
         """Whether a ``validate_credentials`` message means only that the host could not be reached
         over the network. The update serializer may then save the change with a warning for a team
@@ -672,6 +692,10 @@ class _BaseSource(ABC, Generic[ConfigType]):
     def manual_sync_refusal(self, source_model: "ExternalDataSource") -> str | None:
         """Why a user can't start a sync of the source's schemas now, as a message for the user, or None
         when they can. For a source whose inputs can't run a sync yet, such as one that waits for a file."""
+        return None
+
+    def uploaded_file_name(self, source_model: "ExternalDataSource") -> str | None:
+        """The name of the file the source imports, for a source that imports an uploaded file. None by default."""
         return None
 
 

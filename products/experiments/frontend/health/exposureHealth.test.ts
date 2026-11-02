@@ -7,6 +7,7 @@ const srmFinding = (
 ): NonNullable<ExperimentExposureQueryResponse['health_findings']>[number] => ({
     code: 'srm',
     subcode,
+    reason: null,
     severity: 'warning',
     title: 'Users are not split as configured',
     detail: `Server detail for ${subcode ?? 'a mismatch'}`,

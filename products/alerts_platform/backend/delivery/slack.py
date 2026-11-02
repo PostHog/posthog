@@ -10,7 +10,8 @@ from typing import Any, Final
 import structlog
 from slack_sdk.errors import SlackApiError
 
-from posthog.models.integration import SLACK_INTEGRATION_KINDS, Integration, SlackIntegration
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
+from posthog.models.integration import SlackIntegration
 from posthog.slack.channels import (
     MAX_SECTION_CHARS,
     SlackButton,
@@ -27,7 +28,7 @@ from posthog.slack.formatting import escape_slack_mrkdwn
 
 from products.alerts_platform.backend.delivery.describers import slack_renderer_for
 from products.alerts_platform.backend.delivery.message import UNTRACKED_GROUPS_LABEL, AlertMessage
-from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
+from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationMisconfigured, MessageHandle
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertEventKind,
@@ -161,6 +162,11 @@ def _without_image_content(content: SlackMessageContent) -> SlackMessageContent:
     )
 
 
+# Only codes a customer's own setup causes. A code a platform bug can also cause, such as
+# `missing_scope` or `channel_not_found`, stays a failure so the platform's alert still sees it.
+_MISCONFIGURED_ERRORS: Final = frozenset({"account_inactive", "not_in_channel"})
+
+
 def _refused_image(error: SlackApiError, content: SlackMessageContent) -> bool:
     return error.response.get("error") == IMAGE_REFUSAL and _without_image_content(content) != content
 
@@ -222,9 +228,9 @@ class SlackTransport:
                 content = _without_image_content(content)
                 response = post(content)
         except SlackApiError as error:
-            # A refusal a person can fix, such as a channel the bot has left, rather than a
-            # transport failure a retry would clear.
-            raise DeliveryError(f"Slack refused the message: {error.response.get('error')}") from error
+            code = error.response.get("error")
+            refusal = DestinationMisconfigured if code in _MISCONFIGURED_ERRORS else DeliveryError
+            raise refusal(f"Slack refused the message: {code}") from error
         timestamp = response.get("ts")
         if not timestamp:
             raise DeliveryError("Slack accepted the message but returned no timestamp to reply to.")
@@ -289,12 +295,10 @@ class SlackTransport:
         except SlackApiError as error:
             raise DeliveryError(f"Slack refused the edit: {error.response.get('error')}") from error
 
-    def _integration(self, *, team_id: int, workspace_id: int) -> Integration:
+    def _integration(self, *, team_id: int, workspace_id: int) -> IntegrationRecord:
         # Scoped by team as well as by id. The destination names an integration, and nothing
         # between the destination and here checks that it still belongs to the sending team.
-        integration = Integration.objects.filter(
-            id=workspace_id, team_id=team_id, kind__in=SLACK_INTEGRATION_KINDS
-        ).first()
-        if integration is None:
-            raise DeliveryError("The Slack workspace for this alert is not connected.")
-        return integration
+        try:
+            return IntegrationManager.slack.oauth.get(team_id, workspace_id)
+        except IntegrationNotFound as error:
+            raise DeliveryError("The Slack workspace for this alert is not connected.") from error
