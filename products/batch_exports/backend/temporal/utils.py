@@ -366,18 +366,22 @@ def handle_non_retryable_errors(non_retryable_error_types: typing.Sequence[str])
             try:
                 return await func(*args, **kwargs)
             except Exception as e:
+                error_type = type(e).__name__
+                retryable = error_type not in non_retryable_error_types
                 if isinstance(e, (ColumnTypeMappingError, UnsupportedColumnTypeError)):
                     LOGGER.warning(
                         "Unsupported column type in batch export",
                         destination=e.destination,
                         column=e.column,
                         column_type=e.column_type,
+                        error_type=error_type,
+                        retryable=retryable,
                     )
                 # If we catch an error at any point during this activity, we check if it's a non-retryable error.
                 # If it is, we return a BatchExportResult with the error.
                 # If it's not, we re-raise the error.
                 # TODO: Use actual exception classes instead of strings.
-                if e.__class__.__name__ in non_retryable_error_types:
+                if not retryable:
                     LOGGER.exception("Non-retryable error caught in activity")
                     return BatchExportResult.from_exception(e)
                 LOGGER.exception("Retryable error caught in activity")

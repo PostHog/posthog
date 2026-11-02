@@ -101,6 +101,36 @@ async def test_schema_mapping_logs_and_retries_an_unsupported_column_type(
             "destination": destination,
             "column": "amount",
             "column_type": str(column_type),
+            "error_type": expected_error.__name__,
+            "retryable": True,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_unsupported_column_warning_reflects_non_retryable_classification() -> None:
+    error = UnsupportedColumnTypeError("PostgreSQL", "amount", pa.null())
+
+    @handle_non_retryable_errors(("UnsupportedColumnTypeError",))
+    async def export() -> BatchExportResult:
+        raise error
+
+    with (
+        patch("products.batch_exports.backend.temporal.utils.LOGGER", get_write_only_logger(__name__)),
+        capture_logs() as logs,
+    ):
+        result = await export()
+
+    assert result == BatchExportResult.from_exception(error)
+    assert [log for log in logs if log["log_level"] == "warning"] == [
+        {
+            "event": "Unsupported column type in batch export",
+            "log_level": "warning",
+            "destination": "PostgreSQL",
+            "column": "amount",
+            "column_type": "null",
+            "error_type": "UnsupportedColumnTypeError",
+            "retryable": False,
         }
     ]
 
