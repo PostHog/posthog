@@ -21,6 +21,20 @@ describe('OrganizationMembersService', () => {
         expect(query).toHaveBeenCalledTimes(2)
     })
 
+    it('fails closed when the fresh lookup outlasts its one-minute decision', async () => {
+        let now = 0
+        const query = jest.fn(() => {
+            now += 60_000
+            return Promise.resolve({ rows: [memberRow('member@example.com')] })
+        })
+        const service = new OrganizationMembersService({ query } as unknown as PostgresRouter, () => now)
+
+        await expect(service.getBlockedRecipients(1, ['member@example.com'], { fresh: true })).rejects.toThrow(
+            'expired'
+        )
+        expect(query).toHaveBeenCalledTimes(1)
+    })
+
     it('shares one member lookup across sends and reloads it after a minute', async () => {
         let now = 0
         let member = 'member@example.com'
