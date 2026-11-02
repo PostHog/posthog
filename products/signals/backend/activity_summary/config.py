@@ -71,6 +71,8 @@ class ActivitySummaryConfig:
     min_update_interval_hours: float = MIN_UPDATE_INTERVAL.total_seconds() / 3600
     max_versions: int = MAX_VERSIONS
     emit_embeddings: bool = True
+    # Also emits the vector of `summary_profile_text`. `emit_embeddings: false` stops both vectors.
+    emit_profile_embeddings: bool = False
     capture_events: bool = True
     # Count viewed objects in the queue. When off, the view weights and the view cold start do not apply.
     count_views: bool = False
@@ -222,6 +224,7 @@ def parse_config(payload: Any) -> ActivitySummaryConfig:
         ),
         max_versions=_positive_int(payload.get("max_versions"), defaults.max_versions),
         emit_embeddings=_bool(payload.get("emit_embeddings"), defaults.emit_embeddings),
+        emit_profile_embeddings=_bool(payload.get("emit_profile_embeddings"), defaults.emit_profile_embeddings),
         capture_events=_bool(payload.get("capture_events"), defaults.capture_events),
         count_views=_bool(payload.get("count_views"), defaults.count_views),
         source_weights=parse_source_weights(payload.get("source_weights")),

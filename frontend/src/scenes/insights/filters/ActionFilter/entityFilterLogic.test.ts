@@ -7,14 +7,17 @@ import { SeriesEntityUpdate, entityFilterLogic } from 'scenes/insights/filters/A
 import { useMocks } from '~/mocks/jest'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { AnyPropertyFilter, FilterType, PropertyFilterType, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import eventDefinitionsJson from './__mocks__/event_definitions.json'
 import filtersJson from './__mocks__/filters.json'
-import { legacyFiltersToSeries } from './legacyFilters'
 import { SeriesNode } from './seriesNode'
 
-const baseSeries = (): SeriesNode[] => legacyFiltersToSeries(filtersJson as FilterType)
+const baseSeries = (): SeriesNode[] => [
+    { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+    { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+    { kind: NodeKind.ActionsNode, id: 9, name: 'Users signed up' },
+]
 
 describe('entityFilterLogic', () => {
     let logic: ReturnType<typeof entityFilterLogic.build>
