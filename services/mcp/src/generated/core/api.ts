@@ -16,10 +16,8 @@ export const DomainsListParams = () => zod.object({
         ),
 })
 
-export const domainsListQueryLimitMax = 1000
-
 export const DomainsListQueryParams = () => zod.object({
-    limit: zod.number().max(domainsListQueryLimitMax).optional().describe('Number of results to return per page.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -31,14 +29,8 @@ export const IdentityProviderConfigsListParams = () => zod.object({
         ),
 })
 
-export const identityProviderConfigsListQueryLimitMax = 1000
-
 export const IdentityProviderConfigsListQueryParams = () => zod.object({
-    limit: zod
-        .number()
-        .max(identityProviderConfigsListQueryLimitMax)
-        .optional()
-        .describe('Number of results to return per page.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -6072,14 +6064,8 @@ export const UploadedMediaListParams = () => zod.object({
         ),
 })
 
-export const uploadedMediaListQueryLimitMax = 1000
-
 export const UploadedMediaListQueryParams = () => zod.object({
-    limit: zod
-        .number()
-        .max(uploadedMediaListQueryLimitMax)
-        .optional()
-        .describe('Number of results to return per page.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     purpose: zod.enum(['canvas', 'email', 'experiment']).describe('The library to list.'),
     search: zod.string().optional().describe('Only list images whose name contains this text, ignoring case.'),

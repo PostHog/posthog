@@ -1030,7 +1030,6 @@ export type CommunitySkillsListParams = {
     kind?: CommunitySkillsListKind
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
@@ -1099,7 +1098,6 @@ export type LlmSkillsListParams = {
     created_by_id?: number
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
@@ -1156,7 +1154,6 @@ export type LlmSkillsManifestsListParams = {
     exclude_category?: string
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**

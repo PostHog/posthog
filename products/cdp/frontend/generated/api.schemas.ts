@@ -842,7 +842,6 @@ export interface PaginatedPluginLogEntryListApi {
 export type HogFunctionTemplatesListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
@@ -870,7 +869,6 @@ export type HogFunctionsListParams = {
     id?: string
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
@@ -1048,7 +1046,6 @@ export const HogFunctionsMetricsTotalsRetrieveInterval = {
 export type HogFunctionsRevisionsListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
@@ -1060,7 +1057,6 @@ export type HogFunctionsRevisionsListParams = {
 export type PluginConfigsLogsListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
@@ -1072,7 +1068,6 @@ export type PluginConfigsLogsListParams = {
 export type PublicHogFunctionTemplatesListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**

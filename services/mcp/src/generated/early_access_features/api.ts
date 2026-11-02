@@ -16,14 +16,8 @@ export const EarlyAccessFeatureListParams = () => zod.object({
         ),
 })
 
-export const earlyAccessFeatureListQueryLimitMax = 1000
-
 export const EarlyAccessFeatureListQueryParams = () => zod.object({
-    limit: zod
-        .number()
-        .max(earlyAccessFeatureListQueryLimitMax)
-        .optional()
-        .describe('Number of results to return per page.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 

@@ -22,8 +22,6 @@ export const CanvasesListParams = () => zod.object({
         ),
 })
 
-export const canvasesListQueryLimitMax = 1000
-
 export const CanvasesListQueryParams = () => zod.object({
     channel: zod.string().optional().describe('Only return canvases in this channel.'),
     created_by: zod.string().optional().describe('Only return canvases created by the user with this UUID.'),
@@ -31,7 +29,7 @@ export const CanvasesListQueryParams = () => zod.object({
         .enum(['component', 'freeform', 'grid'])
         .optional()
         .describe('Only return canvases of this kind. kind=component lists the component store.'),
-    limit: zod.number().max(canvasesListQueryLimitMax).optional().describe('Number of results to return per page.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     ordering: zod
         .enum(['-created_at', '-updated_at'])

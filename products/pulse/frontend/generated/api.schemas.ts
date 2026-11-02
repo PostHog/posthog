@@ -348,7 +348,6 @@ export interface GenerateBriefRequestApi {
 export type PulseBriefConfigsListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
@@ -360,7 +359,6 @@ export type PulseBriefConfigsListParams = {
 export type PulseBriefsListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**

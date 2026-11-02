@@ -811,7 +811,6 @@ export interface TurnSuggestionStateApi {
 export type ConversationsListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
@@ -823,7 +822,6 @@ export type ConversationsListParams = {
 export type CoreMemoryListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**

@@ -3388,7 +3388,6 @@ export type LogsAlertsListParams = {
     created_by?: string
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
@@ -3409,7 +3408,6 @@ export type LogsAlertsDestinationsSendsListParams = {
 export type LogsAlertsEventsListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
@@ -3491,7 +3489,6 @@ export type LogsHasLogsRetrieve200 = { [key: string]: unknown }
 export type LogsMetricRulesListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
@@ -3503,7 +3500,6 @@ export type LogsMetricRulesListParams = {
 export type LogsRetentionRulesListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
@@ -3515,7 +3511,6 @@ export type LogsRetentionRulesListParams = {
 export type LogsRetentionRulesReorderCreateParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
@@ -3527,7 +3522,6 @@ export type LogsRetentionRulesReorderCreateParams = {
 export type LogsSamplingRulesListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
@@ -3539,7 +3533,6 @@ export type LogsSamplingRulesListParams = {
 export type LogsSamplingRulesReorderCreateParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
@@ -3591,7 +3584,6 @@ export const LogsValuesRetrieveAttributeType = {
 export type LogsViewsListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**

@@ -16,14 +16,8 @@ export const AccountRelationshipDefinitionsListParams = () => zod.object({
         ),
 })
 
-export const accountRelationshipDefinitionsListQueryLimitMax = 1000
-
 export const AccountRelationshipDefinitionsListQueryParams = () => zod.object({
-    limit: zod
-        .number()
-        .max(accountRelationshipDefinitionsListQueryLimitMax)
-        .optional()
-        .describe('Number of results to return per page.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     pagination: zod.enum(['none']).optional().describe('Return all definitions in one response when set to none.'),
 })
@@ -123,7 +117,6 @@ export const AccountsListParams = () => zod.object({
 export const accountsListQueryInactiveLastDefault = false
 export const accountsListQueryIncludeChurnedDefault = false
 export const accountsListQueryIncludeIgnoredDefault = false
-export const accountsListQueryLimitMax = 1000
 
 export const AccountsListQueryParams = () => zod.object({
     all_roles_unassigned: zod
@@ -144,7 +137,7 @@ export const AccountsListQueryParams = () => zod.object({
         .boolean()
         .default(accountsListQueryIncludeIgnoredDefault)
         .describe('Include ignored accounts. Ignored accounts are hidden by default.'),
-    limit: zod.number().max(accountsListQueryLimitMax).optional().describe('Number of results to return per page.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     ordering: zod.string().optional().describe("Sort order. Defaults to '-created_at'."),
     search: zod
@@ -276,14 +269,8 @@ export const AccountsNotebooksListParams = () => zod.object({
         ),
 })
 
-export const accountsNotebooksListQueryLimitMax = 1000
-
 export const AccountsNotebooksListQueryParams = () => zod.object({
-    limit: zod
-        .number()
-        .max(accountsNotebooksListQueryLimitMax)
-        .optional()
-        .describe('Number of results to return per page.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     ordering: zod.string().optional().describe("Sort by creation date or author. Defaults to '-created_at'."),
     search: zod.string().optional().describe('Full-text search across notebook title and content.'),
@@ -488,14 +475,8 @@ export const AccountsMeetingsListParams = () => zod.object({
         ),
 })
 
-export const accountsMeetingsListQueryLimitMax = 1000
-
 export const AccountsMeetingsListQueryParams = () => zod.object({
-    limit: zod
-        .number()
-        .max(accountsMeetingsListQueryLimitMax)
-        .optional()
-        .describe('Number of results to return per page.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod.string().optional().describe('Filter meetings by title or attendee email\/name.'),
 })
@@ -509,14 +490,8 @@ export const AccountsSummariesListParams = () => zod.object({
         ),
 })
 
-export const accountsSummariesListQueryLimitMax = 1000
-
 export const AccountsSummariesListQueryParams = () => zod.object({
-    limit: zod
-        .number()
-        .max(accountsSummariesListQueryLimitMax)
-        .optional()
-        .describe('Number of results to return per page.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -528,14 +503,8 @@ export const AnnouncementsListParams = () => zod.object({
         ),
 })
 
-export const announcementsListQueryLimitMax = 1000
-
 export const AnnouncementsListQueryParams = () => zod.object({
-    limit: zod
-        .number()
-        .max(announcementsListQueryLimitMax)
-        .optional()
-        .describe('Number of results to return per page.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -593,14 +562,8 @@ export const CustomPropertyDefinitionsListParams = () => zod.object({
         ),
 })
 
-export const customPropertyDefinitionsListQueryLimitMax = 1000
-
 export const CustomPropertyDefinitionsListQueryParams = () => zod.object({
-    limit: zod
-        .number()
-        .max(customPropertyDefinitionsListQueryLimitMax)
-        .optional()
-        .describe('Number of results to return per page.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     pagination: zod.enum(['none']).optional().describe('Return all definitions in one response when set to none.'),
 })
@@ -824,14 +787,8 @@ export const CustomPropertySourcesListParams = () => zod.object({
         ),
 })
 
-export const customPropertySourcesListQueryLimitMax = 1000
-
 export const CustomPropertySourcesListQueryParams = () => zod.object({
-    limit: zod
-        .number()
-        .max(customPropertySourcesListQueryLimitMax)
-        .optional()
-        .describe('Number of results to return per page.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -991,14 +948,8 @@ export const CustomPropertySourcesRunsListParams = () => zod.object({
         ),
 })
 
-export const customPropertySourcesRunsListQueryLimitMax = 1000
-
 export const CustomPropertySourcesRunsListQueryParams = () => zod.object({
-    limit: zod
-        .number()
-        .max(customPropertySourcesRunsListQueryLimitMax)
-        .optional()
-        .describe('Number of results to return per page.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod
         .string()
@@ -1469,8 +1420,6 @@ export const FeatureRequestsListParams = () => zod.object({
 })
 
 export const featureRequestsListQueryArchiveStateDefault = `active`
-export const featureRequestsListQueryLimitMax = 1000
-
 export const featureRequestsListQueryRequestOrderingDefault = `-updated_at`
 
 export const FeatureRequestsListQueryParams = () => zod.object({
@@ -1488,11 +1437,7 @@ export const FeatureRequestsListQueryParams = () => zod.object({
         .array(zod.number().min(1))
         .optional()
         .describe('Creator user IDs to include. Multiple values use OR semantics.'),
-    limit: zod
-        .number()
-        .max(featureRequestsListQueryLimitMax)
-        .optional()
-        .describe('Number of results to return per page.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     priorities: zod
         .array(
@@ -1932,14 +1877,8 @@ export const GroupsTypesMetricsListParams = () => zod.object({
         ),
 })
 
-export const groupsTypesMetricsListQueryLimitMax = 1000
-
 export const GroupsTypesMetricsListQueryParams = () => zod.object({
-    limit: zod
-        .number()
-        .max(groupsTypesMetricsListQueryLimitMax)
-        .optional()
-        .describe('Number of results to return per page.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 

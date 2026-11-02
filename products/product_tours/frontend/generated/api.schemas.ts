@@ -272,7 +272,6 @@ export interface GenerateResponseApi {
 export type ProductToursListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**

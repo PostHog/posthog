@@ -16,10 +16,8 @@ export const VisionAlertsListParams = () => zod.object({
         ),
 })
 
-export const visionAlertsListQueryLimitMax = 1000
-
 export const VisionAlertsListQueryParams = () => zod.object({
-    limit: zod.number().max(visionAlertsListQueryLimitMax).optional().describe('Number of results to return per page.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     scanner_id: zod.string().optional().describe('Only return alerts on this scanner.'),
 })
@@ -389,18 +387,12 @@ export const VisionAlertsEventsListParams = () => zod.object({
         ),
 })
 
-export const visionAlertsEventsListQueryLimitMax = 1000
-
 export const VisionAlertsEventsListQueryParams = () => zod.object({
     kind: zod
         .enum(['check', 'disable', 'enable', 'reset', 'snooze', 'threshold_change', 'unsnooze'])
         .optional()
         .describe('Narrow the history to one event kind.'),
-    limit: zod
-        .number()
-        .max(visionAlertsEventsListQueryLimitMax)
-        .optional()
-        .describe('Number of results to return per page.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -559,14 +551,8 @@ export const VisionObservationsListParams = () => zod.object({
         ),
 })
 
-export const visionObservationsListQueryLimitMax = 1000
-
 export const VisionObservationsListQueryParams = () => zod.object({
-    limit: zod
-        .number()
-        .max(visionObservationsListQueryLimitMax)
-        .optional()
-        .describe('Number of results to return per page.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod
         .string()
@@ -972,8 +958,6 @@ export const VisionScannersListParams = () => zod.object({
         ),
 })
 
-export const visionScannersListQueryLimitMax = 1000
-
 export const VisionScannersListQueryParams = () => zod.object({
     created_by: zod.string().optional().describe('Filter to scanners created by the given user IDs (comma-separated).'),
     emits_signals: zod.boolean().optional().describe('Filter to scanners that emit Signals.'),
@@ -984,11 +968,7 @@ export const VisionScannersListQueryParams = () => zod.object({
             'Filter by enabled state. Accepts `enabled`, `disabled`, a comma-separated list of both, or the boolean form `true`\/`false`. Omit to list every scanner.'
         ),
     experiment_id: zod.string().optional().describe('Filter to scanners whose targeting watches the given experiment.'),
-    limit: zod
-        .number()
-        .max(visionScannersListQueryLimitMax)
-        .optional()
-        .describe('Number of results to return per page.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod
         .string()
@@ -1587,14 +1567,8 @@ export const VisionScannersBackfillsListParams = () => zod.object({
     scanner_id: zod.string(),
 })
 
-export const visionScannersBackfillsListQueryLimitMax = 1000
-
 export const VisionScannersBackfillsListQueryParams = () => zod.object({
-    limit: zod
-        .number()
-        .max(visionScannersBackfillsListQueryLimitMax)
-        .optional()
-        .describe('Number of results to return per page.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -1711,8 +1685,6 @@ export const VisionScannersObservationsListParams = () => zod.object({
     scanner_id: zod.string(),
 })
 
-export const visionScannersObservationsListQueryLimitMax = 1000
-
 export const VisionScannersObservationsListQueryParams = () => zod.object({
     backfill_id: zod.string().optional().describe('Only observations dispatched by this backfill.'),
     date_from: zod
@@ -1745,11 +1717,7 @@ export const VisionScannersObservationsListQueryParams = () => zod.object({
         .describe(
             'When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.'
         ),
-    limit: zod
-        .number()
-        .max(visionScannersObservationsListQueryLimitMax)
-        .optional()
-        .describe('Number of results to return per page.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
     max_score: zod
         .number()
         .optional()

@@ -23,10 +23,8 @@ export const AutoresearchListParams = () => zod.object({
         ),
 })
 
-export const autoresearchListQueryLimitMax = 1000
-
 export const AutoresearchListQueryParams = () => zod.object({
-    limit: zod.number().max(autoresearchListQueryLimitMax).optional().describe('Number of results to return per page.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -211,14 +209,8 @@ export const AutoresearchModelsListParams = () => zod.object({
         ),
 })
 
-export const autoresearchModelsListQueryLimitMax = 1000
-
 export const AutoresearchModelsListQueryParams = () => zod.object({
-    limit: zod
-        .number()
-        .max(autoresearchModelsListQueryLimitMax)
-        .optional()
-        .describe('Number of results to return per page.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -251,14 +243,8 @@ export const AutoresearchRunsListParams = () => zod.object({
         ),
 })
 
-export const autoresearchRunsListQueryLimitMax = 1000
-
 export const AutoresearchRunsListQueryParams = () => zod.object({
-    limit: zod
-        .number()
-        .max(autoresearchRunsListQueryLimitMax)
-        .optional()
-        .describe('Number of results to return per page.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -275,14 +261,8 @@ export const AutoresearchSuggestionsListParams = () => zod.object({
         ),
 })
 
-export const autoresearchSuggestionsListQueryLimitMax = 1000
-
 export const AutoresearchSuggestionsListQueryParams = () => zod.object({
-    limit: zod
-        .number()
-        .max(autoresearchSuggestionsListQueryLimitMax)
-        .optional()
-        .describe('Number of results to return per page.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -368,14 +348,8 @@ export const AutoresearchTrainingRunsListParams = () => zod.object({
         ),
 })
 
-export const autoresearchTrainingRunsListQueryLimitMax = 1000
-
 export const AutoresearchTrainingRunsListQueryParams = () => zod.object({
-    limit: zod
-        .number()
-        .max(autoresearchTrainingRunsListQueryLimitMax)
-        .optional()
-        .describe('Number of results to return per page.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 

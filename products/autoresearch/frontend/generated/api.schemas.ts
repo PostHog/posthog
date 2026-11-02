@@ -2178,7 +2178,6 @@ export interface ValidatePipelineResponseApi {
 export type AutoresearchListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
@@ -2190,7 +2189,6 @@ export type AutoresearchListParams = {
 export type AutoresearchModelsListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
@@ -2202,7 +2200,6 @@ export type AutoresearchModelsListParams = {
 export type AutoresearchRunsListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
@@ -2214,7 +2211,6 @@ export type AutoresearchRunsListParams = {
 export type AutoresearchSuggestionsListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
@@ -2226,7 +2222,6 @@ export type AutoresearchSuggestionsListParams = {
 export type AutoresearchTrainingRunsListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**

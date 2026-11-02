@@ -866,7 +866,6 @@ export type CohortsListParams = {
     hide_behavioral_cohorts?: boolean
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**

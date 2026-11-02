@@ -16,8 +16,6 @@ export const DashboardTemplatesListParams = () => zod.object({
         ),
 })
 
-export const dashboardTemplatesListQueryLimitMax = 1000
-
 export const DashboardTemplatesListQueryParams = () => zod.object({
     is_featured: zod
         .boolean()
@@ -25,11 +23,7 @@ export const DashboardTemplatesListQueryParams = () => zod.object({
         .describe(
             'Omit for all templates. When set, filter by featured flag; parsed with str_to_bool (same as other API query booleans).'
         ),
-    limit: zod
-        .number()
-        .max(dashboardTemplatesListQueryLimitMax)
-        .optional()
-        .describe('Number of results to return per page.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     ordering: zod
         .string()
@@ -68,8 +62,6 @@ export const DashboardsListParams = () => zod.object({
         ),
 })
 
-export const dashboardsListQueryLimitMax = 1000
-
 export const DashboardsListQueryParams = () => zod.object({
     created_by: zod
         .string()
@@ -83,7 +75,7 @@ export const DashboardsListQueryParams = () => zod.object({
             "Optional. Return only dashboards filed directly in this project-tree folder, e.g. 'Unfiled\/Dashboards'. An empty string matches dashboards at the project root. Nested sub-folders are not included."
         ),
     format: zod.enum(['json', 'txt']).optional(),
-    limit: zod.number().max(dashboardsListQueryLimitMax).optional().describe('Number of results to return per page.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     ordering: zod
         .enum(['-last_viewed_at'])

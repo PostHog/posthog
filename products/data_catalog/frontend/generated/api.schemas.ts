@@ -720,7 +720,6 @@ export interface RelationshipRejectApi {
 export type DataCatalogCertificationsListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
@@ -744,7 +743,6 @@ export type DataCatalogMetricsListParams = {
     definition_kind?: string
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
@@ -791,7 +789,6 @@ export const DataCatalogMetricsRunCreateRefresh = {
 export type DataCatalogRelationshipProposalsListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**

@@ -423,7 +423,6 @@ export type SessionRecordingPlaylistsListParams = {
 export type SessionRecordingsListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**

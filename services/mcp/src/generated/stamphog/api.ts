@@ -19,14 +19,8 @@ export const StamphogDigestRunsListParams = () => zod.object({
         ),
 })
 
-export const stamphogDigestRunsListQueryLimitMax = 1000
-
 export const StamphogDigestRunsListQueryParams = () => zod.object({
-    limit: zod
-        .number()
-        .max(stamphogDigestRunsListQueryLimitMax)
-        .optional()
-        .describe('Number of results to return per page.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     slack_channel_id: zod
         .string()
@@ -45,14 +39,8 @@ export const StamphogPullRequestsListParams = () => zod.object({
         ),
 })
 
-export const stamphogPullRequestsListQueryLimitMax = 1000
-
 export const StamphogPullRequestsListQueryParams = () => zod.object({
-    limit: zod
-        .number()
-        .max(stamphogPullRequestsListQueryLimitMax)
-        .optional()
-        .describe('Number of results to return per page.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
     merged: zod
         .boolean()
         .optional()
@@ -84,14 +72,8 @@ export const StamphogRepoConfigsListParams = () => zod.object({
         ),
 })
 
-export const stamphogRepoConfigsListQueryLimitMax = 1000
-
 export const StamphogRepoConfigsListQueryParams = () => zod.object({
-    limit: zod
-        .number()
-        .max(stamphogRepoConfigsListQueryLimitMax)
-        .optional()
-        .describe('Number of results to return per page.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -130,14 +112,8 @@ export const StamphogReviewRunsListParams = () => zod.object({
         ),
 })
 
-export const stamphogReviewRunsListQueryLimitMax = 1000
-
 export const StamphogReviewRunsListQueryParams = () => zod.object({
-    limit: zod
-        .number()
-        .max(stamphogReviewRunsListQueryLimitMax)
-        .optional()
-        .describe('Number of results to return per page.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     pr_number: zod.number().optional().describe('Filter by pull request number.'),
     repository: zod.string().optional().describe("Filter by repository full name, e.g. 'PostHog\/posthog'."),

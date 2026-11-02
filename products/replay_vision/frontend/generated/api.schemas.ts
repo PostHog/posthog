@@ -3147,7 +3147,6 @@ export interface ScannerStatsResponseApi {
 export type VisionAlertsListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
@@ -3167,7 +3166,6 @@ export type VisionAlertsEventsListParams = {
     kind?: VisionAlertsEventsListKind
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
@@ -3281,7 +3279,6 @@ export type VisionGroupsRetrieveParams = {
 export type VisionObservationsListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
@@ -3474,7 +3471,6 @@ export type VisionScannersListParams = {
     experiment_id?: string
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
@@ -3546,7 +3542,6 @@ export const VisionScannersImpactRetrieveVerdict = {
 export type VisionScannersBackfillsListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
@@ -3582,7 +3577,6 @@ export type VisionScannersObservationsListParams = {
     labeled?: boolean
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**

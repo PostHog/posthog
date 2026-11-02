@@ -240,7 +240,6 @@ export interface PatchedReminderApi {
 export type RemindersListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**

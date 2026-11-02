@@ -563,7 +563,6 @@ export interface ReviewRequestResponseApi {
 export type StamphogDigestRunsListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
@@ -579,7 +578,6 @@ export type StamphogDigestRunsListParams = {
 export type StamphogPullRequestsListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
@@ -599,7 +597,6 @@ export type StamphogPullRequestsListParams = {
 export type StamphogRepoConfigsListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
@@ -624,7 +621,6 @@ export type StamphogRepoConfigsAvailableRepositoriesRetrieveParams = {
 export type StamphogReviewRunsListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**

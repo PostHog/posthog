@@ -9,7 +9,6 @@
         },
         "limit": {
             "description": "Number of results to return per page.",
-            "maximum": 1000,
             "type": "number"
         },
         "name": {

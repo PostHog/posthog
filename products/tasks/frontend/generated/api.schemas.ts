@@ -5205,7 +5205,6 @@ export interface WarmTaskResponseApi {
 export type SandboxCustomImagesListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
@@ -5283,7 +5282,6 @@ export const SandboxCustomImagesListOriginProduct = {
 export type SandboxListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
@@ -5312,7 +5310,6 @@ export type TaskActivityListParams = {
 export type TaskChannelsListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
@@ -5324,7 +5321,6 @@ export type TaskChannelsListParams = {
 export type TaskChannelsFeedListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
@@ -5811,7 +5807,6 @@ export type TasksRunsLivingArtifactsVersionContentParams = {
 export type TasksThreadMessagesListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
@@ -5823,7 +5818,6 @@ export type TasksThreadMessagesListParams = {
 export type TasksConfigListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**

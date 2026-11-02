@@ -1292,7 +1292,6 @@ export type InternalFeedbackCreateBody = {
 export type ListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
@@ -1312,7 +1311,6 @@ export type MembersListParams = {
     levels?: string
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
@@ -1336,7 +1334,6 @@ export type MembersListParams = {
 export type PersonalApiKeysListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
@@ -1348,7 +1345,6 @@ export type PersonalApiKeysListParams = {
 export type RolesListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
@@ -1360,7 +1356,6 @@ export type RolesListParams = {
 export type RolesRoleMembershipsListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
@@ -1931,7 +1926,6 @@ export const AdvancedActivityLogsListSchema = {
 export type ApprovalPoliciesListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
@@ -1944,7 +1938,6 @@ export type ChangeRequestsListParams = {
     action_key?: string
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**

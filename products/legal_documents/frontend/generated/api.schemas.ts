@@ -74,7 +74,6 @@ export interface CreateLegalDocumentApi {
 export type LegalDocumentsListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**

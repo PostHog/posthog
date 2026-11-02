@@ -208,14 +208,8 @@ export const SavedQueryColumnAnnotationsListParams = () => zod.object({
         ),
 })
 
-export const savedQueryColumnAnnotationsListQueryLimitMax = 1000
-
 export const SavedQueryColumnAnnotationsListQueryParams = () => zod.object({
-    limit: zod
-        .number()
-        .max(savedQueryColumnAnnotationsListQueryLimitMax)
-        .optional()
-        .describe('Number of results to return per page.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     saved_query_id: zod
         .string()
@@ -270,14 +264,8 @@ export const WarehouseColumnAnnotationsListParams = () => zod.object({
         ),
 })
 
-export const warehouseColumnAnnotationsListQueryLimitMax = 1000
-
 export const WarehouseColumnAnnotationsListQueryParams = () => zod.object({
-    limit: zod
-        .number()
-        .max(warehouseColumnAnnotationsListQueryLimitMax)
-        .optional()
-        .describe('Number of results to return per page.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     table_id: zod.string().optional().describe('Only return annotations for this data warehouse table.'),
 })

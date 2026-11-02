@@ -3054,7 +3054,6 @@ export interface WorkflowSetupStatusApi {
 export type HogFlowTemplatesListParams = {
     /**
      * Number of results to return per page.
-     * @maximum 1000
      */
     limit?: number
     /**
