@@ -258,7 +258,7 @@ export const workloadTrustPoliciesLogic = kea<workloadTrustPoliciesLogicType>([
                                 enabled,
                             }
                         )
-                        posthog.capture('Workload trust policy enabled changed', { enabled })
+                        posthog.capture('workload trust policy enabled changed', { enabled })
                         return (values.policies ?? []).map((row) => (row.id === updated.id ? updated : row))
                     } catch (error) {
                         lemonToast.error(readableErrorMessage(error) ?? "Couldn't update the policy. Try again.")
@@ -311,7 +311,7 @@ export const workloadTrustPoliciesLogic = kea<workloadTrustPoliciesLogicType>([
                         ? await workloadTrustPoliciesCreate(projectId, payload)
                         : await workloadTrustPoliciesPartialUpdate(projectId, values.editingPolicyId as string, payload)
                     breakpoint()
-                    posthog.capture('Workload trust policy saved', { is_new: isNew, scope_count: saved.scopes.length })
+                    posthog.capture('workload trust policy saved', { is_new: isNew, scope_count: saved.scopes.length })
                     lemonToast.success(isNew ? 'Trusted workload added' : 'Trusted workload updated')
                     actions.loadPoliciesSuccess([
                         saved,
@@ -384,7 +384,7 @@ export const workloadTrustPoliciesLogic = kea<workloadTrustPoliciesLogicType>([
                       }
                     : { ...EMPTY_FORM, issuer: values.providers?.supported[0]?.issuer ?? '' }
             )
-            posthog.capture('Workload trust policy form opened', { is_new: id === 'new' })
+            posthog.capture('workload trust policy form opened', { is_new: id === 'new' })
         },
         setScopeLevel: ({ key, level }) => {
             const levels = scopesArrayToObject(values.editingPolicy.scopes)
@@ -406,7 +406,7 @@ export const workloadTrustPoliciesLogic = kea<workloadTrustPoliciesLogicType>([
                     onClick: async () => {
                         try {
                             await workloadTrustPoliciesDestroy(String(values.currentTeamId), policy.id)
-                            posthog.capture('Workload trust policy deleted')
+                            posthog.capture('workload trust policy deleted')
                             lemonToast.success('Trusted workload deleted')
                             actions.loadPoliciesSuccess((values.policies ?? []).filter((row) => row.id !== policy.id))
                         } catch (error) {
