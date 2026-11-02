@@ -100,23 +100,23 @@ export function useChatDraft(
     useEffect(() => {
         let cancelled = false
         mounted.current = true
-        destination.current++
         setReady(false)
-        queueBusy.current = false
-        setQueuePending(false)
         setQueueError(undefined)
         const previous = target.current
         const prior = previousDestination.current
         const adopting = prior.identity === identity && !prior.key.startsWith('task:') && key.startsWith('task:')
         previousDestination.current = { identity, key }
         if (!adopting) {
+            destination.current++
+            queueBusy.current = false
+            setQueuePending(false)
             edited.current = false
             latest.current = { text: '', reportIds: reportId ? [reportId] : [] }
             setDraft(latest.current)
             queueRef.current = EMPTY_QUEUE
             setQueue(EMPTY_QUEUE)
         }
-        target.current = null
+        if (!adopting) target.current = null
         if (!identity) {
             setReady(true)
             return () => {
@@ -129,6 +129,8 @@ export function useChatDraft(
                 return
             }
             if (adopting && previous) {
+                while (queueBusy.current) await queueWrite.current
+                if (cancelled || draftIdentity() !== identity) return
                 const source = previous.key
                 previous.key = key
                 await chatDrafts.move(scope, source, key)
@@ -187,7 +189,10 @@ export function useChatDraft(
             if (queueBusy.current && (action.type === 'enqueue' || action.type === 'remove')) return false
             while (queueBusy.current) await queueWrite.current
             if (mine !== destination.current) return false
-            if (!ready || (identity && (!current || draftIdentity() !== current.identity))) {
+            if (
+                (!ready && !(action.type === 'hold' && current)) ||
+                (identity && (!current || draftIdentity() !== current.identity))
+            ) {
                 if (mine === destination.current && mounted.current)
                     setQueueError("Couldn't load saved messages. Close and reopen this chat to try again.")
                 return false

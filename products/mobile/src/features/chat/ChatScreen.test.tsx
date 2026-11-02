@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native'
 import { ChatScreen } from './ChatScreen'
+import { queueActions, queueReducer } from './messageQueue'
 import { useSession } from './session/useSession'
 import { useChatDraft } from './useChatDraft'
 
@@ -190,6 +191,75 @@ describe('chat send preparation', () => {
         })
         expect(send).not.toHaveBeenCalled()
     })
+    it.each(['stop', 'new', 'close', 'unmount'])(
+        'handles queue acknowledgment after %s interrupts delivery',
+        async (transition) => {
+            const { session, draft } = mockReadyChat()
+            session.phase = 'working'
+            session.canSteer = true
+            draft.queue = { rows: [{ id: 'queued-1', text: 'Follow up', attachments: [] }], hold: 'unconfirmed' }
+            jest.mocked(draft.updateQueue).mockImplementation(async (action) => {
+                draft.queue = queueReducer(draft.queue, action)
+                return true
+            })
+            let finish!: (sent: boolean) => void
+            jest.mocked(session.send).mockImplementationOnce(
+                () =>
+                    new Promise<boolean>((resolve) => {
+                        finish = resolve
+                    })
+            )
+            const view = render(<ChatScreen source={{ entry: 'compose', origin: null }} onBack={jest.fn()} />)
+            await act(async () => {
+                fireEvent.press(screen.getByTestId('chat-queue-send-now'))
+            })
+            expect(session.send).toHaveBeenCalledTimes(1)
+            draft.queue = queueReducer(draft.queue, queueActions.enqueue('Later question'))
+            if (transition === 'unmount') view.unmount()
+            else
+                fireEvent.press(
+                    screen.getByTestId(
+                        transition === 'new' ? 'chat-new' : transition === 'close' ? 'chat-back' : 'chat-stop'
+                    )
+                )
+            await act(async () => {
+                finish(true)
+            })
+            if (transition === 'stop') {
+                session.phase = 'idle'
+                view.rerender(<ChatScreen source={{ entry: 'compose', origin: null }} onBack={jest.fn()} />)
+                expect(screen.queryByText('Follow up')).toBeNull()
+                expect(screen.getByText('Later question')).toBeTruthy()
+                expect(draft.queue.hold).toBe('cancelled')
+                expect(session.send).toHaveBeenCalledTimes(1)
+            } else {
+                expect(draft.queue.rows.map((row) => row.text)).toEqual(['Follow up', 'Later question'])
+            }
+        }
+    )
+
+    it.each(['loading', 'error'] as const)(
+        'waits for history before sending a recovered queue, history=%s',
+        async (status) => {
+            const { session, draft } = mockReadyChat()
+            session.history = { status, error: null }
+            draft.queue = {
+                rows: [{ id: 'queued-1', text: 'Recovered question', attachments: [] }],
+                hold: 'unconfirmed',
+            }
+            const view = render(<ChatScreen source={{ entry: 'compose', origin: null }} onBack={jest.fn()} />)
+            expect(screen.getByTestId('chat-queue-send-now').props.accessibilityState.disabled).toBe(true)
+            fireEvent.press(screen.getByTestId('chat-queue-send-now'))
+            expect(session.send).not.toHaveBeenCalled()
+            session.history = { status: 'idle', error: null }
+            view.rerender(<ChatScreen source={{ entry: 'compose', origin: null }} onBack={jest.fn()} />)
+            await act(async () => {
+                fireEvent.press(screen.getByTestId('chat-queue-send-now'))
+            })
+            expect(session.send).toHaveBeenCalledTimes(1)
+        }
+    )
+
     it('allows another direct send after Stop interrupts a pending direct reply', async () => {
         const { session, draft } = mockReadyChat()
         let finishSend!: (sent: boolean) => void

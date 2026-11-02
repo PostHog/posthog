@@ -206,15 +206,19 @@ On the next message to a live run, `useSession` first sends one command per chan
 - **Queue.** A message sent while the agent works, while a send or an answer is in flight, while a decision waits, or behind earlier queued messages goes into a queue above the composer instead (`messageQueue.ts`, `QueuedMessages.tsx`), as on the web.
   The banner shows "N queued" and one row per message, each with a remove control. During delivery it shows "Sending queued messages" and hides the recovery warning until delivery settles.
   Queued text is saved with the chat's draft in native secure storage before the composer clears.
+  Task adoption waits for pending queue writes and carries live files, cleared composer text, and Stop holds into the saved task.
+  A failed storage read aborts the save and leaves existing queues intact.
   A per-project storage budget refuses additional text while preserving saved messages; removing messages still works if an older store exceeds the limit.
   While the agent works and the input has text, Send shows beside Stop, which turns into an outline button.
 - **Automatic drain.** When the turn ends and nothing else is in flight or waiting, the queued rows go out as one message, joined by blank lines.
   A run that has ended takes the queue too: the send resumes it, as for any follow-up.
 - **Send now.** Sends the queue into the live turn at once with `params.steer: true` on `user_message`, when the session reports `canSteer`; otherwise it goes as an ordinary follow-up.
   It is disabled with "Answer the agent first" while a decision waits, and with "Wait for the agent to start" while the turn runs but the stream has not shown the agent generating yet.
+  It also waits for saved messages and conversation history to load. If history fails, retry loading it before sending recovered messages.
   The reason shows under the banner, because a phone has no tooltip.
 - **Hold.** Stop holds the queue, so it does not go out when the stopped turn ends; the banner then says "N queued, review before sending".
   A new message lifts that hold.
+  Acknowledged rows are removed even if Stop interrupts delivery; any remaining rows keep the Stop hold.
   Delivery keeps its saved rows until acknowledgment. A failed delivery holds them; only Send now sends them again, because the failed send may have reached the agent.
 - Closing the sheet or using Android back preserves queued text separately from the composer. Reopening holds the recovered queue for review before Send now.
   New chat waits while a taskless send or queue is pending, so those messages cannot drain into a different conversation.

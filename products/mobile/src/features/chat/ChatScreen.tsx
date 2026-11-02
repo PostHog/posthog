@@ -113,6 +113,7 @@ export function ChatScreen({
     const preparingSend = useRef(false)
     const [preparing, setPreparing] = useState(false)
     const queueEpoch = useRef(0)
+    const conversationEpoch = useRef(0)
     const [visible, setVisible] = useState(true)
     const pathname = usePathname()
     const userUuid = useAuthStore((state) => state.user?.uuid)
@@ -130,6 +131,7 @@ export function ChatScreen({
     }, [visible, pathname, demo, scope, userUuid, session.taskId])
     const close = useCallback((): void => {
         queueEpoch.current++
+        conversationEpoch.current++
         setVisible(false)
         onBack()
     }, [onBack])
@@ -402,6 +404,7 @@ export function ChatScreen({
         return () => {
             screenMounted.current = false
             queueEpoch.current++
+            conversationEpoch.current++
             releaseAttachments(queuedFiles.current)
         }
     }, [])
@@ -409,10 +412,11 @@ export function ChatScreen({
     const sendOptions = (): ChatRunOptions => ({ ...runOptions, permissionMode })
     const deliverQueue = (steer: boolean): void => {
         const rows = queue.rows
-        if (rows.length === 0 || rows.some((row) => row.missingAttachments) || delivering.current) {
+        if (!composerReady || rows.length === 0 || rows.some((row) => row.missingAttachments) || delivering.current) {
             return
         }
         const epoch = queueEpoch.current
+        const conversation = conversationEpoch.current
         delivering.current = true
         setDelivering(true)
         void composerDraft
@@ -428,7 +432,7 @@ export function ChatScreen({
                     .catch(() => false)
                 if (sent) {
                     sheetEvents.countSent()
-                    if (queueEpoch.current === epoch) {
+                    if (conversationEpoch.current === conversation) {
                         await composerDraft.updateQueue({ type: 'delivered', ids: rows.map((row) => row.id) })
                     }
                 }
@@ -446,7 +450,7 @@ export function ChatScreen({
         }
     }, [drainable])
     const sendQueueNow = (): void => {
-        if (queue.rows.length === 0 || sendNow.pending || sendNow.disabledReason) {
+        if (!composerReady || queue.rows.length === 0 || sendNow.pending || sendNow.disabledReason) {
             return
         }
         track('mobile_session_queue_sent_now', { queued_count: queue.rows.length, steer: session.canSteer })
@@ -534,6 +538,7 @@ export function ChatScreen({
         if (newChatDisabledReason || (!draftTaskId && (preparingSend.current || delivering.current))) return
         sheetEvents.countNewChat()
         queueEpoch.current++
+        conversationEpoch.current++
         releaseAttachments(joinQueueAttachments(queue.rows))
         clearPreparation()
         if (target.taskId) {
@@ -626,14 +631,23 @@ export function ChatScreen({
                                         sendNowDisabledReason={
                                             queue.rows.some((row) => row.missingAttachments)
                                                 ? 'Files were not saved. Copy the queued text, remove it, and attach the files again.'
-                                                : sendNow.disabledReason
+                                                : historyStatus === 'loading'
+                                                  ? 'Loading conversation…'
+                                                  : historyStatus === 'error'
+                                                    ? 'Retry loading the conversation before sending.'
+                                                    : sendNow.disabledReason
                                         }
                                         notice={
                                             queue.hold === 'unconfirmed'
                                                 ? 'Check the conversation before sending again. These messages may already have reached the agent.'
                                                 : undefined
                                         }
-                                        sendNowPending={sendNow.pending || composerDraft.queuePending}
+                                        sendNowPending={
+                                            sendNow.pending ||
+                                            !composerDraft.ready ||
+                                            composerDraft.queuePending ||
+                                            historyStatus === 'loading'
+                                        }
                                     />
                                     <SessionDecisionPanel
                                         decision={session.decision}

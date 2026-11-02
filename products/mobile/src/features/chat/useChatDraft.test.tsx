@@ -235,33 +235,62 @@ describe('chat draft persistence', () => {
         expect(hook.result.current.queue.hold).toBe('unconfirmed')
         hook.unmount()
     })
-    it('keeps queued files live while a new chat adopts its task', async () => {
-        const hook = renderHook(({ taskId }: { taskId: string | null }) => useChatDraft(taskId, undefined), {
-            initialProps: { taskId: null },
-        })
-        await waitFor(() => expect(hook.result.current.ready).toBe(true))
-        const file = {
-            id: 'file-1',
-            uri: 'file:///example',
-            name: 'example.txt',
-            size: 1,
-            contentType: 'text/plain',
-            isImage: false,
+    it.each(['settled', 'pending', 'adopting'])(
+        'keeps queued files live during task adoption, Stop=%s',
+        async (timing) => {
+            const pending = timing !== 'settled'
+            const hook = renderHook(({ taskId }: { taskId: string | null }) => useChatDraft(taskId, undefined), {
+                initialProps: { taskId: null },
+            })
+            await waitFor(() => expect(hook.result.current.ready).toBe(true))
+            const file = {
+                id: 'file-1',
+                uri: 'file:///example',
+                name: 'example.txt',
+                size: 1,
+                contentType: 'text/plain',
+                isImage: false,
+            }
+            act(() => hook.result.current.change({ text: 'With a file', reportIds: [] }))
+            let finish!: () => void
+            if (pending)
+                mockWriteGate = new Promise<void>((resolve) => {
+                    finish = resolve
+                })
+            let saving!: Promise<boolean>
+            let stopped!: Promise<boolean>
+            act(() => {
+                saving = hook.result.current.updateQueue(queueActions.enqueue('With a file', [file]), true)
+                if (timing !== 'adopting') stopped = hook.result.current.updateQueue(queueActions.hold('cancelled'))
+            })
+            if (!pending)
+                await act(async () => {
+                    await saving
+                    await stopped
+                })
+            hook.rerender({ taskId: 'created-task' })
+            if (timing === 'adopting')
+                act(() => {
+                    stopped = hook.result.current.updateQueue(queueActions.hold('cancelled'))
+                })
+            await act(async () => {
+                if (pending) finish()
+                expect(await saving).toBe(true)
+                expect(await stopped).toBe(true)
+            })
+            await waitFor(() => expect(hook.result.current.ready).toBe(true))
+            expect(hook.result.current.draft.text).toBe('')
+            expect(hook.result.current.queue.hold).toBe('cancelled')
+            expect(hook.result.current.queue.rows[0]?.attachments).toEqual([file])
+            expect(hook.result.current.queue.rows[0]?.missingAttachments).toBeUndefined()
+            expect((await chatDrafts.loadQueue('scope-1', 'new-chat')).rows).toEqual([])
+            hook.unmount()
+            const reopened = renderHook(() => useChatDraft('created-task', undefined))
+            await waitFor(() => expect(reopened.result.current.ready).toBe(true))
+            expect(reopened.result.current.queue.rows[0]).toMatchObject({ attachments: [], missingAttachments: 1 })
+            reopened.unmount()
         }
-        await act(async () => {
-            await hook.result.current.updateQueue(queueActions.enqueue('With a file', [file]), true)
-        })
-        hook.rerender({ taskId: 'created-task' })
-        await waitFor(() => expect(hook.result.current.ready).toBe(true))
-        expect(hook.result.current.queue.rows[0]?.attachments).toEqual([file])
-        expect(hook.result.current.queue.rows[0]?.missingAttachments).toBeUndefined()
-        expect((await chatDrafts.loadQueue('scope-1', 'new-chat')).rows).toEqual([])
-        hook.unmount()
-        const reopened = renderHook(() => useChatDraft('created-task', undefined))
-        await waitFor(() => expect(reopened.result.current.ready).toBe(true))
-        expect(reopened.result.current.queue.rows[0]).toMatchObject({ attachments: [], missingAttachments: 1 })
-        reopened.unmount()
-    })
+    )
 
     it('holds a queue even when Stop races its device write', async () => {
         const hook = renderHook(() => useChatDraft('task-1', undefined))
