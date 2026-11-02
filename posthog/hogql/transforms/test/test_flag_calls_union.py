@@ -765,13 +765,13 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
             (
                 "mixed_type_in_that_clickhouse_converts",
                 f"SELECT distinct_id, event, properties.source FROM events WHERE {MIXED} AND 1 IN ('1', '2') "
-                "AND timestamp >= now() - INTERVAL 5 DAY ORDER BY timestamp",
+                "AND timestamp >= now() - INTERVAL 5 DAY ORDER BY timestamp, distinct_id",
                 [
                     ("recent", "$pageview", None),
                     ("recent", "$feature_flag_called", "flag_evaluations"),
-                    ("number", "$feature_flag_called", "events"),
                     ("empty", "$feature_flag_called", "events"),
                     ("missing", "$feature_flag_called", "events"),
+                    ("number", "$feature_flag_called", "events"),
                 ],
             ),
             (
