@@ -2235,6 +2235,13 @@ class MarketingAnalyticsRecommendationStep(BaseModel):
         ),
     )
     text: str
+    url: str | None = Field(
+        default=None,
+        description=(
+            "Google Ads page for this step. It opens the section for the whole account,"
+            " because links cannot filter to one campaign."
+        ),
+    )
 
 
 class MarketingAnalyticsSearchConversion(BaseModel):

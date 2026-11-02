@@ -206,24 +206,32 @@ class TestMarketingRecommendations(SimpleTestCase):
                 "broad",
                 "BROAD",
                 'Add it as a negative, or change the keyword "website traffic" from broad to exact match',
-                ["Search", "[spy website traffic]", "website traffic"],
+                [
+                    ("Search", "campaigns"),
+                    ("[spy website traffic]", "keywords/negative"),
+                    ("website traffic", "keywords"),
+                ],
             ),
             (
                 "phrase_enum_number",
                 "3",
                 'Add it as a negative, or change the keyword "website traffic" from phrase to exact match',
-                ["Search", "[spy website traffic]", "website traffic"],
+                [
+                    ("Search", "campaigns"),
+                    ("[spy website traffic]", "keywords/negative"),
+                    ("website traffic", "keywords"),
+                ],
             ),
             (
                 "exact",
                 "EXACT",
                 'Review the keyword "website traffic" (exact match) and its landing page, or pause it',
-                ["Search", "website traffic"],
+                [("Search", "campaigns"), ("website traffic", "keywords")],
             ),
         ]
     )
     def test_spend_without_conversions_names_the_keyword_that_matched(
-        self, _name: str, match_type: str, expected: str, expected_copy: list[str]
+        self, _name: str, match_type: str, expected: str, expected_copy: list[tuple[str, str]]
     ) -> None:
         terms = (
             _term("spy website traffic", "c1", cost=500, conversions=0),
@@ -241,7 +249,11 @@ class TestMarketingRecommendations(SimpleTestCase):
         ]
 
         assert [rec.action for rec in recs] == [expected]
-        assert [step.copyValue for step in recs[0].steps or [] if step.copyValue] == expected_copy
+        assert [
+            (step.copyValue, (step.url or "").removeprefix("https://ads.google.com/aw/"))
+            for step in recs[0].steps or []
+            if step.copyValue
+        ] == expected_copy
 
     @parameterized.expand([("serving", "ELIGIBLE", 1), ("paused", "PAUSED", 0), ("removed", "REMOVED", 0)])
     def test_spend_without_conversions_skips_campaigns_that_do_not_serve(

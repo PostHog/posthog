@@ -104,14 +104,17 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
             {
                 text: 'In Google Ads, open Campaigns and search for this campaign.',
                 copyValue: 'Search - Generic',
+                url: 'https://ads.google.com/aw/campaigns',
             },
             {
-                text: "Go to the campaign's negative keywords and add this one. The brackets make it exact match, so it blocks only this search.",
+                text: 'Open Negative keywords and add this one for the campaign. The brackets make it exact match, so it blocks only this search.',
                 copyValue: '[free analytics template]',
+                url: 'https://ads.google.com/aw/keywords/negative',
             },
             {
-                text: 'Or, to stop similar searches too, go to Keywords, find this keyword, and change its match type to exact.',
+                text: 'Or, to stop similar searches too, open Keywords, find this keyword, and change its match type to exact.',
                 copyValue: 'analytics template',
+                url: 'https://ads.google.com/aw/keywords',
             },
         ],
     }),

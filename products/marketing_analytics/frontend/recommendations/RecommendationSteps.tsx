@@ -1,4 +1,5 @@
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { Link } from 'lib/lemon-ui/Link'
 
 import { MarketingAnalyticsRecommendationStep } from '~/queries/schema/schema-general'
 
@@ -8,6 +9,19 @@ export function RecommendationSteps({ steps }: { steps: MarketingAnalyticsRecomm
             {steps.map((step, index) => (
                 <li key={index}>
                     <span>{step.text}</span>
+                    {step.url && (
+                        <>
+                            <span> </span>
+                            <Link
+                                to={step.url}
+                                target="_blank"
+                                targetBlankIcon
+                                data-attr="marketing-recommendations-step-open-google-ads"
+                            >
+                                Open in Google Ads
+                            </Link>
+                        </>
+                    )}
                     {step.copyValue && (
                         <div className="mt-1">
                             <CopyToClipboardInline

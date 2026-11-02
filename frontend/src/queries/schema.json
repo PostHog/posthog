@@ -36366,6 +36366,10 @@
                 },
                 "text": {
                     "type": "string"
+                },
+                "url": {
+                    "description": "Google Ads page for this step. It opens the section for the whole account, because links cannot filter to one campaign.",
+                    "type": ["string", "null"]
                 }
             },
             "required": ["text"],
