@@ -733,30 +733,28 @@ class UserAccessControl:
         if not EE_AVAILABLE or not self.access_controls_supported:
             return []
 
-        key = json.dumps(filters, sort_keys=True)
-        if key in self._cache:
-            return self._cache[key]
-
         # Team-scoped lookups are served from the single bulk preload (filtered in memory);
         # org-scoped lookups fall through to a targeted query.
         if self._can_serve_from_preload(filters):
             if set(filters) == {"team_id", "resource", "resource_id"}:
-                self._cache[key] = self._cached_access_controls_by_object.get(
-                    (filters["resource"], filters["resource_id"]), []
+                # Object and resource lookups are exact matches, so read them from the pool's index
+                # rather than scanning every row.
+                return list(
+                    self._cached_access_controls_by_object.get((filters["resource"], filters["resource_id"]), [])
                 )
-            else:
-                self._cache[key] = [ac for ac in self._cached_access_controls if self._row_matches(ac, filters)]
-            return self._cache[key]
+            return [ac for ac in self._cached_access_controls if self._row_matches(ac, filters)]
 
-        with tracer.start_as_current_span("rbac.access_controls.db") as span:
-            resource = filters.get("resource")
-            if isinstance(resource, str):
-                span.set_attribute("rbac.resource", resource)
-            span.set_attribute("rbac.has_resource_id", filters.get("resource_id") is not None)
-            # No org-id annotation here: these rows return straight to the caller and never
-            # reach `_row_matches`, so joining posthog_team for it would be wasted work.
-            self._cache[key] = list(AccessControl.objects.filter(self._filter_options(filters)))
-            span.set_attribute("rbac.row_count", len(self._cache[key]))
+        key = json.dumps(filters, sort_keys=True)
+        if key not in self._cache:
+            with tracer.start_as_current_span("rbac.access_controls.db") as span:
+                resource = filters.get("resource")
+                if isinstance(resource, str):
+                    span.set_attribute("rbac.resource", resource)
+                span.set_attribute("rbac.has_resource_id", filters.get("resource_id") is not None)
+                # No org-id annotation here: these rows return straight to the caller and never
+                # reach `_row_matches`, so joining posthog_team for it would be wasted work.
+                self._cache[key] = list(AccessControl.objects.filter(self._filter_options(filters)))
+                span.set_attribute("rbac.row_count", len(self._cache[key]))
 
         return self._cache[key]
 
@@ -829,8 +827,8 @@ class UserAccessControl:
             return
 
         if all(self._can_serve_from_preload(filters) for filters in filter_groups):
-            for filters in filter_groups:
-                self._get_access_controls(filters)
+            # Lookups are answered from the pool, so loading it is all the preload has to do.
+            _ = self._cached_access_controls
             return
 
         q = Q()
