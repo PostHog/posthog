@@ -8,8 +8,13 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.team import Team
 from posthog.scopes import scopes_not_covered
 
-# What a step-up app gets on its first connection to the MCP resource. A write scope covers
-# its read, so no object appears twice.
+# What a step-up app gets on its first connection to the MCP resource. The list comes from MCP
+# tool usage: a scope is in when the tools that need it are among the ones most OAuth users call,
+# so most sessions never need a step-up. Organization and user stay read-only. `project:write` is
+# in because routine project setup (replay sampling, test account filters, cookieless mode) would
+# otherwise send many users to a step-up. `endpoint:write` is in for pushing endpoints from the
+# CLI. A write scope covers its read, so no object appears twice. Anything else arrives through
+# step-up when a tool first needs it.
 STEP_UP_DEFAULT_RESOURCE_SCOPES: frozenset[str] = frozenset(
     [
         *(

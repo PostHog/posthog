@@ -1801,10 +1801,10 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         )
 
         if scopes_were_defaulted:
-            oauth_mcp_consent = build_oauth_mcp_consent_context(request.query_params.get("resource"))
+            oauth_mcp_consent = build_oauth_mcp_consent_context(
+                request.query_params.get("resource"), scopes=consent_scopes if step_up_grant else None
+            )
             if oauth_mcp_consent is not None:
-                if step_up_grant:
-                    oauth_mcp_consent["scopes"] = consent_scopes
                 template_context["oauth_mcp_consent"] = oauth_mcp_consent
 
         # The consent POST cannot tell a step-up screen from any other, so the scopes this screen
