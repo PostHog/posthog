@@ -13,6 +13,7 @@ from structlog import get_logger
 from temporalio.exceptions import ApplicationError
 
 from posthog.sync import database_sync_to_async
+from posthog.utils import pluralize
 
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -407,8 +408,11 @@ def _downgrade_for_unrendered_assets(
 ) -> DeliverSubscriptionResult:
     """A destination that accepts the message is not a delivered chart. Without this, a
     subscription whose insights all failed to render is still recorded as a success."""
-    message = f"{unrendered_count} of {total_count} insight{'s' if total_count != 1 else ''} could not be generated"
-    status: RecipientResultStatus = "failed" if unrendered_count == total_count else "partial"
+    message = f"{unrendered_count} of {pluralize(total_count, 'insight')} could not be generated"
+    all_unrendered = unrendered_count == total_count
+    status: RecipientResultStatus = "failed" if all_unrendered else "partial"
+    # With no chart rendered, a partial result (such as a failed Slack thread message) delivered nothing either.
+    downgradable: set[RecipientResultStatus] = {"success", "partial"} if all_unrendered else {"success"}
     downgraded = [
         RecipientResult(
             recipient=recipient_result.recipient,
@@ -416,7 +420,7 @@ def _downgrade_for_unrendered_assets(
             error={"message": message, "type": "unrendered_assets"},
             human_readable_error=message,
         )
-        if recipient_result.status == "success"
+        if recipient_result.status in downgradable
         else recipient_result
         for recipient_result in result.recipient_results
     ]
@@ -580,10 +584,14 @@ async def _deliver_insight_dashboard_subscription(
 
     unrendered_assets = [asset for asset in assets if _has_asset_failed(asset)]
     if unrendered_assets:
-        result = _downgrade_for_unrendered_assets(result, len(unrendered_assets), len(assets))
-        if len(unrendered_assets) == len(assets):
-            # Keeps the analytics event in step with the FAILED delivery row this produces.
+        downgraded = _downgrade_for_unrendered_assets(result, len(unrendered_assets), len(assets))
+        # Only a result this step turned to failed needs the event. Paths that failed earlier already captured one.
+        if any(
+            before.status != "failed" and after.status == "failed"
+            for before, after in zip(result.recipient_results, downgraded.recipient_results)
+        ):
             _capture_delivery_failed_event(subscription, Exception(ASSET_GENERATION_FAILED_MESSAGE))
+        result = downgraded
 
     await LOGGER.ainfo(
         "deliver_subscription.completed",

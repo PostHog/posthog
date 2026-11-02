@@ -256,8 +256,8 @@ def _export_to_png(
             screenshot_width = 1920
         elif exported_asset.export_context and exported_asset.export_context.get("session_recording_id"):
             # Handle replay export using /exporter route (same as insights/dashboards)
-            url_to_render = absolute_uri(
-                f"/exporter?token={access_token}&t={exported_asset.export_context.get('timestamp') or 0}&fullscreen=true"
+            url_to_render = _exporter_url(
+                f"token={access_token}&t={exported_asset.export_context.get('timestamp') or 0}&fullscreen=true"
             )
             wait_for_css_selector = exported_asset.export_context.get("css_selector", REPLAY_WRAPPER_SELECTOR)
             screenshot_width = exported_asset.export_context.get("width", 1400)
@@ -282,9 +282,7 @@ def _export_to_png(
             # the `/exporter` query string.
             encoded_page_url = quote(heatmap_url, safe="")
             encoded_data_url = quote(exported_asset.export_context.get("heatmap_data_url") or "", safe="")
-            url_to_render = absolute_uri(
-                f"/exporter?token={access_token}&pageURL={encoded_page_url}&dataURL={encoded_data_url}"
-            )
+            url_to_render = _exporter_url(f"token={access_token}&pageURL={encoded_page_url}&dataURL={encoded_data_url}")
             wait_for_css_selector = exported_asset.export_context.get("css_selector", ".heatmaps-ready")
             screenshot_width = exported_asset.export_context.get("width", 1400)
             screenshot_height = exported_asset.export_context.get("height", 600)
