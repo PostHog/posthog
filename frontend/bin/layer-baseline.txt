@@ -339,9 +339,6 @@ frontend/src/products.tsx -> frontend/src/queries/examples.ts
 frontend/src/products.tsx -> products/ai_observability/frontend/clusters/constants.ts
 frontend/src/products.tsx -> products/ai_observability/frontend/scoreDefinitions/scoreDefinitionNavigation.ts
 frontend/src/products.tsx -> products/error_tracking/frontend/settingsRedirects.ts
-frontend/src/queries/Query/Query.tsx -> frontend/src/scenes/debug/HogDebug.tsx
-frontend/src/queries/Query/Query.tsx -> products/endpoints/frontend/nodes/index.ts
-frontend/src/queries/Query/Query.tsx -> products/metrics/frontend/nodes/index.ts
 frontend/src/queries/nodes/DataNode/TestAccountFilters.tsx -> frontend/src/scenes/settings/environment/filterTestAccountDefaultsLogic.ts
 frontend/src/queries/nodes/DataNode/dataNodeLogic.ts -> frontend/src/scenes/insights/insightLogic.tsx
 frontend/src/queries/nodes/DataTable/BackToSource.tsx -> frontend/src/scenes/insights/summarizeInsight.ts
