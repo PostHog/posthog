@@ -35,6 +35,7 @@ import {
 } from '../../types'
 import { CdpInternalEventSchema } from '../schema'
 import { COHORT_MEMBERSHIP_CHANGED_EVENT } from '../services/cohorts/cohort-membership-repository'
+import { CYCLOTRON_JOB_TABLES } from '../services/cyclotron-v2/tables'
 import {
     hasEventOrActionTarget,
     matchesWaitUntilCondition,
@@ -530,19 +531,21 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         let result
         try {
             result = await this.cyclotronPool.query(
-                `SELECT id, team_id, function_id, parent_run_id, action_id, distinct_id, person_id
-             FROM cyclotron_jobs
+                CYCLOTRON_JOB_TABLES.map(
+                    (table) => `SELECT id, team_id, function_id, parent_run_id, action_id, distinct_id, person_id
+             FROM ${table}
              WHERE status = 'available'
                AND scheduled > NOW()
                AND function_id = ANY($5::uuid[])
                AND (team_id, distinct_id) IN (SELECT * FROM unnest($1::int[], $2::text[]))
              UNION
              SELECT id, team_id, function_id, parent_run_id, action_id, distinct_id, person_id
-             FROM cyclotron_jobs
+             FROM ${table}
              WHERE status = 'available'
                AND scheduled > NOW()
                AND function_id = ANY($5::uuid[])
-               AND (team_id, person_id) IN (SELECT * FROM unnest($3::int[], $4::text[]))`,
+               AND (team_id, person_id) IN (SELECT * FROM unnest($3::int[], $4::text[]))`
+                ).join('\n             UNION\n             '),
                 [distinctTeamIds, distinctIds, personTeamIds, personIds, functionIds]
             )
         } finally {
@@ -576,13 +579,17 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         try {
             await client.query('BEGIN')
 
-            const stateRows = await client.query(
-                `SELECT id, state FROM cyclotron_jobs
+            const stateRows = { rows: [] as { id: string; state: Buffer | null }[] }
+            for (const table of CYCLOTRON_JOB_TABLES) {
+                const locked = await client.query<{ id: string; state: Buffer | null }>(
+                    `SELECT id, state FROM ${table}
                  WHERE id = ANY($1::uuid[]) AND status = 'available'
                  ORDER BY id
                  FOR UPDATE`,
-                [ids]
-            )
+                    [ids]
+                )
+                stateRows.rows.push(...locked.rows)
+            }
 
             const matchedById = new Map(matched.map((m) => [m.id, m]))
             // Woken jobs get `scheduled = NOW()`; the rest get a state write that leaves `scheduled`
@@ -609,28 +616,30 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             }
 
             let woken = 0
-            if (wakeUpdates.length > 0) {
-                const result = await client.query(
-                    `UPDATE cyclotron_jobs cj
+            for (const table of CYCLOTRON_JOB_TABLES) {
+                if (wakeUpdates.length > 0) {
+                    const result = await client.query(
+                        `UPDATE ${table} cj
                      SET scheduled = NOW(), state = u.state
                      FROM (
                          SELECT unnest($1::uuid[]) AS id, unnest($2::bytea[]) AS state
                      ) u
                      WHERE cj.id = u.id AND cj.status = 'available'`,
-                    [wakeUpdates.map((u) => u.id), wakeUpdates.map((u) => u.state)]
-                )
-                woken = result.rowCount ?? 0
-            }
-            if (stateOnlyUpdates.length > 0) {
-                await client.query(
-                    `UPDATE cyclotron_jobs cj
+                        [wakeUpdates.map((u) => u.id), wakeUpdates.map((u) => u.state)]
+                    )
+                    woken += result.rowCount ?? 0
+                }
+                if (stateOnlyUpdates.length > 0) {
+                    await client.query(
+                        `UPDATE ${table} cj
                      SET state = u.state
                      FROM (
                          SELECT unnest($1::uuid[]) AS id, unnest($2::bytea[]) AS state
                      ) u
                      WHERE cj.id = u.id AND cj.status = 'available'`,
-                    [stateOnlyUpdates.map((u) => u.id), stateOnlyUpdates.map((u) => u.state)]
-                )
+                        [stateOnlyUpdates.map((u) => u.id), stateOnlyUpdates.map((u) => u.state)]
+                    )
+                }
             }
             await client.query('COMMIT')
 
@@ -1116,9 +1125,11 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             await client.query('BEGIN')
             // Lock the parked jobs for the repointed distinct_ids. ORDER BY id keeps lock order consistent
             // with processMatchedJobs so concurrent move/match batches can't deadlock.
-            const rows = await client.query(
-                `SELECT id, team_id, distinct_id, function_id, action_id, state
-                 FROM cyclotron_jobs
+            const rows = { rows: [] as any[] }
+            for (const table of CYCLOTRON_JOB_TABLES) {
+                const locked = await client.query(
+                    `SELECT id, team_id, distinct_id, function_id, action_id, state
+                 FROM ${table}
                  WHERE status = 'available'
                    AND function_id = ANY($3::uuid[])
                    AND action_id = ANY($4::text[])
@@ -1126,8 +1137,10 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                    AND (team_id, distinct_id) IN (SELECT * FROM unnest($1::int[], $2::text[]))
                  ORDER BY id
                  FOR UPDATE`,
-                [moveTeamIds, moveDistinctIds, functionIds, waitActionIds]
-            )
+                    [moveTeamIds, moveDistinctIds, functionIds, waitActionIds]
+                )
+                rows.rows.push(...locked.rows)
+            }
 
             const updates: { id: string; personId: string; state: Buffer }[] = []
             for (const row of rows.rows) {
@@ -1162,16 +1175,18 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 // race where the person-property update lands before this re-key (the matcher would
                 // otherwise miss the still-anon-keyed job and the wait would hang until its poll tick).
                 // Safe now that the worker resolves a re-keyed job by survivor personId (personIdRepointed).
-                const result = await client.query(
-                    `UPDATE cyclotron_jobs cj
+                for (const table of CYCLOTRON_JOB_TABLES) {
+                    const result = await client.query(
+                        `UPDATE ${table} cj
                      SET person_id = u.person_id, state = u.state, scheduled = NOW()
                      FROM (
                          SELECT unnest($1::uuid[]) AS id, unnest($2::text[]) AS person_id, unnest($3::bytea[]) AS state
                      ) u
                      WHERE cj.id = u.id AND cj.status = 'available'`,
-                    [updates.map((u) => u.id), updates.map((u) => u.personId), updates.map((u) => u.state)]
-                )
-                updatedCount = result.rowCount ?? 0
+                        [updates.map((u) => u.id), updates.map((u) => u.personId), updates.map((u) => u.state)]
+                    )
+                    updatedCount += result.rowCount ?? 0
+                }
             }
             await client.query('COMMIT')
             // Counted after COMMIT: an UPDATE that succeeds and then fails to commit is rolled back, so

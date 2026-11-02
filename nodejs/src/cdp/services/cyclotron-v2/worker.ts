@@ -7,6 +7,7 @@ import { logger } from '~/common/utils/logger'
 
 import { isEmailQueue } from '../messaging/email-queues'
 import { assignEmailDequeueSeq } from './manager'
+import { CYCLOTRON_JOB_COLUMNS, CyclotronJobTable, tableForQueue } from './tables'
 import {
     CYCLOTRON_COUNTER_MAX,
     CYCLOTRON_TRANSITION_CHURN_THRESHOLD,
@@ -68,7 +69,11 @@ export function sleep(ms: number): Promise<void> {
  * children onto 'hogflow', not 'email'). Email re-routing happens later via
  * the worker's reschedule path which already handles dequeue_seq assignment.
  */
-async function insertNewJobsInTx(client: PoolClient, newJobs: CyclotronV2JobInit[]): Promise<string[]> {
+async function insertNewJobsInTx(
+    client: PoolClient,
+    table: CyclotronJobTable,
+    newJobs: CyclotronV2JobInit[]
+): Promise<string[]> {
     if (newJobs.length === 0) {
         return []
     }
@@ -101,7 +106,7 @@ async function insertNewJobsInTx(client: PoolClient, newJobs: CyclotronV2JobInit
     }
 
     await client.query(
-        `INSERT INTO cyclotron_jobs
+        `INSERT INTO ${table}
          (id, team_id, function_id, queue_name, status, priority, scheduled, created,
           lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition,
           parent_run_id, state, distinct_id, person_id, action_id)
@@ -157,6 +162,7 @@ async function insertNewJobsInTx(client: PoolClient, newJobs: CyclotronV2JobInit
  */
 async function updateSelfInTx(
     client: PoolClient,
+    table: CyclotronJobTable,
     jobId: string,
     lockId: string,
     disposition: CyclotronV2BulkCreateAndCheckInInput['selfDisposition']
@@ -166,7 +172,7 @@ async function updateSelfInTx(
     // healthy batch-resolve release must not leave a stale touch count behind.
     if (disposition.kind === 'ack') {
         const result = await client.query(
-            `UPDATE cyclotron_jobs
+            `UPDATE ${table}
              SET status = 'completed', lock_id = NULL, last_heartbeat = NULL,
                  last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
                  janitor_touch_count = 0
@@ -178,7 +184,7 @@ async function updateSelfInTx(
     }
     if (disposition.kind === 'fail') {
         const result = await client.query(
-            `UPDATE cyclotron_jobs
+            `UPDATE ${table}
              SET status = 'failed', lock_id = NULL, last_heartbeat = NULL,
                  last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
                  janitor_touch_count = 0
@@ -207,7 +213,7 @@ async function updateSelfInTx(
         setClauses.push(`state = $${params.length}`)
     }
     const result = await client.query(
-        `UPDATE cyclotron_jobs SET ${setClauses.join(', ')}
+        `UPDATE ${table} SET ${setClauses.join(', ')}
          WHERE id = $1 AND lock_id = $2`,
         params
     )
@@ -234,6 +240,7 @@ export class CyclotronV2Worker {
     private readonly heartbeatTimeoutMs: number
     protected readonly includeEmptyBatches: boolean
     protected readonly fairDequeue: boolean
+    protected readonly table: CyclotronJobTable
 
     constructor(private config: CyclotronV2WorkerConfig) {
         this.pool = new Pool({
@@ -251,6 +258,7 @@ export class CyclotronV2Worker {
         // CyclotronV2Manager), so deriving this from the queue name keeps the
         // worker's ORDER BY in lockstep with where the sort key actually exists.
         this.fairDequeue = isEmailQueue(config.queueName)
+        this.table = tableForQueue(config.queueName)
     }
 
     async connect(processBatch: (jobs: CyclotronV2DequeuedJob[]) => Promise<void>): Promise<void> {
@@ -304,7 +312,7 @@ export class CyclotronV2Worker {
     protected async countWork(limit: number): Promise<number> {
         const result = await this.pool.query<{ n: number }>(
             `SELECT COUNT(*)::int AS n FROM (
-                 SELECT 1 FROM cyclotron_jobs
+                 SELECT 1 FROM ${this.table}
                  WHERE status = 'available'
                    AND queue_name = $1
                    AND scheduled <= NOW()
@@ -320,7 +328,7 @@ export class CyclotronV2Worker {
         const result = await this.pool.query<RawJobRow>(
             `WITH available AS (
                 SELECT id
-                FROM cyclotron_jobs
+                FROM ${this.table}
                 WHERE status = 'available'
                   AND queue_name = $1
                   AND scheduled <= NOW()
@@ -328,30 +336,30 @@ export class CyclotronV2Worker {
                 LIMIT $2
                 FOR UPDATE SKIP LOCKED
             )
-            UPDATE cyclotron_jobs
+            UPDATE ${this.table}
             SET status = 'running',
                 lock_id = $3,
                 last_heartbeat = NOW(),
                 last_transition = NOW(),
                 transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX})
             FROM available
-            WHERE cyclotron_jobs.id = available.id
+            WHERE ${this.table}.id = available.id
             RETURNING
-                cyclotron_jobs.id,
-                cyclotron_jobs.team_id,
-                cyclotron_jobs.function_id,
-                cyclotron_jobs.queue_name,
-                cyclotron_jobs.priority,
-                cyclotron_jobs.scheduled,
-                cyclotron_jobs.created,
-                cyclotron_jobs.parent_run_id,
-                cyclotron_jobs.transition_count,
-                cyclotron_jobs.state,
-                cyclotron_jobs.distinct_id,
-                cyclotron_jobs.person_id,
-                cyclotron_jobs.action_id,
-                cyclotron_jobs.cancel_requested_at,
-                cyclotron_jobs.lock_id`,
+                ${this.table}.id,
+                ${this.table}.team_id,
+                ${this.table}.function_id,
+                ${this.table}.queue_name,
+                ${this.table}.priority,
+                ${this.table}.scheduled,
+                ${this.table}.created,
+                ${this.table}.parent_run_id,
+                ${this.table}.transition_count,
+                ${this.table}.state,
+                ${this.table}.distinct_id,
+                ${this.table}.person_id,
+                ${this.table}.action_id,
+                ${this.table}.cancel_requested_at,
+                ${this.table}.lock_id`,
             [this.config.queueName, limit, lockId]
         )
         // UPDATE...RETURNING doesn't preserve the CTE's ORDER BY,
@@ -384,7 +392,7 @@ export class CyclotronV2Worker {
         const result = await this.pool.query<RawJobRow>(
             `WITH available AS (
                 SELECT id
-                FROM cyclotron_jobs
+                FROM ${this.table}
                 WHERE status = 'available'
                   AND queue_name = $1
                   AND scheduled <= NOW()
@@ -392,30 +400,30 @@ export class CyclotronV2Worker {
                 LIMIT $2
                 FOR UPDATE SKIP LOCKED
             )
-            UPDATE cyclotron_jobs
+            UPDATE ${this.table}
             SET status = 'running',
                 lock_id = $3,
                 last_heartbeat = NOW(),
                 last_transition = NOW(),
                 transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX})
             FROM available
-            WHERE cyclotron_jobs.id = available.id
+            WHERE ${this.table}.id = available.id
             RETURNING
-                cyclotron_jobs.id,
-                cyclotron_jobs.team_id,
-                cyclotron_jobs.function_id,
-                cyclotron_jobs.queue_name,
-                cyclotron_jobs.priority,
-                cyclotron_jobs.scheduled,
-                cyclotron_jobs.created,
-                cyclotron_jobs.parent_run_id,
-                cyclotron_jobs.transition_count,
-                cyclotron_jobs.state,
-                cyclotron_jobs.distinct_id,
-                cyclotron_jobs.person_id,
-                cyclotron_jobs.action_id,
-                cyclotron_jobs.cancel_requested_at,
-                cyclotron_jobs.lock_id`,
+                ${this.table}.id,
+                ${this.table}.team_id,
+                ${this.table}.function_id,
+                ${this.table}.queue_name,
+                ${this.table}.priority,
+                ${this.table}.scheduled,
+                ${this.table}.created,
+                ${this.table}.parent_run_id,
+                ${this.table}.transition_count,
+                ${this.table}.state,
+                ${this.table}.distinct_id,
+                ${this.table}.person_id,
+                ${this.table}.action_id,
+                ${this.table}.cancel_requested_at,
+                ${this.table}.lock_id`,
             [this.config.queueName, limit, lockId]
         )
         // Within-batch order is undefined (UPDATE...RETURNING doesn't preserve
@@ -428,6 +436,7 @@ export class CyclotronV2Worker {
 
     protected wrapJob(row: RawJobRow): CyclotronV2DequeuedJob {
         const pool = this.pool
+        const table = this.table
         const lockId = row.lock_id
         let released = false
 
@@ -463,7 +472,7 @@ export class CyclotronV2Worker {
             async ack(): Promise<void> {
                 releaseGuard('ack')
                 await pool.query(
-                    `UPDATE cyclotron_jobs
+                    `UPDATE ${table}
                      SET status = 'completed', lock_id = NULL, last_heartbeat = NULL,
                          last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
                          janitor_touch_count = 0
@@ -475,7 +484,7 @@ export class CyclotronV2Worker {
             async fail(): Promise<void> {
                 releaseGuard('fail')
                 await pool.query(
-                    `UPDATE cyclotron_jobs
+                    `UPDATE ${table}
                      SET status = 'failed', lock_id = NULL, last_heartbeat = NULL,
                          last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
                          janitor_touch_count = 0
@@ -489,47 +498,51 @@ export class CyclotronV2Worker {
                 const options = input ? CyclotronV2RescheduleOptionsSchema.parse(input) : undefined
                 const scheduled = options?.scheduledAt ?? new Date()
 
-                const setClauses = [
-                    `status = 'available'`,
-                    `lock_id = NULL`,
-                    `last_heartbeat = NULL`,
-                    `last_transition = NOW()`,
-                    `transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX})`,
+                // Column -> expression for its new value. The in-place path turns these
+                // into SET clauses, a lane move into the INSERT's SELECT list, so both
+                // write the same row and only one definition can drift.
+                const assignments = new Map<string, string>([
+                    ['status', `'available'::CyclotronJobStatus`],
+                    ['lock_id', 'NULL'],
+                    ['last_heartbeat', 'NULL'],
+                    ['last_transition', 'NOW()'],
+                    ['transition_count', `LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX})`],
                     // A deliberate release means the worker is healthy, so the
                     // poison budget counts CONSECUTIVE stalls — long-lived jobs
                     // (e.g. wait_until_condition polls) don't accrue touches for
                     // their whole life and get mistaken for poison pills.
-                    `janitor_touch_count = 0`,
+                    ['janitor_touch_count', '0'],
                     // A cancel requested while this worker held the job must not
                     // sleep the full next delay before it's observed, so it
                     // wakes immediately instead.
-                    `scheduled = CASE WHEN cancel_requested_at IS NOT NULL THEN LEAST($3::timestamptz, NOW()) ELSE $3::timestamptz END`,
-                ]
+                    [
+                        'scheduled',
+                        `CASE WHEN cancel_requested_at IS NOT NULL THEN LEAST($3::timestamptz, NOW()) ELSE $3::timestamptz END`,
+                    ],
+                ])
                 const params: any[] = [row.id, lockId, scheduled]
+                const assign = (column: string, value: any): void => {
+                    params.push(value)
+                    assignments.set(column, `$${params.length}`)
+                }
 
                 if (options?.state !== undefined) {
-                    params.push(options.state ?? null)
-                    setClauses.push(`state = $${params.length}`)
+                    assign('state', options.state ?? null)
                 }
                 if (options?.distinctId !== undefined) {
-                    params.push(options.distinctId ?? null)
-                    setClauses.push(`distinct_id = $${params.length}`)
+                    assign('distinct_id', options.distinctId ?? null)
                 }
                 if (options?.personId !== undefined) {
-                    params.push(options.personId ?? null)
-                    setClauses.push(`person_id = $${params.length}`)
+                    assign('person_id', options.personId ?? null)
                 }
                 if (options?.actionId !== undefined) {
-                    params.push(options.actionId ?? null)
-                    setClauses.push(`action_id = $${params.length}`)
+                    assign('action_id', options.actionId ?? null)
                 }
                 if (options?.queueName !== undefined) {
-                    params.push(options.queueName)
-                    setClauses.push(`queue_name = $${params.length}`)
+                    assign('queue_name', options.queueName)
                 }
                 if (options?.priority !== undefined) {
-                    params.push(options.priority)
-                    setClauses.push(`priority = $${params.length}`)
+                    assign('priority', options.priority)
                 }
 
                 // Cross-queue routing into the email queue: assign a fresh
@@ -542,14 +555,31 @@ export class CyclotronV2Worker {
                 // so existing fair-ordered rows keep their place after retry/
                 // reschedule without bumping the counter.
                 if (isEmailQueue(options?.queueName) && !isEmailQueue(row.queue_name)) {
-                    const dequeueSeq = await assignEmailDequeueSeq(pool, row.team_id)
-                    params.push(dequeueSeq)
-                    setClauses.push(`dequeue_seq = $${params.length}`)
+                    assign('dequeue_seq', await assignEmailDequeueSeq(pool, row.team_id))
                 }
 
+                const targetTable = options?.queueName !== undefined ? tableForQueue(options.queueName) : table
+
+                if (targetTable === table) {
+                    await pool.query(
+                        `UPDATE ${table}
+                         SET ${[...assignments].map(([column, value]) => `${column} = ${value}`).join(', ')}
+                         WHERE id = $1 AND lock_id = $2`,
+                        params
+                    )
+                    return
+                }
+
+                // Routing to the other lane's table. One statement, so the lock_id guard
+                // still decides the whole thing: a stale lock deletes nothing and
+                // therefore inserts nothing, the same no-op the UPDATE above would be.
                 await pool.query(
-                    `UPDATE cyclotron_jobs SET ${setClauses.join(', ')}
-                     WHERE id = $1 AND lock_id = $2`,
+                    `WITH moved AS (
+                         DELETE FROM ${table} WHERE id = $1 AND lock_id = $2 RETURNING *
+                     )
+                     INSERT INTO ${targetTable} (${CYCLOTRON_JOB_COLUMNS.join(', ')})
+                     SELECT ${CYCLOTRON_JOB_COLUMNS.map((column) => assignments.get(column) ?? column).join(', ')}
+                     FROM moved`,
                     params
                 )
             },
@@ -557,7 +587,7 @@ export class CyclotronV2Worker {
             async cancel(): Promise<void> {
                 releaseGuard('cancel')
                 await pool.query(
-                    `UPDATE cyclotron_jobs
+                    `UPDATE ${table}
                      SET status = 'canceled', lock_id = NULL, last_heartbeat = NULL,
                          last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
                          janitor_touch_count = 0
@@ -571,7 +601,7 @@ export class CyclotronV2Worker {
                     throw new Error(`Job ${row.id} already released, cannot heartbeat`)
                 }
                 await pool.query(
-                    `UPDATE cyclotron_jobs
+                    `UPDATE ${table}
                      SET last_heartbeat = NOW()
                      WHERE id = $1 AND lock_id = $2`,
                     [row.id, lockId]
@@ -599,7 +629,7 @@ export class CyclotronV2Worker {
                     // page could commit after a cancel sweep counted zero remaining, leaving
                     // jobs that never get flagged.
                     const selfRow = await client.query<{ cancel_requested_at: string | null }>(
-                        `SELECT cancel_requested_at FROM cyclotron_jobs
+                        `SELECT cancel_requested_at FROM ${table}
                          WHERE id = $1 AND lock_id = $2
                          FOR UPDATE`,
                         [row.id, lockId]
@@ -612,8 +642,8 @@ export class CyclotronV2Worker {
                         return { newJobIds: [], cancelRequested: true }
                     }
 
-                    const newJobIds = await insertNewJobsInTx(client, newJobs)
-                    await updateSelfInTx(client, row.id, lockId, input.selfDisposition)
+                    const newJobIds = await insertNewJobsInTx(client, table, newJobs)
+                    await updateSelfInTx(client, table, row.id, lockId, input.selfDisposition)
 
                     await client.query('COMMIT')
                     return { newJobIds }

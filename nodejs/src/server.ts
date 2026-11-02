@@ -43,6 +43,11 @@ import { createCdpProducerRegistry } from './cdp/outputs/producer-registry'
 import { CdpProducerName } from './cdp/outputs/producers'
 import { createCdpOutputsRegistry } from './cdp/outputs/registry'
 import { CyclotronV2JanitorService, CyclotronV2Manager, CyclotronV2Worker } from './cdp/services/cyclotron-v2'
+import {
+    CYCLOTRON_JOBS_TABLE,
+    CYCLOTRON_JOBS_TRANSACTIONAL_TABLE,
+    CyclotronJobTable,
+} from './cdp/services/cyclotron-v2/tables'
 import { HogFlowScheduleService } from './cdp/services/hogflow-schedule/hogflow-schedule.service'
 import { HOGFLOW_BATCH_RESOLVE_QUEUE } from './cdp/services/hogflows/batch-resolver.types'
 import { HogFlowBatchPersonQueryService } from './cdp/services/hogflows/hogflow-batch-person-query.service'
@@ -119,7 +124,8 @@ export class PluginServer implements NodeServer {
         // (persons/geoip/integrations), which the minimal janitor deployment isn't
         // provisioned for (DATABASE_URL=NOT_REQUIRED, personhog off). Gate only the
         // producer on the janitor capability.
-        const needsCdpProducer = needsCdp || capabilities.cdpCyclotronV2Janitor
+        const needsCdpProducer =
+            needsCdp || capabilities.cdpCyclotronV2Janitor || capabilities.cdpCyclotronV2JanitorTransactional
         // 1. Shared infrastructure (always needed)
         const { teamManager } = await this.createSharedInfrastructure()
 
@@ -273,37 +279,49 @@ export class PluginServer implements NodeServer {
             })
         }
 
-        if (capabilities.cdpCyclotronV2Janitor) {
+        if (capabilities.cdpCyclotronV2Janitor || capabilities.cdpCyclotronV2JanitorTransactional) {
             if (!this.config.CYCLOTRON_NODE_DATABASE_URL) {
                 throw new Error('CYCLOTRON_NODE_DATABASE_URL not configured but required for CyclotronV2JanitorService')
             }
-            serviceLoaders.push(async () => {
-                // Build a results service so the janitor can record poison-pill
-                // give-ups as failed, replayable invocation results before
-                // deleting the cyclotron row.
-                const outputs = createCdpOutputsRegistry().build(this.cdpProducerRegistry!, this.config)
-                const invocationResults = new HogInvocationResultsService(outputs, this.config)
-                const janitor = new CyclotronV2JanitorService(
-                    {
-                        pool: {
-                            dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL!,
-                            maxConnections: this.config.CYCLOTRON_NODE_MAX_CONNECTIONS,
-                            idleTimeoutMs: this.config.CYCLOTRON_NODE_IDLE_TIMEOUT_MS,
+            // A janitor per table: a long cleanup DELETE over the marketing table must not
+            // delay transactional stalled-job recovery.
+            const janitorTables: CyclotronJobTable[] = []
+            if (capabilities.cdpCyclotronV2Janitor) {
+                janitorTables.push(CYCLOTRON_JOBS_TABLE)
+            }
+            if (capabilities.cdpCyclotronV2JanitorTransactional) {
+                janitorTables.push(CYCLOTRON_JOBS_TRANSACTIONAL_TABLE)
+            }
+            for (const table of janitorTables) {
+                serviceLoaders.push(async () => {
+                    // Build a results service so the janitor can record poison-pill
+                    // give-ups as failed, replayable invocation results before
+                    // deleting the cyclotron row.
+                    const outputs = createCdpOutputsRegistry().build(this.cdpProducerRegistry!, this.config)
+                    const invocationResults = new HogInvocationResultsService(outputs, this.config)
+                    const janitor = new CyclotronV2JanitorService(
+                        {
+                            table,
+                            pool: {
+                                dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL!,
+                                maxConnections: this.config.CYCLOTRON_NODE_MAX_CONNECTIONS,
+                                idleTimeoutMs: this.config.CYCLOTRON_NODE_IDLE_TIMEOUT_MS,
+                            },
+                            cleanupBatchSize: this.config.CYCLOTRON_NODE_JANITOR_CLEANUP_BATCH_SIZE,
+                            cleanupIntervalMs: this.config.CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS,
+                            stallTimeoutMs: this.config.CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS,
+                            maxTouchCount: this.config.CYCLOTRON_NODE_JANITOR_MAX_TOUCH_COUNT,
+                            cleanupGraceMs: this.config.CYCLOTRON_NODE_JANITOR_CLEANUP_GRACE_MS,
+                            poisonRecoveryEnabled: this.config.CYCLOTRON_NODE_POISON_PILL_RECOVERY_ENABLED,
+                            stallBackoffBaseMs: this.config.CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_BASE_MS,
+                            stallBackoffMaxMs: this.config.CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_MAX_MS,
                         },
-                        cleanupBatchSize: this.config.CYCLOTRON_NODE_JANITOR_CLEANUP_BATCH_SIZE,
-                        cleanupIntervalMs: this.config.CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS,
-                        stallTimeoutMs: this.config.CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS,
-                        maxTouchCount: this.config.CYCLOTRON_NODE_JANITOR_MAX_TOUCH_COUNT,
-                        cleanupGraceMs: this.config.CYCLOTRON_NODE_JANITOR_CLEANUP_GRACE_MS,
-                        poisonRecoveryEnabled: this.config.CYCLOTRON_NODE_POISON_PILL_RECOVERY_ENABLED,
-                        stallBackoffBaseMs: this.config.CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_BASE_MS,
-                        stallBackoffMaxMs: this.config.CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_MAX_MS,
-                    },
-                    invocationResults
-                )
-                await janitor.start()
-                return janitor.service
-            })
+                        invocationResults
+                    )
+                    await janitor.start()
+                    return janitor.service
+                })
+            }
         }
 
         if (capabilities.cdpCyclotronWorkerHogFlow) {

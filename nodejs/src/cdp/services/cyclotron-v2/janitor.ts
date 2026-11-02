@@ -8,6 +8,7 @@ import { captureException } from '~/common/utils/posthog'
 import { CYCLOTRON_INVOCATION_JOB_QUEUES, CyclotronJobInvocationHogFlow } from '../../types'
 import { v2JobToInvocation } from '../job-queue/job-queue-postgres-v2'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
+import { CYCLOTRON_JOBS_TABLE, CyclotronJobTable } from './tables'
 import {
     CYCLOTRON_COUNTER_MAX,
     CyclotronV2CleanupResult,
@@ -120,6 +121,7 @@ export class CyclotronV2Janitor {
     private readonly poisonRecoveryEnabled: boolean
     private readonly stallBackoffBaseMs: number
     private readonly stallBackoffMaxMs: number
+    private readonly table: CyclotronJobTable
 
     constructor(
         config: CyclotronV2JanitorConfig,
@@ -134,6 +136,7 @@ export class CyclotronV2Janitor {
             max: config.pool.maxConnections ?? 5,
             idleTimeoutMillis: config.pool.idleTimeoutMs ?? 30000,
         })
+        this.table = config.table ?? CYCLOTRON_JOBS_TABLE
         this.cleanupBatchSize = config.cleanupBatchSize ?? 10000
         this.cleanupIntervalMs = config.cleanupIntervalMs ?? 10000
         this.stallTimeoutMs = config.stallTimeoutMs ?? 30000
@@ -203,17 +206,17 @@ export class CyclotronV2Janitor {
         const result = await this.pool.query<{ status: string; count: string }>(
             `WITH to_delete AS (
                 SELECT id
-                FROM cyclotron_jobs
+                FROM ${this.table}
                 WHERE status IN ('completed', 'failed', 'canceled')
                   AND last_transition < $1
                 ORDER BY last_transition ASC
                 LIMIT $2
                 FOR UPDATE SKIP LOCKED
             )
-            DELETE FROM cyclotron_jobs
+            DELETE FROM ${this.table}
             USING to_delete
-            WHERE cyclotron_jobs.id = to_delete.id
-            RETURNING cyclotron_jobs.status::text`,
+            WHERE ${this.table}.id = to_delete.id
+            RETURNING ${this.table}.status::text`,
             [cutoff, this.cleanupBatchSize]
         )
 
@@ -247,12 +250,12 @@ export class CyclotronV2Janitor {
         const heartbeatCutoff = new Date(Date.now() - this.stallTimeoutMs)
 
         const result = await this.pool.query<{ id: string }>(
-            `UPDATE cyclotron_jobs
+            `UPDATE ${this.table}
              SET status = 'failed', lock_id = NULL, last_heartbeat = NULL,
                  last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX})
              WHERE id IN (
                  SELECT id
-                 FROM cyclotron_jobs
+                 FROM ${this.table}
                  WHERE status = 'running'
                    AND COALESCE(last_heartbeat, $1) <= $1
                    AND janitor_touch_count >= $2
@@ -297,7 +300,7 @@ export class CyclotronV2Janitor {
             `SELECT id, team_id, function_id, queue_name, priority, scheduled, created,
                     parent_run_id, state, distinct_id, person_id, action_id,
                     janitor_touch_count, transition_count
-             FROM cyclotron_jobs
+             FROM ${this.table}
              WHERE status = 'running'
                AND COALESCE(last_heartbeat, $1) <= $1
                AND janitor_touch_count >= $2
@@ -354,7 +357,7 @@ export class CyclotronV2Janitor {
         // the rows actually removed, so the metric/log reflect real give-ups
         // even if a concurrent janitor or worker raced us to some of them.
         const deleted = await this.pool.query<{ id: string }>(
-            `DELETE FROM cyclotron_jobs
+            `DELETE FROM ${this.table}
              WHERE id = ANY($1::uuid[])
                AND status = 'running'
                AND COALESCE(last_heartbeat, $2) <= $2
@@ -390,9 +393,9 @@ export class CyclotronV2Janitor {
         // pills get recorded. Skipping locked rows and capping the batch keeps the
         // wrapper drain from starving the rest of the sweep — leftovers drain next tick.
         const deleted = await this.pool.query<{ id: string }>(
-            `DELETE FROM cyclotron_jobs
+            `DELETE FROM ${this.table}
              WHERE id IN (
-                 SELECT id FROM cyclotron_jobs
+                 SELECT id FROM ${this.table}
                  WHERE status = 'running'
                    AND queue_name <> ALL($1::text[])
                    AND COALESCE(last_heartbeat, $2) <= $2
@@ -474,16 +477,16 @@ export class CyclotronV2Janitor {
         const result = await this.pool.query(
             `WITH stalled AS (
                 SELECT id
-                FROM cyclotron_jobs
+                FROM ${this.table}
                 WHERE status = 'running'
                   AND COALESCE(last_heartbeat, $1) <= $1
                 FOR UPDATE SKIP LOCKED
             )
-            UPDATE cyclotron_jobs
+            UPDATE ${this.table}
             SET status = 'available', lock_id = NULL, last_heartbeat = NULL,
                 janitor_touch_count = LEAST(janitor_touch_count + 1, ${CYCLOTRON_COUNTER_MAX})${backoffClause}
             FROM stalled
-            WHERE cyclotron_jobs.id = stalled.id`,
+            WHERE ${this.table}.id = stalled.id`,
             params
         )
 
@@ -534,7 +537,7 @@ export class CyclotronV2Janitor {
         const result = await this.pool.query<{ queue_name: string; count: string; oldest_due_age_ms: number }>(
             `SELECT queue_name, COUNT(*) as count,
                     EXTRACT(EPOCH FROM NOW() - MIN(scheduled))::float8 * 1000 as oldest_due_age_ms
-             FROM cyclotron_jobs
+             FROM ${this.table}
              WHERE status = 'available' AND scheduled <= NOW()
              GROUP BY queue_name`
         )

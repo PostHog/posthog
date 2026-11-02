@@ -29,6 +29,7 @@ export const CAPABILITIES_CDP_WORKFLOWS: PluginServerCapabilities = {
     cdpCyclotronWorkerEmail: true,
     cdpCyclotronWorkerEmailTransactional: true,
     cdpCyclotronV2Janitor: isDevEnv(),
+    cdpCyclotronV2JanitorTransactional: isDevEnv(),
     cdpHogflowScheduler: isDevEnv(),
     cdpHogflowSubscriptionMatcher: isDevEnv(),
     cdpCohortMembershipTriggers: true,
@@ -186,6 +187,10 @@ export function getPluginServerCapabilities(
         case PluginServerMode.cdp_cyclotron_v2_janitor:
             return {
                 cdpCyclotronV2Janitor: true,
+            }
+        case PluginServerMode.cdp_cyclotron_v2_janitor_transactional:
+            return {
+                cdpCyclotronV2JanitorTransactional: true,
             }
         case PluginServerMode.cdp_rerun_worker:
             return {

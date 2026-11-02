@@ -4,6 +4,8 @@ import { z } from 'zod'
 import type { BatchResolverResumeOutcome } from '~/cdp/services/hogflows/batch-resolver-resume'
 import { StepResume, StepResumeOutcome } from '~/cdp/services/hogflows/step-resume.service'
 
+import { CyclotronJobTable } from './tables'
+
 export type CyclotronV2JobStatus = 'available' | 'running' | 'completed' | 'failed' | 'canceled'
 
 // SMALLINT ceiling. Dequeue bumps the counter while claiming a batch, so one saturated row aborts the claim for every job in it.
@@ -223,6 +225,10 @@ export type CyclotronV2WorkerConfig = {
 
 export type CyclotronV2JanitorConfig = {
     pool: CyclotronV2PoolConfig
+    // The jobs table this janitor sweeps. Each lane gets its own janitor, so a long
+    // cleanup DELETE over the marketing table cannot delay transactional stalled-job
+    // recovery. Defaults to cyclotron_jobs.
+    table?: CyclotronJobTable
     cleanupBatchSize?: number
     cleanupIntervalMs?: number
     stallTimeoutMs?: number

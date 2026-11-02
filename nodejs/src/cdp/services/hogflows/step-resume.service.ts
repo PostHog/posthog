@@ -5,6 +5,8 @@ import { z } from 'zod'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 
+import { CYCLOTRON_JOB_TABLES } from '../cyclotron-v2/tables'
+
 export const WorkflowStepResumeSchema = z.object({
     origin_key: z.string().min(1),
     status: z.enum(['completed', 'failed', 'cancelled']),
@@ -69,14 +71,20 @@ export async function processStepResumes(
     const client = await pool.connect()
     try {
         await client.query('BEGIN')
-        const rows = await client.query(
-            `SELECT id, status, state FROM cyclotron_jobs WHERE id = ANY($1::uuid[])${
-                teamId === undefined ? '' : ' AND team_id = $2'
-            } ORDER BY id FOR UPDATE`,
-            teamId === undefined ? [[...byJob.keys()]] : [[...byJob.keys()], teamId]
-        )
+        // One statement per table rather than a UNION, because FOR UPDATE cannot lock
+        // through one. Always in the same table order, so the lock order is stable.
+        const selected: { id: string; status: string; state: Buffer | null }[] = []
+        for (const table of CYCLOTRON_JOB_TABLES) {
+            const rows = await client.query<{ id: string; status: string; state: Buffer | null }>(
+                `SELECT id, status, state FROM ${table} WHERE id = ANY($1::uuid[])${
+                    teamId === undefined ? '' : ' AND team_id = $2'
+                } ORDER BY id FOR UPDATE`,
+                teamId === undefined ? [[...byJob.keys()]] : [[...byJob.keys()], teamId]
+            )
+            selected.push(...rows.rows)
+        }
         const updates: { id: string; state: Buffer }[] = []
-        for (const row of rows.rows) {
+        for (const row of selected) {
             const jobResumes = byJob.get(row.id)!
             byJob.delete(row.id)
             // A job that is not parked yet cannot take the wake: the worker owns `state` while it
@@ -86,9 +94,10 @@ export async function processStepResumes(
                 continue
             }
             // One batch can carry a stale wake from an earlier visit next to the current one.
-            const state = row.state
+            const current = row.state
+            const state = current
                 ? jobResumes.reduce<Buffer | null>(
-                      (applied, resume) => applied ?? applyStepResumeToState(row.state, resume),
+                      (applied, resume) => applied ?? applyStepResumeToState(current, resume),
                       null
                   )
                 : null
@@ -102,15 +111,20 @@ export async function processStepResumes(
             outcomes.set(jobId, 'job_missing')
         }
         if (updates.length > 0) {
-            const updated = await client.query(
-                `UPDATE cyclotron_jobs cj
+            const written = new Set<string>()
+            for (const table of CYCLOTRON_JOB_TABLES) {
+                const updated = await client.query<{ id: string }>(
+                    `UPDATE ${table} cj
                  SET scheduled = NOW(), state = u.state
                  FROM (SELECT unnest($1::uuid[]) AS id, unnest($2::bytea[]) AS state) u
                  WHERE cj.id = u.id AND cj.status = 'available'
                  RETURNING cj.id`,
-                [updates.map((update) => update.id), updates.map((update) => update.state)]
-            )
-            const written = new Set(updated.rows.map((row) => row.id))
+                    [updates.map((update) => update.id), updates.map((update) => update.state)]
+                )
+                for (const row of updated.rows) {
+                    written.add(row.id)
+                }
+            }
             for (const update of updates) {
                 outcomes.set(update.id, written.has(update.id) ? 'delivered' : 'job_missing')
             }

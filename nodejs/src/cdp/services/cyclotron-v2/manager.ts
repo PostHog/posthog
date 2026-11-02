@@ -9,6 +9,7 @@ import { sleep } from '~/common/utils/utils'
 import { BatchResolverResumeOutcome, resumeParkedBatchResolver } from '../hogflows/batch-resolver-resume'
 import { StepResume, StepResumeOutcome, processStepResumes } from '../hogflows/step-resume.service'
 import { isEmailQueue } from '../messaging/email-queues'
+import { CYCLOTRON_JOB_TABLES, CyclotronJobTable, tableForQueue } from './tables'
 import {
     CYCLOTRON_COUNTER_MAX,
     CyclotronV2CancelJobsOptions,
@@ -120,6 +121,18 @@ export class CyclotronJobConflictError extends Error {
     }
 }
 
+/**
+ * The same query against every jobs table, unioned. Callers that only count can
+ * wrap this in an outer aggregate; callers that write run one statement per table
+ * instead, because a UNION is not writable.
+ *
+ * Bound parameters are shared across the branches, so every branch must use the
+ * same `$n` positions.
+ */
+function overAllTables(sql: (table: CyclotronJobTable) => string): string {
+    return CYCLOTRON_JOB_TABLES.map(sql).join('\n            UNION ALL\n            ')
+}
+
 export class CyclotronV2Manager {
     private pool: Pool
     private readonly depthLimit: number
@@ -182,20 +195,21 @@ export class CyclotronV2Manager {
                  lock_id = NULL,
                  last_heartbeat = NULL,
                  last_transition = EXCLUDED.last_transition,
-                 transition_count = LEAST(cyclotron_jobs.transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
+                 transition_count = LEAST(${tableForQueue(job.queueName)}.transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
                  parent_run_id = EXCLUDED.parent_run_id,
                  state = EXCLUDED.state,
                  distinct_id = EXCLUDED.distinct_id,
                  person_id = EXCLUDED.person_id,
                  action_id = EXCLUDED.action_id,
                  cancel_requested_at = NULL
-               WHERE cyclotron_jobs.status IN ('completed', 'failed', 'canceled')
+               WHERE ${tableForQueue(job.queueName)}.status IN ('completed', 'failed', 'canceled')
                RETURNING id`
             : 'RETURNING id'
+        const table = tableForQueue(job.queueName)
         let result: { rows: { id: string }[] }
         try {
             result = await this.pool.query<{ id: string }>(
-                `INSERT INTO cyclotron_jobs
+                `INSERT INTO ${table}
                  (id, team_id, function_id, queue_name, status, priority, scheduled, created,
                   lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition,
                   parent_run_id, state, distinct_id, person_id, action_id)
@@ -243,6 +257,28 @@ export class CyclotronV2Manager {
             return []
         }
 
+        // A mixed batch has to split, because an UNNEST insert names a single table.
+        const byTable = new Map<CyclotronJobTable, CyclotronV2JobInit[]>()
+        for (const input of inputs) {
+            const table = tableForQueue(input.queueName)
+            const group = byTable.get(table)
+            if (group) {
+                group.push(input)
+            } else {
+                byTable.set(table, [input])
+            }
+        }
+        if (byTable.size > 1) {
+            const results = await Promise.all(
+                [...byTable].map(([table, group]) => this.bulkCreateJobsInTable(table, group))
+            )
+            return results.flat()
+        }
+        const [[table, group]] = [...byTable]
+        return await this.bulkCreateJobsInTable(table, group)
+    }
+
+    private async bulkCreateJobsInTable(table: CyclotronJobTable, inputs: CyclotronV2JobInit[]): Promise<string[]> {
         const jobs = inputs.map((input) => CyclotronV2JobInitSchema.parse(input))
         const overwriteExisting = jobs.some((j) => j.overwriteExisting)
 
@@ -290,7 +326,7 @@ export class CyclotronV2Manager {
                  lock_id = NULL,
                  last_heartbeat = NULL,
                  last_transition = EXCLUDED.last_transition,
-                 transition_count = LEAST(cyclotron_jobs.transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
+                 transition_count = LEAST(${table}.transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
                  parent_run_id = EXCLUDED.parent_run_id,
                  state = EXCLUDED.state,
                  distinct_id = EXCLUDED.distinct_id,
@@ -298,13 +334,13 @@ export class CyclotronV2Manager {
                  action_id = EXCLUDED.action_id,
                  dequeue_seq = EXCLUDED.dequeue_seq,
                  cancel_requested_at = NULL
-               WHERE cyclotron_jobs.status IN ('completed', 'failed', 'canceled')
+               WHERE ${table}.status IN ('completed', 'failed', 'canceled')
                RETURNING id`
             : 'RETURNING id'
         let result: { rows: { id: string }[] }
         try {
             result = await this.pool.query<{ id: string }>(
-                `INSERT INTO cyclotron_jobs
+                `INSERT INTO ${table}
                  (id, team_id, function_id, queue_name, status, priority, scheduled, created,
                   lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition,
                   parent_run_id, state, distinct_id, person_id, action_id, dequeue_seq)
@@ -455,9 +491,13 @@ export class CyclotronV2Manager {
     // positionUnknown, never silently dropped.
     async countInFlightJobs(teamId: number, functionId: string): Promise<CyclotronV2InFlightCounts> {
         const result = await this.pool.query<{ action_id: string | null; count: number }>(
-            `SELECT action_id, COUNT(*)::int AS count FROM cyclotron_jobs
+            `SELECT action_id, SUM(count)::int AS count FROM (
+            ${overAllTables(
+                (table) => `SELECT action_id, COUNT(*)::int AS count FROM ${table}
              WHERE team_id = $1 AND function_id = $2 AND status IN ('available', 'running')
-             GROUP BY action_id`,
+             GROUP BY action_id`
+            )}
+            ) per_table GROUP BY action_id`,
             [teamId, functionId]
         )
         let count = 0
@@ -545,37 +585,43 @@ export class CyclotronV2Manager {
             const { sweepFloor, sweepUntil } = bounds
 
             let swept = 0
-            for (let chunk = 0; chunk < this.reschedule.maxChunksPerCall; chunk++) {
-                if (chunk > 0) {
-                    await sleep(this.reschedule.chunkSleepMs)
-                }
-                const result = await this.pool.query(
-                    `WITH candidates AS (
-                        SELECT id FROM cyclotron_jobs
+            for (const table of CYCLOTRON_JOB_TABLES) {
+                for (let chunk = 0; chunk < this.reschedule.maxChunksPerCall; chunk++) {
+                    if (chunk > 0) {
+                        await sleep(this.reschedule.chunkSleepMs)
+                    }
+                    const result = await this.pool.query(
+                        `WITH candidates AS (
+                        SELECT id FROM ${table}
                         WHERE team_id = $1 AND function_id = $2 AND status = 'available'
                           AND action_id = ANY($3::text[])
                           AND scheduled > $5
                         LIMIT $6
                         FOR UPDATE SKIP LOCKED
                     )
-                    UPDATE cyclotron_jobs j
+                    UPDATE ${table} j
                     SET scheduled = LEAST(j.scheduled, $4::timestamptz + random() * ($5::timestamptz - $4::timestamptz))
                     FROM candidates c
                     WHERE j.id = c.id`,
-                    [teamId, functionId, actionIds, sweepFloor, sweepUntil, this.reschedule.chunkSize]
-                )
-                swept += result.rowCount ?? 0
-                if ((result.rowCount ?? 0) < this.reschedule.chunkSize) {
-                    break
+                        [teamId, functionId, actionIds, sweepFloor, sweepUntil, this.reschedule.chunkSize]
+                    )
+                    swept += result.rowCount ?? 0
+                    if ((result.rowCount ?? 0) < this.reschedule.chunkSize) {
+                        break
+                    }
                 }
             }
             rescheduleSweptCounter.inc(swept)
 
             const remainingResult = await this.pool.query<{ count: number }>(
-                `SELECT COUNT(*)::int AS count FROM cyclotron_jobs
+                `SELECT SUM(count)::int AS count FROM (
+            ${overAllTables(
+                (table) => `SELECT COUNT(*)::int AS count FROM ${table}
                  WHERE team_id = $1 AND function_id = $2 AND status = 'available'
                    AND action_id = ANY($3::text[])
-                   AND scheduled > $4`,
+                   AND scheduled > $4`
+            )}
+            ) per_table`,
                 [teamId, functionId, actionIds, sweepUntil]
             )
             const remaining = remainingResult.rows[0].count
@@ -655,52 +701,61 @@ export class CyclotronV2Manager {
         // Parked rows: flag + wake. SKIP LOCKED skips rows a concurrent dequeue
         // is claiming; those turn 'running' and the second UPDATE catches them.
         const chunkLimitParam = params.length + 1
-        for (let chunk = 0; chunk < this.reschedule.maxChunksPerCall; chunk++) {
-            if (chunk > 0) {
-                await sleep(this.reschedule.chunkSleepMs)
-            }
-            const result = await this.pool.query(
-                `WITH candidates AS (
-                    SELECT id FROM cyclotron_jobs
+        for (const table of CYCLOTRON_JOB_TABLES) {
+            for (let chunk = 0; chunk < this.reschedule.maxChunksPerCall; chunk++) {
+                if (chunk > 0) {
+                    await sleep(this.reschedule.chunkSleepMs)
+                }
+                const result = await this.pool.query(
+                    `WITH candidates AS (
+                    SELECT id FROM ${table}
                     WHERE team_id = $1 AND function_id = $2 AND status = 'available'
                       AND cancel_requested_at IS NULL
                       ${selectorClause}
                     LIMIT $${chunkLimitParam}
                     FOR UPDATE SKIP LOCKED
                 )
-                UPDATE cyclotron_jobs j
+                UPDATE ${table} j
                 SET cancel_requested_at = NOW(), scheduled = LEAST(j.scheduled, NOW())
                 FROM candidates c
                 WHERE j.id = c.id`,
-                [...params, this.reschedule.chunkSize]
-            )
-            const n = result.rowCount ?? 0
-            marked += n
-            cancelMarkedCounter.labels({ status: 'available' }).inc(n)
-            if (n < this.reschedule.chunkSize) {
-                break
+                    [...params, this.reschedule.chunkSize]
+                )
+                const n = result.rowCount ?? 0
+                marked += n
+                cancelMarkedCounter.labels({ status: 'available' }).inc(n)
+                if (n < this.reschedule.chunkSize) {
+                    break
+                }
             }
         }
 
         // Rows held by a worker right now: bounded by worker concurrency, so
         // no chunking or wake write needed.
-        const runningResult = await this.pool.query(
-            `UPDATE cyclotron_jobs
+        let runningMarked = 0
+        for (const table of CYCLOTRON_JOB_TABLES) {
+            const runningResult = await this.pool.query(
+                `UPDATE ${table}
              SET cancel_requested_at = NOW()
              WHERE team_id = $1 AND function_id = $2 AND status = 'running'
                AND cancel_requested_at IS NULL
                ${selectorClause}`,
-            params
-        )
-        const runningMarked = runningResult.rowCount ?? 0
+                params
+            )
+            runningMarked += runningResult.rowCount ?? 0
+        }
         marked += runningMarked
         cancelMarkedCounter.labels({ status: 'running' }).inc(runningMarked)
 
         const remainingResult = await this.pool.query<{ count: number }>(
-            `SELECT COUNT(*)::int AS count FROM cyclotron_jobs
+            `SELECT SUM(count)::int AS count FROM (
+            ${overAllTables(
+                (table) => `SELECT COUNT(*)::int AS count FROM ${table}
              WHERE team_id = $1 AND function_id = $2 AND status IN ('available', 'running')
                AND cancel_requested_at IS NULL
-               ${selectorClause}`,
+               ${selectorClause}`
+            )}
+            ) per_table`,
             params
         )
         const remaining = remainingResult.rows[0].count
@@ -730,10 +785,14 @@ export class CyclotronV2Manager {
         actionIds: string[]
     ): Promise<{ sweepFloor: Date; sweepUntil: Date } | null> {
         const countResult = await this.pool.query<{ count: number }>(
-            `SELECT COUNT(*)::int AS count FROM cyclotron_jobs
+            `SELECT SUM(count)::int AS count FROM (
+            ${overAllTables(
+                (table) => `SELECT COUNT(*)::int AS count FROM ${table}
              WHERE team_id = $1 AND function_id = $2 AND status = 'available'
                AND action_id = ANY($3::text[])
-               AND scheduled > NOW() + make_interval(secs => $4)`,
+               AND scheduled > NOW() + make_interval(secs => $4)`
+            )}
+            ) per_table`,
             [teamId, functionId, actionIds, this.reschedule.floorSeconds]
         )
         const count = countResult.rows[0].count
@@ -775,8 +834,12 @@ export class CyclotronV2Manager {
     private async queryDepth(): Promise<boolean> {
         try {
             const result = await this.pool.query(
-                `SELECT COUNT(*) AS count FROM cyclotron_jobs
+                `SELECT SUM(count) AS count FROM (
+            ${overAllTables(
+                (table) => `SELECT COUNT(*) AS count FROM ${table}
                  WHERE status = 'available' AND scheduled <= NOW()`
+            )}
+            ) per_table`
             )
             const count = parseInt(result.rows[0].count, 10)
             const full = count >= this.depthLimit

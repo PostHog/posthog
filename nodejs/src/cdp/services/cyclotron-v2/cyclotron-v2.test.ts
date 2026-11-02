@@ -118,6 +118,23 @@ async function queryJob(id: string): Promise<RawJobRow> {
     return res.rows[0]
 }
 
+async function queryTransactionalJobs(id: string): Promise<(RawJobRow & { dequeue_seq: string | null })[]> {
+    const res = await assertPool.query<RawJobRow & { dequeue_seq: string | null }>(
+        'SELECT * FROM cyclotron_jobs_transactional WHERE id = $1',
+        [id]
+    )
+    return res.rows
+}
+
+async function countJobRows(id: string): Promise<number> {
+    const res = await assertPool.query<{ count: string }>(
+        `SELECT (SELECT COUNT(*) FROM cyclotron_jobs WHERE id = $1)
+              + (SELECT COUNT(*) FROM cyclotron_jobs_transactional WHERE id = $1) AS count`,
+        [id]
+    )
+    return parseInt(res.rows[0].count, 10)
+}
+
 // Compares in the database: `scheduled` and Date.now() are different clocks and skew.
 async function jobIsDue(id: string): Promise<boolean> {
     const res = await assertPool.query<{ due: boolean }>(
@@ -207,6 +224,7 @@ describe('Cyclotron V2', () => {
 
     beforeEach(async () => {
         await assertPool.query('DELETE FROM cyclotron_jobs')
+        await assertPool.query('DELETE FROM cyclotron_jobs_transactional')
     })
 
     async function seedAndDequeue(
@@ -1689,6 +1707,33 @@ describe('Cyclotron V2', () => {
             expect(row.status).toBe('available')
             expect(row.lock_id).toBeNull()
             expect(row.transition_count).toBe(2) // dequeue + reschedule
+        })
+
+        it('reschedule({ queueName }) onto the transactional lane moves the row to its table', async () => {
+            const { id, job } = await seedAndDequeue()
+
+            await job.reschedule({ queueName: 'emailtransactional' })
+
+            const moved = await queryTransactionalJobs(id)
+            expect(moved).toHaveLength(1)
+            expect(moved[0].queue_name).toBe('emailtransactional')
+            expect(moved[0].status).toBe('available')
+            expect(moved[0].lock_id).toBeNull()
+            // The lane uses fair dequeue, so the move has to assign a sort key — a NULL
+            // one sorts ahead of every fair-ordered row.
+            expect(moved[0].dequeue_seq).not.toBeNull()
+            expect(await countJobRows(id)).toBe(1)
+        })
+
+        it('a lane move under a stale lock writes nothing, leaving the row where it was', async () => {
+            const { id, job } = await seedAndDequeue()
+            // Another worker took over: the janitor reset the row and it was re-locked.
+            await assertPool.query('UPDATE cyclotron_jobs SET lock_id = gen_random_uuid() WHERE id = $1', [id])
+
+            await job.reschedule({ queueName: 'emailtransactional' })
+
+            expect(await queryTransactionalJobs(id)).toHaveLength(0)
+            expect((await queryJob(id)).queue_name).toBe(QUEUE)
         })
 
         it('reschedule({ scheduledAt }) schedules into the future', async () => {
