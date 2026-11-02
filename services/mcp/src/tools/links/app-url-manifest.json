@@ -384,6 +384,11 @@
         "params": [],
         "scope": "project"
     },
+    "ciTrustPolicyRequest": {
+        "template": "/ci-trust-policy-requests/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
     "cliAuthorize": {
         "template": "/cli/authorize",
         "params": [],
