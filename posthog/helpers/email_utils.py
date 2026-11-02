@@ -33,16 +33,21 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 
-# The `{0,32}` limit keeps the scan linear. A longer scheme still matches from a letter nearer to `://`.
+# The lookbehind and the possessive repeats scan each run of scheme characters once, which keeps the scan linear.
 _URL_SCHEME_RE = re.compile(
-    r"[a-z][a-z0-9+.\-]{0,32}://"
+    r"(?<![a-z0-9+.\-])[0-9+.\-]*+[a-z][a-z0-9+.\-]*+://"
     r"|\b(?:javascript|data|vbscript|file|ftp|mailto|tel|sms):"
     r"|www\.",
     re.IGNORECASE,
 )
 # re2 keeps the scan linear. Do not limit the label count to get this with `re`, because a match
 # would then stop inside a long chain and leave the domain at its end linkable.
-_BARE_DOMAIN_RE = re2.compile(r"(?i)\b(?:[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}\b")
+# re2 case folding excludes `ı` and `İ`, so the pattern names them. Its `\b` treats them as non-word
+# characters, so the pattern has no `\b`. Without `\b`, some text gets an extra invisible defang.
+_BARE_DOMAIN_RE = re2.compile(
+    r"(?i)(?:[a-z0-9\x{130}\x{131}](?:[a-z0-9\x{130}\x{131}\-]{0,61}[a-z0-9\x{130}\x{131}])?\.)+"
+    r"[a-z\x{130}\x{131}]{2,24}"
+)
 _CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f\u0085\u2028\u2029]")
 _NON_NEWLINE_CONTROL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f\u0085\u2028\u2029]")
 _BRACKET_RE = re.compile(r"[<>]")
