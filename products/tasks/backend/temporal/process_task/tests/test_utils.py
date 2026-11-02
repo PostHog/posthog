@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import time_machine
 from unittest.mock import MagicMock, call, patch
 
@@ -15,6 +17,7 @@ from posthog.models.user_integration import UserGitHubIntegration, UserIntegrati
 from products.mcp_store.backend.facade.contracts import ActiveInstallation, SandboxInstallations
 from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, RESUME_SNAPSHOT_KIND
 from products.tasks.backend.exceptions import CredentialUnavailableError
+from products.tasks.backend.facade.profiles import get_task_profile
 from products.tasks.backend.models import Task
 from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.temporal.process_task.utils import (
@@ -42,12 +45,15 @@ from products.tasks.backend.temporal.process_task.utils import (
     is_bot_authorship_fallback,
     is_caller_token_run,
     loop_mcp_installation_allowlist,
+    mcp_exclude_tools_for_task,
     mcp_exclude_tools_from_state,
     mcp_exec_skills_env_vars,
     parse_run_state,
     sanitize_mcp_exclude_tools,
     upgrade_run_to_user_authorship,
 )
+
+BUSINESS_KNOWLEDGE = get_task_profile("business_knowledge")
 
 
 class TestRuntimeModelCapabilities(SimpleTestCase):
@@ -418,6 +424,24 @@ class TestMcpExcludeTools(SimpleTestCase):
         assert mcp_exclude_tools_from_state({"mcp_exclude_tools": ["docs-search", 1]}) == ["docs-search"]
         assert mcp_exclude_tools_from_state({"mcp_exclude_tools": "docs-search"}) == []
         assert mcp_exclude_tools_from_state(None) == []
+
+    @parameterized.expand(
+        [
+            ("no_profile", None, ["docs-search"], ["docs-search"]),
+            ("profile_only", ("user-get",), None, ["user-get"]),
+            ("profile_and_run", ("user-get",), ["docs-search", "user-get"], ["user-get", "docs-search"]),
+            ("profile_hides_nothing", (), ["docs-search"], ["docs-search"]),
+        ]
+    )
+    def test_mcp_exclude_tools_for_task_adds_the_run_to_the_profile(
+        self, _name: str, profile_tools: tuple[str, ...] | None, run_tools: list[str] | None, expected: list[str]
+    ) -> None:
+        task = MagicMock()
+        task.stored_profile = (
+            None if profile_tools is None else replace(BUSINESS_KNOWLEDGE, mcp_exclude_tools=profile_tools)
+        )
+        state = None if run_tools is None else {"mcp_exclude_tools": run_tools}
+        assert mcp_exclude_tools_for_task(task, state) == expected
 
 
 class TestMcpServerConfigToDict(SimpleTestCase):
