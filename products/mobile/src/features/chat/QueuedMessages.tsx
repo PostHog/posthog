@@ -1,4 +1,5 @@
-import type { ReactElement } from 'react'
+import * as Clipboard from 'expo-clipboard'
+import { type ReactElement, useState } from 'react'
 import { ActivityIndicator, ScrollView, Text, View } from 'react-native'
 
 import { CloseIcon } from '@/ui/icons/CloseIcon'
@@ -11,6 +12,8 @@ import type { QueuedMessage } from './messageQueue'
 interface QueuedMessagesProps {
     rows: QueuedMessage[]
     held: boolean
+    delivering: boolean
+    notice?: string
     onRemove: (id: string) => void
     onSendNow: () => void
     sendNowDisabledReason?: string
@@ -20,11 +23,14 @@ interface QueuedMessagesProps {
 export function QueuedMessages({
     rows,
     held,
+    delivering,
+    notice,
     onRemove,
     onSendNow,
     sendNowDisabledReason,
     sendNowPending,
 }: QueuedMessagesProps): ReactElement | null {
+    const [copyNotice, setCopyNotice] = useState<string>()
     const colors = useColors()
     const styles = useStyles()
     if (rows.length === 0) {
@@ -35,7 +41,9 @@ export function QueuedMessages({
         <View style={styles.banner} testID="chat-queue">
             <View style={styles.header}>
                 <Text style={styles.label} accessibilityLiveRegion="polite">
-                    {`${rows.length} queued${held ? ', not sent yet' : ''}`}
+                    {delivering
+                        ? 'Sending queued messages'
+                        : `${rows.length} queued${held ? ', review before sending' : ''}`}
                 </Text>
                 <Pressable44
                     onPress={onSendNow}
@@ -51,6 +59,16 @@ export function QueuedMessages({
                     <Text style={styles.sendNowLabel}>Send now</Text>
                 </Pressable44>
             </View>
+            {copyNotice ? (
+                <Text style={styles.reason} accessibilityLiveRegion="polite">
+                    {copyNotice}
+                </Text>
+            ) : null}
+            {notice && !delivering ? (
+                <Text style={styles.reason} accessibilityLiveRegion="polite">
+                    {notice}
+                </Text>
+            ) : null}
             {sendNowDisabledReason ? <Text style={styles.reason}>{sendNowDisabledReason}</Text> : null}
             {/* Capped so a long queue cannot push the composer off the screen. */}
             <ScrollView
@@ -63,13 +81,34 @@ export function QueuedMessages({
                         <Text style={styles.rowText} numberOfLines={2}>
                             {row.text}
                         </Text>
-                        {row.attachments.length > 0 ? (
+                        {(row.missingAttachments ?? 0) > 0 ? (
+                            <Text style={styles.rowFiles}>Reattach files</Text>
+                        ) : row.attachments.length > 0 ? (
                             <Text style={styles.rowFiles} testID="chat-queue-row-files">
                                 {row.attachments.length === 1 ? '1 file' : `${row.attachments.length} files`}
                             </Text>
                         ) : null}
+                        {row.missingAttachments ? (
+                            <Pressable44
+                                onPress={() => {
+                                    void Clipboard.setStringAsync(row.text).then(
+                                        () =>
+                                            setCopyNotice(
+                                                'Copied. Remove the queued message, paste the text, and attach the files again.'
+                                            ),
+                                        () => setCopyNotice("Couldn't copy the text. Try again.")
+                                    )
+                                }}
+                                accessibilityLabel="Copy queued text"
+                                style={styles.remove}
+                                pressedBackground={colors.pressed}
+                            >
+                                <Text style={styles.rowFiles}>Copy</Text>
+                            </Pressable44>
+                        ) : null}
                         <Pressable44
                             onPress={() => onRemove(row.id)}
+                            disabled={sendNowPending}
                             accessibilityLabel="Remove from queue"
                             pressedBackground={colors.pressed}
                             style={styles.remove}
