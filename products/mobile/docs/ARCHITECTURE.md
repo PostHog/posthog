@@ -198,11 +198,25 @@ Details per domain: [DATA.md](DATA.md), [HANDOFF.md](HANDOFF.md), [CHAT.md](CHAT
 
 ## Offline read cache
 
-`src/features/offlineCache.ts` connects the authenticated account to the bounded TanStack read cache in `src/api/readCache.ts`. It uses the chunked native SecureStore adapter in `src/lib/secureStorage.ts`, shared with chat drafts. Project manifests point to separate entries, so a save writes only changed entries. A recovery journal tracks unfinished chunk revisions until cleanup succeeds, including after a restart or removal. Operations on each storage key run in order. The web preview keeps this storage in memory.
+`src/features/offlineCache.ts` scopes persistence to the verified account and project.
+`src/api/readCache.ts` restores and tracks eligible TanStack queries.
+`src/api/readCacheStore.ts` enforces limits and stores each entry through `src/lib/secureStorage.ts`.
+Native builds use SecureStore; the web preview uses memory.
 
-The cache stores the first 20 inbox reports as rendered list models and supported aggregate analytics snapshots. It excludes report bodies, chat transcripts, mutations, actor/person rows, searches, and SQL results. Inbox fallback is a separate read-only query, so incomplete API responses never enter the live inbox query. Cached data keeps its original update times. Offline restoration adds no cache notices; Views use the usual refresh status. Views already opened on the device remain reachable through the existing Recent list; unopened server shortcuts and Browse lists are not cached. Report details and writes still require a connection.
+The allowlist covers aggregate Views and the first 20 Inbox rows, including signal counts.
+It excludes report bodies, transcripts, actor rows, searches, SQL results, and mutations.
+Inbox snapshots use a separate read-only query.
 
-Entries expire after 24 hours. Memory garbage collection keeps saved copies, and the active project retains its restored inbox before the first visit. Saved inbox rows include signal counts and the successful first-page capture time; pagination, page trimming, and read-state updates preserve that time. Metadata-only reads do not renew result capture times or hide saved results during hydration. Each account/project keeps at most 24 entries, 32 KiB per entry and 128 KiB total, measured as UTF-8 JSON. Each account keeps at most eight recently saved projects. This cache never prunes chat drafts. Oversized entries are skipped. Account keys hash the host and user UUID, and each project has a separate namespace. Hydration requires the matching secure session owner and cannot replace a newer response or complete into another scope. A failed storage read preserves saved entries and retries hydration before replacement saves resume. Signing out clears all cached projects for that account. A missing Views scope clears Views entries across all indexed projects for the account, including projects not opened during the current launch. An online 401, 403, 404, or Views permission error evicts the affected saved data from its original project, including requests that finish after a project switch; offline access changes can only be detected when the app reconnects.
+- **Limits:** 24-hour TTL, 24 entries per project, 32 KiB per entry, 128 KiB per project, and eight projects per account.
+  Size limits measure UTF-8 JSON.
+- **Freshness:** Preserve successful capture times across failed refreshes, metadata updates, and pagination.
+  Query garbage collection leaves disk entries intact.
+- **Restoration:** Require the matching host, user, and project. Keep newer live data.
+  Retry failed reads before replacement saves resume.
+- **Access:** Evict denied data from its original project, including late responses after a project switch.
+  Missing Views scopes purge Views across the account. Sign-out clears the account cache.
+- **Storage:** Write only changed entries. Serialize operations per key and journal unfinished chunks until cleanup succeeds.
+  The adapter is shared with chat drafts; cache eviction preserves drafts.
 
 ## Module boundaries
 
