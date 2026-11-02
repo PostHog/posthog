@@ -10,10 +10,10 @@ from parameterized import parameterized
 
 from posthog.models import Team
 
-from products.error_tracking.backend.models import ErrorTrackingIssue
+from products.error_tracking.backend.facade.testing import create_issue
 from products.signals.backend.error_tracking_reports import references_error_tracking_issue
 from products.signals.backend.models import ArtefactAttribution, SignalReport
-from products.signals.backend.report_merge import merge_reports
+from products.signals.backend.report_merge import merge_reports, merge_survivor_ids
 from products.signals.backend.temporal.signal_queries import fetch_live_report_ids_for_source_ids
 
 VIEWS_FETCH = "products.signals.backend.views.fetch_live_report_ids_for_source_ids"
@@ -28,6 +28,8 @@ class TestErrorTrackingIssueReferences(SimpleTestCase):
             ("canonical", f"[error](https://us.posthog.com/project/2/error-tracking/{TICKET_ID})", True),
             ("legacy", f"[error](https://app.posthog.com/project/2/error_tracking/{TICKET_ID}?x=1#events)", True),
             ("relative", f"[error](/error-tracking/{TICKET_ID}/)", True),
+            ("inline code", f"`https://us.posthog.com/project/2/error-tracking/{TICKET_ID}`", True),
+            ("code block", f"```\n/error_tracking/{TICKET_ID}\n```", True),
             ("bare id", TICKET_ID, False),
             ("other project", f"https://us.posthog.com/project/3/error-tracking/{TICKET_ID}", False),
             ("other host", f"https://example.com/project/2/error-tracking/{TICKET_ID}", False),
@@ -114,39 +116,40 @@ class TestReportsSourceIdFilter(APIBaseTest):
         fetch.assert_not_called()
 
     def test_error_tracking_filter_reuses_visible_reports_and_ignores_untrusted_report_ids(self) -> None:
-        issue = ErrorTrackingIssue.objects.create(team=self.team, name="Example error")
+        issue_id = create_issue(team_id=self.team.id, name="Example error")
         suppressed = SignalReport.objects.create(team=self.team, status=SignalReport.Status.SUPPRESSED)
         deleted = SignalReport.objects.create(team=self.team, status=SignalReport.Status.DELETED)
         with patch(
             "products.signals.backend.error_tracking_reports.execute_hogql_query",
             return_value=SimpleNamespace(
                 results=[
-                    [str(self.linked.id), str(issue.id), "evidence"],
-                    [str(suppressed.id), str(issue.id), "evidence"],
-                    [str(deleted.id), str(issue.id), "evidence"],
-                    ["invalid-report-id", str(issue.id), "evidence"],
+                    [str(self.linked.id), str(issue_id), "error_tracking", "evidence"],
+                    [str(suppressed.id), str(issue_id), "error_tracking", "evidence"],
+                    [str(deleted.id), str(issue_id), "error_tracking", "evidence"],
+                    ["invalid-report-id", str(issue_id), "error_tracking", "evidence"],
                 ]
             ),
         ):
-            response = self.client.get(self._url(f"error_tracking_issue_id={issue.id}"))
+            response = self.client.get(self._url(f"error_tracking_issue_id={issue_id}"))
 
         assert response.status_code == 200
         assert [row["id"] for row in response.json()["results"]] == [str(self.linked.id)]
 
     @parameterized.expand([("unknown", False), ("other team", True)])
     def test_unknown_error_tracking_issue_skips_evidence_query(self, _name: str, other_team: bool) -> None:
+        issue_id = UUID(TICKET_ID)
         if other_team:
             team = Team.objects.create(organization=self.organization, name="Another project")
-            ErrorTrackingIssue.objects.create(team=team, id=TICKET_ID, name="Other project's error")
+            issue_id = create_issue(team_id=team.id, name="Other project's error")
         with patch("products.signals.backend.error_tracking_reports.execute_hogql_query") as query:
-            response = self.client.get(self._url(f"error_tracking_issue_id={TICKET_ID}"))
+            response = self.client.get(self._url(f"error_tracking_issue_id={issue_id}"))
 
         assert response.status_code == 200
         assert response.json()["results"] == []
         query.assert_not_called()
 
     def test_error_tracking_filter_returns_merge_survivor_before_signal_move(self) -> None:
-        issue = ErrorTrackingIssue.objects.create(team=self.team, name="Example error")
+        issue_id = create_issue(team_id=self.team.id, name="Example error")
         merge_reports(
             team=self.team,
             survivor=self.linked,
@@ -155,12 +158,37 @@ class TestReportsSourceIdFilter(APIBaseTest):
         )
         with patch(
             "products.signals.backend.error_tracking_reports.execute_hogql_query",
-            return_value=SimpleNamespace(results=[[str(self.unlinked.id), str(issue.id), "evidence"]]),
+            return_value=SimpleNamespace(
+                results=[[str(self.unlinked.id), str(issue_id), "error_tracking", "evidence"]]
+            ),
         ):
-            response = self.client.get(self._url(f"error_tracking_issue_id={issue.id}"))
+            response = self.client.get(self._url(f"error_tracking_issue_id={issue_id}"))
 
         assert response.status_code == 200
         assert [row["id"] for row in response.json()["results"]] == [str(self.linked.id)]
+
+    def test_merge_resolution_queries_each_shared_level_once(self) -> None:
+        sources = SignalReport.objects.bulk_create(
+            [SignalReport(team=self.team, status=SignalReport.Status.READY) for _ in range(20)]
+        )
+        for offset in (0, 10):
+            merge_reports(
+                team=self.team,
+                survivor=self.unlinked,
+                source_ids=[str(report.id) for report in sources[offset : offset + 10]],
+                attribution=ArtefactAttribution.from_user(self.user.id),
+            )
+        merge_reports(
+            team=self.team,
+            survivor=self.linked,
+            source_ids=[str(self.unlinked.id)],
+            attribution=ArtefactAttribution.from_user(self.user.id),
+        )
+
+        with self.assertNumQueries(5):
+            survivors = merge_survivor_ids(team_id=self.team.id, report_ids=[str(report.id) for report in sources])
+
+        assert survivors == {str(self.linked.id)}
 
     def test_rejects_malformed_error_tracking_issue_id(self) -> None:
         response = self.client.get(self._url("error_tracking_issue_id=invalid"))

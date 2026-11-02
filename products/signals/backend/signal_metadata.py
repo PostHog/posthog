@@ -56,6 +56,7 @@ def _deduped_signals_subquery(
     include_content: bool = True,
     extra_where: str | None = None,
     candidate_document_filter: str | None = None,
+    candidate_document_limit: int | None = None,
 ) -> str:
     """Build the shared signal dedup subquery with an optional extra document_embeddings filter.
 
@@ -66,6 +67,8 @@ def _deduped_signals_subquery(
     NOT restrict which versions feed the argMax, so "latest version wins" is preserved and the caller's
     own outer filter stays authoritative. Use it for re-groupable fields like `report_id`; use
     `extra_where` only for fields that are stable across a document's versions (e.g. `source_id`).
+    `candidate_document_limit` caps that slice by the most recently inserted matching version,
+    before aggregating full content and metadata across each candidate's versions.
 
     `include_content=False` skips the heavy `content` column for callers that only aggregate metadata.
 
@@ -74,6 +77,8 @@ def _deduped_signals_subquery(
     """
     if extra_where and candidate_document_filter:
         raise ValueError("_deduped_signals_subquery: extra_where and candidate_document_filter are mutually exclusive")
+    if candidate_document_limit is not None and (not candidate_document_filter or candidate_document_limit < 1):
+        raise ValueError("candidate_document_limit requires a candidate filter and a positive limit")
     selected_columns = ["document_id"]
     if include_content:
         selected_columns.append("argMax(content, inserted_at) as content")
@@ -116,14 +121,22 @@ def _deduped_signals_subquery(
 
     candidate_bound = ""
     if candidate_document_filter:
+        candidate_selection = "SELECT DISTINCT document_id"
+        candidate_ordering = ""
+        if candidate_document_limit is not None:
+            candidate_selection = "SELECT document_id"
+            candidate_ordering = (
+                f"GROUP BY document_id ORDER BY max(inserted_at) DESC, document_id LIMIT {candidate_document_limit}"
+            )
         candidate_bound = f"""
           AND document_id IN (
-              SELECT DISTINCT document_id
+              {candidate_selection}
               FROM document_embeddings
               WHERE model_name = {{model_name}}
                 AND product = 'signals'
                 AND document_type = 'signal'
                 AND {candidate_document_filter}
+              {candidate_ordering}
           )"""
 
     return f"""

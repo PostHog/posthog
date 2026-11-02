@@ -155,6 +155,11 @@ describe('GuidanceEngine', () => {
         })
 
         it.each([
+            ['unavailable experiment assignment', { toolFeatureFlags: {} }],
+            [
+                'invalid experiment assignment',
+                { toolFeatureFlags: { [MCP_GUIDANCE_ERROR_TRACKING_SD_REPORTS_FLAG]: 'unexpected' } },
+            ],
             ['missing work-log tool', { allTools: tools.slice(0, -1) }],
             ['scout', { apiKeyScopes: ['signal_scout_internal:write'] }],
             ['sandbox', { apiKeyScopes: ['internal_run:read'] }],

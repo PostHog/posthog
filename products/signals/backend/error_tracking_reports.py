@@ -12,7 +12,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 
 from products.error_tracking.backend.facade.api import issue_exists_by_id
 from products.signals.backend.models import SignalReport
-from products.signals.backend.report_merge import merge_survivor
+from products.signals.backend.report_merge import merge_survivor_ids
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL, _deduped_signals_subquery, _signals_query_context
 
 if TYPE_CHECKING:
@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 _REFERENCE_CANDIDATE_LIMIT = 1000
 _URL_PATTERN = re.compile(
-    r"(?<![\w:+.-])https?://[^\s<>\[\]()\"']+|(?<![\w:/])/(?:project/\d+/)?error[-_]tracking/[^\s<>\[\]()\"']+"
+    r"(?<![\w:+.-])https?://[^\s<>\[\]()\"'`]+|(?<![\w:/])/(?:project/\d+/)?error[-_]tracking/[^\s<>\[\]()\"'`]+"
 )
 _ISSUE_PATH_PATTERN = re.compile(r"/(?:project/(?P<team_id>\d+)/)?error[-_]tracking/(?P<issue_id>[0-9a-f-]+)/?", re.I)
 
@@ -53,10 +53,12 @@ def _signal_report_ids(team: "Team", issue_id: UUID) -> set[str]:
     # A citation can be removed by an evidence edit, so select candidate documents first and
     # deduplicate all their versions before checking the current content.
     candidates = (
-        "(JSONExtractString(metadata, 'source_id') = {issue_id} OR positionCaseInsensitive(content, {issue_id}) > 0)"
+        "((JSONExtractString(metadata, 'source_product') IN ('error_tracking', 'signals_scout') "
+        "AND JSONExtractString(metadata, 'source_id') = {issue_id}) "
+        "OR positionCaseInsensitive(content, {issue_id}) > 0)"
     )
     query = f"""
-        SELECT report_id, source_id, content
+        SELECT report_id, source_id, source_product, content
         FROM (
             SELECT
                 JSONExtractString(metadata, 'report_id') as report_id,
@@ -65,12 +67,12 @@ def _signal_report_ids(team: "Team", issue_id: UUID) -> set[str]:
                 JSONExtractBool(metadata, 'deleted') as is_deleted,
                 content,
                 timestamp
-            FROM ({_deduped_signals_subquery(candidate_document_filter=candidates)})
+            FROM ({_deduped_signals_subquery(candidate_document_filter=candidates, candidate_document_limit=_REFERENCE_CANDIDATE_LIMIT)})
         )
         WHERE NOT is_deleted
           AND report_id != ''
-          AND source_product IN ('error_tracking', 'signals_scout')
-          AND (source_id = {{issue_id}} OR positionCaseInsensitive(content, {{issue_id}}) > 0)
+          AND ((source_product IN ('error_tracking', 'signals_scout') AND source_id = {{issue_id}})
+            OR positionCaseInsensitive(content, {{issue_id}}) > 0)
         ORDER BY timestamp DESC, report_id, source_id
         LIMIT {{candidate_limit}}
     """
@@ -87,10 +89,9 @@ def _signal_report_ids(team: "Team", issue_id: UUID) -> set[str]:
         },
     )
     report_ids: set[str] = set()
-    for report_id, source_id, content in result.results or []:
-        if source_id != str(issue_id) and not references_error_tracking_issue(
-            content, issue_id=issue_id, team_id=team.id
-        ):
+    for report_id, source_id, source_product, content in result.results or []:
+        source_matches = source_product in {"error_tracking", "signals_scout"} and source_id == str(issue_id)
+        if not source_matches and not references_error_tracking_issue(content, issue_id=issue_id, team_id=team.id):
             continue
         try:
             report_ids.add(str(UUID(report_id)))
@@ -115,7 +116,4 @@ def reports_referencing_error_tracking_issue(*, team: "Team", issue_id: UUID) ->
         for report_id, summary in summaries
         if summary is not None and references_error_tracking_issue(summary, issue_id=issue_id, team_id=team.id)
     )
-    reports = SignalReport.objects.filter(team_id=team.id, id__in=report_ids).exclude(
-        status=SignalReport.Status.DELETED
-    )
-    return {str(merge_survivor(report).id) for report in reports}
+    return merge_survivor_ids(team_id=team.id, report_ids=report_ids)

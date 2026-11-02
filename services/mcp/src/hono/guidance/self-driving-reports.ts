@@ -44,6 +44,7 @@ export async function selfDrivingReportsGuidance(
         typeof issueId !== 'string' ||
         !ISSUE_ID_PATTERN.test(issueId) ||
         !projectId ||
+        typeof state.toolFeatureFlags?.[MCP_GUIDANCE_ERROR_TRACKING_SD_REPORTS_FLAG] !== 'boolean' ||
         state.isTaskBound ||
         state.sandboxTaskId !== undefined ||
         resolveScopePreset(state.apiKeyScopes) !== 'user' ||
@@ -89,6 +90,7 @@ export async function selfDrivingReportsGuidance(
                       'before deciding whether the findings or linked PRs help with the current task.',
                       'Also use `inbox-reports-list` with `search` set to the issue name or distinctive error terms',
                       'to investigate related reports, including when the exact lookup returns nothing.',
+                      'Check report freshness and whether its evidence covers the current occurrence.',
                       'An exact reference does not prove a linked PR fixes this error; check its scope and latest known state.',
                       'Completed setup does not mean Self-driving is currently running.',
                   ].join(' '),
