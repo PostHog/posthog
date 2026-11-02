@@ -1,6 +1,7 @@
 import hmac
 import json
 import time
+from collections import Counter
 from typing import Any
 
 from posthog.test.base import BaseTest
@@ -56,10 +57,12 @@ class _FakeLinear:
         self.previous_state_type = previous_state_type
         self.failing_tokens = failing_tokens
         self.rate_limited_tokens = rate_limited_tokens or {}
+        self.requests_by_token: Counter[str] = Counter()
 
     def post(self, url: str, *, headers: dict[str, str], json: dict[str, Any], timeout: int) -> Mock:
         query, variables = json["query"], json["variables"]
         token = headers["Authorization"].removeprefix("Bearer ")
+        self.requests_by_token[token] += 1
         if token in self.rate_limited_tokens:
             reset_ms = int((time.time() + self.rate_limited_tokens[token]) * 1000)
             return Mock(
@@ -343,7 +346,9 @@ class TestLinearStatusSync(BaseTest):
             revoked_team = Team.objects.create(organization=self.organization, name="Revoked token")
             self._opt_in(revoked_team)
             self._linked_issue(revoked_team, self._linear_integration(revoked_team, token="revoked-token"), ["ENG-1"])
-        self._linked_issue(self.team, self._linear_integration(self.team), ["ENG-1"])
+        integration = self._linear_integration(self.team)
+        self._linked_issue(self.team, integration, ["ENG-1"])
+        self._linked_issue(self.team, integration, ["ENG-1"])
         linear = _FakeLinear(
             {"ENG-1": "completed"},
             "started",
@@ -358,6 +363,7 @@ class TestLinearStatusSync(BaseTest):
             self._sync(linear)
 
         assert 899 <= retry.call_args.kwargs["countdown"] <= 900
+        assert linear.requests_by_token["linear-token"] == 1
 
     @parameterized.expand(
         [("connection_error", redis_exceptions.ConnectionError), ("timeout", redis_exceptions.TimeoutError)]

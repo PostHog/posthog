@@ -128,13 +128,13 @@ def sync_status(job: contracts.LinearStatusSyncJob) -> None:
     # Each project reads Linear with its own token, so one revoked token must not keep every other
     # project's issue from syncing. One failure is raised after the loop so the task retries, and a
     # retry is a no-op for the issues that already changed.
-    previous_state = _PreviousStateType(job)
+    linear_reads = _LinearReads(job)
     failures: list[Exception] = []
     for issue in issues:
         try:
             with _issue_lock(issue.id):
                 _refresh_moved_identifiers(issue, job, workspace_integration_ids)
-                _sync_issue(issue, job, previous_state)
+                _sync_issue(issue, job, linear_reads)
         except Exception as error:
             logger.warning("linear_status_sync_issue_failed", issue_id=str(issue.id), team_id=issue.team_id)
             failures.append(error)
@@ -217,24 +217,43 @@ def _refresh_moved_identifiers(
         reference.save(update_fields=["external_context"])
 
 
-class _PreviousStateType:
-    """The category of the state the ticket left, read from Linear at most once per job."""
+class _LinearReads:
+    """The Linear reads of one job.
+
+    The job reads the category of the state the ticket left at most once. After Linear rate limits
+    an integration, the job sends no more reads with that integration's token, because Linear refuses
+    each of them until the limit resets. Those reads raise the first rate limit error again.
+    """
 
     def __init__(self, job: contracts.LinearStatusSyncJob) -> None:
         self._job = job
-        self._read = False
-        self._value: str | None = None
+        self._previous_state_read = False
+        self._previous_state_type: str | None = None
+        self._rate_limited: dict[int, LinearRateLimitedError] = {}
 
-    def get(self, integration: IntegrationRecord) -> str | None:
-        if not self._read:
-            self._value = LinearIntegration(integration).workflow_state_type(self._job.previous_state_id)
-            self._read = True
-        return self._value
+    def previous_state_type(self, integration: IntegrationRecord) -> str | None:
+        if not self._previous_state_read:
+            self._previous_state_type = self._read(
+                integration, lambda linear: linear.workflow_state_type(self._job.previous_state_id)
+            )
+            self._previous_state_read = True
+        return self._previous_state_type
+
+    def issue_state_types(self, integration: IntegrationRecord, identifiers: list[str]) -> dict[str, str]:
+        return self._read(integration, lambda linear: linear.issue_state_types(identifiers))
+
+    def _read[T](self, integration: IntegrationRecord, read: Callable[[LinearIntegration], T]) -> T:
+        rate_limited = self._rate_limited.get(integration.id)
+        if rate_limited is not None:
+            raise rate_limited
+        try:
+            return read(LinearIntegration(integration))
+        except LinearRateLimitedError as error:
+            self._rate_limited[integration.id] = error
+            raise
 
 
-def _sync_issue(
-    issue: ErrorTrackingIssue, job: contracts.LinearStatusSyncJob, previous_state: _PreviousStateType
-) -> None:
+def _sync_issue(issue: ErrorTrackingIssue, job: contracts.LinearStatusSyncJob, linear_reads: _LinearReads) -> None:
     references = list(ErrorTrackingExternalReference.objects.filter(issue_id=issue.id))
     # `get_many` returns only Linear rows, so the filter below also drops references to other providers.
     rows = IntegrationManager.linear.oauth.get_many(
@@ -254,7 +273,7 @@ def _sync_issue(
         return
 
     states = _current_state_types(
-        references, rows, current_trigger_identifier=job.identifiers[0], is_trigger=is_trigger
+        references, rows, linear_reads, current_trigger_identifier=job.identifiers[0], is_trigger=is_trigger
     )
     trigger_state = states.get(trigger_references[0].id)
     trigger = Trigger(
@@ -278,7 +297,7 @@ def _sync_issue(
     elif trigger_state in _OPEN_STATE_TYPES:
         # Only a move out of a closed state is a reopen. A ticket that moves from "Todo" to
         # "In Progress" must not reactivate an issue that someone resolved in PostHog.
-        if previous_state.get(rows[trigger_references[0].integration_id]) in _CLOSED_STATE_TYPES:
+        if linear_reads.previous_state_type(rows[trigger_references[0].integration_id]) in _CLOSED_STATE_TYPES:
             _transition(
                 issue,
                 expected=ErrorTrackingIssue.Status.RESOLVED,
@@ -317,6 +336,7 @@ def _stored_identifier(reference: ErrorTrackingExternalReference) -> str | None:
 def _current_state_types(
     references: list[ErrorTrackingExternalReference],
     rows: Mapping[int, IntegrationRecord],
+    linear_reads: _LinearReads,
     *,
     current_trigger_identifier: str,
     is_trigger: Callable[[ErrorTrackingExternalReference], bool],
@@ -335,7 +355,7 @@ def _current_state_types(
 
     states: dict[UUID, str] = {}
     for integration_id, by_reference in lookups.items():
-        found = LinearIntegration(rows[integration_id]).issue_state_types(sorted(set(by_reference.values())))
+        found = linear_reads.issue_state_types(rows[integration_id], sorted(set(by_reference.values())))
         for reference_id, identifier in by_reference.items():
             if identifier in found:
                 states[reference_id] = found[identifier]
