@@ -7,7 +7,6 @@ import { appScenes } from 'scenes/appScenes'
 import { redirects, routes } from 'scenes/scenes'
 
 function matchesRoute(pattern: string, path: string): boolean {
-    // Like kea-router, compare the part before the first param first, because building a pattern is slow.
     const staticPrefix = pattern.split(/[:*(]/)[0]
     return path.startsWith(staticPrefix) && new UrlPattern(pattern, urlPatternOptions).match(path) !== null
 }
@@ -32,14 +31,12 @@ export function sceneForPathname(pathname: string): string | null {
  * The boot timing event reports the scene, so a wrong guess shows up as a `prefetched_scene` that differs from `scene`.
  */
 export function prefetchScene(): void {
-    // Only a speed-up: sceneLogic loads the scene anyway, so a failure here must never stop the boot.
     try {
         const scene = sceneForPathname(window.location.pathname)
         const importScene = scene ? appScenes[scene] : undefined
         if (!scene || !importScene) {
             return
         }
-        // sceneLogic imports the same module again and reports a failure itself.
         Promise.resolve(importScene()).catch(() => {})
         markBootPhase('scene_prefetched', { prefetched_scene: scene })
     } catch (error) {
