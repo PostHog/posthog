@@ -1049,26 +1049,29 @@ class TestRepoRunsSearch(VisualReviewTeamScopedTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
-class TestMalformedUuidReturns400(VisualReviewTeamScopedTestMixin, APIBaseTest):
+class TestMalformedUuid(VisualReviewTeamScopedTestMixin, APIBaseTest):
     databases = PRODUCT_DATABASES
 
     # 13 hex chars in the final group — the shape that reached us from an MCP client.
     BAD_UUID = "4c4e61e7-192b-44cd-a0bf-c9ee996998625"
+    RUN_ID = "3f1c9f0e-2b7a-4a5f-9c1d-8e6b2a4f7d31"
 
     @parameterized.expand(
         [
-            ("run_retrieve", "runs/{bad}/"),
-            ("run_snapshots", "runs/{bad}/snapshots/"),
-            ("repo_retrieve", "repos/{bad}/"),
-            # Parent path segment (parents_query_dict) rather than pk.
-            ("repo_nested_runs", "repos/{bad}/runs/"),
+            ("run_retrieve", "get", "runs/{bad}/", status.HTTP_404_NOT_FOUND),
+            ("run_snapshots", "get", "runs/{bad}/snapshots/", status.HTTP_404_NOT_FOUND),
+            ("repo_retrieve", "get", "repos/{bad}/", status.HTTP_404_NOT_FOUND),
+            # A second path capture, declared in path_parameters next to pk.
+            ("cancel_lift", "post", "runs/{run}/quarantine_lifts/{bad}/cancel/", status.HTTP_404_NOT_FOUND),
+            # Parent path segment (parents_query_dict), which path_parameters does not parse.
+            ("repo_nested_runs", "get", "repos/{bad}/runs/", status.HTTP_400_BAD_REQUEST),
         ]
     )
-    def test_malformed_uuid_returns_400_not_500(self, _name: str, path: str) -> None:
-        suffix = path.format(bad=self.BAD_UUID)
-        response = self.client.get(f"/api/projects/{self.team.id}/visual_review/{suffix}")
+    def test_malformed_uuid_is_not_a_500(self, _name: str, method: str, path: str, expected_status: int) -> None:
+        suffix = path.format(bad=self.BAD_UUID, run=self.RUN_ID)
+        response = getattr(self.client, method)(f"/api/projects/{self.team.id}/visual_review/{suffix}")
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.status_code == expected_status, response.json()
 
 
 class TestSnapshotLookupRequiresIdentifier(VisualReviewTeamScopedTestMixin, APIBaseTest):
