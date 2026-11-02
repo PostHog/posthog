@@ -1,6 +1,7 @@
 use std::fs;
 use std::net::SocketAddr;
 use std::num::NonZeroU32;
+use std::str::FromStr;
 use std::time::Duration;
 
 use common_ingestion_warnings::RowWarningsSettings;
@@ -11,6 +12,26 @@ use personhog_coordination::authority::AuthorityClock;
 use personhog_coordination::pod::{
     PodConfig, DRAIN_SETUP_BOUND, REVOKE_TIMEOUT, SHUTDOWN_FENCE_BOUND,
 };
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PropertySource {
+    Postgres,
+    Slatedb,
+}
+
+impl FromStr for PropertySource {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "postgres" => Ok(PropertySource::Postgres),
+            "slatedb" => Ok(PropertySource::Slatedb),
+            other => Err(format!(
+                "unknown property source {other:?}; use postgres or slatedb"
+            )),
+        }
+    }
+}
 
 #[derive(Envconfig, Clone)]
 pub struct Config {
@@ -318,6 +339,12 @@ pub struct Config {
     /// pairs personhog_person_tmp on both — flip them together at cutover.
     #[envconfig(default = "posthog_person")]
     pub fallback_table: String,
+
+    #[envconfig(default = "postgres")]
+    pub property_source: PropertySource,
+
+    #[envconfig(nested = true)]
+    pub property_store: personhog_property_store::PropertyStoreConfig,
 
     /// Saga state tables the fence checks read (the takeover scan, the mark
     /// verifications, the ghost-fence healer). Must be the pair identity

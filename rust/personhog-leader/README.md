@@ -190,6 +190,10 @@ and warming can consume to a known endpoint without racing producers.
 
 - `WRITER_CONSUMER_GROUP` — group whose committed offset bounds the
   warming range.
+- `PROPERTY_SOURCE` — where a cold load reads properties: `postgres`
+  (default) or `slatedb`. In `slatedb` mode the row still comes from
+  Postgres and the properties from SlateDB (`PROPERTY_STORE_*`), so the
+  writer must be in `dual` or `slatedb` storage mode.
 - `WARM_COMMITTED_OFFSETS_TIMEOUT_SECS`, `WARM_FETCH_WATERMARKS_TIMEOUT_SECS`,
   `WARM_RECV_TIMEOUT_SECS` — Kafka call timeouts.
 - `WARM_RETRY_MAX_ATTEMPTS`, `WARM_RETRY_INITIAL_BACKOFF_MS`,

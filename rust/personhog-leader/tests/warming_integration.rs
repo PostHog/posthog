@@ -846,6 +846,7 @@ async fn the_prune_tick_settles_published_partitions_only() {
         &locks,
         &pools.offsets,
         Duration::from_secs(5),
+        &mut personhog_leader::settle::CommitDelay::new(Duration::ZERO),
         |_| false,
     )
     .await;
@@ -868,6 +869,7 @@ async fn the_prune_tick_settles_published_partitions_only() {
         &locks,
         &pools.offsets,
         Duration::from_secs(5),
+        &mut personhog_leader::settle::CommitDelay::new(Duration::ZERO),
         |_| false,
     )
     .await;
@@ -933,6 +935,7 @@ async fn the_prune_tick_settles_a_retired_streams_marks_without_offsets() {
             &locks,
             &pools.offsets,
             Duration::from_secs(5),
+            &mut personhog_leader::settle::CommitDelay::new(Duration::ZERO),
             |topic| topic == RETIRED_TOPIC,
         ),
     )
@@ -1005,6 +1008,7 @@ async fn the_prune_tick_drains_a_multi_chunk_death_backlog() {
         &locks,
         &pools.offsets,
         Duration::from_secs(5),
+        &mut personhog_leader::settle::CommitDelay::new(Duration::ZERO),
         |_| false,
     )
     .await;
@@ -1172,6 +1176,7 @@ async fn a_restart_warms_the_old_generations_congruent_tail_for_its_keys() {
         &locks,
         &pools.offsets,
         Duration::from_secs(5),
+        &mut personhog_leader::settle::CommitDelay::new(Duration::ZERO),
         |_| false,
     )
     .await;

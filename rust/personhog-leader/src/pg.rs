@@ -66,6 +66,23 @@ pub async fn load_person_from_pg(
     table: &str,
     key: &PersonCacheKey,
 ) -> Result<Option<CachedPerson>, sqlx::Error> {
+    load_person_row(pool, table, key, "properties::text").await
+}
+
+pub async fn load_person_stub_from_pg(
+    pool: &PgPool,
+    table: &str,
+    key: &PersonCacheKey,
+) -> Result<Option<CachedPerson>, sqlx::Error> {
+    load_person_row(pool, table, key, "'{}'::text").await
+}
+
+async fn load_person_row(
+    pool: &PgPool,
+    table: &str,
+    key: &PersonCacheKey,
+    properties_expr: &str,
+) -> Result<Option<CachedPerson>, sqlx::Error> {
     let start = Instant::now();
     let mut conn = acquire_timed(pool, "load_person").await?;
 
@@ -80,7 +97,7 @@ pub async fn load_person_from_pg(
     // A tombstoned person must not be re-served on a cache miss; not-found
     // is the truthful answer for a deleted person.
     let row = sqlx::query(&format!(
-        "SELECT id, team_id, uuid::text, properties::text AS properties, created_at, version, \
+        "SELECT id, team_id, uuid::text, {properties_expr} AS properties, created_at, version, \
          is_identified, last_seen_at
          FROM {table}
          WHERE team_id = $1 AND id = $2 AND is_deleted = false",
