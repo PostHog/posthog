@@ -98,6 +98,8 @@ describe('BulkDeleteResultsModal', () => {
         expect(screen.queryByLabelText('close')).not.toBeInTheDocument()
         fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape', code: 'Escape', keyCode: 27 })
         expect(logic.values.resultsModalVisible).toBe(true)
+        fireEvent.click(screen.getByText('Done'))
+        expect(logic.values.resultsModalVisible).toBe(true)
 
         // Once the restore fails, the results list it and close again.
         await act(async () => {
