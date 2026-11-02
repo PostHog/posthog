@@ -61897,6 +61897,8 @@ export namespace Schemas {
       /** Text to paste into Google Ads at this step, such as a campaign name or a keyword in match type syntax. */
       copyValue?: string | null;
       text: string;
+      /** Google Ads page for this step. It opens the section for the whole account, because links cannot filter to one campaign. */
+      url?: string | null;
     }
 
     export interface MarketingAnalyticsRecommendation {
