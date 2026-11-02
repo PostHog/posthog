@@ -5,9 +5,11 @@ import json
 import uuid
 import builtins
 import contextvars
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
 from enum import StrEnum
+from functools import partial
 from typing import Any, Optional, TypedDict, cast
 
 from django.conf import settings
@@ -40,7 +42,6 @@ import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from opentelemetry import trace
-from pydantic import ValidationError as PydanticValidationError
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.fields import empty
 from rest_framework.permissions import SAFE_METHODS, BasePermission
@@ -50,7 +51,7 @@ from rest_framework.serializers import BaseSerializer
 from rest_framework.utils import html
 from rest_framework.utils.serializer_helpers import ReturnDict
 
-from posthog.schema import DashboardFilter, InsightVizNode
+from posthog.schema import InsightVizNode
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
@@ -88,7 +89,7 @@ from posthog.helpers.trigram_search import (
 from posthog.hogql_queries.apply_dashboard_filters import normalize_dashboard_filters_properties
 from posthog.hogql_queries.query_runner import team_configs_for_cache_key
 from posthog.hogql_queries.refresh_policy import ComputeSurface
-from posthog.hogql_queries.utils.caller_context import map_in_caller_context
+from posthog.models.activity_logging.activity_log import Change
 from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
 from posthog.models.file_system.file_system import FileSystem, create_or_update_file, delete_file, join_path, split_path
 from posthog.models.group_type_mapping import (
@@ -162,7 +163,12 @@ from products.dashboards.backend.customization import (
     validated_group_keys,
     without_default_settings,
 )
-from products.dashboards.backend.facade.api import DashboardTileBasicSerializer, tile_ids_prefetch
+from products.dashboards.backend.facade.api import (
+    CannotAddToDashboard,
+    DashboardTileBasicSerializer,
+    add_insight_to_dashboard,
+    tile_ids_prefetch,
+)
 from products.dashboards.backend.models.dashboard import (
     DASHBOARD_GRID_COMPACTION_MODES,
     DASHBOARD_GRID_SPACING_GAPS,
@@ -184,26 +190,21 @@ from products.dashboards.backend.widget_access import (
     check_widget_tile_product_access,
     get_widget_api_scope_error,
     get_widget_product_access_error,
-    is_api_key_or_oauth_request,
 )
 from products.dashboards.backend.widget_availability import get_widget_feature_enabled
 from products.dashboards.backend.widget_catalog import get_widget_catalog_entries, parse_widget_type_filter
 from products.dashboards.backend.widget_create import create_widget_tile, prepare_widget_tile_create
 from products.dashboards.backend.widget_layouts import collect_dashboard_sm_layouts_for_dashboard
-from products.dashboards.backend.widget_query_throttle import (
-    get_dashboard_chart_widget_session_throttle_error,
-    get_dashboard_widget_query_throttle_error,
-)
+from products.dashboards.backend.widget_query_throttle import get_dashboard_widget_query_throttle_error
 from products.dashboards.backend.widget_registry import (
     EXPECTED_WIDGET_TYPES,
     SESSION_REPLAY_LIST_WIDGET_TYPE,
     count_active_widget_filters,
     extract_widget_filters,
     get_widget_registry_entry,
-    get_widget_spec,
     validate_widget_config,
 )
-from products.dashboards.backend.widgets.errors import WidgetQueryError
+from products.dashboards.backend.widget_specs.configs import CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE
 from products.mcp_analytics.backend.dashboard_templates import get_mcp_analytics_default_template
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -221,6 +222,8 @@ from products.product_analytics.backend.presentation.insight import (
     InsightSerializer,
     InsightViewSet,
     get_insight_type,
+    log_and_report_insight_activity,
+    viewable_insight_or_404,
 )
 from products.subscriptions.backend.facade.api import dashboard_ids_with_subscriptions
 
@@ -369,18 +372,10 @@ class _RunWidgetQueryWorkItem(TypedDict):
     query_fn: Any
     config: dict[str, Any]
     user: User | None
-    dashboard_filter_keys: tuple[str, ...]
-    dashboard_filters: DashboardFilter | None
 
 
-def _widget_dashboard_filters(filters: dict[str, Any], keys: tuple[str, ...]) -> DashboardFilter | None:
-    widget_filters = {key: filters[key] for key in keys if filters.get(key)}
-    if not widget_filters:
-        return None
-    try:
-        return DashboardFilter.model_validate(widget_filters)
-    except PydanticValidationError as error:
-        raise exceptions.ValidationError({"filters_override": "Invalid dashboard filters."}) from error
+def _run_in_context(context: contextvars.Context, work: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+    return context.run(work)
 
 
 def _run_widget_query(
@@ -389,7 +384,6 @@ def _run_widget_query(
     *,
     dashboard_id: int,
     distinct_id: str,
-    force_refresh: bool = False,
 ) -> dict[str, Any]:
     tile_id = work_item["tile_id"]
     widget_type = work_item["widget_type"]
@@ -410,39 +404,17 @@ def _run_widget_query(
     ) as slo:
         try:
             query_fn = work_item["query_fn"]
-            dashboard_kwargs: dict[str, Any] = (
-                {
-                    "dashboard_id": dashboard_id,
-                    "dashboard_filters": work_item["dashboard_filters"],
-                    "force_refresh": force_refresh,
-                }
-                if work_item["dashboard_filter_keys"]
-                else {}
-            )
             result = query_fn(
                 team,
                 work_item["config"],
                 user=work_item["user"],
                 include_total_count=False,
-                **dashboard_kwargs,
             )
             return {
                 "tile_id": tile_id,
                 "widget_type": widget_type,
                 "result": result,
                 "error": None,
-            }
-        except WidgetQueryError as error:
-            # The message is safe to show, so it is not logged as an exception. Only failures on our side count
-            # against the delivery SLO.
-            if error.operational:
-                slo.fail()
-            return {
-                "tile_id": tile_id,
-                "widget_type": widget_type,
-                "result": None,
-                "error": error.user_message,
-                "error_is_user_facing": True,
             }
         except Exception:
             logger.exception("dashboard_run_widgets_failed", tile_id=tile_id, widget_type=widget_type)
@@ -826,6 +798,16 @@ class UpdateTextTileRequestSerializer(serializers.Serializer):
     )
 
 
+class AddInsightToDashboardRequestSerializer(serializers.Serializer):
+    insight_id = serializers.IntegerField(
+        help_text=(
+            "ID of an existing insight to place on the dashboard. The insight must belong to the same "
+            "environment as the dashboard. Adding an insight the dashboard already shows changes nothing, and "
+            "adding one that was removed from the dashboard restores its tile."
+        ),
+    )
+
+
 class DeleteTileRequestSerializer(serializers.Serializer):
     tile_id = serializers.IntegerField(
         required=True,
@@ -1156,10 +1138,12 @@ class SharedDashboardWidgetMetadataSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(DashboardWidgetConfigField(required=False))
     def get_config(self, widget: DashboardWidget) -> dict[str, Any]:
+        # Rows of a retired widget type can still exist, and nothing says which of their config keys are public.
+        if widget.widget_type not in EXPECTED_WIDGET_TYPES:
+            return {}
         config = dict(widget.config)
-        spec = get_widget_spec(widget.widget_type)
-        for key in spec.public_config_exclude if spec else ():
-            config.pop(key, None)
+        if widget.widget_type == CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE:
+            config.pop("search", None)
         return config
 
 
@@ -1286,13 +1270,6 @@ class DashboardWidgetRunResultSerializer(serializers.Serializer):
     error = serializers.CharField(
         allow_null=True,
         help_text="Error message when the widget could not be run.",
-    )
-    error_is_user_facing = serializers.BooleanField(
-        required=False,
-        help_text=(
-            "True when `error` explains the failure to the viewer (for example, no access or an invalid query) and "
-            "can be shown as is. Other errors are generic."
-        ),
     )
 
 
@@ -1700,10 +1677,11 @@ def _report_dashboard_tile_added(
     request: Request | None = None,
     widget_type: str | None = None,
     tile: DashboardTile | None = None,
+    insight: Insight | None = None,
 ) -> None:
     properties: dict[str, Any] = {
         "tile_type": tile_type,
-        "insight_type": None,
+        "insight_type": get_insight_type(insight) if insight is not None else None,
         "dashboard_id": dashboard.id,
     }
     if widget_type is not None:
@@ -1740,6 +1718,48 @@ def _report_dashboard_tile_added(
         widget_properties,
         team=dashboard.team,
         request=request,
+    )
+
+
+def _insight_dashboard_refs(insight: Insight) -> list[dict[str, Any]]:
+    """The dashboards an insight's live tiles sit on, in the shape the insight activity log records them."""
+    return [
+        {"id": dashboard_id, "name": name}
+        for dashboard_id, name in DashboardTile.objects.filter(insight=insight)
+        .order_by("dashboard_id")
+        .values_list("dashboard_id", "dashboard__name")
+    ]
+
+
+def _log_insight_dashboards_change(
+    *,
+    request: Request,
+    insight: Insight,
+    dashboards_before: list[dict[str, Any]],
+    dashboards_after: list[dict[str, Any]],
+) -> None:
+    # Same entry as a write of the insight's `dashboards` field, so the insight's history reads the same
+    # whichever endpoint placed or removed the tile.
+    user = cast(User, request.user)
+    log_and_report_insight_activity(
+        activity="updated",
+        insight=insight,
+        insight_id=insight.id,
+        insight_short_id=insight.short_id,
+        organization_id=insight.team.organization_id,
+        team_id=insight.team_id,
+        user=user,
+        was_impersonated=is_impersonated(request),
+        request=request,
+        changes=[
+            Change(
+                type="Insight",
+                action="changed",
+                field="dashboards",
+                before=dashboards_before,
+                after=dashboards_after,
+            )
+        ],
     )
 
 
@@ -3886,6 +3906,8 @@ class DashboardsViewSet(
             dashboard=dashboard,
             dashboard__team__project_id=self.team.project_id,
         )
+        insight = tile.insight
+        insight_dashboards_before = _insight_dashboard_refs(insight) if insight is not None else []
         # Collapse the vertical gap the removed tile leaves, matching the dashboard UI
         # (react-grid-layout compacts upward on render but never persists it).
         with transaction.atomic():
@@ -3906,8 +3928,65 @@ class DashboardsViewSet(
             tile=tile,
             request=request,
         )
+        if insight is not None:
+            _log_insight_dashboards_change(
+                request=request,
+                insight=insight,
+                dashboards_before=insight_dashboards_before,
+                dashboards_after=[ref for ref in insight_dashboards_before if ref["id"] != dashboard.id],
+            )
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @validated_request(
+        request_serializer=AddInsightToDashboardRequestSerializer,
+        responses={200: DashboardTileBasicSerializer},
+        description=(
+            "Place an existing insight on this dashboard as a new tile. Requires edit access to the dashboard "
+            "and view access to the insight. Returns the tile. Adding an insight the dashboard already shows "
+            "returns its tile unchanged, and adding one that was removed from the dashboard restores its tile "
+            "with its old layout. To take an insight off a dashboard, use delete_tile."
+        ),
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["dashboard:write", "insight:read"])
+    def add_insight(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        dashboard = self.get_object()
+        if dashboard.deleted:
+            raise exceptions.NotFound()
+
+        insight = viewable_insight_or_404(
+            team_id=dashboard.team_id,
+            insight_id=request.validated_data["insight_id"],
+            user_access_control=self.user_access_control,
+        )
+
+        user = cast(User, request.user)
+        insight_dashboards_before = _insight_dashboard_refs(insight)
+        try:
+            with transaction.atomic():
+                placed = add_insight_to_dashboard(
+                    insight_id=insight.id,
+                    insight_team_id=insight.team_id,
+                    query=insight.query,
+                    dashboard_id=dashboard.id,
+                    user=user,
+                    user_access_control=self.user_access_control,
+                )
+        except CannotAddToDashboard:
+            raise exceptions.PermissionDenied("You don't have permission to add insights to this dashboard.")
+
+        if placed.added:
+            _report_dashboard_tile_added(
+                user=user, dashboard=dashboard, tile_type="insight", insight=insight, request=request
+            )
+            _log_insight_dashboards_change(
+                request=request,
+                insight=insight,
+                dashboards_before=insight_dashboards_before,
+                dashboards_after=[*insight_dashboards_before, {"id": dashboard.id, "name": dashboard.name}],
+            )
+
+        return Response(DashboardTileBasicSerializer(DashboardTile.objects.get(pk=placed.id)).data)
 
     @extend_schema(
         parameters=[
@@ -4047,17 +4126,6 @@ class DashboardsViewSet(
                 required=True,
                 description="Comma-separated dashboard tile IDs to run widgets for.",
             ),
-            FILTERS_OVERRIDE_PARAM,
-            OpenApiParameter(
-                name="refresh",
-                type=OpenApiTypes.BOOL,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description=(
-                    "Recompute widgets that follow dashboard filters (such as metrics) instead of serving their "
-                    "query cache, as a manual refresh of an insight tile does."
-                ),
-            ),
         ],
         responses={200: RunWidgetsResponseSerializer},
     )
@@ -4125,14 +4193,7 @@ class DashboardsViewSet(
                 }
                 continue
 
-            spec = get_widget_spec(widget.widget_type)
-            widget_throttle_error = (
-                get_dashboard_chart_widget_session_throttle_error(request, self)
-                if spec is not None
-                and spec.session_throttle == "per_viewer"
-                and not is_api_key_or_oauth_request(request)
-                else get_dashboard_widget_query_throttle_error(request, self)
-            )
+            widget_throttle_error = get_dashboard_widget_query_throttle_error(request, self)
             if widget_throttle_error:
                 results_by_id[tile_id] = {
                     "tile_id": tile_id,
@@ -4160,45 +4221,35 @@ class DashboardsViewSet(
                     "query_fn": registry_entry["query_fn"],
                     "config": widget.config,
                     "user": cast(User, request.user),
-                    "dashboard_filter_keys": spec.dashboard_filter_keys if spec else (),
-                    "dashboard_filters": None,
                 }
             )
 
-        if any(work_item["dashboard_filter_keys"] for work_item in query_work_items):
-            dashboard_filters = self._run_widgets_dashboard_filters(request, dashboard)
-            for work_item in query_work_items:
-                work_item["dashboard_filters"] = _widget_dashboard_filters(
-                    dashboard_filters, work_item["dashboard_filter_keys"]
-                )
-
-        force_refresh = str_to_bool(request.query_params.get("refresh", "false"))
-
-        # Workers close their Postgres connections on the way out, and keep the request's query tags.
-        widget_results = map_in_caller_context(
-            lambda work_item: _run_widget_query(
-                self.team,
-                work_item,
-                dashboard_id=dashboard.id,
-                distinct_id=distinct_id,
-                force_refresh=force_refresh,
-            ),
-            query_work_items,
-            max_workers=RUN_WIDGETS_QUERY_CONCURRENCY,
-            thread_name_prefix="run_widgets",
-        )
-        for work_item, widget_result in zip(query_work_items, widget_results):
-            results_by_id[work_item["tile_id"]] = widget_result
+        if query_work_items:
+            max_workers = min(RUN_WIDGETS_QUERY_CONCURRENCY, len(query_work_items))
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # Each worker gets a copy of the request context, so the query tags (such as the API key
+                # access method that the metrics concurrency limits read) reach the widget query.
+                futures = {
+                    executor.submit(
+                        _run_in_context,
+                        contextvars.copy_context(),
+                        partial(
+                            _run_widget_query,
+                            self.team,
+                            work_item,
+                            dashboard_id=dashboard.id,
+                            distinct_id=distinct_id,
+                        ),
+                    ): work_item["tile_id"]
+                    for work_item in query_work_items
+                }
+                for future in as_completed(futures):
+                    tile_id = futures[future]
+                    results_by_id[tile_id] = future.result()
 
         results = [results_by_id[tile_id] for tile_id in tile_ids]
 
         return Response({"results": results})
-
-    @staticmethod
-    def _run_widgets_dashboard_filters(request: Request, dashboard: Dashboard) -> dict[str, Any]:
-        # Same merge as insight tiles: saved dashboard filters, then the viewer's unsaved overrides. Shared and
-        # embedded access never honors a client override. Each widget then takes only its own filter keys.
-        return filters_override_requested_by_client(request, dashboard)
 
     @extend_schema(
         parameters=[
