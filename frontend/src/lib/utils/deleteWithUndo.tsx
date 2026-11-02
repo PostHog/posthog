@@ -1,8 +1,8 @@
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { retryImport } from 'lib/utils/retryImport'
 import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
-import { insightsApi } from 'scenes/insights/utils/api'
 
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { InsightModel } from '~/types'
@@ -83,6 +83,8 @@ export async function deleteInsightWithUndo({
         })
         let dashboardsNotRestored = 0
         if (undo) {
+            // Loaded on demand: a static import would put the insights API on every page's eager path.
+            const { insightsApi } = await retryImport(() => import('scenes/insights/utils/api'))
             // Each add restores a tile the delete hid. One refused dashboard must not skip the updates below.
             const placements = await Promise.allSettled(
                 (props.dashboardIds ?? liveDashboardIds(props.object.dashboard_tiles)).map((dashboardId) =>
