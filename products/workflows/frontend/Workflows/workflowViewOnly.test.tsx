@@ -7,6 +7,7 @@ import { LemonCollapse } from '@posthog/lemon-ui'
 
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { EmailTemplater } from 'scenes/hog-functions/email-templater/EmailTemplater'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -185,6 +186,27 @@ describe('view-only workflow', () => {
         fireEvent.click(document.querySelector<HTMLElement>('[data-attr="copy-code-button"]')!)
 
         expect(copyToClipboard).toHaveBeenCalledWith('https://hooks.example.com/workflows/abc', 'Webhook URL')
+    })
+
+    it('shows a viewer the body of a plain-text email step', () => {
+        renderForViewer(
+            <ViewOnlyArea>
+                <EmailTemplater
+                    type="native_email"
+                    value={{
+                        design: null,
+                        html: '',
+                        text: 'Hi Ada, your order left the warehouse today.',
+                        subject: 'Your order shipped',
+                        from: '',
+                        to: '',
+                    }}
+                    onChange={jest.fn()}
+                />
+            </ViewOnlyArea>
+        )
+
+        expect(screen.getByText('Hi Ada, your order left the warehouse today.')).toBeInTheDocument()
     })
 
     it('stops a viewer who toggles a push step setting', () => {

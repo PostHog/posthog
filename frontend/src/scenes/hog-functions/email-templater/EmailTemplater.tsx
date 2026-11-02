@@ -245,7 +245,7 @@ function DestinationEmailTemplaterForm({
                                     className={clsx(
                                         'flex absolute inset-0 justify-center items-end p-2 transition-opacity',
                                         // Persistent start buttons while empty; hover-reveal once there is content
-                                        value ? 'opacity-0 hover:opacity-100' : 'opacity-100'
+                                        value || emailTemplate.text ? 'opacity-0 hover:opacity-100' : 'opacity-100'
                                     )}
                                 >
                                     <div className="absolute inset-0 opacity-50 bg-surface-primary" />
@@ -255,14 +255,7 @@ function DestinationEmailTemplaterForm({
                                     />
                                 </div>
 
-                                {/* The floor keeps the preview readable where the host gives it no
-                                    spare height to grow into */}
-                                <iframe
-                                    srcDoc={value}
-                                    sandbox=""
-                                    title="Email template preview"
-                                    className="flex-1 min-h-80"
-                                />
+                                <EmailBodyPreview html={value} text={emailTemplate.text} />
                             </>
                         )}
                     </LemonField>
@@ -851,7 +844,7 @@ function NativeEmailTemplaterForm({
                                     className={clsx(
                                         'flex absolute inset-0 justify-center items-center p-2 transition-opacity',
                                         // Persistent start buttons while empty; hover-reveal once there is content
-                                        value ? 'opacity-0 hover:opacity-100' : 'opacity-100'
+                                        value || emailTemplate.text ? 'opacity-0 hover:opacity-100' : 'opacity-100'
                                     )}
                                 >
                                     <div className="absolute inset-0 opacity-50 bg-surface-primary" />
@@ -861,14 +854,7 @@ function NativeEmailTemplaterForm({
                                     />
                                 </div>
 
-                                {/* The floor keeps the preview readable where the host gives it no
-                                    spare height to grow into */}
-                                <iframe
-                                    srcDoc={value}
-                                    sandbox=""
-                                    title="Email template preview"
-                                    className="flex-1 min-h-80"
-                                />
+                                <EmailBodyPreview html={value} text={emailTemplate.text} />
                             </>
                         )}
                     </LemonField>
@@ -879,6 +865,18 @@ function NativeEmailTemplaterForm({
             </Form>
         </>
     )
+}
+
+function EmailBodyPreview({ html, text }: { html: string | undefined; text: string | undefined }): JSX.Element {
+    // The floor keeps the preview readable where the host gives it no spare height to grow into
+    if (!html && text) {
+        return (
+            <pre className="flex-1 min-h-80 m-0 p-4 font-sans text-sm whitespace-pre-wrap wrap-anywhere bg-surface-primary">
+                {text}
+            </pre>
+        )
+    }
+    return <iframe srcDoc={html} sandbox="" title="Email template preview" className="flex-1 min-h-80" />
 }
 
 function EmailPreviewOverlayButtons({ hasContent }: { hasContent: boolean }): JSX.Element {
