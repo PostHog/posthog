@@ -642,6 +642,8 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             ("planted_placeholder", "default@example.com", 'is not on the verified domain "posthog.com"'),
             ("not_an_email", "not-an-email", "is not a valid email address"),
             ("address_list", "a@posthog.com, b@posthog.com", "is not a valid email address"),
+            ("overlong_address", f"{'a' * 243}@posthog.com", "254 characters or fewer"),
+            ("overlong_non_address", "a" * 255, "254 characters or fewer"),
         ]
     )
     def test_email_literal_sender_override_rejected_at_save(self, _name, address, expected):
@@ -656,6 +658,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
     @parameterized.expand(
         [
             ("on_domain", "community@posthog.com"),
+            ("max_length", f"{'a' * 242}@posthog.com"),
             ("case_insensitive", "Community@PostHog.com"),
             ("liquid_template", "{{ event.properties.sender }}"),
             ("hog_template", "{event.properties.sender}"),

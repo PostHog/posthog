@@ -38,22 +38,26 @@ pub struct Raw {
     pub content_encoding: Option<String>,
 }
 
+/// The bytes a payload decompresses to. Decompression allocates the size that the lz4 prefix or the gzip footer states,
+/// or fails, so the flush size counts that instead of the compressed bytes.
+pub fn decoded_len(payload: &[u8], content_encoding: Option<&str>) -> usize {
+    let stated = if content_encoding == Some("lz4") {
+        payload.get(..4)
+    } else if payload.starts_with(&GZIP_MAGIC) {
+        payload.get(payload.len().saturating_sub(4)..)
+    } else {
+        None
+    };
+    let stated = stated
+        .and_then(|b| <[u8; 4]>::try_from(b).ok())
+        .map(|b| u32::from_le_bytes(b) as usize)
+        .filter(|&n| n <= MAX_DECOMPRESSED_BYTES);
+    payload.len().max(stated.unwrap_or(0))
+}
+
 impl Raw {
-    /// The bytes the payload decompresses to. Decompression allocates the size that the lz4 prefix or the gzip footer
-    /// states, or fails, so the flush size counts that instead of the compressed bytes.
     pub fn decoded_len(&self) -> usize {
-        let stated = if self.content_encoding.as_deref() == Some("lz4") {
-            self.payload.get(..4)
-        } else if self.payload.starts_with(&GZIP_MAGIC) {
-            self.payload.get(self.payload.len().saturating_sub(4)..)
-        } else {
-            None
-        };
-        let stated = stated
-            .and_then(|b| <[u8; 4]>::try_from(b).ok())
-            .map(|b| u32::from_le_bytes(b) as usize)
-            .filter(|&n| n <= MAX_DECOMPRESSED_BYTES);
-        self.payload.len().max(stated.unwrap_or(0))
+        decoded_len(&self.payload, self.content_encoding.as_deref())
     }
 }
 
@@ -201,6 +205,10 @@ impl Batch {
             })
             .messages
             .push(raw);
+    }
+
+    pub fn room(&self, max_bytes: usize) -> usize {
+        max_bytes.saturating_sub(self.bytes)
     }
 
     pub fn should_flush(&self, interval: Duration, max_bytes: usize) -> bool {

@@ -79,12 +79,28 @@ class TestValidateCredentials:
 
 
 class TestGetRowsAccounts:
-    def test_accounts_single_fetch(self) -> None:
-        result = _driver().run("accounts", [ScriptedResponse(json={"accounts": [{"account_id": "a1"}]})])
+    @pytest.mark.parametrize(
+        "endpoint, preamble, path",
+        [
+            ("accounts", [], "/accounts/get"),
+            ("balances", [], "/accounts/balance/get"),
+            ("identity", [_item(products=["identity"])], "/identity/get"),
+        ],
+    )
+    def test_account_endpoints_single_fetch(self, endpoint: str, preamble: list[ScriptedResponse], path: str) -> None:
+        result = _driver().run(endpoint, [*preamble, ScriptedResponse(json={"accounts": [{"account_id": "a1"}]})])
 
         assert result.raised is None
         assert result.items == [[{"account_id": "a1"}]]
-        assert result.paths == ["/accounts/get"]
+        assert result.paths == [*(["/item/get"] if preamble else []), path]
+
+    @mock.patch(f"{_MODULE}._now")
+    def test_balances_send_min_last_updated_datetime(self, mock_now: mock.MagicMock) -> None:
+        mock_now.return_value = datetime(2024, 6, 8, 12, 0, 0, tzinfo=UTC)
+        result = _driver().run("balances", [ScriptedResponse(json={"accounts": []})])
+
+        assert result.raised is None
+        assert result.requests[0].json()["options"] == {"min_last_updated_datetime": "2024-06-01T12:00:00Z"}
 
 
 class TestGetRowsTransactions:
@@ -151,9 +167,12 @@ class TestGetRowsTransactions:
 
 
 class TestGetRowsProductGatedEndpoints:
-    @pytest.mark.parametrize("endpoint", ["investment_holdings", "investment_transactions", "liabilities"])
+    @pytest.mark.parametrize(
+        "endpoint",
+        ["investment_holdings", "investment_transactions", "liabilities", "recurring_transactions", "identity"],
+    )
     def test_skips_item_without_product(self, endpoint: str) -> None:
-        result = _driver().run(endpoint, [_item(billed_products=["transactions"], products=["transactions"])])
+        result = _driver().run(endpoint, [_item(billed_products=["auth"], products=["auth"])])
 
         assert result.raised is None
         assert result.rows == []
@@ -233,6 +252,41 @@ class TestGetRowsProductGatedEndpoints:
             {"account_id": "c1", "aprs": [], "liability_type": "credit"},
             {"account_id": "m1", "interest_rate": {"percentage": 3.5}, "liability_type": "mortgage"},
         ]
+
+    def test_recurring_streams_flattened_with_direction(self) -> None:
+        result = _driver().run(
+            "recurring_transactions",
+            [
+                _item(products=["transactions"]),
+                ScriptedResponse(
+                    json={
+                        "inflow_streams": [{"stream_id": "in1", "frequency": "SEMI_MONTHLY"}],
+                        "outflow_streams": [{"stream_id": "out1", "frequency": "MONTHLY"}],
+                        "updated_datetime": "2024-05-01T00:00:00Z",
+                    }
+                ),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"stream_id": "in1", "frequency": "SEMI_MONTHLY", "direction": "inflow"},
+            {"stream_id": "out1", "frequency": "MONTHLY", "direction": "outflow"},
+        ]
+        assert result.paths == ["/item/get", "/transactions/recurring/get"]
+
+
+class TestGetRowsItems:
+    def test_item_row_carries_status(self) -> None:
+        status = {"transactions": {"last_successful_update": "2024-05-01T00:00:00Z"}}
+        result = _driver().run(
+            "items",
+            [ScriptedResponse(json={"item": {"item_id": "item-1", "error": None}, "status": status})],
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"item_id": "item-1", "error": None, "status": status}]
+        assert result.paths == ["/item/get"]
 
 
 class TestGetRowsInstitutions:

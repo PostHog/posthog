@@ -1015,6 +1015,7 @@ class TaskWriteSerializer(serializers.Serializer):
             tasks_facade.TaskOriginProduct.METRICS_IMPORT,
             # Owns the docs repository branch it pushes to. Only the knowledge writer intake sets it.
             tasks_facade.TaskOriginProduct.KNOWLEDGE_WRITER,
+            tasks_facade.TaskOriginProduct.CONTEXT_LAYER,
         }
         if value in reserved_origins:
             raise serializers.ValidationError(f"origin_product '{value}' is reserved for server-created tasks")

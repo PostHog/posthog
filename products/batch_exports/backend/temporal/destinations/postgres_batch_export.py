@@ -53,6 +53,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     start_batch_export_run,
 )
 from products.batch_exports.backend.temporal.destinations.utils import get_query_timeout
+from products.batch_exports.backend.temporal.errors import ColumnTypeMappingError
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
@@ -61,6 +62,7 @@ from products.batch_exports.backend.temporal.pipeline.types import BatchExportRe
 from products.batch_exports.backend.temporal.queue import RecordBatchQueue, wait_for_schema_or_producer
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
+    handle_column_type_mapping_errors,
     handle_non_retryable_errors,
     make_retryable_with_exponential_backoff,
 )
@@ -838,7 +840,7 @@ def get_postgres_fields_from_record_schema(
             pg_type = "TEXT[]"
 
         else:
-            raise TypeError(f"Unsupported type in field '{name}': '{pa_field.type}'")
+            raise ColumnTypeMappingError("PostgreSQL", name, pa_field.type)
 
         pg_schema.append((name, pg_type))
 
@@ -934,10 +936,11 @@ def _get_table_fields(
         # A retry can consume files staged before a new default column was added.
         return [field for field in table_fields if field[0] in record_batch_schema.names]
     else:
-        return get_postgres_fields_from_record_schema(
-            record_batch_schema,
-            known_json_columns=["properties", "set", "set_once", "person_properties"],
-        )
+        with handle_column_type_mapping_errors(model):
+            return get_postgres_fields_from_record_schema(
+                record_batch_schema,
+                known_json_columns=["properties", "set", "set_once", "person_properties"],
+            )
 
 
 class PostgreSQLIntegrationNotFoundError(Exception):
