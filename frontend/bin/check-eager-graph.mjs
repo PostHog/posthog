@@ -191,6 +191,13 @@ const ROOTS = [
         budgetBytes: 10_314_000,
         forbidden: [
             QUILL_UMBRELLA_DIST,
+            // The rich text stack loads with the first text tile, comment or editor, through
+            // lib/components/RichContentEditor/LazyRichContent. A hit means a static import of an editor module.
+            'node_modules/@tiptap/',
+            'node_modules/prosemirror-',
+            'node_modules/marked/',
+            // The emoji picker loads with the editor that opens it.
+            'node_modules/frimousse/',
             // Neither scene plays recordings. A hit means a static import pulled the playlist and player onto it.
             'src/scenes/session-recordings/playlist/SessionRecordingsPlaylist.tsx',
             // Only web analytics insights render this tile. A hit means a static import put the web
@@ -255,6 +262,13 @@ const ROOTS = [
         budgetBytes: 9_869_000,
         forbidden: [
             QUILL_UMBRELLA_DIST,
+            // The rich text stack loads with the first text tile, comment or editor, through
+            // lib/components/RichContentEditor/LazyRichContent. A hit means a static import of an editor module.
+            'node_modules/@tiptap/',
+            'node_modules/prosemirror-',
+            'node_modules/marked/',
+            // The emoji picker loads with the editor that opens it.
+            'node_modules/frimousse/',
             // Neither scene plays recordings. A hit means a static import pulled the playlist and player onto it.
             'src/scenes/session-recordings/playlist/SessionRecordingsPlaylist.tsx',
             // Only web analytics insights render this tile. A hit means a static import put the web
@@ -283,6 +297,13 @@ const ROOTS = [
         budgetBytes: 10_999_000,
         forbidden: [
             QUILL_UMBRELLA_DIST,
+            // The rich text stack loads with the first text tile, comment or editor, through
+            // lib/components/RichContentEditor/LazyRichContent. A hit means a static import of an editor module.
+            'node_modules/@tiptap/',
+            'node_modules/prosemirror-',
+            'node_modules/marked/',
+            // The emoji picker loads with the editor that opens it.
+            'node_modules/frimousse/',
             // Only the live tab renders this dashboard. Its world map holds about 1 MiB of country shapes.
             'src/scenes/web-analytics/LiveMetricsDashboard/LiveWebAnalyticsMetrics.tsx',
             'products/product_analytics/frontend/insights/trends/WorldMap/countryVectors.tsx',
@@ -305,6 +326,11 @@ const ROOTS = [
         budgetBytes: 8_520_000,
         forbidden: [
             QUILL_UMBRELLA_DIST,
+            // The rich text stack loads with the first text tile, comment or editor, through
+            // lib/components/RichContentEditor/LazyRichContent. A hit means a static import of an editor module.
+            'node_modules/@tiptap/',
+            'node_modules/prosemirror-',
+            'node_modules/marked/',
             // The player shows a snapshot of a few settings. A hit means it imports settingsLogic again,
             // which holds every settings page.
             'src/scenes/settings/SettingsMap.tsx',

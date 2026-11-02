@@ -10,8 +10,6 @@ import { DashboardTile, DashboardTileIdOrNew, DashboardType } from '~/types'
 
 import { getImageOnlyTextCardImage } from 'products/dashboards/frontend/components/ImageTile/imageTileUtils'
 
-import { textCardConverter } from './textCardMarkdown'
-
 export interface TextTileForm {
     body: string
     agent_context: string
@@ -161,7 +159,7 @@ export const textCardModalLogic = kea<textCardModalLogicType>([
                 body_length: textTile.body.length,
                 agent_context_length: textTile.agent_context.length,
                 has_agent_context: textTile.agent_context.trim().length > 0,
-                content_type: getImageOnlyTextCardImage(textCardConverter, textTile.body) ? 'image' : 'text',
+                content_type: getImageOnlyTextCardImage(textTile.body) ? 'image' : 'text',
             })
         },
     })),

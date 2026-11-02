@@ -96,7 +96,7 @@ import {
     isMarkdownNotebookContent,
     notebookArtifactContentToMarkdown,
 } from './markdownNotebookV2'
-import { NOTEBOOKS_VERSION, migrate } from './migrations/migrate'
+import { NOTEBOOKS_VERSION } from './migrations/notebooksVersion'
 import { buildNotebookOpenedEvent } from './notebookAnalytics'
 import { shouldWarnBeforeLeavingNotebook } from './notebookBeforeUnload'
 import { notebookKernelInfoLogic } from './notebookKernelInfoLogic'
@@ -1059,6 +1059,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         }
                     }
 
+                    const { migrate } = await import('./migrations/migrate')
                     return await migrate(response, { skipApiUpgrade: !!values.isShared })
                 },
 
@@ -2265,7 +2266,7 @@ export const notebookLogic = kea<notebookLogicType>([
     })),
 
     afterMount(({ props, values, actions }) => {
-        drainPendingNotebookOperations(props.shortId)
+        drainPendingNotebookOperations(props.shortId, notebookLogic(props))
         // A retained copy renders at once, so check it against the server straight away.
         if (values.notebook && canRetainNotebook(props)) {
             actions.loadNotebook()

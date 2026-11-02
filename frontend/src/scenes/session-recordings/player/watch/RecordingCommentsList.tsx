@@ -2,8 +2,7 @@ import { useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
-import { RichContentPreview } from 'lib/components/RichContentEditor/LemonRichContentEditor'
+import { LazyRichContentPreview, LazyTextContent } from 'lib/components/RichContentEditor/LazyRichContent'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -65,9 +64,9 @@ export function RecordingCommentsList({ sessionId }: { sessionId: string }): JSX
                                     )}
                                 </div>
                                 {comment.rich_content ? (
-                                    <RichContentPreview content={comment.rich_content} className="rounded-none" />
+                                    <LazyRichContentPreview content={comment.rich_content} className="rounded-none" />
                                 ) : (
-                                    <TextContent text={comment.content ?? ''} />
+                                    <LazyTextContent text={comment.content ?? ''} />
                                 )}
                             </div>
                         </div>

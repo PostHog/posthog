@@ -87,7 +87,7 @@ export function ImageTileModal({
     const [isDragging, setIsDragging] = useState(false)
     const [previewPosition, setPreviewPosition] = useState<ImageTilePosition | null>(null)
     const [uploadComplete, setUploadComplete] = useState(false)
-    const image = getImageOnlyTextCardImage(textCardConverter, textTile.body)
+    const image = getImageOnlyTextCardImage(textTile.body)
     const previewImage = image && previewPosition ? { ...image, position: previewPosition } : image
     imageRef.current = image
 

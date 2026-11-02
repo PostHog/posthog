@@ -8,7 +8,6 @@ import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { withBackLink } from 'scenes/analytics/analyticsBackLink'
-import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import type { notebookLogicType } from 'scenes/notebooks/Notebook/notebookLogic'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
 import { LOCAL_NOTEBOOK_TEMPLATES } from 'scenes/notebooks/NotebookTemplates/notebookTemplates'
@@ -27,17 +26,14 @@ import type { NotebookType } from '../scenes/notebooks/types'
 // kea logic. `openNotebook` pushes here; `notebookLogic.afterMount` drains.
 const pendingNotebookOperations = new Map<string, ((logic: BuiltLogic<notebookLogicType>) => void)[]>()
 
-export function drainPendingNotebookOperations(shortId: string): void {
+export function drainPendingNotebookOperations(shortId: string, logic: BuiltLogic<notebookLogicType>): void {
     const ops = pendingNotebookOperations.get(shortId)
     if (!ops?.length) {
         return
     }
     pendingNotebookOperations.delete(shortId)
-    const logic = notebookLogic.findMounted({ shortId })
-    if (logic) {
-        for (const op of ops) {
-            op(logic)
-        }
+    for (const op of ops) {
+        op(logic)
     }
 }
 
@@ -67,6 +63,8 @@ export const openNotebook = async (
     }
 
     if (onOpen) {
+        // A dynamic import keeps the notebook editor and its rich text stack out of every scene that can open a notebook.
+        const { notebookLogic } = await import('scenes/notebooks/Notebook/notebookLogic')
         const mountedLogic = notebookLogic.findMounted({ shortId: notebookId })
         if (mountedLogic) {
             onOpen(mountedLogic)
