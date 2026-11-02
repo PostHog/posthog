@@ -430,12 +430,16 @@ describe('messageTemplateLogic', () => {
     })
 
     describe('make transactional', () => {
-        it('keeps edits made while the conversion runs', async () => {
+        test.each([
+            ['an edit made while it runs', true],
+            ['no edits', false],
+        ])('shows the stored sender and keeps the form, with %s', async (_name, editWhileConverting) => {
             useMocks({
                 post: {
                     '/api/projects/:team_id/messaging_templates/:id/make_transactional/': {
                         id: 'existing-id',
                         name: 'Existing',
+                        content: { templating: 'liquid', email: { subject: 'Hi', from: { integrationId: 9 } } },
                         transactional_hog_flow_id: 'flow-id',
                         updated_at: '2026-01-02T00:00:00Z',
                     },
@@ -447,12 +451,17 @@ describe('messageTemplateLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.makeTransactional()
-                logic.actions.setTemplateValue('name', 'Renamed while converting')
+                if (editWhileConverting) {
+                    logic.actions.setTemplateValue('name', 'Renamed while converting')
+                }
             })
                 .toDispatchActions(['makeTransactionalDone'])
-                .toMatchValues({ transactionalHogFlowId: 'flow-id', templateChanged: true })
+                .toMatchValues({ transactionalHogFlowId: 'flow-id', templateChanged: editWhileConverting })
 
-            expect(logic.values.template.name).toEqual('Renamed while converting')
+            expect(logic.values.template.content.email.from).toEqual({ integrationId: 9 })
+            if (editWhileConverting) {
+                expect(logic.values.template.name).toEqual('Renamed while converting')
+            }
         })
     })
 })

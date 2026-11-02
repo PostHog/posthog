@@ -129,6 +129,16 @@ def payments_page(rows: list[dict[str, Any]], pages: int) -> ScriptedResponse:
     )
 
 
+def payouts_page(rows: list[dict[str, Any]], pages: int) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={"status": "successful", "data": {"payouts": rows}, "meta": {"paging": {"pages": pages, "next": None}}}
+    )
+
+
+def disburse_page(key: str, rows: list[dict[str, Any]], pages: int) -> ScriptedResponse:
+    return ScriptedResponse(json={"status": "successful", "data": {key: rows, "pagination": {"pages": pages}}})
+
+
 @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
 @pytest.mark.parametrize(
     "endpoint,incremental,watermark,script,expected_path,expected_queries,expected_ids",
@@ -179,6 +189,15 @@ def payments_page(rows: list[dict[str, Any]], pages: int) -> ScriptedResponse:
             ["payment-1"],
         ),
         (
+            "payouts",
+            False,
+            None,
+            [payouts_page([{"id": "payout-1"}], 2), payouts_page([{"id": "payout-2"}], 2)],
+            "/v2/payments/payouts",
+            [{"page": (str(number),), "status": ("settled",)} for number in (1, 2)],
+            ["payout-1", "payout-2"],
+        ),
+        (
             "mandate_debits",
             False,
             None,
@@ -216,6 +235,69 @@ def test_payment_and_coverage_tables_request_the_right_version_filters_and_pages
     assert result.paths == [expected_path] * len(expected_queries)
     assert result.queries == expected_queries
     assert all(request.headers["mono-sec-key"] == CONFIG.api_key for request in result.requests)
+
+
+@pytest.mark.parametrize(
+    "endpoint,script,expected_requests,expected_keys",
+    [
+        (
+            "income_records",
+            [
+                page([{"id": "account-a"}], "https://api.withmono.com/v2/accounts?page=2"),
+                page(
+                    [{"created_at": "2025-05-23T09:48:43.276Z", "income": {"total_income": 16300}}],
+                    "https://api.withmono.com/v2/accounts/account-a/income-records?page=2",
+                ),
+                page([{"created_at": "2025-04-01T08:00:00.000Z", "income": {"total_income": 9000}}]),
+                page([{"id": "account-b"}]),
+                page([{"created_at": "2025-05-23T09:48:43.276Z", "income": {"total_income": 500}}]),
+            ],
+            [
+                ("/v2/accounts", "1"),
+                ("/v2/accounts/account-a/income-records", "1"),
+                ("/v2/accounts/account-a/income-records", "2"),
+                ("/v2/accounts", "2"),
+                ("/v2/accounts/account-b/income-records", "1"),
+            ],
+            [
+                ("account-a", "2025-05-23T09:48:43.276Z"),
+                ("account-a", "2025-04-01T08:00:00.000Z"),
+                ("account-b", "2025-05-23T09:48:43.276Z"),
+            ],
+        ),
+        (
+            "disbursement_distributions",
+            [
+                disburse_page("disbursements", [{"id": "batch-a"}], 2),
+                disburse_page("distributions", [{"id": "distribution-1"}], 2),
+                disburse_page("distributions", [{"id": "distribution-2"}], 2),
+                disburse_page("disbursements", [{"id": "batch-b"}], 2),
+                disburse_page("distributions", [{"id": "distribution-1"}], 1),
+            ],
+            [
+                ("/v3/payments/disburse/disbursements", "1"),
+                ("/v3/payments/disburse/disbursements/batch-a/distributions", "1"),
+                ("/v3/payments/disburse/disbursements/batch-a/distributions", "2"),
+                ("/v3/payments/disburse/disbursements", "2"),
+                ("/v3/payments/disburse/disbursements/batch-b/distributions", "1"),
+            ],
+            [("batch-a", "distribution-1"), ("batch-a", "distribution-2"), ("batch-b", "distribution-1")],
+        ),
+    ],
+)
+def test_fanout_tables_walk_every_parent_page_and_key_rows_by_parent(
+    endpoint: str,
+    script: list[ScriptedResponse],
+    expected_requests: list[tuple[str, str]],
+    expected_keys: list[tuple[str, str]],
+) -> None:
+    result = driver().run(endpoint, script)
+
+    assert result.raised is None
+    assert [(request.path, request.param("page")) for request in result.requests] == expected_requests
+    assert result.response is not None
+    assert [tuple(row[key] for key in result.response.primary_keys or []) for row in result.rows] == expected_keys
+    assert all(not any(key.startswith("_") for key in row) for row in result.rows)
 
 
 @pytest.mark.parametrize(

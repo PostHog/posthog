@@ -60,11 +60,11 @@ def _redact_values(api_key: str, platform_api_key: Optional[str]) -> tuple[str, 
     return tuple(value for value in (api_key, platform_api_key) if value)
 
 
-def _format_charge_date(value: Any) -> str:
-    """Format the incremental watermark for Charges' `date_from` filter (YYYY-MM-DD, day granularity).
+def _format_date_filter(value: Any) -> str:
+    """Format the incremental watermark for an endpoint's date filter (YYYY-MM-DD, day granularity).
 
     Truncating to the day rounds the lower bound down, so a resumed sync re-reads the watermark
-    day rather than skipping charges created later on it. The merge upsert dedupes the overlap.
+    day rather than skipping rows created later on it. The merge upsert dedupes the overlap.
     """
     normalized = coerce_datetime_to_utc(value)
     if normalized is None:
@@ -77,7 +77,7 @@ def _incremental_param(cursor_path: str) -> dict[str, Any]:
         "type": "incremental",
         "cursor_path": cursor_path,
         "initial_value": "1970-01-01",
-        "convert": _format_charge_date,
+        "convert": _format_date_filter,
     }
 
 
@@ -95,7 +95,7 @@ def get_resource(endpoint: str, should_use_incremental_field: bool) -> EndpointR
 
     params: dict[str, Any] = {}
     if is_incremental:
-        params["date_from"] = _incremental_param("created_at")
+        params[config.incremental_param] = _incremental_param(config.incremental_fields[0]["field"])
 
     return {
         "name": endpoint,

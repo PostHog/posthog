@@ -7,6 +7,15 @@
             "minLength": 1,
             "type": "string"
         },
+        "created_by": {
+            "description": "Filter experiments by the author's user ID.",
+            "minimum": 1,
+            "type": "number"
+        },
+        "created_by_is_null": {
+            "description": "Only include experiments without an author.",
+            "type": "boolean"
+        },
         "cursor": {
             "description": "Continuation cursor returned by the previous page.",
             "maxLength": 2048,

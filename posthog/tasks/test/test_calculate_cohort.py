@@ -601,10 +601,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             reset_stuck_cohorts()
 
             stuck_static_cohort.refresh_from_db()
-            # Should NOT be picked up because errors_calculating is at the max
-            self.assertTrue(stuck_static_cohort.is_calculating)
-
-            # Verify insert_cohort_from_query was NOT called
+            self.assertFalse(stuck_static_cohort.is_calculating)
             mock_insert_cohort_from_query.delay.assert_not_called()
 
         @patch("posthog.tasks.calculate_cohort.increment_version_and_enqueue_calculate_cohort")

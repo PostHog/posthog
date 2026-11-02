@@ -49,11 +49,11 @@ ENTITY_PAGE_SIZE = 1000
 MAX_RETRY_ATTEMPTS = 8
 # The usage/cost/analytics report endpoints share one organization-level rate limit on Anthropic's
 # Admin API. Some of them, such as the Claude Code usage report, answer 429 with a `Retry-After` of
-# up to an hour, which is the time until the budget is full again. The budget refills continuously,
-# so the report clients cap each server delay at the shared limit and wait it out, instead of
-# failing the request at once. A 429 without a usable delay falls back to exponential backoff.
-# Give the report endpoints more attempts and a higher backoff ceiling than the entity lists. Each
-# wait stays capped, so a sync never stalls indefinitely.
+# up to an hour, and a retry before that time also gets a 429. Such a request fails at once with the
+# server delay, and the import activity retries after that delay, so no worker waits out the hour.
+# A 429 without a usable delay falls back to exponential backoff. Give the report endpoints more
+# attempts and a higher backoff ceiling than the entity lists. Each wait stays capped, so a sync
+# never stalls indefinitely.
 REPORT_MAX_RETRY_ATTEMPTS = 12
 REPORT_RETRY_BACKOFF_MAX_SECONDS = 300.0
 # The waits of the report attempts above add up to about 1,100 seconds, which is more than the
@@ -853,7 +853,6 @@ def anthropic_source(
     if is_report_endpoint:
         client_config["retry_backoff_max_seconds"] = REPORT_RETRY_BACKOFF_MAX_SECONDS
         client_config["retry_budget_seconds"] = REPORT_RETRY_BUDGET_SECONDS
-        client_config["cap_retry_after"] = True
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 

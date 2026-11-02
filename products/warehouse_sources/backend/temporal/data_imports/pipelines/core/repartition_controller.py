@@ -296,6 +296,17 @@ def is_automatic_split_of_append_table(schema: ExternalDataSchema, trigger_reaso
     return schema.is_append and trigger_reason in AUTOMATIC_SPLIT_TRIGGERS
 
 
+def is_stale_size_split(schema: ExternalDataSchema, trigger_reason: str) -> bool:
+    """Whether a queued target is a size split that the current merge budget no longer needs."""
+    # A marker queued before the merge budget rose uses the old, smaller target.
+    return (
+        trigger_reason == "proactive_threshold"
+        and schema.sync_type in KEYED_MERGE_SYNC_TYPES
+        and schema.max_partition_bytes is not None
+        and schema.max_partition_bytes <= split_budget_bytes(schema)
+    )
+
+
 def repartition_activity_has_work(schema: ExternalDataSchema) -> bool:
     """Whether the pre-extraction repartition activity would do more than log and return.
 

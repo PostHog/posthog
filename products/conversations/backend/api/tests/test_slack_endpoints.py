@@ -599,8 +599,8 @@ class TestSlackChannelPermissions(BaseTest):
         assert response.status_code == 403
 
     @patch(
-        "products.conversations.backend.api.slack_oauth.get_instance_settings",
-        return_value={"SUPPORT_SLACK_APP_CLIENT_ID": "test-client-id"},
+        "products.conversations.backend.api.slack_oauth.get_or_instance_setting",
+        return_value="test-client-id",
     )
     def test_admin_can_authorize_slack(self, _mock_settings: MagicMock):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN

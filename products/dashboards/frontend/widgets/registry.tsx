@@ -26,6 +26,7 @@ import {
     parseExperimentsListWidgetConfigApiError,
 } from './experiments/experimentsWidgetConfigValidation'
 import { parseLogsWidgetConfigApiError } from './logs/logsWidgetConfigValidation'
+import { parseMetricsTableWidgetConfigApiError } from './metrics/metricsTableWidgetConfigValidation'
 import { parseSessionReplayWidgetConfigApiError } from './session_replay/sessionReplayWidgetConfigValidation'
 import { parseSurveyResultsWidgetConfigApiError } from './surveys/surveysWidgetConfigValidation'
 
@@ -105,6 +106,12 @@ const ExperimentsListWidgetTileFilters = lazyWithRetry(() =>
 )
 const EditExperimentsListWidgetModal = lazyWithRetry(() =>
     import('./experiments/EditExperimentsListWidgetModal').then((m) => ({ default: m.EditExperimentsListWidgetModal }))
+)
+const MetricsTableWidget = lazyWithRetry(() =>
+    import('./metrics/MetricsTableWidget').then((m) => ({ default: m.MetricsTableWidget }))
+)
+const EditMetricsTableWidgetModal = lazyWithRetry(() =>
+    import('./metrics/EditMetricsTableWidgetModal').then((m) => ({ default: m.EditMetricsTableWidgetModal }))
 )
 const LogsWidget = lazyWithRetry(() => import('./logs/LogsWidget').then((m) => ({ default: m.LogsWidget })))
 const LogsWidgetTileFilters = lazyWithRetry(() =>
@@ -308,6 +315,12 @@ export const DASHBOARD_WIDGET_REGISTRY = {
         EditModal: EditLogsWidgetModal,
         productAccess: 'logs',
         parseConfigApiError: parseLogsWidgetConfigApiError,
+    },
+    metrics_table: {
+        Component: MetricsTableWidget,
+        EditModal: EditMetricsTableWidgetModal,
+        parseConfigApiError: parseMetricsTableWidgetConfigApiError,
+        productAccess: 'metrics',
     },
 } satisfies Record<DashboardWidgetCatalogKey, DashboardWidgetDefinition>
 

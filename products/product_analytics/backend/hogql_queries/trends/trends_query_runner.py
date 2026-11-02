@@ -92,7 +92,10 @@ from products.product_analytics.backend.hogql_queries.trends.trend_validation_ru
     RequirePropertyForPropertyMath,
     ValidateDataWarehouseBreakdown,
 )
-from products.product_analytics.backend.hogql_queries.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
+from products.product_analytics.backend.hogql_queries.trends.trends_actors_query_builder import (
+    ActorsDateWindow,
+    TrendsActorsQueryBuilder,
+)
 from products.product_analytics.backend.hogql_queries.trends.trends_query_builder import TrendsQueryBuilder
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 
@@ -171,8 +174,6 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
     def single_flight_variant(self) -> str:
         # A caller can pass its own execution time, which does not reach the cache key.
         variant = super().single_flight_variant()
-        if self.ch_user != ClickHouseUser.DEFAULT:
-            variant = f"{variant}:ch_user={self.ch_user.value}"
         if self.hogql_settings is not None:
             variant = f"{variant}:max_execution_time={self.hogql_settings.max_execution_time}"
         return variant
@@ -253,6 +254,13 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             query = query_builder.build_actors_query()
 
         return query
+
+    def to_actors_date_window(
+        self, time_frame: Optional[str], series_index: int, compare_value: Optional[Compare] = None
+    ) -> ActorsDateWindow:
+        return self._get_trends_actors_query_builder(
+            time_frame=time_frame, series_index=series_index, compare_value=compare_value
+        ).actors_date_window()
 
     def _get_trends_actors_query_builder(
         self,
@@ -429,7 +437,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 workload=self.workload,
                 hogql_settings=self.hogql_settings,
             )
-            runner._shared_database = self._shared_database
+            # The live fallback reads other warehouse tables, so it needs a database built with its own modifiers.
+            if runner.modifiers == self.modifiers:
+                runner._shared_database = self._shared_database
             return runner.calculate()
 
         queries = self.to_queries()
@@ -498,7 +508,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     thread_name_prefix="trends_series",
                 )
 
-        # Raise any errors raised in a seperate thread
+        # Raise any errors raised in a separate thread
         if len(errors) > 0:
             raise errors[0]
 
@@ -577,9 +587,6 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                         final_result.extend(formula_results)
         else:
             for series_results in returned_results:
-                for item in series_results:
-                    item["order"] = item.get("action", {}).get("order", 0)
-
                 final_result.extend(series_results)
 
         has_more = False
@@ -760,7 +767,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
             if self.query.samplingFactor and self.query.samplingFactor != 1:
                 factor = self.query.samplingFactor
-                math = series_object.get("action", {}).get("math")
+                math = series.series.math
                 if "count" in series_object:
                     series_object["count"] = correct_result_for_sampling(series_object["count"], factor, math)
                 if "aggregated_value" in series_object:
@@ -772,6 +779,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                         correct_result_for_sampling(value, factor, math) for value in series_object["data"]
                     ]
 
+            series_object["order"] = series.series_order
             res.append(series_object)
         return res
 

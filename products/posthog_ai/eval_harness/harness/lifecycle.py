@@ -4,12 +4,15 @@ import os
 import time
 import atexit
 import asyncio
+import hashlib
 import logging
+import tempfile
 import subprocess
 from collections.abc import Sequence
 from contextlib import AsyncExitStack, ExitStack
 from dataclasses import replace
 from functools import partial
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from unittest.mock import patch
@@ -23,6 +26,11 @@ from posthoganalytics import Posthog
 from posthog.ph_client import get_client
 
 from products.tasks.backend.constants import MCP_EXEC_SKILLS_FEATURE_FLAG
+from products.tasks.backend.logic.services.local_skills import (
+    ENV_EVAL_SKILLS_MANIFEST,
+    ENV_LOCAL_SKILLS_HOST_PATH,
+    LocalSkillsCache,
+)
 from products.tasks.backend.temporal.process_task.utils import get_reasoning_effort_error
 
 from ..engines.base import EvalEngine
@@ -42,10 +50,12 @@ from .env_preflight import validate_eval_env
 from .kernel_sandboxes import reclaim_kernels
 from .live_server import EvalLiveServer
 from .offline_delivery import OfflineEvalDelivery
-from .ports import AI_GATEWAY_REDIS_URL, DJANGO_LIVE_PORT
+from .ports import AI_GATEWAY_PORT, AI_GATEWAY_REDIS_URL, DJANGO_LIVE_PORT
 from .providers import PreflightError, SandboxProviderStrategy, build_provider
 from .reporting import ProgressReporter, SuiteRunResult
 from .requirements import Infra, infra_union
+from .run_report import RunReport
+from .skill_snapshot import SkillSnapshot
 
 if TYPE_CHECKING:
     from .dashboard import EvalDashboard
@@ -56,7 +66,6 @@ from .services import (
     ensure_ai_gateway_binary,
     ensure_personhog_binaries,
     maintain_ai_gateway_mint_key,
-    package_local_skills_archive,
     provision_ai_gateway_mint_key,
     start_ai_gateway,
     start_mcp_server,
@@ -126,6 +135,7 @@ class SandboxedEvalHarness:
         self._demo_data: SandboxedDemoData | None = None
         self._offline_delivery: OfflineEvalDelivery | None = None
         self._ai_gateway_mint_key: str | None = None
+        self._skills_snapshot: SkillSnapshot | None = None
         # Capture the revision before any eval starts so every result describes the same run.
         self._git_sha = _git("rev-parse", "HEAD")
         self._git_dirty = _worktree_dirty()
@@ -139,6 +149,13 @@ class SandboxedEvalHarness:
             for suite in suites:
                 print(f"{suite.id}  [{suite.kind.value}]")  # noqa: T201
             return 0
+
+        if (
+            self.options.skill_snapshot_report is not None
+            and self.options.results_file is not None
+            and self.options.skill_snapshot_report.resolve() == self.options.results_file.resolve()
+        ):
+            raise PreflightError("--skill-snapshot-report and --results-file must use different paths")
 
         # Multi-turn cases poll once per turn, each poll with its own budget, so
         # their per-case budget must scale with the turn count. Multi-turn modules
@@ -189,7 +206,11 @@ class SandboxedEvalHarness:
         with asyncio.Runner() as runner:
             try:
                 reporter.setup_started("check configuration")
-                validate_eval_env(self.options.agent_runtime, kinds=kinds, engine_env=self._engine.required_env())
+                validate_eval_env(
+                    self.options.agent_runtime,
+                    kinds=kinds,
+                    engine_env=self._engine.required_env(),
+                )
                 if Infra.SANDBOX in required:
                     self.provider = build_provider(
                         self.options.provider,
@@ -324,39 +345,8 @@ class SandboxedEvalHarness:
             reporter.setup_started("start AI gateway")
             self._stack.callback(start_ai_gateway())
             self._stack.enter_context(override_settings(AI_GATEWAY_REDIS_URL=AI_GATEWAY_REDIS_URL))
-        if Infra.MCP_SERVER in required:
-            reporter.setup_started("build skills and start MCP server")
-            assert self._live_server is not None
-
-            # Both delivery modes use rendered skills from this checkout, never a
-            # previously published bundle. DockerSandbox bind-mounts the built skills;
-            # ModalSandbox bakes them into the image it builds from the local context,
-            # so it wants no host path.
-            skills_dir = build_local_skills(set_bind_mount_env=self.options.provider == "docker")
-            skill_archive_url: str | None = None
-            if self.options.skill_delivery == "exec":
-                skill_archive = package_local_skills_archive(skills_dir)
-                skill_archive_url, stop_skill_archive = start_skill_archive_server(skill_archive)
-                self._stack.callback(stop_skill_archive)
-            self._stack.callback(
-                start_mcp_server(
-                    self._live_server.url,
-                    skill_archive_url,
-                    exec_skills_enabled=self.options.skill_delivery == "exec",
-                )
-            )
-
-        if Infra.SANDBOX in required:
-            reporter.setup_started("prepare sandbox provider")
-            assert self.provider is not None
-            # Modal sandboxes live off-host, so the three services above have to be
-            # publicly reachable before any settings pointing at them are computed.
-            self.provider.start(self._stack)
-
-        self._posthog_client = get_client("US")
-        if self._posthog_client is not None:
-            self._stack.callback(self._posthog_client.shutdown)
-
+        # Seed before building skills: HogQL examples in skill templates render against a Team,
+        # and on a fresh test database the master team is the first one that exists.
         if Infra.DEMO_DATA in required:
             reporter.setup_started("prepare demo data")
             assert self._database is not None
@@ -371,6 +361,95 @@ class SandboxedEvalHarness:
                     else None
                 ),
             )
+
+        if Infra.MCP_SERVER in required:
+            reporter.setup_started("build skills and start MCP server")
+            assert self._live_server is not None
+
+            # A private build directory keeps installed bundles and concurrent builds out of the run.
+            output_paths = tuple(
+                path
+                for path in (
+                    self.options.results_file,
+                    self.options.skill_snapshot_report,
+                    self.options.skill_snapshot_output_dir,
+                )
+                if path is not None
+            )
+            source_sha256 = SkillSnapshot.source_fingerprint(
+                Path(settings.BASE_DIR), LocalSkillsCache().source_sha256, excluded_paths=output_paths
+            )
+            if self.options.skill_snapshot_report is not None:
+                saved = RunReport.model_validate_json(self.options.skill_snapshot_report.read_text())
+                if (
+                    saved.skills_source_sha256 != source_sha256
+                    or saved.revision != self._git_sha
+                    or not saved.skills_archive_path
+                    or not saved.skills_sha256
+                ):
+                    raise RuntimeError("Saved skill snapshot does not match this checkout's branch skill sources")
+                self._skills_snapshot = SkillSnapshot.restore(
+                    Path(saved.skills_archive_path),
+                    self._stack,
+                    expected_sha256=saved.skills_sha256,
+                    source_sha256=source_sha256,
+                    retain=self.options.keep_sandbox_containers,
+                )
+            else:
+                skill_build_dir = Path(
+                    self._stack.enter_context(tempfile.TemporaryDirectory(prefix="posthog-eval-build-"))
+                )
+                skills_dir = build_local_skills(set_bind_mount_env=False, output_dir=skill_build_dir)
+                self._skills_snapshot = SkillSnapshot.capture(
+                    skills_dir,
+                    self._stack,
+                    source_sha256=source_sha256,
+                    retain=self.options.keep_sandbox_containers,
+                )
+            if (
+                SkillSnapshot.source_fingerprint(
+                    Path(settings.BASE_DIR), LocalSkillsCache().source_sha256, excluded_paths=output_paths
+                )
+                != source_sha256
+            ):
+                raise RuntimeError("Branch skill sources changed while preparing the eval snapshot")
+            skills_dir = self._skills_snapshot.directory
+            self._stack.enter_context(
+                patch.dict(
+                    os.environ,
+                    {
+                        ENV_LOCAL_SKILLS_HOST_PATH: str(skills_dir),
+                        ENV_EVAL_SKILLS_MANIFEST: str(self._skills_snapshot.manifest_path),
+                    },
+                )
+            )
+            reporter.set_skill_snapshot(self._skills_snapshot)
+            skill_archive_url: str | None = None
+            skill_archive_sha256: str | None = None
+            if self.options.skill_delivery == "exec":
+                skill_archive = self._skills_snapshot.archive_path
+                skill_archive_sha256 = hashlib.sha256(skill_archive.read_bytes()).hexdigest()
+                skill_archive_url, stop_skill_archive = start_skill_archive_server(skill_archive)
+                self._stack.callback(stop_skill_archive)
+            self._stack.callback(
+                start_mcp_server(
+                    self._live_server.url,
+                    skill_archive_url,
+                    exec_skills_enabled=self.options.skill_delivery == "exec",
+                    skill_archive_sha256=skill_archive_sha256,
+                )
+            )
+
+        if Infra.SANDBOX in required:
+            reporter.setup_started("prepare sandbox provider")
+            assert self.provider is not None
+            # Modal sandboxes live off-host, so the three services above have to be
+            # publicly reachable before any settings pointing at them are computed.
+            self.provider.start(self._stack)
+
+        self._posthog_client = get_client("US")
+        if self._posthog_client is not None:
+            self._stack.callback(self._posthog_client.shutdown)
 
         if Infra.AI_GATEWAY in required:
             assert self._demo_data is not None and self._database is not None
@@ -418,10 +497,13 @@ class SandboxedEvalHarness:
                     # The harness never starts run_task_workflow_dispatcher, so an outbox dispatch would
                     # leave every case parked in QUEUED until the case's poll budget runs out.
                     TASKS_WORKFLOW_DISPATCH_OUTBOX_ENABLED=False,
-                    # Only the eval product routes to the Go gateway. The worker mints each
+                    # Chat and scout evals retain their production product attribution. The worker mints each
                     # run a capped scoped token with this key, as it does in production.
-                    SANDBOX_AI_GATEWAY_PRODUCTS=EVAL_AI_PRODUCT,
+                    SANDBOX_AI_GATEWAY_PRODUCTS=f"{EVAL_AI_PRODUCT},signals_scout",
                     SANDBOX_AI_GATEWAY_MINT_KEY=self._ai_gateway_mint_key,
+                    # Tool-side judges share the eval ledger with the sandboxed agent.
+                    AI_GATEWAY_URL=f"http://localhost:{AI_GATEWAY_PORT}/v1",
+                    AI_GATEWAY_API_KEY=self._ai_gateway_mint_key,
                     **self.provider.settings_overrides(),
                 )
 
@@ -499,6 +581,8 @@ class SandboxedEvalHarness:
             trials=self.options.trials,
             git_sha=self._git_sha,
             git_dirty=self._git_dirty,
+            skills_sha256=self._skills_snapshot.sha256 if self._skills_snapshot is not None else None,
+            skills_source_sha256=self._skills_snapshot.source_sha256 if self._skills_snapshot is not None else None,
             offline_delivery=self._offline_delivery,
             posthog_trace_host="https://us.posthog.com",
             posthog_trace_project_id=settings.LLM_ANALYTICS_INTERNAL_TEAM_ID,

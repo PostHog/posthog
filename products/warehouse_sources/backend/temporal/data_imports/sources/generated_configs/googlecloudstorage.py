@@ -20,10 +20,8 @@ class GoogleCloudStorageFileFormatConfig(config.Config):
 
 @config.config
 class GoogleCloudStorageSourceConfig(config.Config):
-    bucket: str
+    url_pattern: str
     access_key_id: str
     secret_access_key: str
     file_format: GoogleCloudStorageFileFormatConfig
-    path: str | None = None
-    file_pattern: str | None = None
     combine_files: GoogleCloudStorageCombineFilesConfig | None = None

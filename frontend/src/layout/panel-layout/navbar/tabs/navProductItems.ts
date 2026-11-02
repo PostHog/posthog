@@ -19,6 +19,10 @@ import {
 // These pages are tabs of Event definitions, so the sidebar lists only that entry for them.
 const DEFINITIONS_TAB_HREFS = new Set(DEFINITIONS_TABS.filter((tab) => tab.key !== 'events').map((tab) => tab.url))
 
+export function isDefinitionsTabHref(href: string | undefined): boolean {
+    return !!href && DEFINITIONS_TAB_HREFS.has(href)
+}
+
 // Items in this category sit above Starred and All products, so they are never starred or grouped.
 export const PINNED_CATEGORY = 'Project'
 
@@ -79,7 +83,7 @@ export function getNavProductItems(featureFlags: FeatureFlagsSet, projectCreated
     ]
     const destinations = new Map<string, FileSystemImport>()
     for (const item of items) {
-        if (!item.href || DEFINITIONS_TAB_HREFS.has(item.href) || !isFileSystemImportFlagEnabled(item, featureFlags)) {
+        if (!item.href || isDefinitionsTabHref(item.href) || !isFileSystemImportFlagEnabled(item, featureFlags)) {
             continue
         }
         const existing = destinations.get(item.href)

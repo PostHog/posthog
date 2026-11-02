@@ -1,4 +1,3 @@
-import logging
 from collections.abc import Callable
 from datetime import timedelta
 from pathlib import Path
@@ -6,6 +5,8 @@ from uuid import UUID
 
 from django.conf import settings
 from django.utils import timezone
+
+import structlog
 
 from posthog.dataclasses import frozen
 from posthog.models.user import User
@@ -55,7 +56,7 @@ from products.wizard.backend.logic.workers.contracts import (
     WizardWorkerUsageMeasurement,
 )
 from products.wizard.backend.logic.workers.local_package import build_local_wizard_source_archive
-from products.wizard.backend.logic.workers.wizard_error_output import stderr_to_wizard_error_code
+from products.wizard.backend.logic.workers.wizard_error_output import WizardErrorLine, stderr_to_wizard_error
 from products.wizard.backend.observability.service import wizard_observability
 from products.wizard.backend.observability.tracing import annotate_run_span, wizard_span
 
@@ -66,7 +67,7 @@ from .repository_publisher import (
     stage_publishable_changes,
 )
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 @frozen
@@ -117,12 +118,12 @@ class WizardWorkerExecutionError(Exception):
         stage: str,
         exit_code: int,
         detail: str | None = None,
-        wizard_error_code: str | None = None,
+        wizard_error: WizardErrorLine | None = None,
     ) -> None:
         self.stage = stage
         self.exit_code = exit_code
         self.detail = detail
-        self.wizard_error_code = wizard_error_code
+        self.wizard_error = wizard_error
 
         message = f"Wizard Worker {stage} failed with exit code {exit_code}."
         if detail:
@@ -165,13 +166,11 @@ def _start_cpu_billing_sampler(sandbox: SandboxBase) -> None:
     try:
         started = sandbox.start_cpu_billing_sampler()
     except (SandboxExecutionError, SandboxNotFoundError, SandboxTimeoutError):
-        logger.warning(
-            "wizard_worker_cpu_billing_sampler_start_failed", extra={"sandbox_id": sandbox.id}, exc_info=True
-        )
+        logger.warning("wizard_worker_cpu_billing_sampler_start_failed", sandbox_id=sandbox.id, exc_info=True)
         return
 
     if not started:
-        logger.warning("wizard_worker_cpu_billing_sampler_start_failed", extra={"sandbox_id": sandbox.id})
+        logger.warning("wizard_worker_cpu_billing_sampler_start_failed", sandbox_id=sandbox.id)
 
 
 @wizard_span("wizard.repository.prepare")
@@ -346,7 +345,7 @@ def measure_worker_usage(sandbox_id: str) -> WizardWorkerUsageMeasurement | None
     try:
         sandbox = get_sandbox_class().get_by_id(sandbox_id)
     except (SandboxExecutionError, SandboxNotFoundError, SandboxTimeoutError):
-        logger.exception("wizard_worker_usage_measurement_failed", extra={"sandbox_id": sandbox_id})
+        logger.exception("wizard_worker_usage_measurement_failed", sandbox_id=sandbox_id)
         return None
 
     sandbox.config.cpu_cores = SANDBOX_CPU_CORES
@@ -367,7 +366,7 @@ def _read_worker_usage(read_usage: Callable[[], int | None], sandbox_id: str) ->
     try:
         return read_usage()
     except Exception:
-        logger.exception("wizard_worker_usage_read_failed", extra={"sandbox_id": sandbox_id})
+        logger.exception("wizard_worker_usage_read_failed", sandbox_id=sandbox_id)
         return None
 
 
@@ -384,7 +383,7 @@ def _raise_for_failure(
             stage,
             exit_code,
             _failure_detail(stdout, stderr, sensitive_values),
-            stderr_to_wizard_error_code(stderr),
+            stderr_to_wizard_error(stderr),
         )
 
 

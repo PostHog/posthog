@@ -26,7 +26,7 @@ export function FilterCheckDetails({
 }): JSX.Element {
     const logic = insightDataChecksLogic(insightProps)
     const { filtersTestAccounts, filterRemovesBots, queryFiltersTestAccounts } = useValues(logic)
-    const { setFiltersTestAccounts } = useActions(logic)
+    const { setFiltersTestAccounts, reportButtonClicked } = useActions(logic)
     const { caught, missed } = filterCheckParts(check, filtersTestAccounts, filterRemovesBots)
     const canEditFilter = !useRestrictedArea({
         scope: RestrictionScope.Project,
@@ -46,18 +46,26 @@ export function FilterCheckDetails({
                     id="insight-data-check-test-account-filter"
                     size="small"
                     checked={queryFiltersTestAccounts}
-                    onChange={(checked) => setFiltersTestAccounts(checked, check.key)}
+                    onChange={(checked) => {
+                        reportButtonClicked(
+                            checked ? 'filter_internal_users_on' : 'filter_internal_users_off',
+                            check.key
+                        )
+                        setFiltersTestAccounts(checked, check.key)
+                    }}
                     settingsLinkIcon="new-tab"
                     data-attr="insight-data-check-filter-internal-users"
                 />
             </div>
             {missed && (
-                <div className="flex flex-col items-start gap-1.5">
+                <div className="flex flex-col items-start gap-3">
                     <NotCaughtByFilter
                         count={missed.count}
                         noun={missed.noun}
                         examples={missed.examples}
                         fallback={missed.fallback}
+                        predicate={missed.predicate}
+                        explanation={missed.explanation}
                     />
                     <div className="flex flex-wrap gap-2">
                         <ExcludeFromFilterButton

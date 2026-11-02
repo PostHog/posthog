@@ -42,7 +42,7 @@ A partition that leaves the assignment drops its pending frontier with its ledge
 `group` settles each group's offsets as its completion arrives, in any order, so a stalled key holds back only its own partition's commit.
 At `group` granularity the pacer keeps the latest frontier per partition and hands them out at most once per `CONSUMER_COMMIT_INTERVAL_MS` (default 500 ms).
 The consumer asks the pacer on each completion wake, at the top of each loop turn, and on the completion wait's one-second heartbeat, and commits everything pending on exit.
-Admission is still per poll at both granularities: `CONSUMER_MAX_BACKGROUND_TASKS` caps in-flight polls, and a slot frees when its whole poll is covered, oldest first, so a stalled key still holds its poll's slot.
+Under the capped polling strategy, admission is per poll at both granularities: `CONSUMER_MAX_BACKGROUND_TASKS` caps in-flight polls, and a slot frees when its whole poll is covered, oldest first, so a stalled key still holds its poll's slot. See [Polling](#polling).
 At `poll` granularity, `ingestion_consumer_commits_skipped_total{reason}` counts polls that settle with no frontier: `rejected` means the ledger dropped every slice (expected around a rebalance) and `no_frontier` means an earlier batch is still incomplete at the front of every window the batch settled.
 The settlement publishes the uncommitted gauges, because it holds both places a partition's charge can be: the ledger's window and the pacer.
 `kafka_consumer_ledger_uncommitted_offsets{topic,partition}` gauges the offsets each partition has polled and no commit has covered yet, including those taken for a commit the pacer still holds; `kafka_consumer_ledger_uncommitted_events` and `kafka_consumer_ledger_uncommitted_bytes` gauge the charge those offsets carry, where bytes is the payload plus key plus headers of each message.
@@ -56,11 +56,32 @@ The ledger emits its own counters, so any consumer built on the crate reports th
 A budget needs `CONSUMER_COMPLETION_GRANULARITY=group`. At `poll` a stalled partition holds back the commits of every partition in its poll, so their budgets would fill and pause together. The consumer ignores a budget at `poll` and logs a warning, so switching a lane back to `poll` rolls it back without unsetting the budget.
 When either axis reaches its limit after a poll, the consumer pauses that partition's fetch through the Kafka client; when a commit brings both axes back under `CONSUMER_PARTITION_BUDGET_LOW_WATERMARK` (a fraction of the budget, default 0.8), it resumes.
 The hysteresis matters because a pause purges the partition's fetched messages from librdkafka's queue and a resume refetches them.
-A pause stops only the partition's fetch: the consumer keeps polling, so rebalance callbacks still run and `max.poll.interval.ms` stays satisfied, except while the loop waits on its oldest in-flight poll.
+A pause stops only the partition's fetch: the consumer keeps polling, so rebalance callbacks still run and `max.poll.interval.ms` stays satisfied, except while the capped polling strategy's cap is full or the continuous strategy is at its in-flight limit.
 A revoked partition is forgotten. librdkafka keeps a partition's pause across a revoke and a reassignment, so the consumer resumes every partition it is assigned, and the partition starts with a fresh ledger.
 Both limits default to `0`, which sets no budget; the admission cap (`CONSUMER_MAX_BACKGROUND_TASKS`) then governs alone.
 The budget is a fixed amount per partition, not a share of a pod-wide amount, so a rebalance changes how many partitions a pod holds, not how much each may expose.
 `ingestion_consumer_budget_paused_partitions` gauges how many partitions are paused and `ingestion_consumer_budget_pauses_total{topic,partition}` counts pauses; read them against `ingestion_lag_ms`.
+
+## Polling
+
+The consumer loop is the only caller of `recv()`. It waits on Kafka, completions, the commit tick, the shutdown signal, and the poll's batch timeout, and hands each event to the selected implementation of the `PollingStrategy` trait in `src/polling/`.
+The strategy returns steps, and the consumer carries them out: charge and submit a poll, submit a commit and resume its partitions, stop, or fail.
+A poll is submitted when it reaches the batch size or the byte bound, or when `CONSUMER_BATCH_TIMEOUT_MS` passes after its first message.
+
+The rebalance callbacks run inside `recv()`, on the loop's task. After every wake the loop hands the partitions they revoked to the strategy, before the event that woke it.
+The strategy then removes those partitions' messages from the poll in progress and from its in-flight state: the batcher purges them, or Kafka delivers them again from the last commit.
+So a message the loop adds to a poll always belongs to the current assignment, and the poll is charged under the partition's current ledger generation.
+
+`CONSUMER_POLLING_STRATEGY` selects what bounds admission.
+`capped` (the default) admits up to `CONSUMER_MAX_BACKGROUND_TASKS` polls, and frees a slot only when the oldest poll is covered, so a stalled key holds back fetching for every partition.
+
+`continuous` admits polls without waiting on any of them.
+The partition budget bounds each partition's replay exposure, and the in-flight limit bounds the whole pod: `CONSUMER_IN_FLIGHT_EVENTS` and `CONSUMER_IN_FLIGHT_BYTES` count the uncommitted charge of every partition, as the partition budget counts it.
+The limit is approximate: it stops reading, and the poll in progress still completes, so the uncommitted charge can pass the limit by one poll. One poll holds at most `CONSUMER_BATCH_SIZE` events and `CONSUMER_BATCH_SIZE_KB` plus one message; with the byte bound off, its bytes are bounded only by the batch size times the largest message.
+Room frees when a commit hands out offsets, as it does for the partition budget, not when a completion arrives.
+At the limit the loop stops reading Kafka until a commit frees room, and rebalance callbacks wait with it, so size the limit above the budget times the partitions a pod holds.
+`continuous` needs `CONSUMER_COMPLETION_GRANULARITY=group`, a partition budget, and an in-flight limit, and the budget and the limit each need both their events and bytes settings. A message with no key, value or headers charges zero bytes, so a byte-only limit admits any number of them. Without all three the consumer logs a warning and runs `capped`, so switching a lane back to `poll` rolls back both.
+`ingestion_consumer_in_flight_limit_reached_total` counts each time the loop stops reading at the limit; the `kafka_consumer_ledger_uncommitted_*` gauges show each partition's share.
 
 ## Batcher
 
@@ -70,6 +91,7 @@ The batcher state machine in `src/batcher/` orders runs and places them on worke
 - Each key has a FIFO queue, and at most one request per key is in flight, which preserves per-key order.
 - The packer builds a request only for a free worker slot, from ready keys up to a target size. Keys stay unclaimed until then, so a key's run keeps growing while every slot is busy, up to the run cap. A key's backlog past the run cap leaves in consecutive requests, one in flight at a time. The run cap is the target unless `INGESTION_RUN_CAP_*` sets it apart. A request never mixes assignment epochs or fresh and replayed messages.
 - A request is placed on a worker when it is sent, against the load at that moment. Each worker takes at most `INGESTION_WORKER_CONCURRENT_BATCHES` requests at a time.
+- A governor holds a permit pool between `INGESTION_GOVERNOR_MIN_PERMITS_PER_WORKER` and `INGESTION_WORKER_CONCURRENT_BATCHES` permits per routable worker, so at the ceiling the permits are the worker slots. A round-trip average over `INGESTION_GOVERNOR_LATENCY_BUDGET_MS` shrinks the pool by one. With the average within budget, the pool grows by one when the last pass was starved, which means it had ready work past the free permits. The pool moves at most once per `INGESTION_GOVERNOR_STEP_INTERVAL_MS`. Only accepted and partial acks feed the average. After a failed request, the requests sent to that worker until one of them settles feed nothing either, because they can wait out the stream's reconnect backoff. With `INGESTION_GOVERNOR_ADAPTATION=off` the pool is a shadow that reports what it would do while free slots size each pass.
 - A failed send returns its messages to the front of their keys' queues. They retry through the packer as replay after the retry delay.
 - A partial ack completes the messages the worker finished. Its unfinished messages return to the front of their keys' queues and go out again at once as replay. They need not be the last messages of their key.
 - A key resends without a budget once `INGESTION_REQUEST_BUDGET_ATTEMPTS` settles have left its messages unfinished since it last finished a run, or at once when its request finished nothing, because a budgeted retry would wait out the same budget again. So a message that never fits the budget still finishes. A failed request neither counts nor resets the count. The resend rides in a request that holds only such keys, ahead of budgeted replays.
@@ -86,6 +108,10 @@ The batcher state machine in `src/batcher/` orders runs and places them on worke
 | `INGESTION_REQUEST_SOFT_BUDGET_MS` | `0` | How long a worker may spend on one request before it stops starting work and acks what finished as partial. The rest goes out again at once. `0` sends no budget. A request split into several frames goes without one. Startup fails if it is below `100` or above `2147483647`, if it times `INGESTION_WORKER_CONCURRENT_BATCHES` reaches `INGESTION_WORKER_STREAM_ACK_TIMEOUT_MS`, or if it plus `INGESTION_PACK_LATENCY_BUDGET_MS` reaches `CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS`. |
 | `INGESTION_REQUEST_BUDGET_ATTEMPTS` | `3` | How many budgeted attempts may leave a key's messages unfinished, since the key last finished a run, before it resends without a budget. At least 1, or startup fails. Only read when `INGESTION_REQUEST_SOFT_BUDGET_MS` is set. |
 | `INGESTION_PARKED_RETRY_INTERVAL_MS` | `200` | The delay before a failed send retries, and how often a request with no routable worker tries again. |
+| `INGESTION_GOVERNOR_ADAPTATION` | `off` | `off` keeps the governor observing: it measures request round-trip time and reports the permit pool it would run, while free worker slots size each pass. `on` sizes the pass by free permits too. |
+| `INGESTION_GOVERNOR_LATENCY_BUDGET_MS` | `0` | A round-trip average above this shrinks the permit pool by one per step. `0` never shrinks. Startup fails when adaptation is on without it, when it reaches `INGESTION_REQUEST_SOFT_BUDGET_MS`, because a saturated worker answers partial at about the soft budget and a budget above it never shrinks on saturation, or when it reaches `INGESTION_WORKER_STREAM_ACK_TIMEOUT_MS`. |
+| `INGESTION_GOVERNOR_MIN_PERMITS_PER_WORKER` | `1` | The permit pool never shrinks below this many permits per routable worker. Startup fails below `1`, above `INGESTION_WORKER_CONCURRENT_BATCHES`, or at it when adaptation is on, because the pool could not move. |
+| `INGESTION_GOVERNOR_STEP_INTERVAL_MS` | `1000` | The least time between two permit steps. Startup fails below `100`. |
 
 Metrics:
 
@@ -96,6 +122,10 @@ Metrics:
 - `ingestion_consumer_request_budget_partials_total` counts partial acks, and `ingestion_consumer_request_budget_unfinished_messages_total` counts the messages they left unfinished.
 - `ingestion_consumer_request_budget_escalations_total` counts keys that resend without a budget, after their budgeted attempts or after a partial ack that finished nothing. A steady rate means the budget is too tight for the lane, or that the workers are saturated: a frame that waits out its budget for a pipeline slot comes back as a partial ack with nothing finished, and the worker counts it in `ingestion_api_grpc_admission_expired_total`.
 - The `ingestion_consumer_batcher_*` gauges report keys, queued messages and bytes, claimed and waiting keys, unplaced work, and in-flight requests.
+- `ingestion_consumer_governor_permits`, `ingestion_consumer_governor_ceiling` and `ingestion_consumer_governor_free_permits` report the permit pool, its ceiling, which is every slot on the routable workers, and the permits no request on a routable worker holds. With adaptation off the pool is the shadow pool.
+- `ingestion_consumer_request_rtt_seconds` is the round-trip average the governor steps on.
+- `ingestion_consumer_governor_adjustments_total{direction=grow|shrink,applied=true|false}` counts the governor's steps. `applied=false` means adaptation is off, so the step moved only the shadow pool. A step at a bound moves nothing and does not count.
+- `ingestion_consumer_governor_starved_messages` reports the ready messages the last pass had past its free permits, which is demand the worker pool cannot take. With adaptation on they wait for a permit. With it off they went out on free slots, or wait for a slot.
 
 ## Debug API
 
@@ -136,7 +166,7 @@ Remaining: alert rules on the ledger counters and on kminion lag.
 A message a worker permanently rejects (a nack on every delivery) has no dead-letter path: after the stall timeout (`CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS`) the consumer fails and the process crash-loops on redelivery.
 `poison_batch_fails_safely_without_committing` pins the safe half of the trade-off (never commit past unaccepted messages).
 Needs a design pass: DLQ topic, retry budget before giving up, the per-key ordering caveat (DLQ-ing one message then delivering later ones for the same person), and replay ownership.
-Non-UTF-8 payloads — currently nulled in `collect_batch` with no metric — should route to the same DLQ as malformed input; a bytes-preserving wire format is not worth it while the producer (capture) guarantees UTF-8 JSON.
+Non-UTF-8 payloads — currently nulled when a poll adds the message, with no metric — should route to the same DLQ as malformed input; a bytes-preserving wire format is not worth it while the producer (capture) guarantees UTF-8 JSON.
 
 ### 4. Revoke-aware partition handoff
 

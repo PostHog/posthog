@@ -21,18 +21,23 @@ Source: Recharge Payments — subscription management for e-commerce.
 
 ## Endpoints
 
-| Schema            | Path               | Primary key | Partition key | Incremental | Notes                                                                              |
-| ----------------- | ------------------ | ----------- | ------------- | ----------- | ---------------------------------------------------------------------------------- |
-| `customers`       | `/customers`       | `id`        | `created_at`  | ✅          |                                                                                    |
-| `subscriptions`   | `/subscriptions`   | `id`        | `created_at`  | ✅          |                                                                                    |
-| `orders`          | `/orders`          | `id`        | `created_at`  | ✅          |                                                                                    |
-| `charges`         | `/charges`         | `id`        | `created_at`  | ✅          | 90-day retention for `processed_at` filtering (we use `updated_at`/`created_at`).  |
-| `addresses`       | `/addresses`       | `id`        | `created_at`  | ✅          |                                                                                    |
-| `discounts`       | `/discounts`       | `id`        | `created_at`  | ✅          |                                                                                    |
-| `onetimes`        | `/onetimes`        | `id`        | `created_at`  | ✅          |                                                                                    |
-| `products`        | `/products`        | `id`        | `created_at`  | ➖ full     | 2021-11 list endpoint takes only cursor + `limit`/`ids` — no `sort_by` or `*_min`. |
-| `payment_methods` | `/payment_methods` | `id`        | `created_at`  | ✅          | Requires Recharge Pro / Custom plan.                                               |
-| `collections`     | `/collections`     | `id`        | `created_at`  | ➖ full     | Server-side timestamp filter not reliably documented — full refresh.               |
+| Schema               | Path                  | Primary key | Partition key | Incremental | Notes                                                                                    |
+| -------------------- | --------------------- | ----------- | ------------- | ----------- | ---------------------------------------------------------------------------------------- |
+| `customers`          | `/customers`          | `id`        | `created_at`  | ✅          |                                                                                          |
+| `subscriptions`      | `/subscriptions`      | `id`        | `created_at`  | ✅          |                                                                                          |
+| `orders`             | `/orders`             | `id`        | `created_at`  | ✅          |                                                                                          |
+| `charges`            | `/charges`            | `id`        | `created_at`  | ✅          | 90-day retention for `processed_at` filtering (we use `updated_at`/`created_at`).        |
+| `addresses`          | `/addresses`          | `id`        | `created_at`  | ✅          |                                                                                          |
+| `discounts`          | `/discounts`          | `id`        | `created_at`  | ✅          |                                                                                          |
+| `onetimes`           | `/onetimes`           | `id`        | `created_at`  | ✅          |                                                                                          |
+| `products`           | `/products`           | `id`        | `created_at`  | ➖ full     | 2021-11 list endpoint takes only cursor + `limit`/`ids` — no `sort_by` or `*_min`.       |
+| `payment_methods`    | `/payment_methods`    | `id`        | `created_at`  | ✅          | Requires Recharge Pro / Custom plan.                                                     |
+| `collections`        | `/collections`        | `id`        | `created_at`  | ➖ full     | Server-side timestamp filter not reliably documented — full refresh.                     |
+| `plans`              | `/plans`              | `id`        | `created_at`  | ✅          | Only `updated_at_min`. No `sort_by`, so rows come in API order.                          |
+| `events`             | `/events`             | `id`        | `created_at`  | ✅          | Only `created_at_min`. No `sort_by`. Recharge keeps 7 days of events. Plus plan.         |
+| `credit_accounts`    | `/credit_accounts`    | `id`        | `created_at`  | ➖ full     | Filters only on `expires_at`. No `sort_by`. Plus plan.                                   |
+| `credit_adjustments` | `/credit_adjustments` | `id`        | `created_at`  | ✅          | `updated_at_min` / `created_at_min`. Sort param has no documented name, so none is sent. |
+| `bundle_selections`  | `/bundle_selections`  | `id`        | `created_at`  | ➖ full     | Accepts `sort_by` (`id-asc`) but has no timestamp filter. Plus plan.                     |
 
 ## Possible future work
 
@@ -41,5 +46,4 @@ Source: Recharge Payments — subscription management for e-commerce.
   webhooks are **per-topic** (one webhook per `subscription/created`, `charge/created`, …),
   which doesn't map cleanly onto the one-webhook-per-source `create_webhook` / `delete_webhook`
   contract — so realtime webhook ingestion is intentionally deferred from this initial alpha.
-- **Metafields / plan-specific resources** (bundle selections, credit adjustments) require a
-  fan-out or a Pro/Custom plan and are omitted from the initial endpoint set.
+- **Metafields** are omitted from the endpoint set.

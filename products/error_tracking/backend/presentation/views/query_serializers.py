@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import re
 from typing import cast
+from zoneinfo import ZoneInfo
 
 from django.db import models
 
@@ -9,6 +11,7 @@ from rest_framework import serializers
 from posthog.schema import ErrorTrackingOrderBy
 
 from posthog.api.documentation import PropertyItemSerializer, extend_schema_field
+from posthog.utils import relative_date_parse
 
 from products.error_tracking.backend.facade import contracts
 from products.error_tracking.backend.facade.query_utils import TREND_CHANGE_FRACTION
@@ -75,10 +78,28 @@ class ErrorTrackingDateRangeSerializer(serializers.Serializer):
     )
 
 
+# Only the units relative_date_parse resolves: lowercase m is months, uppercase M is minutes.
+_SUPPORTED_RELATIVE_DATE = re.compile(r"-?\d+[hdwmqysM]")
+_DATE_COMPARISON_OPERATORS = ("gt", "gte", "lt", "lte", "is_date_after", "is_date_before")
+
+
 def validate_filter_group(value: list[dict[str, object]]) -> list[dict[str, object]]:
     for item in value:
         if item.get("type") == "hogql":
             raise serializers.ValidationError("HogQL property filters are not supported here.")
+        if (
+            item.get("type") == "error_tracking_issue"
+            and item.get("key") == "first_seen"
+            and item.get("operator") in _DATE_COMPARISON_OPERATORS
+            and isinstance(date_value := item.get("value"), str)
+        ):
+            try:
+                serializers.DateTimeField().run_validation(date_value)
+            except serializers.ValidationError:
+                raise serializers.ValidationError(
+                    "first_seen comparisons in filterGroup need an ISO timestamp. "
+                    "Use firstSeenAfter for relative dates such as -24h."
+                )
     return value
 
 
@@ -112,6 +133,10 @@ ErrorTrackingIssueOrderBy = models.TextChoices(  # type: ignore[call-overload]
 
 
 class ErrorTrackingIssuesListQueryRequestSerializer(serializers.Serializer):
+    firstSeenAfter = serializers.CharField(
+        required=False,
+        help_text="Only include issues first seen strictly after this ISO timestamp or relative date, such as -24h or -7d. Independent of dateRange, which filters occurrences.",
+    )
     dateRange = ErrorTrackingDateRangeSerializer(
         required=False,
         help_text="Date range for issue aggregates. Defaults to the last 7 days.",
@@ -180,6 +205,14 @@ class ErrorTrackingIssuesListQueryRequestSerializer(serializers.Serializer):
     filePath = serializers.CharField(
         required=False, max_length=1000, help_text="Search stack-frame source/file path text."
     )
+
+    def validate_firstSeenAfter(self, value: str) -> str:
+        if _SUPPORTED_RELATIVE_DATE.fullmatch(value):
+            try:
+                return relative_date_parse(value, ZoneInfo("UTC")).isoformat()
+            except (ValueError, OverflowError):
+                raise serializers.ValidationError("Expected an ISO timestamp or relative date such as -24h or -7d.")
+        return serializers.DateTimeField().run_validation(value).isoformat()
 
     def validate_filterGroup(self, value: list[dict[str, object]]) -> list[dict[str, object]]:
         return validate_filter_group(value)
@@ -412,6 +445,32 @@ class ErrorTrackingIssueBreakdownSerializer(serializers.Serializer):
     )
 
 
+class IssueSummaryStatus(models.TextChoices):
+    READY = "ready"
+    GENERATING = "generating"
+    UNAVAILABLE = "unavailable"
+
+
+class ErrorTrackingIssueSummarySerializer(serializers.Serializer):
+    what_happened = serializers.CharField(help_text="What the error is and where it happens, in plain language.")
+    likely_cause = serializers.CharField(
+        help_text="The model's best guess at the cause. A hypothesis to check against the code, never a finding."
+    )
+    who_is_affected = serializers.CharField(help_text="Which users, sessions or platforms the error reaches.")
+    suggested_next_step = serializers.CharField(help_text="One concrete step to investigate or fix the error.")
+    category = serializers.ChoiceField(
+        choices=contracts.IssueSummaryCategory.choices,
+        required=False,
+        help_text=(
+            "Where the error most likely comes from. 'own_code' is a bug in the application's code, 'third_party' a "
+            "third-party script, browser extension or dependency, 'network' a network or connectivity failure, 'bots' "
+            "automated traffic, 'expected' handled behavior that needs no fix, and 'unclear' means the stack trace "
+            "does not tell. Absent when no category was inferred."
+        ),
+    )
+    generated_at = serializers.DateTimeField(help_text="When the summary was written.")
+
+
 class ErrorTrackingIssueDetailSerializer(ErrorTrackingIssueListItemSerializer):
     function = serializers.CharField(
         required=False, allow_null=True, help_text="Top function associated with the issue."
@@ -439,6 +498,21 @@ class ErrorTrackingIssueDetailSerializer(ErrorTrackingIssueListItemSerializer):
     )
     breakdown = ErrorTrackingIssueBreakdownSerializer(
         required=False, help_text="Aggregate over matching events. Returned only when includeBreakdown is true."
+    )
+    summary = ErrorTrackingIssueSummarySerializer(
+        required=False,
+        help_text=(
+            "A model-written summary of the issue. Present only when summary_status is 'ready'. "
+            "Treat likely_cause as a hypothesis, not a fact."
+        ),
+    )
+    summary_status = serializers.ChoiceField(
+        choices=IssueSummaryStatus.choices,
+        help_text=(
+            "'ready' means summary is present. 'generating' means a summary may still be written: call once more "
+            "after a few seconds, and continue without it if the status does not change. 'unavailable' means no "
+            "summary exists for this issue and none is being written."
+        ),
     )
 
 

@@ -33,6 +33,8 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import str_to_bool
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.dashboards.backend.api.dashboard import DashboardCustomizationSerializer
+from products.dashboards.backend.customization import validate_template_groups
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 
 logger = structlog.get_logger(__name__)
@@ -188,6 +190,14 @@ class NonPortableReferencesSerializer(serializers.Serializer):
 
 class DashboardTemplateSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
+    customization = DashboardCustomizationSerializer(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Display settings that a dashboard made from this template starts with: tile spacing, layout "
+            "compaction, and the tile groups that tiles join through their group_key."
+        ),
+    )
     non_portable_references = serializers.SerializerMethodField(
         help_text=(
             "Read-only. Project-specific references (actions, cohorts, data warehouse tables) embedded in this "
@@ -206,6 +216,7 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
             "tags",
             "tiles",
             "variables",
+            "customization",
             "deleted",
             "created_at",
             "created_by",
@@ -299,6 +310,7 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
                     )
                 attrs["scope"] = requested_scope
 
+        validate_template_groups(attrs.get("customization"), attrs.get("tiles"))
         self._validate_unique_organization_template_name(attrs)
         return attrs
 
@@ -380,6 +392,7 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
             validated_data.pop("team_id", None)
             validated_data.pop("tiles", None)
             validated_data.pop("variables", None)
+            validated_data.pop("customization", None)
             validated_data.pop("dashboard_filters", None)
             validated_data.pop("is_featured", None)
             validated_data.pop("availability_contexts", None)
@@ -610,6 +623,7 @@ class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, views
             dashboard_filters=source.dashboard_filters,
             tiles=source.tiles or [],
             variables=source.variables,
+            customization=source.customization,
             tags=source.tags or [],
             scope=DashboardTemplate.Scope.ONLY_TEAM,
             is_featured=False,

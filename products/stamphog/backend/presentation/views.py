@@ -25,6 +25,8 @@ from rest_framework.views import APIView
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.settings_fallback import get_or_settings
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -362,7 +364,7 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
         # current team. Without it, an attacker could send a logged-in member a callback carrying the
         # attacker's own installation and bind it to the victim's team.
         slug = settings.STAMPHOG_GITHUB_APP_SLUG
-        client_id = settings.STAMPHOG_GITHUB_APP_CLIENT_ID
+        client_id = get_or_settings("STAMPHOG_GITHUB_APP_CLIENT_ID", CredentialsCaller.STAMPHOG)
         install_url = ""
         authorize_url = ""
         # One state token backs both URLs — either callback (install Setup URL or authorize Callback URL)

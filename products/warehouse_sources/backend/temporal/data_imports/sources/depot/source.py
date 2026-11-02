@@ -12,19 +12,21 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import CursorSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
     SourceSchema,
     build_endpoint_schemas,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.depot.depot import (
+    DepotResumeState,
     depot_source,
     validate_credentials as validate_depot_credentials,
 )
@@ -40,6 +42,9 @@ _REPOSITORY_RE = re.compile(r"^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$")
 
 _RETRY_LOOKBACK = datetime.timedelta(days=7)
 _RECONCILIATION_INTERVAL = datetime.timedelta(days=7)
+# GitHub Actions lets a run be re-run for 30 days after it starts. Depot CI documents no limit of its
+# own, so this assumes GitHub's.
+_RERUN_WINDOW = datetime.timedelta(days=30)
 _APPEND_UNSUPPORTED = (
     "Depot CI replays job attempts. Switch this table to incremental merge or full refresh to avoid duplicates."
 )
@@ -54,7 +59,7 @@ class DepotReconciliationCursor:
 
 
 @SourceRegistry.register
-class DepotSource(SimpleSource[DepotSourceConfig], CursorSource[DepotReconciliationCursor]):
+class DepotSource(ResumableSource[DepotSourceConfig, DepotResumeState], CursorSource[DepotReconciliationCursor]):
     codebase_detection = detect(
         env=("^DEPOT_",), npm=("@depot/cli", "@depot/sdk-node"), go=("github.com/depot/depot-go",)
     )
@@ -91,6 +96,7 @@ class DepotSource(SimpleSource[DepotSourceConfig], CursorSource[DepotReconciliat
                     ),
                     SourceFieldInputConfig(
                         name="repository",
+                        sync_setting=True,
                         label="Repository",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -140,7 +146,15 @@ class DepotSource(SimpleSource[DepotSourceConfig], CursorSource[DepotReconciliat
     def cursor_class(self) -> type[DepotReconciliationCursor]:
         return DepotReconciliationCursor
 
-    def source_for_pipeline(self, config: DepotSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[DepotResumeState]:
+        return ResumableSourceManager(inputs, DepotResumeState)
+
+    def source_for_pipeline(
+        self,
+        config: DepotSourceConfig,
+        resumable_source_manager: ResumableSourceManager[DepotResumeState],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         if inputs.sync_type == ExternalDataSchemaSyncType.APPEND:
             raise ValueError(_APPEND_UNSUPPORTED)
         manager = self.get_cursor_manager(inputs)
@@ -154,21 +168,26 @@ class DepotSource(SimpleSource[DepotSourceConfig], CursorSource[DepotReconciliat
             if inputs.should_use_incremental_field
             else None
         )
-        reconcile = reconciled_at is None or now - reconciled_at >= _RECONCILIATION_INTERVAL or watermark is None
-        # Creation time cannot reveal a late retry. Replay recent runs each sync and retained history
-        # weekly; history_start is the schema's fixed initial floor, not a rolling seven-day window.
-        lower_bound = inputs.history_start
-        if not reconcile and watermark is not None:
-            lower_bound = watermark - _RETRY_LOOKBACK
-            if inputs.history_start is not None:
-                lower_bound = max(lower_bound, inputs.history_start)
+        # Creation time cannot reveal a late retry, so each sync replays recent runs and a weekly
+        # reconciliation replays older ones. A run re-run after the last reconciliation listed it was
+        # created at most _RERUN_WINDOW before that re-run. A sync without a watermark or a past
+        # reconciliation reads everything since history_start, the schema's fixed initial floor.
+        lower_bound: datetime.datetime | None
+        if watermark is None or reconciled_at is None:
+            reconcile, lower_bound = True, inputs.history_start
+        elif now - reconciled_at >= _RECONCILIATION_INTERVAL:
+            reconcile, lower_bound = True, reconciled_at - _RERUN_WINDOW
+        else:
+            reconcile, lower_bound = False, watermark - _RETRY_LOOKBACK
+        if lower_bound is not None and inputs.history_start is not None:
+            lower_bound = max(lower_bound, inputs.history_start)
 
         previous = cursor or DepotReconciliationCursor(reconciled_at=now.isoformat())
 
-        def on_complete(scanned_through: str | None) -> None:
+        def on_complete(completed_reconciliation: str | None, scanned_through: str | None) -> None:
             manager.stage(
                 DepotReconciliationCursor(
-                    reconciled_at=now.isoformat() if reconcile else previous.reconciled_at,
+                    reconciled_at=completed_reconciliation or previous.reconciled_at,
                     scanned_through=scanned_through or previous.scanned_through,
                 )
             )
@@ -177,6 +196,8 @@ class DepotSource(SimpleSource[DepotSourceConfig], CursorSource[DepotReconciliat
             api_token=config.api_token,
             repository=config.repository,
             created_after=lower_bound,
+            reconciled_at=now.isoformat() if reconcile else None,
+            resumable_source_manager=resumable_source_manager,
             logger=inputs.logger,
             endpoint=inputs.schema_name,
             on_complete=on_complete,

@@ -92,6 +92,7 @@ fn production_config(config: &Config) -> ChangelogConfig {
         partitions: config.live.partitions as u32,
         epoch: config.live.epoch as u64,
         writer_group: String::new(),
+        retire_groups: vec![],
         draining: config
             .draining
             .map(|g| ProductionGeneration {

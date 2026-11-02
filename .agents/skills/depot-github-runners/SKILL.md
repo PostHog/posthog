@@ -22,7 +22,7 @@ Depot provides managed, ephemeral, single-tenant GitHub Actions runners. Drop-in
 ## Depot runners are not Depot CI
 
 Depot runners keep GitHub Actions as the engine, so the workflow lives in `.github/workflows/` and the checks still come from the `github-actions` app.
-Depot CI is a different product: it reads `.depot/workflows/`, which GitHub Actions ignores, and posts its own check runs from the `depot-code-access` app.
+Depot CI is a different product. It reads `.depot/workflows/`, which GitHub Actions ignores, and posts its own check runs from one of [three Depot apps](../depot-ci/references/posthog-check-run-semantics.md#which-app-posts-a-depot-check).
 Use the `depot-ci` skill for that one.
 
 Its [references/posthog-check-run-semantics.md](../depot-ci/references/posthog-check-run-semantics.md) compares what each engine reports for a skipped, empty-matrix or `continue-on-error` job, and how GitHub and the Trunk merge queue score those conclusions.

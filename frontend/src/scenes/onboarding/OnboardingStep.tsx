@@ -48,7 +48,7 @@ export const OnboardingStep = ({
     fullWidth?: boolean
     actions?: JSX.Element
 }): JSX.Element => {
-    const { hasNextStep, currentStepProductKey, flowVariant } = useValues(onboardingLogic)
+    const { hasNextStep, currentStepProductKey, flowVariant, isCompleting } = useValues(onboardingLogic)
 
     const { completeOnboarding, goToNextStep } = useActions(onboardingLogic)
     const { openSupportForm } = useActions(supportLogic)
@@ -119,7 +119,7 @@ export const OnboardingStep = ({
                             type="secondary"
                             onClick={skip}
                             loading={pendingAdvance === 'skip'}
-                            disabledReason={pendingAdvance === 'continue' ? 'Completing…' : undefined}
+                            disabledReason={pendingAdvance === 'continue' || isCompleting ? 'Completing…' : undefined}
                             data-attr="onboarding-skip-button"
                         >
                             Skip {!hasNextStep ? 'and finish' : 'for now'}
@@ -131,7 +131,7 @@ export const OnboardingStep = ({
                             status="alt"
                             data-attr="onboarding-continue"
                             onClick={next}
-                            loading={pendingAdvance === 'continue'}
+                            loading={pendingAdvance === 'continue' || isCompleting}
                             sideIcon={hasNextStep ? <IconArrowRight /> : null}
                             disabledReason={pendingAdvance === 'skip' ? 'Completing…' : continueDisabledReason}
                         >

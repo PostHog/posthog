@@ -47,6 +47,22 @@ class TestMoxieTransport:
         assert result.raised is None
         assert result.items == [[{"name": "Template A"}, {"name": "Template B"}]]
 
+    @pytest.mark.parametrize(
+        "endpoint, path",
+        [
+            ("tasks", "/api/public/action/tasks/list"),
+            ("tickets", "/api/public/action/tickets/list"),
+            ("agreements", "/api/public/action/agreements/search"),
+        ],
+    )
+    def test_object_endpoints_request_documented_path_and_pass_rows_through(self, endpoint: str, path: str) -> None:
+        row = {"id": "abc123", "created": "2024-01-02T03:04:05Z"}
+        result = _driver().run(endpoint, [ScriptedResponse(json=[row])])
+
+        assert result.raised is None
+        assert result.paths == [path]
+        assert result.items == [[row]]
+
     def test_workspace_users_flattens_nested_user_id(self) -> None:
         row = {"userType": "OWNER", "user": {"userId": 42, "firstName": "Alex"}}
         result = _driver().run("workspace_users", [ScriptedResponse(json=[row])])

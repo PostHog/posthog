@@ -65,8 +65,9 @@ def data_warehouse_record_fetcher(
     scope_ids = scope_ids_from_source_config(config, context.get("source_config"))
     where_parts: list[str] = []
     placeholders: dict[str, Any] = {}
+    # toString() keeps the parse valid when the warehouse stored the column as a native timestamp.
     partition_expr = (
-        f"parseDateTimeBestEffort({config.partition_field})"
+        f"parseDateTimeBestEffort(toString({config.partition_field}))"
         if config.partition_field_is_datetime_string
         else config.partition_field
     )

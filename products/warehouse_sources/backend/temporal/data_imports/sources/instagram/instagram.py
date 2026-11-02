@@ -1,6 +1,6 @@
 import re
 import dataclasses
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
@@ -23,9 +23,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.instagram.
     GRAPH_API_HOST,
     INSTAGRAM_ENDPOINTS,
     MAX_INSIGHTS_LOOKBACK_DAYS,
+    MEDIA_FIELDS,
     MEDIA_INSIGHT_BREAKDOWNS,
     MEDIA_INSIGHT_METRICS,
+    MEDIA_PAGE_SAFE_FIELDS,
     MEDIA_PARENT_FIELDS,
+    MEDIA_REFUSABLE_FIELDS,
     PAGE_FIELDS,
     PAGE_SIZE,
     TOP_LEVEL_COMMENT_FIELDS,
@@ -74,6 +77,9 @@ META_AUTH_ERROR_CODES = frozenset({102, 190, 458, 459, 460, 463, 464, 467})
 META_THROTTLE_ERROR_CODES = frozenset({4, 17, 32, 613})
 META_TRANSIENT_ERROR_CODES = frozenset({1, 2})
 META_PERMISSION_ERROR_CODE = 10
+# Meta error code 9005, "Video content was not found": a media page asks a video post that Meta can
+# no longer find for one of `MEDIA_REFUSABLE_FIELDS`.
+META_VIDEO_NOT_FOUND_ERROR_CODE = 9005
 
 
 class InstagramAPIError(Exception):
@@ -93,7 +99,9 @@ class InstagramPermissionError(InstagramAPIError):
 
 
 class InstagramBadRequestError(InstagramAPIError):
-    pass
+    def __init__(self, message: str, code: Any = None) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 class InstagramRequestBudgetError(InstagramAPIError):
@@ -317,13 +325,14 @@ class InstagramClient:
             raise InstagramPermissionError(f"{PERMISSION_ERROR_PREFIX}: {detail}")
 
         self._logger.error(f"Instagram API error: {detail}")
-        raise InstagramBadRequestError(f"Instagram API error: {detail}")
+        raise InstagramBadRequestError(f"Instagram API error: {detail}", code=code)
 
 
 def _iter_pages(
     client: InstagramClient,
     url: str,
     max_pages: int,
+    get: Optional[Callable[[str], dict[str, Any]]] = None,
 ) -> Iterator[tuple[list[dict[str, Any]], Optional[str]]]:
     """Yield `(rows, next_url)` per page of a cursor-paginated edge.
 
@@ -334,7 +343,7 @@ def _iter_pages(
     pages = 0
     current: Optional[str] = url
     while current is not None and pages < max_pages and client.has_request_budget():
-        body = client.get(current)
+        body = (get or client.get)(current)
         rows = body.get("data")
         rows = rows if isinstance(rows, list) else []
         paging = body.get("paging") or {}
@@ -372,6 +381,40 @@ def _insight_points(entry: dict[str, Any]) -> list[dict[str, Any]]:
     return []
 
 
+def _media_page(client: InstagramClient, url: str, logger: FilteringBoundLogger) -> dict[str, Any]:
+    """Read one page of the media edge, reading it again without the refusable fields if Meta refuses it.
+
+    Each post on a refused page then reads the refusable fields on its own, so only the post Meta
+    cannot serve keeps them empty. The next page asks for every field again.
+    """
+    try:
+        return client.get(url)
+    except InstagramBadRequestError as error:
+        if error.code != META_VIDEO_NOT_FOUND_ERROR_CODE:
+            raise
+        logger.warning(f"Instagram: re-reading a media page without its refusable fields: {error}")
+
+    body = client.get(_with_query_param(url, "fields", MEDIA_PAGE_SAFE_FIELDS))
+    rows = body.get("data")
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict) or not row.get("id"):
+            continue
+        if not client.has_request_budget():
+            # Without a cursor the checkpoint stays on this page, so a resumed attempt reads it again.
+            body.pop("paging", None)
+            break
+        media_id = str(row["id"])
+        try:
+            extra = client.get(client.build_url(media_id, {"fields": MEDIA_REFUSABLE_FIELDS}))
+        except InstagramBadRequestError as error:
+            if error.code != META_VIDEO_NOT_FOUND_ERROR_CODE:
+                raise
+            logger.warning(f"Instagram: skipping refusable fields for media {media_id}: {error}")
+            continue
+        row.update({name: value for name, value in extra.items() if name != "id"})
+    return body
+
+
 def _media_rows(
     client: InstagramClient,
     instagram_account_id: str,
@@ -389,7 +432,8 @@ def _media_rows(
         _account_path(instagram_account_id, config.edge), params
     )
 
-    for rows, next_url in _iter_pages(client, url, MAX_PAGES_PER_STREAM):
+    get_page = (lambda page_url: _media_page(client, page_url, logger)) if config.fields == MEDIA_FIELDS else None
+    for rows, next_url in _iter_pages(client, url, MAX_PAGES_PER_STREAM, get=get_page):
         if rows:
             yield [_normalize_row(row, config.timestamp_fields) for row in rows]
         # Checkpoint after the yield: a crash then re-yields the last page instead of

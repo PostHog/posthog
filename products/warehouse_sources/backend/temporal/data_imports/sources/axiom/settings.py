@@ -1,4 +1,7 @@
+from datetime import timedelta
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
+from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 API_VERSION = "v2"
 BASE_URL = f"https://api.axiom.co/{API_VERSION}/"
@@ -20,6 +23,26 @@ ENDPOINTS: dict[str, Endpoint] = {
     },
     "users": {"path": "users", "paginator": "single_page"},
     "groups": {"path": "rbac/groups", "paginator": "single_page"},
+}
+
+MONITOR_HISTORY = "monitor_history"
+# The history API returns one identical row per notifier and email recipient, so the key adds the
+# position of each row among the rows that share the other key values.
+MONITOR_HISTORY_PRIMARY_KEYS = ["checkId", "timestamp", "state", "deliveryIndex"]
+# The endpoint has no pagination, so a bounded window keeps each response small.
+MONITOR_HISTORY_WINDOW = timedelta(days=7)
+# Start of the first window when a monitor has no createdAt value.
+MONITOR_HISTORY_DEFAULT_LOOKBACK = timedelta(days=90)
+
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
+    MONITOR_HISTORY: [
+        IncrementalField(
+            label="timestamp",
+            type=IncrementalFieldType.DateTime,
+            field="timestamp",
+            field_type=IncrementalFieldType.DateTime,
+        )
+    ],
 }
 
 AUTH_ERRORS = {

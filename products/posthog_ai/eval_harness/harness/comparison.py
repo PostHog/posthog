@@ -37,6 +37,7 @@ class ModelComparison:
         ).resolve()
         self.runs = [ModelRun(runtime=target.runtime, model=target.model) for target in options.comparison_models]
         self.issues: list[str] = []
+        self._snapshot_report = options.skill_snapshot_report
 
     def _command(self, target: ModelTarget, path: Path, *, check: bool) -> list[str]:
         options = self.options
@@ -69,6 +70,8 @@ class ModelComparison:
             ("--eval", options.case_filter),
             ("--reasoning-effort", options.reasoning_effort),
             ("--fail-under", options.fail_under),
+            ("--skill-snapshot-report", self._snapshot_report if not check else None),
+            ("--skill-snapshot-output-dir", self.directory if not check else None),
         ):
             if value is not None:
                 command.extend([flag, str(value)])
@@ -135,6 +138,8 @@ class ModelComparison:
             return "Run report does not match the requested model or exit status."
         if not report.experiments:
             return "No experiment results."
+        if not report.skills_sha256 or not report.skills_source_sha256 or not report.skills_archive_path:
+            return "No verified skill snapshot. These results cannot establish which skills were available."
         if not any(
             score.mean is not None and score.scored_trials
             for experiment in report.experiments.values()
@@ -159,6 +164,7 @@ class ModelComparison:
                 report.suite_ids,
                 report.revision,
                 report.worktree_dirty,
+                report.skills_sha256,
                 {
                     name: (experiment.cases, sorted(experiment.scores))
                     for name, experiment in report.experiments.items()
@@ -167,12 +173,18 @@ class ModelComparison:
             for report in reports
         ]
         if any(selection != selections[0] for selection in selections[1:]):
-            self.issues.append("Checkout, case, or scorer selections differ. These scores are not directly comparable.")
+            self.issues.append(
+                "Checkout, skill snapshot, case, or scorer selections differ. These scores are not directly comparable."
+            )
 
     def _text(self) -> str:
         rows = [
             ["Metric", *(f"{run.runtime}/{run.model}" for run in self.runs)],
             ["Exit status", *(str(run.exit_code) if run.exit_code is not None else "not run" for run in self.runs)],
+            [
+                "Skill snapshot",
+                *((run.report.skills_sha256 or "not recorded") if run.report else "not recorded" for run in self.runs),
+            ],
             [
                 "Wall time",
                 *(f"{run.wall_time_seconds:.1f}s" if run.exit_code is not None else "n/a" for run in self.runs),
@@ -284,6 +296,14 @@ class ModelComparison:
                     report=self._read_report(path),
                 )
                 self.runs[index] = run.model_copy(update={"issue": self._validate_run(run)})
+                if (
+                    self._snapshot_report is None
+                    and run.report is not None
+                    and run.report.skills_archive_path
+                    and run.report.skills_source_sha256
+                    and run.report.skills_sha256
+                ):
+                    self._snapshot_report = path
                 self._save()
                 if code == 130:
                     return 130

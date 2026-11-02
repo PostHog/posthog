@@ -34,10 +34,12 @@ const entry = (type: string, ref: string, path: string): Record<string, unknown>
 describe('analyticsListLogic', () => {
     let capture: jest.SpyInstance
     let lastViewedAt: string | null
+    let failSave: boolean
 
     beforeEach(() => {
         localStorage.clear()
         lastViewedAt = null
+        failSave = false
         resetAnalyticsFeedSnapshot()
         useMocks({
             get: {
@@ -65,6 +67,12 @@ describe('analyticsListLogic', () => {
                     }
                 },
             },
+            patch: {
+                '/api/users/@me/': async ({ request }) =>
+                    failSave
+                        ? [500, { detail: 'Save failed' }]
+                        : { ...userLogic.values.user, ...((await request.json()) as Record<string, unknown>) },
+            },
         })
         initKeaTests()
         featureFlagLogic.mount()
@@ -91,39 +99,78 @@ describe('analyticsListLogic', () => {
         ])
     })
 
-    it('ignores saved defaults and remembers explicit sort choices separately for both scopes', async () => {
-        localStorage.setItem(
-            '997__u-ada__.scenes.analytics.analyticsListLogic.orderByByScope',
-            JSON.stringify({ mine: '-last_viewed_at', all: '-created_at' })
-        )
+    it('opens each list on the Display default sort, and a header click sorts only that visit', async () => {
+        userLogic.actions.loadUserSuccess({
+            ...userLogic.values.user!,
+            ui_configuration: { version: 1, sql_editor: { vim_mode_enabled: true } },
+        })
         const logic = analyticsListLogic()
         logic.mount()
-        router.actions.push(urls.analyticsMine())
-        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(logic, () => router.actions.push(urls.analyticsList())).toFinishAllListeners()
         expect(logic.values.feedQuery.orderBy).toBe('-last_viewed_at')
-        logic.actions.setFilters({ orderBy: 'last_viewed_at' })
-        await expectLogic(logic).toFinishAllListeners()
-        router.actions.push(urls.analyticsList())
-        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => logic.actions.setFilters({ orderBy: '-created_at' })).toFinishAllListeners()
+        expect(logic.values.feedQuery.orderBy).toBe('-created_at')
+        await expectLogic(logic, () => router.actions.push(urls.analyticsMine())).toFinishAllListeners()
         expect(logic.values.feedQuery.orderBy).toBe('-last_viewed_at')
-        router.actions.push(urls.analyticsMine())
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.feedQuery.orderBy).toBe('last_viewed_at')
+
+        await expectLogic(logic, () => logic.actions.setDefaultSort('-created_at')).toFinishAllListeners()
+        expect(logic.values.feedQuery.orderBy).toBe('-created_at')
+        expect(capture).toHaveBeenCalledWith('analytics default sort changed', {
+            order_by: '-created_at',
+            scope: 'mine',
+        })
+        await expectLogic(logic, () => router.actions.push(urls.analyticsList())).toFinishAllListeners()
+        expect(logic.values.feedQuery.orderBy).toBe('-created_at')
+        expect(userLogic.values.user?.ui_configuration).toEqual({
+            version: 1,
+            sql_editor: { vim_mode_enabled: true },
+            analytics_list: { default_sort: '-created_at' },
+        })
+    })
+
+    it('hides insights from All in both scopes, keeps them under the insight type, and remembers the choice', async () => {
+        const logic = analyticsListLogic()
+        logic.mount()
+        await expectLogic(logic, () => router.actions.push(urls.analyticsList())).toFinishAllListeners()
+        expect(logic.values.items.map((item) => item.id)).toEqual(expect.arrayContaining(['i1', 'n1']))
+
+        await expectLogic(logic, () => logic.actions.setInsightsHidden(true)).toFinishAllListeners()
+        expect(logic.values.items.map((item) => item.id)).toEqual(['n1'])
+        expect(capture).toHaveBeenCalledWith('analytics insights toggled', {
+            hidden: true,
+            scope: 'all',
+            folder: false,
+        })
+
+        await expectLogic(logic, () => logic.actions.setFilters({ type: 'insight' })).toFinishAllListeners()
+        expect(logic.values.items.map((item) => item.type)).toContain('insight')
+        await expectLogic(logic, () => logic.actions.setInsightsHidden(true)).toFinishAllListeners()
+        expect(logic.values.filters.type).toBe('all')
+
+        await expectLogic(logic, () => router.actions.push(urls.analyticsMine())).toFinishAllListeners()
+        expect(logic.values.feedQuery.hideInsights).toBe(true)
         logic.unmount()
 
         const restored = analyticsListLogic()
         restored.mount()
-        await expectLogic(restored, () => router.actions.push(urls.analyticsList())).toFinishAllListeners()
-        expect(restored.values.feedQuery.orderBy).toBe('-last_viewed_at')
-        await expectLogic(restored, () =>
-            restored.actions.setFilters({ orderBy: '-created_at' })
-        ).toFinishAllListeners()
-        restored.unmount()
+        expect(restored.values.insightsHidden).toBe(true)
+    })
 
-        const withSavedChoice = analyticsListLogic()
-        withSavedChoice.mount()
-        await expectLogic(withSavedChoice, () => withSavedChoice.actions.loadList()).toFinishAllListeners()
-        expect(withSavedChoice.values.feedQuery.orderBy).toBe('-created_at')
+    it('loads the list again when a hidden-insights save fails and the old setting comes back', async () => {
+        const logic = analyticsListLogic()
+        logic.mount()
+        await expectLogic(logic, () => router.actions.push(urls.analyticsList())).toFinishAllListeners()
+
+        failSave = true
+        await expectLogic(logic, () => {
+            logic.actions.setInsightsHidden(true)
+            logic.actions.setFilters({ search: 'I' })
+        }).toFinishAllListeners()
+
+        expect(logic.values.insightsHidden).toBe(false)
+        expect(logic.values.currentFeed.initialized).toBe(true)
+        expect(logic.values.items.map((item) => item.type)).toContain('insight')
     })
 
     it('refreshes view times when URL filters restore a cached sorted list', async () => {
@@ -184,5 +231,16 @@ describe('analyticsListLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.filters).toMatchObject(expected)
+    })
+
+    it('keeps a typed space once the search reaches the URL', async () => {
+        const logic = analyticsListLogic()
+        logic.mount()
+        router.actions.push(urls.analyticsList())
+        logic.actions.setSearchInput('pageview ')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.searchParams.search).toBe('pageview ')
+        expect(logic.values.searchInput).toBe('pageview ')
     })
 })

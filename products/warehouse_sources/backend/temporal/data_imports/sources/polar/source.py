@@ -101,6 +101,21 @@ class PolarSource(ResumableSource[PolarSourceConfig, PolarResumeConfig]):
             "404 Client Error: Not Found for url: https://api.polar.sh": "The Polar API version this source uses is no longer supported by Polar. Please contact support to move it to a newer version.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `get_rows` calls `response.raise_for_status()` directly rather than through the shared REST
+        # engine, so a 5xx that survives `_get_polar_session`'s `DEFAULT_RETRY` (status_forcelist
+        # 429/500/502/503/504) isn't wrapped as a retryable exception type either — it's still a
+        # transient Polar-side outage, and Temporal retries the whole activity next. Match status,
+        # reason and host, not the path or query string, since every endpoint and page can hit this.
+        # Mirrors Microsoft Clarity's and Checkout.com's equivalent classification of the same
+        # already-retried status codes.
+        return {
+            "500 Server Error: Internal Server Error for url: https://api.polar.sh",
+            "502 Server Error: Bad Gateway for url: https://api.polar.sh",
+            "503 Server Error: Service Unavailable for url: https://api.polar.sh",
+            "504 Server Error: Gateway Timeout for url: https://api.polar.sh",
+        }
+
     def validate_credentials(
         self, config: PolarSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:

@@ -7,21 +7,22 @@ from unittest import TestCase
 from parameterized import parameterized
 
 from products.experiments.backend.facade.contracts import (
+    ExperimentHealthFinding,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
     ExperimentHealthFlagChangeKind,
 )
 from products.experiments.backend.health.checks.conditions_changed import release_conditions_changed_mid_run
-from products.experiments.backend.health.condition_changes import parse_release_conditions
 from products.experiments.backend.health.context import (
     ChangeWindow,
-    ConditionsChange,
     ConditionSetTraffic,
     FlagHistoryNotCheckedReason,
     HealthContext,
     parse_flag_state,
 )
+from products.experiments.backend.health.skips import CheckSkip, not_checked
 from products.experiments.backend.health.test.factories import RUNNING_CONTEXT, flag_history
+from products.feature_flags.backend.facade.edits import ConditionsChange, parse_release_conditions
 
 LAUNCHED_AT = datetime(2026, 9, 12, 10, 0, tzinfo=UTC)
 FIRST_CHANGE_AT = datetime(2026, 9, 12, 13, 4, tzinfo=UTC)
@@ -54,6 +55,7 @@ def _context(
     now: list[dict[str, Any]] | None = None,
     exposed_during_overrides: dict[ChangeWindow, bool | None] | None = None,
     variants: list[dict[str, Any]] = EVEN,
+    exposed_units: int | None = None,
 ) -> HealthContext:
     variant_keys = [variant["key"] for variant in variants]
     changes = [
@@ -74,6 +76,7 @@ def _context(
             not_checked=not_checked,
             release_conditions=None if now is None else parse_release_conditions(now, variant_keys=variant_keys),
             exposed_during_overrides=exposed_during_overrides,
+            exposed_units_before_last={ExperimentHealthFlagChangeKind.RELEASE_CONDITIONS: exposed_units},
         ),
         condition_set_traffic=None if people_by_set is None else _traffic(people_by_set),
     )
@@ -83,6 +86,7 @@ def _traffic(people_by_set: dict[int, int]) -> ConditionSetTraffic:
     calls = 2 * sum(people_by_set.values())
     return ConditionSetTraffic(
         since=datetime(2026, 9, 13, 8, 0, tzinfo=UTC),
+        until=datetime(2026, 9, 20, 8, 0, tzinfo=UTC),
         team_timezone="Europe/Berlin",
         people_by_set=people_by_set,
         calls=calls,
@@ -130,6 +134,32 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 f"place (300 of about 1,650). Reset the experiment, or move its start date to {FIRST_CHANGE}.",
             ),
             (
+                "override_removed_from_a_large_share_before_4_people",
+                _context([PRO_PINNED, EVERYONE], [PRO, EVERYONE], people_by_set={1: 300, 2: 2700}, exposed_units=4),
+                ("variant_override_changed", INFO, OVERRIDE_TITLE, "A7"),
+                f'The variant override "test" of Set 1 was removed on {FIRST_CHANGE}. The change came 3 hours after '
+                f"launch, when 4 people had been exposed. Move the start date to {FIRST_CHANGE} so the results count only exposures after it. "
+                f'Since {TRAFFIC_SINCE}, Set 1 matched about 18.2% of the users who would get "test" with the '
+                "override in place (300 of about 1,650).",
+            ),
+            (
+                "override_removed_from_a_large_share_before_5_people",
+                _context([PRO_PINNED, EVERYONE], [PRO, EVERYONE], people_by_set={1: 300, 2: 2700}, exposed_units=5),
+                ("variant_override_changed", WARNING, OVERRIDE_TITLE, "A7"),
+                f'The variant override "test" of Set 1 was removed on {FIRST_CHANGE}. {OVERRIDE_MOVED} Since '
+                f'{TRAFFIC_SINCE}, Set 1 matched about 18.2% of the users who would get "test" with the override in '
+                f"place (300 of about 1,650). Reset the experiment, or move its start date to {FIRST_CHANGE}.",
+            ),
+            (
+                "override_removed_without_a_measurement_before_4_people",
+                _context([PRO_PINNED, EVERYONE], [PRO, EVERYONE], exposed_units=4),
+                ("variant_override_changed", INFO, OVERRIDE_TITLE, "A7"),
+                f'The variant override "test" of Set 1 was removed on {FIRST_CHANGE}. {OVERRIDE_MOVED} PostHog '
+                "can't measure how many users Set 1 matches. Reset the experiment, or move its start date to "
+                f"{FIRST_CHANGE}.",
+                "not_measured",
+            ),
+            (
                 "override_removed_from_a_few_percent",
                 _context([PRO_PINNED, EVERYONE], [PRO, EVERYONE], people_by_set={1: 30, 2: 2970}),
                 ("variant_override_changed", INFO, OVERRIDE_TITLE, "A7"),
@@ -142,6 +172,7 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 f'The variant override "test" of Set 1 was removed on {FIRST_CHANGE}. {OVERRIDE_MOVED} Too few '
                 f"users called the flag since {TRAFFIC_SINCE} to measure how many users Set 1 matches. Reset the "
                 f"experiment, or move its start date to {FIRST_CHANGE}.",
+                "too_few_people",
             ),
             (
                 "override_removed_without_a_measurement",
@@ -150,6 +181,7 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 f'The variant override "test" of Set 1 was removed on {FIRST_CHANGE}. {OVERRIDE_MOVED} PostHog '
                 "can't measure how many users Set 1 matches. Reset the experiment, or move its start date to "
                 f"{FIRST_CHANGE}.",
+                "not_measured",
             ),
             (
                 "override_changed_then_removed",
@@ -218,6 +250,7 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 "variant while it was in place and a random variant after, so those exposed while it was in place "
                 "may have switched variants. Their exposures stay in the results. PostHog can't measure how many "
                 f"users these conditions match. Reset the experiment, or move its start date to {FIRST_CHANGE}.",
+                "not_measured",
             ),
             (
                 "override_removed_with_its_condition",
@@ -329,6 +362,7 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 f"The release conditions changed on {FIRST_CHANGE}. This check can't tell whether anyone was exposed "
                 "before the change, because this API key can't query events. Add the query:read scope to this API "
                 "key, or review the change in the flag history.",
+                "no_query_access",
             ),
         ]
     )
@@ -338,32 +372,40 @@ class TestReleaseConditionsChangedMidRun(TestCase):
         ctx: HealthContext,
         expected: tuple[str, ExperimentHealthFindingSeverity, str, str],
         expected_detail: str | None,
+        expected_reason: str | None = None,
     ) -> None:
         finding = release_conditions_changed_mid_run(ctx)
 
-        assert finding is not None
+        assert isinstance(finding, ExperimentHealthFinding)
         self.assertEqual(finding.code, ExperimentHealthFindingCode.RELEASE_CONDITIONS_CHANGED_MID_RUN)
         self.assertEqual((finding.subcode, finding.severity, finding.title, finding.diagnostic_ref), expected)
+        self.assertEqual(finding.reason, expected_reason)
         if expected_detail is not None:
             self.assertEqual(finding.detail, expected_detail)
 
     @parameterized.expand(
         [
-            ("no_change", _context([PRO])),
-            ("set_back_with_nobody_in_between", _context([PRO], [EVERYONE], [PRO], exposed_between=False)),
-            ("no_history_access", _context([PRO], not_checked=FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS)),
+            ("no_change", _context([PRO]), None),
+            ("set_back_with_nobody_in_between", _context([PRO], [EVERYONE], [PRO], exposed_between=False), None),
+            (
+                "no_history_access",
+                _context([PRO], not_checked=FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS),
+                not_checked("Couldn't check because you can't view the linked feature flag's history"),
+            ),
             # The forced-variant check reports an override in place, with the time it was set.
-            ("override_added", _context([PRO, EVERYONE], [PRO_PINNED, EVERYONE])),
-            ("pinned_condition_added", _context([EVERYONE], [PRO_PINNED, EVERYONE])),
+            ("override_added", _context([PRO, EVERYONE], [PRO_PINNED, EVERYONE]), None),
+            ("pinned_condition_added", _context([EVERYONE], [PRO_PINNED, EVERYONE]), None),
             (
                 "override_changed_to_another_variant",
                 _context([PRO_PINNED, EVERYONE], [{**PRO, "variant": "control"}, EVERYONE]),
+                None,
             ),
             (
                 "override_removed_from_under_one_percent",
                 _context([PRO_PINNED, EVERYONE], [PRO, EVERYONE], people_by_set={1: 10, 2: 2990}),
+                None,
             ),
         ]
     )
-    def test_reports_nothing(self, _name: str, ctx: HealthContext) -> None:
-        self.assertIsNone(release_conditions_changed_mid_run(ctx))
+    def test_reports_nothing(self, _name: str, ctx: HealthContext, expected: CheckSkip | None) -> None:
+        self.assertEqual(release_conditions_changed_mid_run(ctx), expected)

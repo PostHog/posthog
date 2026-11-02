@@ -97,6 +97,8 @@ Leaving one out stays possible, and `PERSON_ID_REWRITE_EXEMPT` is where that dec
 - `sharded_events_json` — all sweeps, on the events cluster, through patch parts instead of mutations (`uses_patch_parts`). Optional: only present after the native-JSON migration.
 - `sharded_flag_evaluations` — person, team, queued-uuid, immediate and deferred event removal, and property removal of event and person properties (below). Immediate event removal with a HogQL predicate does not sweep it, and refuses while a matching row has no events copy. Deferred event removal with a predicate reaches the rows that have an events copy through their uuids, and the rest through the predicate compiled for this table (below). Property removal with a predicate does not sweep it. Optional.
 - `sharded_posthog_document_embeddings_<model>` — event and team deletion, through `delete_event_documents`. An embedded document is keyed by the id of the thing it describes (`document_id`), and an Event deletion's key is that same id, so the pending dictionary is joined on `(team_id, Event, document_id)`. Every per-model table listed by the error tracking facade's `document_embedding_tables` is swept and counted.
+  A document keyed by another id is not reached by event deletion. The AI observability summaries use `<trace or generation id>::<job id>` under the `llm-analytics` product, so deleting the summary events leaves their embeddings until the table TTL.
+  To remove them, turn off AI data analysis for the organization first, so no new summaries arrive during the run. Then run `delete_team_product_documents_job` with the `team_id` and the `product`. It deletes only that product's documents for that team, from the model tables and the ingestion buffer. It fails when the team has no documents for that product (a misspelled name), when the deletes run past `timeout_seconds`, or when any document survives.
 
 Native property-removal requests fail when the selected rows retain a requested permanent or temporary property, or a matching person `$set`/`$set_once` instruction.
 They also fail when that property class has quarantine diagnostics, because malformed raw data cannot prove that the requested value is absent.
@@ -183,7 +185,7 @@ A table created before the switch to `ReplacingMergeTree` keeps every duplicate,
 
 #### Rows past the TTL
 
-A request window can reach rows past the 90-day TTL that a part still holds, because `ttl_only_drop_parts = 1` drops a part only once its newest row expires.
+A request window can reach rows past the 92-day TTL that a part still holds, because `ttl_only_drop_parts = 1` drops a part only once its newest row expires.
 The copy stages those rows like any others.
 A reingested part that holds only expired rows can then drop before the reingest or the shard verify counts it.
 `DeletionTarget.ttl_days` makes both checks compare only rows at least two days short of their TTL, on the table side and the staged side alike.
@@ -216,7 +218,7 @@ The job finds typed columns through their comments in `system.columns`, not thro
 ### Immediate event removal with a HogQL predicate does not sweep `flag_evaluations`
 
 `get_event_removal_shards` leaves `flag_evaluations` out of the sweep for an immediate request that carries a HogQL predicate.
-A row with an events copy ages out with the table's TTL. The table partitions by month with `ttl_only_drop_parts = 1`, so a part drops only once its newest row expires: the real wait is up to about 120 days, not the 90-day TTL.
+A row with an events copy ages out with the table's TTL. The table partitions by month with `ttl_only_drop_parts = 1`, so a part drops only once its newest row expires: the real wait is up to about 122 days, not the 92-day TTL.
 The events copies that a deferred request deletes through do not help here, because the immediate path deletes the events rows without queueing their uuids.
 A row with no events copy is checked instead.
 The request refuses while such a row matches the predicate compiled for this table (below), or matches the request's other criteria when the predicate cannot run on this table.
@@ -238,7 +240,7 @@ A flag row whose event the predicate does not name keeps its events copy and sta
 A row with no events copy needs the predicate itself.
 An org on `flag_evaluations_mode` 2 stores its flag calls only in `flag_evaluations`, and a deletion that skipped the table can leave a flag row whose event is gone.
 `DeletionTarget.uncopied_rows_hogql_table` names the HogQL table that compiles the predicate for those rows, `posthog.flag_evaluations` here.
-The compile adds that table even when the org flag hides it from queries.
+The compile adds that table even when the org's mode hides it from queries.
 The queue fill reads the uuids of the rows with no copy in `sharded_events` that the compiled predicate matches, shard-locally and in 7-day windows, and queues them with the rest.
 A row read this way already existed when its uuid was queued, so the drain's `inserted_at` bound cannot skip it.
 The check for an events copy reads `sharded_events` only.
@@ -314,7 +316,12 @@ When one of those runs starts during a copy, the shard stops, and its error name
 
 `_fetch_stats` counts only the events tables. It feeds `AUTO_APPROVE_MAX_EVENTS`, a cost heuristic rather than a completeness claim, so a request auto-approved as small may move somewhat more rows than measured.
 
-`cleanup_old_events_by_partition` stays events-only. It enforces the events retention that staff set for each team, and every other personal-data table already expires sooner under its own TTL.
+`cleanup_old_events_by_partition` stays events-only. It enforces the events retention that staff set for each team.
+The sessions tables are built from events and have no TTL, so `cleanup_old_sessions_by_partition` deletes them with the same retention after the events are gone.
+In deployed cloud they are `sessions` (v1), `raw_sessions` (v2) and `raw_sessions_v3` on the sessions satellite cluster, named by `CLICKHOUSE_SESSIONS_CLUSTER`.
+Elsewhere they are `sharded_sessions`, `sharded_raw_sessions` and `sharded_raw_sessions_v3` on the main cluster.
+The job skips any of these tables that does not exist.
+Other personal-data tables expire sooner under their own TTL.
 It deletes a month only when every event in it is older than the retention. A month that is only partly past the retention waits for a later run, for manual runs too.
 
 Staff set the retention in Django admin, on the team and organization pages:
@@ -326,13 +333,17 @@ Staff set the retention in Django admin, on the team and organization pages:
 - The Events retention page under Custom tools (`/admin/events-retention/`) lists every team that has a value of its own or belongs to an organization with a config.
   It shows each team's billing months (`Team.event_retention_months`), its effective retention, where that comes from, and the first month the cleanup keeps, 100 teams per page.
 
-`monthly_old_events_cleanup_job` has two steps:
+`monthly_retention_events_cleanup_job` has four steps, in this order:
 
 - `plan_old_events_cleanup` reads every team's effective retention when the run starts and logs each one as organization, team and months. It then finds the months that hold events for each team and keeps the ones entirely past that team's retention. It logs the teams due in each month.
 - `cleanup_old_events_by_partition` deletes each planned month for the teams due in that month only. A team with 13 months and a team with 18 months share the older months, and the 13-month team also has months of its own.
+- `plan_old_sessions_cleanup` starts after the events are deleted. It finds the sessions partitions entirely past each team's retention, so a month whose events an earlier run deleted still gets its sessions deleted.
+- `cleanup_old_sessions_by_partition` deletes each planned sessions month for the teams due in it. Sessions partition by the month a session started, so a session that continues into a kept month is deleted with the due month.
 
-A manual run can narrow the plan with `team_ids` and `partitions`. A listed team with no retention is ignored.
-`monthly_old_events_cleanup_schedule` starts one run on the 1st of each month, in every region, and skips when no retention is set. It is stopped by default. The job shares the `deletes_job` run queue, so it does not mutate the same partitions at the same time.
+A manual run can narrow each plan with `team_ids` and `partitions`, set separately on the events and the sessions plan steps. A listed team with no retention is ignored.
+`monthly_retention_events_cleanup_schedule` starts one run on the 3rd of each month at 21:00 local time (Europe/Paris in EU, America/Los_Angeles elsewhere), and skips when no retention is set. It is stopped by default.
+The job runs `ensure_no_concurrent_deletes_run` before it plans, and that guard also runs in `deletes_job`. Each job fails at the start while a `deletes_job`, cleanup or squash run is executing, so the two never mutate the events tables at the same time.
+Both jobs and `squash_person_overrides` carry the `deletes_job_concurrency` tag. The Dagster deployment settings put a run-queue limit of 1 on that tag, so a second run of any of the three queues instead of starting.
 `sharded_events_json` keeps events dated before 2020, because it stores them in its 202001 partition and the delete addresses the event's own month.
 
 ## Adding a table

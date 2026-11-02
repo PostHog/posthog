@@ -253,22 +253,6 @@ def build_apply_scanner_workflow_id(scanner_id: UUID, session_id: str) -> str:
     return f"{APPLY_SCANNER_WORKFLOW_NAME}-{scanner_id}-{session_id}"
 
 
-# Search suggestion refresher: hourly, bounded per run and per day so cost tracks scanners people look at.
-SEARCH_SUGGESTIONS_WORKFLOW_NAME = "replay-vision-refresh-search-suggestions"
-SEARCH_SUGGESTIONS_WORKFLOW_ID = "replay-vision-search-suggestions-refresher"
-SEARCH_SUGGESTIONS_SCHEDULE_ID = "replay-vision-search-suggestions-refresher-schedule"
-# Short, so a new scanner or team has phrases minutes after its first observations land.
-SEARCH_SUGGESTIONS_REFRESH_INTERVAL = dt.timedelta(minutes=10)
-SEARCH_SUGGESTIONS_EXECUTION_TIMEOUT = dt.timedelta(minutes=9)
-# With the concurrency below and a 30s model timeout, a full run of slow calls still ends inside the execution timeout.
-SEARCH_SUGGESTIONS_MAX_PER_RUN = 200
-# Backstop against a bug that makes every scope look stale. Sized for every active scanner and team refreshing
-# each REFRESH_INTERVAL, at a fraction of a cent per call.
-SEARCH_SUGGESTIONS_MAX_PER_DAY = 40_000
-SEARCH_SUGGESTIONS_CONCURRENCY = 16
-LIST_STALE_SEARCH_SUGGESTIONS_TIMEOUT = dt.timedelta(seconds=60)
-REFRESH_SEARCH_SUGGESTIONS_TIMEOUT = dt.timedelta(seconds=90)
-
 # Learned rules: ratings settle for a while before a team is distilled, so a 10-minute tick is prompt enough.
 LEARNED_RULES_WORKFLOW_NAME = "replay-vision-refresh-learned-rules"
 LEARNED_RULES_WORKFLOW_ID = "replay-vision-learned-rules-refresher"
@@ -281,3 +265,16 @@ LEARNED_RULES_CONCURRENCY = 16
 LIST_DUE_LEARNED_RULES_TIMEOUT = dt.timedelta(seconds=60)
 # Covers the model call's own 120s timeout plus the database reads around it.
 REFRESH_TEAM_LEARNED_RULES_TIMEOUT = dt.timedelta(minutes=4)
+
+
+# Highlight feed rebuilds: a schedule starts this every minute and skips a start while one still runs.
+HIGHLIGHT_REBUILD_WORKFLOW_NAME = "replay-vision-rebuild-highlight-feeds"
+HIGHLIGHT_REBUILD_WORKFLOW_ID = "replay-vision-highlight-feed-rebuilder"
+HIGHLIGHT_REBUILD_SCHEDULE_ID = "replay-vision-highlight-feed-rebuilder-schedule"
+HIGHLIGHT_REBUILD_INTERVAL = dt.timedelta(minutes=1)
+HIGHLIGHT_REBUILD_EXECUTION_TIMEOUT = dt.timedelta(minutes=10)
+HIGHLIGHT_REBUILD_ACTIVITY_TIMEOUT = dt.timedelta(minutes=8)
+# One team's build holds one heavy statement under its own 120s cap, so a heartbeat per team arrives well inside this.
+HIGHLIGHT_REBUILD_HEARTBEAT_TIMEOUT = dt.timedelta(minutes=5)
+# The activity starts no team after this, which leaves a slow last build room inside the activity timeout.
+HIGHLIGHT_REBUILD_CLAIM_BUDGET = dt.timedelta(minutes=3)

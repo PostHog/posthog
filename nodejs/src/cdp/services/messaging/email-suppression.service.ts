@@ -3,6 +3,7 @@ import { Counter } from 'prom-client'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { LazyLoader } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
+import { isValidTeamId } from '~/common/utils/team-manager'
 
 const cdpEmailSuppressionTotal = new Counter({
     name: 'cdp_email_suppression_total',
@@ -31,6 +32,26 @@ export function emailSuppressionConfigFromEnv(): EmailSuppressionConfig {
     }
 }
 
+export type SuppressionCheckOptions = {
+    // Transactional email (invoices, login codes, password resets) is blocked only by a hard bounce, because
+    // only then is the address proven dead. A complaint, a manual entry or a full inbox (soft bounces) lets it through.
+    transactional?: boolean
+}
+
+// An active suppression. It blocks transactional email only when the address hard-bounced.
+type SuppressionEntry = { blocksTransactional: boolean }
+
+const HARD_BOUNCE_REASON = 'Auto-suppressed after a hard bounce'
+
+// Reasons that mark a dead address on rows written before `hard_bounced_at` existed: our own hard-bounce
+// rows, and the two Customer.io lists the importer maps to BOUNCE. Both writers now set the column, so
+// this list is closed and only covers rows already on disk.
+const LEGACY_HARD_BOUNCE_REASONS = [
+    HARD_BOUNCE_REASON,
+    'Imported from Customer.io (bounced)',
+    'Imported from Customer.io (invalid address)',
+]
+
 /**
  * Per-team email suppression list, backed by `posthog_messagesuppression`.
  *
@@ -57,14 +78,15 @@ export function emailSuppressionConfigFromEnv(): EmailSuppressionConfig {
  */
 export class EmailSuppressionService {
     private readonly threshold: number
-    private readonly lazyLoader: LazyLoader<boolean>
+    // A key's active suppression, or false when it has none.
+    private readonly lazyLoader: LazyLoader<SuppressionEntry | false>
 
     constructor(
         private postgres: PostgresRouter,
         config: EmailSuppressionConfig
     ) {
         this.threshold = config.transientBounceThreshold
-        this.lazyLoader = new LazyLoader({
+        this.lazyLoader = new LazyLoader<SuppressionEntry | false>({
             name: 'email_suppression',
             loader: async (keys) => await this.loadSuppressed(keys),
         })
@@ -74,14 +96,19 @@ export class EmailSuppressionService {
         this.lazyLoader.clear()
     }
 
-    /** Pre-send check: is this recipient currently on the team's suppression list? */
-    public async isSuppressed(teamId: number, email: string): Promise<boolean> {
+    /** Pre-send check: does the team's suppression list block this recipient for this kind of email? */
+    public async isSuppressed(
+        teamId: number,
+        email: string,
+        { transactional = false }: SuppressionCheckOptions = {}
+    ): Promise<boolean> {
         const identifier = normalizeIdentifier(email)
         if (!identifier) {
             return false
         }
         try {
-            const suppressed = (await this.lazyLoader.get(toKey(teamId, identifier))) ?? false
+            const entry = (await this.lazyLoader.get(toKey(teamId, identifier))) ?? false
+            const suppressed = entry !== false && (!transactional || entry.blocksTransactional)
             if (suppressed) {
                 cdpEmailSuppressionTotal.inc({ result: 'suppressed_hit' })
             }
@@ -107,10 +134,16 @@ export class EmailSuppressionService {
         const diag = diagnostic ? diagnostic.slice(0, DIAGNOSTIC_MAX_LENGTH) : null
         const reason = `Auto-suppressed after ${this.threshold} consecutive soft bounces`
 
-        // Build a single multi-row upsert. Params: teamId, reason, threshold, diag, then one
-        // identifier per row.
+        // Build a single multi-row upsert. Params: teamId, reason, threshold, diag, legacy reasons,
+        // then one identifier per row.
         const valueClauses: string[] = []
-        const params: (number | string | null)[] = [teamId, reason, this.threshold, diag]
+        const params: (number | string | string[] | null)[] = [
+            teamId,
+            reason,
+            this.threshold,
+            diag,
+            LEGACY_HARD_BOUNCE_REASONS,
+        ]
         identifiers.forEach((identifier, i) => {
             const p = params.length + 1 + i
             // gen_random_uuid() for the id, mirroring RecipientsManagerService.optOut. First bounce
@@ -146,6 +179,12 @@ export class EmailSuppressionService {
                     WHEN posthog_messagesuppression.source NOT IN ('MANUAL', 'COMPLAINT')
                         AND posthog_messagesuppression.transient_bounce_count + 1 >= $3 THEN $2
                     ELSE posthog_messagesuppression.reason END,
+                -- The reason update above replaces the text that an older row carries its hard-bounce
+                -- mark in. Move the mark to the column first, so the row keeps blocking transactional email.
+                hard_bounced_at = COALESCE(
+                    posthog_messagesuppression.hard_bounced_at,
+                    CASE WHEN posthog_messagesuppression.source = 'BOUNCE'
+                              AND posthog_messagesuppression.reason = ANY($5) THEN NOW() END),
                 -- A provably-undeliverable address coming back over threshold un-deletes itself.
                 deleted = CASE
                     WHEN posthog_messagesuppression.source <> 'MANUAL'
@@ -178,15 +217,13 @@ export class EmailSuppressionService {
         }
 
         const diag = diagnostic ? diagnostic.slice(0, DIAGNOSTIC_MAX_LENGTH) : null
-        const reason = 'Auto-suppressed after a hard bounce'
-
         // Params: teamId, reason, diag, then one identifier per row.
         const valueClauses: string[] = []
-        const params: (number | string | null)[] = [teamId, reason, diag]
+        const params: (number | string | null)[] = [teamId, HARD_BOUNCE_REASON, diag]
         identifiers.forEach((identifier, i) => {
             const p = params.length + 1 + i
             valueClauses.push(
-                `(gen_random_uuid(), $1, $${p}, 'BOUNCE', $2, 0, NOW(), $3, true, NOW(), false, NOW(), NOW())`
+                `(gen_random_uuid(), $1, $${p}, 'BOUNCE', $2, 0, NOW(), $3, true, NOW(), false, NOW(), NOW(), NOW())`
             )
         })
         params.push(...identifiers)
@@ -194,7 +231,8 @@ export class EmailSuppressionService {
         const query = `
             INSERT INTO posthog_messagesuppression
                 (id, team_id, identifier, source, reason, transient_bounce_count, last_bounce_at,
-                 last_bounce_diagnostic, suppressed, suppressed_at, deleted, created_at, updated_at)
+                 last_bounce_diagnostic, suppressed, suppressed_at, deleted, created_at, updated_at,
+                 hard_bounced_at)
             VALUES ${valueClauses.join(', ')}
             ON CONFLICT (team_id, identifier) DO UPDATE SET
                 last_bounce_at = NOW(),
@@ -207,6 +245,9 @@ export class EmailSuppressionService {
                     WHEN posthog_messagesuppression.source = 'MANUAL' THEN posthog_messagesuppression.suppressed_at
                     WHEN posthog_messagesuppression.suppressed = false THEN NOW()
                     ELSE posthog_messagesuppression.suppressed_at END,
+                -- Set on every row, manual and complaint entries included: the address can't receive
+                -- mail, so transactional email must stop too.
+                hard_bounced_at = NOW(),
                 -- A complaint outranks a bounce as the reason a row exists, so it keeps its reason
                 -- here the way a manual entry does. This upsert never reassigns the source, so
                 -- overwriting the reason on a COMPLAINT row would leave the two contradicting each
@@ -250,9 +291,9 @@ export class EmailSuppressionService {
             ? `Auto-suppressed after a spam complaint (feedback type: ${feedbackType.slice(0, 100)})`
             : 'Auto-suppressed after a spam complaint'
 
-        // Params: teamId, reason, then one identifier per row.
+        // Params: teamId, reason, legacy reasons, then one identifier per row.
         const valueClauses: string[] = []
-        const params: (number | string | null)[] = [teamId, reason]
+        const params: (number | string | string[] | null)[] = [teamId, reason, LEGACY_HARD_BOUNCE_REASONS]
         identifiers.forEach((identifier, i) => {
             const p = params.length + 1 + i
             valueClauses.push(
@@ -282,6 +323,12 @@ export class EmailSuppressionService {
                 reason = CASE
                     WHEN posthog_messagesuppression.source = 'MANUAL' THEN posthog_messagesuppression.reason
                     ELSE EXCLUDED.reason END,
+                -- The reason update above replaces the text that an older row carries its hard-bounce
+                -- mark in. Move the mark to the column first, so the row keeps blocking transactional email.
+                hard_bounced_at = COALESCE(
+                    posthog_messagesuppression.hard_bounced_at,
+                    CASE WHEN posthog_messagesuppression.source = 'BOUNCE'
+                              AND posthog_messagesuppression.reason = ANY($3) THEN NOW() END),
                 -- A soft-deleted row comes back: the complaint is fresh evidence the recipient
                 -- must not be mailed.
                 deleted = CASE
@@ -336,17 +383,18 @@ export class EmailSuppressionService {
                 [teamId, identifiers, deliveryTimestamp ?? null],
                 'resetBounceCounts'
             )
+            this.lazyLoader.markForRefresh(identifiers.map((identifier) => toKey(teamId, identifier)))
         } catch (error) {
             logger.error('[EmailSuppression] Failed to reset bounce counts on delivery', { teamId, error })
         }
     }
 
-    private async loadSuppressed(keys: string[]): Promise<Record<string, boolean>> {
+    private async loadSuppressed(keys: string[]): Promise<Record<string, SuppressionEntry | false>> {
         // keys are `${teamId}:${identifier}`. Identifiers may contain ':' only in exotic cases; the
         // stored identifier is an email so split on the first ':' only.
         const parsed = keys.map((key) => {
             const idx = key.indexOf(':')
-            return { key, teamId: parseInt(key.slice(0, idx), 10), identifier: key.slice(idx + 1) }
+            return { key, teamId: Number(key.slice(0, idx)), identifier: key.slice(idx + 1) }
         })
 
         // Group by team_id so we run one indexed `identifier = ANY(...)` scan per team instead of an
@@ -356,30 +404,38 @@ export class EmailSuppressionService {
         // always a single query regardless of batch size.
         const byTeam = new Map<number, string[]>()
         for (const p of parsed) {
+            if (!isValidTeamId(p.teamId)) {
+                continue
+            }
             const list = byTeam.get(p.teamId) ?? []
             list.push(p.identifier)
             byTeam.set(p.teamId, list)
         }
 
-        const suppressedKeys = new Set<string>()
+        const entries = new Map<string, SuppressionEntry>()
         for (const [teamId, identifiers] of byTeam) {
-            const result = await this.postgres.query<{ identifier: string }>(
+            // The reason check covers rows that hard-bounced before `hard_bounced_at` existed.
+            const result = await this.postgres.query<{ identifier: string; blocks_transactional: boolean }>(
                 PostgresUse.COMMON_READ,
-                `SELECT identifier
+                `SELECT identifier,
+                        -- A soft-bounce row carries no reason until it crosses the threshold, and
+                        -- NULL = ANY(...) is NULL, so COALESCE keeps the column a real boolean.
+                        COALESCE(hard_bounced_at IS NOT NULL OR (source = 'BOUNCE' AND reason = ANY($3)), false)
+                            AS blocks_transactional
                  FROM posthog_messagesuppression
                  WHERE team_id = $1
                    AND identifier = ANY($2)
                    AND suppressed = true
                    AND deleted = false`,
-                [teamId, identifiers],
+                [teamId, identifiers, LEGACY_HARD_BOUNCE_REASONS],
                 'loadSuppressed'
             )
             for (const row of result.rows) {
-                suppressedKeys.add(toKey(teamId, row.identifier))
+                entries.set(toKey(teamId, row.identifier), { blocksTransactional: row.blocks_transactional })
             }
         }
 
         // Default every requested key to false so the LazyLoader caches negatives too.
-        return Object.fromEntries(parsed.map((p) => [p.key, suppressedKeys.has(p.key)]))
+        return Object.fromEntries(parsed.map((p) => [p.key, entries.get(p.key) ?? false]))
     }
 }

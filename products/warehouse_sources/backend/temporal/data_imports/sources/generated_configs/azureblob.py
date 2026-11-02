@@ -20,10 +20,7 @@ class AzureBlobFileFormatConfig(config.Config):
 
 @config.config
 class AzureBlobSourceConfig(config.Config):
-    account_name: str
-    container: str
+    url_pattern: str
     account_key: str
     file_format: AzureBlobFileFormatConfig
-    path: str | None = None
-    file_pattern: str | None = None
     combine_files: AzureBlobCombineFilesConfig | None = None

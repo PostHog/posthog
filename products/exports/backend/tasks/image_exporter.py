@@ -35,7 +35,7 @@ from posthog.utils import absolute_uri
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.exports.backend.facade.api import export_limit_context
+from products.exports.backend.facade.api import export_execution_mode, export_limit_context
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token, save_content
 from products.exports.backend.tasks.exporter_utils import log_error_if_site_url_not_reachable
 from products.exports.backend.tasks.failure_handler import (
@@ -563,6 +563,7 @@ def export_image(
                 # Falls back to the saved insight query for subscriptions and other server-initiated exports.
                 export_context = exported_asset.export_context or {}
                 query_override = export_context.get("source")
+                insight_execution_mode = export_execution_mode(export_context)
 
                 dashboard_variables = None
                 tile_filters_override = None
@@ -588,7 +589,7 @@ def export_image(
                         exported_asset.insight,
                         team=exported_asset.team,
                         dashboard=exported_asset.dashboard,
-                        execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                        execution_mode=insight_execution_mode,
                         # Background render (no request user); attribute the read to the export owner.
                         user=exported_asset.created_by,
                         variables_override=None,
@@ -612,7 +613,7 @@ def export_image(
                             exported_asset.insight,
                             team=exported_asset.team,
                             dashboard=exported_asset.dashboard,
-                            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                            execution_mode=insight_execution_mode,
                             # Background render (no request user); attribute the read to the export owner.
                             user=exported_asset.created_by,
                             variables_override=dashboard_variables,

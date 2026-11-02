@@ -9,10 +9,10 @@ import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLog
 import { SceneContentFallback } from 'scenes/SceneContentFallback'
 import { SceneExport } from 'scenes/sceneTypes'
 
-const AiFirstHomepage = lazyWithRetry(() =>
-    import('./ai-first/AiFirstHomepage').then((m) => ({ default: m.AiFirstHomepage }))
-)
-const TodayHome = lazyWithRetry(() => import('./today/TodayHome').then((m) => ({ default: m.TodayHome })))
+import { importAiFirstHomepage, importTodayHome } from './importProjectHomepage'
+
+const AiFirstHomepage = lazyWithRetry(() => importAiFirstHomepage().then((m) => ({ default: m.AiFirstHomepage })))
+const TodayHome = lazyWithRetry(() => importTodayHome().then((m) => ({ default: m.TodayHome })))
 
 export const scene: SceneExport = {
     component: ProjectHomepage,

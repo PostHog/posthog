@@ -31,6 +31,9 @@ export interface DrawContext {
  *  `yFloor`/left-clip callers use to keep strokes flush against drawn axis lines. */
 export const LINE_STROKE_WIDTH = 2
 
+/** Dot radius for a point with no line through it, e.g. a series with one value. */
+const ISOLATED_POINT_RADIUS = 3
+
 export function drawLine(drawCtx: DrawContext, series: ResolvedSeries, yValues?: number[]): void {
     const data = yValues ?? series.data
     if (data.length === 0) {
@@ -433,6 +436,10 @@ function getHatchPattern(ctx: CanvasRenderingContext2D, color: string): CanvasPa
         if (scale !== 1 && typeof pattern.setTransform === 'function' && typeof DOMMatrix === 'function') {
             pattern.setTransform(new DOMMatrix([1 / scale, 0, 0, 1 / scale, 0, 0]))
         }
+        // Per-bar colors and each browser zoom level add a key, so evict the oldest past a cap.
+        if (hatchPatternCache.size >= 64) {
+            hatchPatternCache.delete(hatchPatternCache.keys().next().value!)
+        }
         hatchPatternCache.set(key, pattern)
         return pattern
     }
@@ -584,11 +591,9 @@ function fillAreaPath(ctx: CanvasRenderingContext2D, top: Point[], bottom: Point
 export function drawPoints(drawCtx: DrawContext, series: ResolvedSeries, yValues?: number[]): void {
     const { ctx, xScale, yScale, labels } = drawCtx
     const data = yValues ?? series.data
-    const radius = series.points?.radius ?? 0
-
-    if (radius <= 0) {
-        return
-    }
+    const radius = series.points?.radius
+    const isDrawable = (i: number): boolean =>
+        i >= 0 && i < data.length && xScale(labels[i]) != null && isFinite(yScale(data[i]))
 
     ctx.fillStyle = series.color
 
@@ -598,8 +603,13 @@ export function drawPoints(drawCtx: DrawContext, series: ResolvedSeries, yValues
         if (x == null || !isFinite(y)) {
             continue
         }
+        // No line passes through a point without drawable neighbors, so it needs a dot to be visible.
+        const r = radius ?? (!isDrawable(i - 1) && !isDrawable(i + 1) ? ISOLATED_POINT_RADIUS : 0)
+        if (r <= 0) {
+            continue
+        }
         ctx.beginPath()
-        ctx.arc(x, y, radius, 0, Math.PI * 2)
+        ctx.arc(x, y, r, 0, Math.PI * 2)
         ctx.fill()
     }
 }
@@ -665,7 +675,10 @@ export interface DrawAxesOptions {
 
 /** Draws just the L-shaped axis baselines — the left value axis and the bottom category axis —
  *  without any interior grid lines. For charts that want axis framing but a clean, grid-free plot. */
-export function drawAxes(drawCtx: DrawContext, options: DrawAxesOptions = {}): void {
+export function drawAxes(
+    drawCtx: { ctx: CanvasRenderingContext2D; dimensions: ChartDimensions },
+    options: DrawAxesOptions = {}
+): void {
     const { ctx, dimensions } = drawCtx
     const { xLine = true, yLine = true } = options
     ctx.strokeStyle = options.axisColor ?? 'rgba(0, 0, 0, 0.15)'
@@ -754,6 +767,8 @@ export interface DrawGridOptions {
     orientation?: 'vertical' | 'horizontal'
     /** Cross-axis grid line positions (x-pixels in vertical mode, y-pixels in horizontal). */
     categoryTicks?: number[]
+    /** Value-axis ticks for a `yScale` with no `.ticks()`, such as the core's `ChartScales.y`. */
+    valueTicks?: number[]
 }
 
 /** Draws the grid lines and the full plot-area frame.
@@ -765,14 +780,18 @@ export interface DrawGridOptions {
  * In both modes, `yScale` maps a value to a pixel on the value axis — for vertical that's a y-pixel,
  * for horizontal that's an x-pixel. The function uses `dimensions` to size the perpendicular axis.
  */
-export function drawGrid(drawCtx: DrawContext, options: DrawGridOptions = {}): void {
+export function drawGrid(
+    drawCtx: { ctx: CanvasRenderingContext2D; dimensions: ChartDimensions; yScale: (value: number) => number },
+    options: DrawGridOptions = {}
+): void {
     const { ctx, yScale, dimensions } = drawCtx
     const gridColor = options.gridColor ?? 'rgba(0, 0, 0, 0.1)'
     const orientation = options.orientation ?? 'vertical'
     const tickAxisLength = orientation === 'horizontal' ? dimensions.plotWidth : dimensions.plotHeight
     const categoryTicks = options.categoryTicks ?? []
 
-    const valueTicks = (yScale as ScaleLinear<number, number>).ticks?.(yTickCountForHeight(tickAxisLength)) ?? []
+    const valueTicks =
+        options.valueTicks ?? (yScale as ScaleLinear<number, number>).ticks?.(yTickCountForHeight(tickAxisLength)) ?? []
     const frame = options.frame ?? true
 
     ctx.strokeStyle = gridColor

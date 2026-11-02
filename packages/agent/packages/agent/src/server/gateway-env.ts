@@ -11,6 +11,7 @@ import {
 import type { GatewayEnv } from "../adapters/claude/session/options";
 import type { Task } from "../types";
 import {
+  modelIdForGatewayRoute,
   resolveGatewayProduct,
   resolveGatewayTarget,
   resolveLlmGatewayUrl,
@@ -202,15 +203,8 @@ export function buildGatewayEnv(
     anthropicCustomHeaders: customHeaders,
     openaiCustomHeaders,
     posthogProjectId: String(projectId),
+    isAiGateway,
   };
-}
-
-// Go serves GLM under its bare id and has no `@cf/` alias.
-export function piModelIdForRoute<T extends string | undefined>(
-  model: T,
-  isAiGateway: boolean,
-): T {
-  return (isAiGateway ? model?.replace(/^@cf\//, "") : model) as T;
 }
 
 export interface PiProviderRoute {
@@ -258,7 +252,7 @@ export function buildPiProviderRoute(
         }),
         ...buildPosthogSessionHeaderRecord(taskId),
       },
-      model: piModelIdForRoute(model, true),
+      model: modelIdForGatewayRoute(model, true),
       isAiGateway: true,
     };
   }

@@ -34,6 +34,7 @@ from products.logs.backend.logs_query_runner import LogsQueryResponse, LogsQuery
 
 if TYPE_CHECKING:
     from posthog.models import User
+    from posthog.query_cache import QueryCache
 
 _TimeSlice = tuple[dt.datetime, dt.datetime]
 STORED_PATTERN_HEAD_MAX_BYTES = 65536
@@ -76,6 +77,8 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
     cached_response: CachedLogsQueryResponse
     use_stored_patterns: bool = True
     _query_deadline: float | None = None
+    request_deadline: float | None = None
+    _request_deadline_binds: bool = False
 
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
@@ -359,11 +362,16 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
 
     def _execute(self, query: ast.SelectQuery | ast.SelectSetQuery):
         settings = self.settings.model_copy()
-        if self._query_deadline is not None:
-            remaining = int(self._query_deadline - monotonic())
+        deadline = min((d for d in (self._query_deadline, self.request_deadline) if d is not None), default=None)
+        self._request_deadline_binds = False
+        if deadline is not None:
+            remaining = int(deadline - monotonic())
+            own_limit = settings.max_execution_time or remaining
+            self._request_deadline_binds = deadline == self.request_deadline and remaining <= own_limit
             if remaining < 1:
                 raise ClickHouseQueryTimeOut()
-            settings.max_execution_time = remaining
+            # The deadline bounds the whole run. It must not give one query more time than its own limit.
+            settings.max_execution_time = min(remaining, own_limit)
         response = execute_hogql_query(
             query_type="LogsQuery",
             query=query,
@@ -374,9 +382,16 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
             limit_context=self.limit_context,
             settings=settings,
         )
-        if self._query_deadline is not None and monotonic() >= self._query_deadline:
+        if deadline is not None and monotonic() >= deadline:
             raise ClickHouseQueryTimeOut()
         return response
+
+    def _record_breaker_failure(self, cache_manager: "QueryCache", exc: Exception) -> None:
+        # A failure under the request deadline depends on how long the earlier queries in the request took.
+        # It does not repeat on a fresh request, so it must not open the breaker for this query.
+        if self._request_deadline_binds:
+            return
+        super()._record_breaker_failure(cache_manager, exc)
 
     def _count(self, slices: list[_TimeSlice] | None = None) -> int:
         response = self._execute(

@@ -1,4 +1,4 @@
-FROM ghcr.io/astral-sh/uv:0.12.13 AS uv
+FROM ghcr.io/astral-sh/uv:0.13.4 AS uv
 
 FROM python:3.14.7-slim-bookworm@sha256:9ab8d9c8514b44f90cf0029dd42fdd7e9e211e639c8b995304cc04568dee900f AS builder
 
@@ -23,6 +23,11 @@ COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/src /app/src
 
 ENV PATH="/app/.venv/bin:$PATH"
+
+# hadolint ignore=DL3008
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
 
 RUN useradd --create-home --shell /bin/bash appuser && \
     chown -R appuser:appuser /app

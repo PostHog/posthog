@@ -20,7 +20,10 @@ import psycopg
 import structlog
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import SyncTypeLiteral
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import (
+    ReplaceScopeRef,
+    SyncTypeLiteral,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import BatchWriteResult
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
@@ -92,6 +95,7 @@ class PostgresProducer:
         workflow_run_id: str | None = None,
         destination_ids: list[str] | None = None,
         external_destination_ids: list[str] | None = None,
+        continued_job_ids: list[str] | None = None,
     ) -> None:
         self._team_id = team_id
         self._job_id = job_id
@@ -121,6 +125,9 @@ class PostgresProducer:
             None if external_destination_ids is None else list(external_destination_ids)
         )
 
+        self._replace_scope: ReplaceScopeRef | None = None
+        self._continued_job_ids: list[str] = list(continued_job_ids or [])
+
         with _queue_db_errors():
             self._conn = _connect_with_retry(database_url)
         self._batches_sent = 0
@@ -140,6 +147,15 @@ class PostgresProducer:
     @is_first_ever_sync.setter
     def is_first_ever_sync(self, value: bool) -> None:
         self._is_first_ever_sync = value
+
+    @property
+    def replace_scope(self) -> ReplaceScopeRef | None:
+        """Set before the run's first batch, so every queue row of the run carries it."""
+        return self._replace_scope
+
+    @replace_scope.setter
+    def replace_scope(self, value: ReplaceScopeRef | None) -> None:
+        self._replace_scope = value
 
     @property
     def has_held_batch(self) -> bool:
@@ -276,6 +292,9 @@ class PostgresProducer:
         #
         # An append is the same: the loader removes an older attempt's rows when this
         # run's batch 0 arrives (see `load/append_rollback.py`).
+        #
+        # A run with a replace scope is the same: its batch 0 deletes the rows of every
+        # file it reads again, which covers every file an older attempt of the run read.
         with _queue_db_errors():
             superseded = BatchQueue.supersede_other_runs(
                 self._conn,
@@ -284,6 +303,7 @@ class PostgresProducer:
                 spare_runs_with_progress=(
                     self._sync_type != "full_refresh"
                     and not (self._sync_type == "append" and settings.DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED)
+                    and self._replace_scope is None
                 ),
             )
         if superseded > 0:
@@ -335,6 +355,10 @@ class PostgresProducer:
             metadata["external_destination_ids"] = self._external_destination_ids
         if loaded_prefix_cursor is not None:
             metadata[LOADED_PREFIX_CURSOR_KEY] = loaded_prefix_cursor
+        if self._replace_scope is not None:
+            metadata["replace_scope"] = self._replace_scope.to_dict()
+        if self._continued_job_ids:
+            metadata["continued_job_ids"] = self._continued_job_ids
 
         with _queue_db_errors():
             self._conn.execute(

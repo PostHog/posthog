@@ -689,11 +689,19 @@ _NEGATIVE_OPERATOR_COMPLEMENTS = {
     PropertyOperator.NOT_ENDS_WITH: PropertyOperator.ENDS_WITH,
     PropertyOperator.NOT_BETWEEN: PropertyOperator.BETWEEN,
     PropertyOperator.IS_CLEANED_PATH_NOT_EXACT: PropertyOperator.IS_CLEANED_PATH_EXACT,
+    # The scalar semver_neq arm drops missing and non-semver values, so it is not NOT(semver_eq).
+    # Callers that negate this complement instead keep those values.
+    PropertyOperator.SEMVER_NEQ: PropertyOperator.SEMVER_EQ,
 }
 
 
 def operator_is_negative(operator: PropertyOperator) -> bool:
     return operator in _NEGATIVE_OPERATOR_COMPLEMENTS
+
+
+def negative_operator_complement(operator: PropertyOperator) -> PropertyOperator:
+    """Return the positive form of a negative operator, and any other operator unchanged."""
+    return _NEGATIVE_OPERATOR_COMPLEMENTS.get(operator, operator)
 
 
 def _array_property_filter(array: ast.Expr, element_predicate: ast.Expr, negate: bool) -> ast.Expr:
@@ -1636,7 +1644,7 @@ def property_to_expr(
         element_predicate = _expr_to_compare_op(
             expr=ast.Field(chain=["v"]),
             value=value,
-            operator=_NEGATIVE_OPERATOR_COMPLEMENTS.get(operator, operator),
+            operator=negative_operator_complement(operator),
             team=team,
             property=property,
             is_json_field=is_json_field,

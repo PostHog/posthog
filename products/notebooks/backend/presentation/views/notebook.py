@@ -34,7 +34,7 @@ from posthog.hogql.direct_connection import get_direct_connection_source
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.sharing_publish_gate import blocked_access_in_notebook_edit, is_publicly_shared
+from posthog.api.sharing_publish_gate import denied_resources_in_notebook_edit, is_publicly_shared
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import action
 from posthog.auth import SessionAuthentication
@@ -449,13 +449,13 @@ class NotebookSerializer(NotebookMinimalSerializer):
                         and not (self.user_access_control and self.user_access_control.is_organization_admin)
                         and is_publicly_shared(locked_instance)
                     ):
-                        blocked = blocked_access_in_notebook_edit(
+                        denied_resources = denied_resources_in_notebook_edit(
                             self.context["request"].user, locked_instance, validated_data.get("content")
                         )
-                        if blocked:
-                            blocked_list = ", ".join(f"`{name}`" for name in blocked)
+                        if denied_resources:
+                            denied_names = ", ".join(f"`{name}`" for name in denied_resources)
                             raise serializers.ValidationError(
-                                f"Can't save: you don't have access to {blocked_list}, "
+                                f"Can't save: you don't have access to {denied_names}, "
                                 "and this notebook is publicly shared."
                             )
 
@@ -1513,6 +1513,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             return Response(None, 304)
 
         read_source, source_props = classify_request_source(request)
+        if read_source == NotebookCreationSource.UI and instance.visibility == Notebook.Visibility.UNLISTED:
+            instance.visibility = Notebook.Visibility.DEFAULT
+            instance.save(update_fields=["visibility"])
         if read_source != NotebookCreationSource.UI:
             # Browser opens are the client-side `notebook opened` event; only count programmatic
             # (MCP / API) reads here so agent traffic doesn't inflate the human revisit numbers.
@@ -2500,11 +2503,11 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             and not self.user_access_control.is_organization_admin
             and is_publicly_shared(notebook)
         ):
-            blocked = blocked_access_in_notebook_edit(user, notebook, data.get("content"))
-            if blocked:
-                blocked_list = ", ".join(f"`{name}`" for name in blocked)
+            denied_resources = denied_resources_in_notebook_edit(user, notebook, data.get("content"))
+            if denied_resources:
+                denied_names = ", ".join(f"`{name}`" for name in denied_resources)
                 raise serializers.ValidationError(
-                    f"Can't save: you don't have access to {blocked_list}, and this notebook is publicly shared."
+                    f"Can't save: you don't have access to {denied_names}, and this notebook is publicly shared."
                 )
 
         result = submit_steps(
@@ -2602,11 +2605,11 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             and not self.user_access_control.is_organization_admin
             and is_publicly_shared(notebook)
         ):
-            blocked = blocked_access_in_notebook_edit(user, notebook, submitted_content)
-            if blocked:
-                blocked_list = ", ".join(f"`{name}`" for name in blocked)
+            denied_resources = denied_resources_in_notebook_edit(user, notebook, submitted_content)
+            if denied_resources:
+                denied_names = ", ".join(f"`{name}`" for name in denied_resources)
                 raise serializers.ValidationError(
-                    f"Can't save: you don't have access to {blocked_list}, and this notebook is publicly shared."
+                    f"Can't save: you don't have access to {denied_names}, and this notebook is publicly shared."
                 )
 
         notebook_before: Notebook | None = None

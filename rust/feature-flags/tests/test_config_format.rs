@@ -40,10 +40,7 @@ fn documents() -> Vec<(String, Value, bool, bool)> {
     near_one["version"] = json!("__below_one__");
     cases.push(("rejected-below-one".to_string(), near_one, true, false));
     let mut unsupported = supported.clone();
-    unsupported["rules"]
-        .as_array_mut()
-        .unwrap()
-        .push(json!({"rule_type": "experiment"}));
+    unsupported["aggregation_group_type_index"] = json!(0);
     cases.push((
         "rejected-unsupported-v2".to_string(),
         unsupported,

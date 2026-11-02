@@ -24,7 +24,7 @@ const props = {
     dateTo: '2026-09-28T00:00:00Z',
     refreshKey: 0,
 }
-const page: OfflineHistoryPageApi = { results: overviewHistory(overviewScorers[0]), count: 100, next_cursor: 'older' }
+const page: OfflineHistoryPageApi = { results: overviewHistory(overviewScorers[0]), count: 6, next_cursor: null }
 const retrieve = jest.mocked(api.llmAnalyticsScoreDefinitionsRetrieve)
 const history = jest.mocked(api.aiObservabilityOfflineScorersHistoryList)
 
@@ -131,7 +131,7 @@ describe('offlineOverviewTrendLogic', () => {
         }
     )
 
-    it('shows one version at a time and falls back when it has no results in the new window', async () => {
+    it('loads every version for the graph while navigating summaries independently, defaulting to the latest', async () => {
         const overviewLogic = mountOverview()
         const trendProps = {
             ...props,
@@ -148,22 +148,26 @@ describe('offlineOverviewTrendLogic', () => {
                 scorer: { ...point.summary.scorer, id: 'older-version', version: 1 },
             },
         }))
-        history.mockResolvedValueOnce({ ...page, results: [...olderPoints, ...page.results] })
+        history
+            .mockResolvedValueOnce({ ...page, count: 8, next_cursor: 'older' })
+            .mockResolvedValueOnce({ results: olderPoints, count: 8, next_cursor: null })
         const logic = offlineOverviewTrendLogic(trendProps)
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.activeVersion?.version).toBe(2)
-        expect(logic.values.versionPoints).toEqual(page.results)
-        expect(logic.values.periodSummary?.experimentCount).toBe(6)
+        expect(logic.values.points).toEqual([...page.results, ...olderPoints])
+        expect(logic.values.versionSummaries.map((summary) => summary.scorer.version)).toEqual([2, 1])
+        expect(logic.values.periodSummary?.scorer.version).toBe(2)
         expect(logic.values.periodSummary?.mean).toBeCloseTo(0.851667)
-        const sharedDomain = [Date.parse('2026-08-01T00:00:00Z'), Date.parse(props.dateTo)]
-        expect(overviewLogic.values.trendXDomain).toEqual(sharedDomain)
         logic.actions.selectVersion('older-version')
-        expect(logic.values.versionPoints).toEqual(olderPoints)
-        expect(logic.values.periodSummary?.experimentCount).toBe(2)
+        expect(logic.values.periodSummary?.scorer.version).toBe(1)
         expect(logic.values.periodSummary?.mean).toBe(0.25)
-        expect(overviewLogic.values.trendXDomain).toEqual(sharedDomain)
+        expect(logic.values.points).toEqual([...page.results, ...olderPoints])
+        expect(history).toHaveBeenLastCalledWith('997', props.scorerId, expect.objectContaining({ cursor: 'older' }))
+        expect(overviewLogic.values.trendXDomain).toEqual([
+            Date.parse('2026-08-01T00:00:00Z'),
+            Date.parse(props.dateTo),
+        ])
 
         history.mockResolvedValueOnce({ results: page.results.slice(0, 1), count: 1, next_cursor: null })
         overviewLogic.actions.setFilters({ date_from: '2026-09-20T00:00:00Z' })
@@ -172,17 +176,49 @@ describe('offlineOverviewTrendLogic', () => {
             dateFrom: '2026-09-20T00:00:00Z',
         })
         await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.activeVersion?.version).toBe(2)
-        expect(logic.values.versionPoints).toEqual(page.results.slice(0, 1))
-        expect(logic.values.periodSummary?.experimentCount).toBe(1)
-        expect(logic.values.periodSummary?.mean).toBe(0.64)
+        expect(logic.values.versionSummaries.map((summary) => summary.scorer.version)).toEqual([2])
+        expect(logic.values.periodSummary?.scorer.version).toBe(2)
+        expect(logic.values.points).toEqual(page.results.slice(0, 1))
+        expect(logic.values.versionSummaries[0]?.experimentCount).toBe(1)
+        expect(logic.values.versionSummaries[0]?.mean).toBe(0.64)
+    })
+
+    it('bounds large histories and releases read slots for queued scorers', async () => {
+        history.mockImplementation(async (_teamId, scorerId, query) => {
+            const offset = Number(query?.cursor || 0)
+            return {
+                results: Array.from({ length: 100 }, (_, index) => ({
+                    ...page.results[0],
+                    experiment: { ...page.results[0].experiment, id: `${scorerId}-${offset + index}` },
+                })),
+                count: 1000,
+                next_cursor: String(offset + 100),
+            }
+        })
+        const logics = Array.from({ length: 4 }, (_, index) =>
+            offlineOverviewTrendLogic({ ...props, scorerId: `busy-scorer-${index}`, dateFrom: undefined })
+        )
+        logics.forEach((logic) => logic.mount())
+        await Promise.all(logics.map((logic) => expectLogic(logic).toFinishAllListeners()))
+
+        for (const logic of logics) {
+            expect(logic.values.trendLoading).toBe(false)
+            expect(logic.values.points).toHaveLength(500)
+            expect(logic.values.trend?.page).toMatchObject({ count: 1000, next_cursor: '500' })
+        }
     })
 
     it('reloads shared filters including tag-only changes within the same frozen date range', async () => {
         const logic = offlineOverviewTrendLogic({ ...props, filters: { run_source: 'local' } })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
-        const filters = { run_source: 'ci', statuses: 'failed', tags: '["quality"]', tag_match: 'any' as const }
+        const filters = {
+            run_source: 'ci',
+            created_by_is_null: true,
+            statuses: 'failed',
+            tags: '["quality"]',
+            tag_match: 'any' as const,
+        }
         offlineOverviewTrendLogic({ ...props, filters })
         await expectLogic(logic).toFinishAllListeners()
 

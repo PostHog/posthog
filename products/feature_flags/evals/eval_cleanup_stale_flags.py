@@ -47,7 +47,7 @@ pull request that adds the first fixture case registers it.
 
 Most scorers are deterministic; the three wording cases use one LLM judge each
 (``FinalMessageJudge``), which costs a model call per case but is what the "does the
-message avoid X" question needs. ``SandboxedPrivateEval`` runs without a Braintrust
+message avoid X" question needs. ``SandboxedEval`` runs without a Braintrust
 key.
 
 **Claude runtime only.** The edit-direction scorer matches Claude's named file tools,
@@ -60,6 +60,7 @@ To run:
 
 from __future__ import annotations
 
+from products.feature_flags.evals.offline_config import offline_suite
 from products.feature_flags.evals.scorers import (
     ASSESSMENT_ONLY_NO_EDIT_CLAIM_QUESTION,
     DEPENDENTS_READ_TOOLS,
@@ -82,7 +83,7 @@ from products.feature_flags.evals.seeders import (
     seed_stale_full_rollout_flag,
     seed_stale_partial_rollout_flag,
 )
-from products.posthog_ai.eval_harness.base import SandboxedPrivateEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import NoToolCall
@@ -225,8 +226,24 @@ async def eval_cleanup_stale_flags(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPrivateEval(
+    await SandboxedEval(
         experiment_name="sandboxed-feature-flags-cleanup-stale-cli",
+        offline_suite=offline_suite(
+            "feature_flags/eval_cleanup_stale_flags::eval_cleanup_stale_flags",
+            metrics=[
+                "cleanup_skill_triggered",
+                "no_flag_mutation",
+                "flag_state_unchanged",
+                "code_edit_direction",
+                "flag_lookup_direction",
+                "dependents_check_direction",
+                "schedule_check_direction",
+                "recency_refusal_without_override",
+                "tour_unknown_waits",
+                "assessment_only_no_edit_claim",
+            ],
+        ),
+        send_to_posthog=True,
         cases=cases,
         scorers=[
             SkillTriggered(SKILL_NAME, name=TRIGGER_SCORER_NAME),

@@ -2,27 +2,26 @@ import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { REPORT_AI_PANEL } from '~/layout/ai/aiPanelIds'
+import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
+import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { SidePanelTab } from '~/types'
 
-import {
-    attachedContextLogic,
-    runnerPanelLogic,
-    runStreamLogic,
-    taskRunDefaultsLogic,
-} from 'products/posthog_ai/frontend/api/logics'
+import { runStreamLogic, taskRunDefaultsLogic } from 'products/posthog_ai/frontend/api/logics'
 
 import { makeReport } from './__mocks__/inboxMocks'
 import {
     FREE_TRIAL_PR_DISABLED_REASON,
     FIX_CI_REQUEST,
     MERGE_PR_REQUEST,
-    REPORT_AI_PANEL,
     REPORT_AI_PANEL_ID,
     buildCreatePrReportPrompt,
     buildDiscussReportPrompt,
@@ -334,6 +333,41 @@ describe('inboxTaskKickoffLogic', () => {
             })
         })
 
+        it('runs a background ask without the warm run or the panel, and its toast opens the run', async () => {
+            const toastSuccess = jest.spyOn(lemonToast, 'success').mockImplementation(() => 'toast-id')
+            warmResponse = { task_id: 'warm-task', run_id: 'warm-run' }
+            await expectLogic(logic, () =>
+                logic.actions.openReportDiscussion(report, 'https://example.com/report')
+            ).toFinishAllListeners()
+
+            await expectLogic(logic, () =>
+                logic.actions.discussReport(
+                    report,
+                    'https://example.com/report',
+                    'Does this also affect EU?',
+                    undefined,
+                    undefined,
+                    undefined,
+                    true
+                )
+            ).toFinishAllListeners()
+
+            expect(createdTasks).toHaveLength(1)
+            expect(createdTasks[0]).not.toHaveProperty('branch')
+            expect(startedRuns).toHaveLength(1)
+            expect(logic.values.reportWarmLease).toMatchObject({ reportId: report.id })
+            expect(logic.values.isDiscussing).toBe(false)
+            expect(runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID }).values.activeCreation).toBeNull()
+
+            const toastOptions = toastSuccess.mock.calls[0][1] as { button: { action: () => void } }
+            toastOptions.button.action()
+            expect(logic.values.lastReportRun).toEqual({
+                reportId: report.id,
+                taskId: 'report-task',
+                runId: 'report-run',
+            })
+        })
+
         it.each([
             ['the side panel closes', (): void => sidePanelStateLogic.actions.closeSidePanel()],
             [
@@ -393,6 +427,27 @@ describe('inboxTaskKickoffLogic', () => {
                 taskId: 'other-task',
                 runId: 'other-run',
             })
+        })
+
+        it('releases a warm still in flight when another report opens its task', async () => {
+            const otherReport = makeReport({ id: 'report-other', status: SignalReportStatus.READY })
+            let settleWarm!: () => void
+            warmGate = new Promise<void>((resolve) => {
+                settleWarm = resolve
+            })
+            warmResponse = { task_id: 'warm-task', run_id: 'warm-run' }
+
+            logic.actions.openReportDiscussion(report, 'https://example.com/report')
+            logic.actions.alignReportDiscussion(otherReport, 'https://example.com/other')
+            logic.actions.openReportTask(otherReport, 'other-task', 'other-run')
+            warmGate = null
+            settleWarm()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(cancelledRuns).toEqual([
+                { taskId: 'warm-task', runId: 'warm-run', body: { only_if_awaiting_first_message: true } },
+            ])
+            expect(logic.values.reportWarmLease).toBeNull()
         })
 
         it('keeps the warm when the same report reopens before its warm settles', async () => {

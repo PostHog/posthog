@@ -138,8 +138,8 @@ export function seriesToLegacyFilters(series: SeriesNode[]): FilterType {
 }
 
 /**
- * The legacy row shape, still used by `cleanFilters` for the persons-modal URL path and by
- * replay's playlist summary. Both go in the PR that deletes the converter.
+ * The legacy row shape. Replay's playlist summary (`summarizePlaylistFilters`) still builds it
+ * with `toLocalFilters` to name its event and action filters.
  */
 export type LocalFilter = ActionFilter & {
     order: number

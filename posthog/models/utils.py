@@ -11,12 +11,13 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Literal, Optional, TypeVar, Union
 from uuid import UUID
 
+from django.conf import settings
 from django.contrib.auth.hashers import PBKDF2PasswordHasher
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connections, models, transaction
 from django.db.backends.ddl_references import Statement
 from django.db.backends.utils import CursorWrapper
-from django.db.models import Q, Subquery, UniqueConstraint
+from django.db.models import Q, QuerySet, Subquery, UniqueConstraint
 from django.db.models.constraints import BaseConstraint
 from django.utils.text import slugify
 
@@ -27,6 +28,7 @@ if TYPE_CHECKING:
     from posthog.hogql import ast
 
 T = TypeVar("T")
+ModelT = TypeVar("ModelT", bound=models.Model)
 
 BASE62 = string.digits + string.ascii_letters  # All lowercase ASCII letters + all uppercase ASCII letters + digits
 AMBIGUOUS_CHARS = frozenset("01OIl")
@@ -143,6 +145,26 @@ def namedtuplefetchall(cursor):
     return [nt_result(*row) for row in cursor.fetchall()]
 
 
+def strip_null_bytes(value: Any) -> Any:
+    """Recursively remove NUL (\\x00) from strings, because Postgres text/jsonb columns cannot store it.
+
+    Anything written to a Postgres text or JSON column that originates outside Postgres (ClickHouse
+    query results, LLM output, user-supplied prompts) must pass through this first. Otherwise Django
+    serializes the NUL to a unicode escape that Postgres rejects, and the whole write fails with a DataError.
+    """
+    if isinstance(value, str):
+        return value.replace("\x00", "")
+    if isinstance(value, list):
+        return [strip_null_bytes(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(strip_null_bytes(v) for v in value)
+    if isinstance(value, dict):
+        # Strip keys too: a Map(String, …) column can produce data-derived keys carrying NUL,
+        # and Postgres rejects it in a jsonb key just as it does in a value.
+        return {strip_null_bytes(k): strip_null_bytes(v) for k, v in value.items()}
+    return value
+
+
 def generate_random_token(nbytes: int = 32) -> str:
     """Generate a securely random token.
 
@@ -253,7 +275,7 @@ def int_to_base(number: int, base: int, *, alphabet: Optional[str] = None) -> st
 
 
 class Percentile(models.Aggregate):
-    template = "percentile_disc(%(percentile)s) WITHIN GROUP (ORDER BY %(expressions)s)"
+    template = "percentile_disc(%(percentile)s) WITHIN GROUP (ORDER BY %(expressions)s)%(filter)s"
 
     def __init__(self, percentile, expression, **extra):
         super().__init__(expression, percentile=percentile, **extra)
@@ -316,6 +338,13 @@ def get_deferred_field_set_for_model(
     if fields_not_deferred is None:
         fields_not_deferred = set()
     return {f"{field_prefix}{x.name}" for x in model._meta.fields if x.name not in fields_not_deferred}
+
+
+def strict_fetch(queryset: QuerySet[ModelT]) -> QuerySet[ModelT]:
+    # In tests and local dev, a lazy load of a related object or deferred field raises FieldFetchBlocked,
+    # so a missing select_related fails loudly. In production, Django loads that field for all rows of the
+    # queryset in one query, so a missing select_related costs one extra query and not one per row.
+    return queryset.fetch_mode(models.FETCH_RAISE if settings.DEBUG or settings.TEST else models.FETCH_PEERS)
 
 
 class UniqueConstraintByExpression(BaseConstraint):

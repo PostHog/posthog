@@ -7,20 +7,23 @@ from unittest import TestCase
 from parameterized import parameterized
 
 from products.experiments.backend.facade.contracts import (
+    ExperimentHealthFinding,
     ExperimentHealthFindingActionKind,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
     ExperimentHealthFlagChangeKind,
 )
 from products.experiments.backend.health.checks.bucketing_changed import bucketing_changed_mid_run
-from products.experiments.backend.health.context import (
-    BucketingChange,
-    BucketingSetting,
-    FlagHistoryNotCheckedReason,
-    HealthContext,
-    parse_flag_state,
+from products.experiments.backend.health.context import FlagHistoryNotCheckedReason, HealthContext, parse_flag_state
+from products.experiments.backend.health.skips import (
+    NEEDS_VARIANTS,
+    NOT_AFTER_END,
+    CheckSkip,
+    not_applicable,
+    not_checked,
 )
 from products.experiments.backend.health.test.factories import RUNNING_CONTEXT, flag_history
+from products.feature_flags.backend.facade.edits import BucketingChange, BucketingSetting
 
 LAUNCHED_AT = datetime(2026, 9, 12, 10, 0, tzinfo=UTC)
 FIRST_CHANGE_AT = datetime(2026, 9, 12, 13, 4, tzinfo=UTC)
@@ -44,6 +47,7 @@ def _context(
     is_running: bool = True,
     variants: list[dict[str, Any]] = EVEN,
     not_checked: FlagHistoryNotCheckedReason | None = None,
+    exposed_units: int | None = None,
 ) -> HealthContext:
     bucketing = [
         BucketingChange(
@@ -64,6 +68,7 @@ def _context(
             exposed_before_first=exposed_before_first,
             exposed_between={ExperimentHealthFlagChangeKind.BUCKETING: exposed_between},
             not_checked=not_checked,
+            exposed_units_before_last={ExperimentHealthFlagChangeKind.BUCKETING: exposed_units},
         ),
     )
 
@@ -79,6 +84,34 @@ class TestBucketingChangedMidRun(TestCase):
                 'variant draw, so every user got a new one. Exposures under "old-key" are no longer in the results, '
                 'and code that still uses "old-key" no longer gets this flag. Reset the experiment, or move its start '
                 f"date to {FIRST_CHANGE}.",
+            ),
+            (
+                "key_changed_before_4_people",
+                _context((KEY, "old-key", "new-key"), exposed_units=4),
+                ("key_changed", ExperimentHealthFindingSeverity.INFO, "The flag key changed after launch"),
+                f'The flag key changed from "old-key" to "new-key" on {FIRST_CHANGE}. The change came 3 hours after '
+                f"launch, when 4 people had been exposed. Move the start date to {FIRST_CHANGE} so the results count only exposures after it. "
+                'Code that still uses "old-key" no longer gets this flag.',
+            ),
+            (
+                "key_changed_before_5_people",
+                _context((KEY, "old-key", "new-key"), exposed_units=5),
+                ("key_changed", ExperimentHealthFindingSeverity.WARNING, "The flag key changed after launch"),
+                f'The flag key changed from "old-key" to "new-key" on {FIRST_CHANGE}. The key is an input of the '
+                'variant draw, so every user got a new one. Exposures under "old-key" are no longer in the results, '
+                'and code that still uses "old-key" no longer gets this flag. Reset the experiment, or move its start '
+                f"date to {FIRST_CHANGE}.",
+            ),
+            (
+                "aggregation_changed_before_4_people",
+                _context((AGGREGATION, None, 0), exposed_units=4),
+                (
+                    "aggregation_changed",
+                    ExperimentHealthFindingSeverity.INFO,
+                    "The flag's variant assignment changed after launch",
+                ),
+                f"The flag changed from matching by users to matching by groups on {FIRST_CHANGE}. The change came 3 "
+                f"hours after launch, when 4 people had been exposed. Move the start date to {FIRST_CHANGE} so the results count only exposures after it.",
             ),
             (
                 "bucketing_identifier_changed_days_after_launch",
@@ -144,6 +177,23 @@ class TestBucketingChangedMidRun(TestCase):
                 f"start date to {SECOND_CHANGE}, or reset the experiment.",
             ),
             (
+                "set_back_before_4_people",
+                _context(
+                    (IDENTIFIER, "distinct_id", "device_id"),
+                    (IDENTIFIER, "device_id", "distinct_id"),
+                    exposed_between=True,
+                    exposed_units=4,
+                ),
+                (
+                    "reverted",
+                    ExperimentHealthFindingSeverity.INFO,
+                    "The flag's variant assignment changed after launch",
+                ),
+                f'The flag\'s "Match by" setting changed on {FIRST_CHANGE} and was set back on {SECOND_CHANGE}. '
+                "The last change came 3 hours after launch, when 4 people had been exposed. Move the start date to "
+                f"{SECOND_CHANGE} so the results count only exposures after it.",
+            ),
+            (
                 "set_back_with_nobody_in_between",
                 _context((KEY, "old-key", "new-key"), (KEY, "new-key", "old-key"), exposed_between=False),
                 (
@@ -173,7 +223,7 @@ class TestBucketingChangedMidRun(TestCase):
     ) -> None:
         finding = bucketing_changed_mid_run(ctx)
 
-        assert finding is not None
+        assert isinstance(finding, ExperimentHealthFinding)
         self.assertEqual(finding.code, ExperimentHealthFindingCode.BUCKETING_CHANGED_MID_RUN)
         self.assertEqual((finding.subcode, finding.severity, finding.title), expected)
         self.assertEqual(finding.detail, expected_detail)
@@ -181,12 +231,20 @@ class TestBucketingChangedMidRun(TestCase):
 
     @parameterized.expand(
         [
-            ("no_change", _context()),
-            ("ended", _context((KEY, "old-key", "new-key"), is_running=False)),
-            ("flag_without_variants", _context((KEY, "old-key", "new-key"), variants=[])),
+            ("no_change", _context(), None),
+            ("ended", _context((KEY, "old-key", "new-key"), is_running=False), not_applicable(NOT_AFTER_END)),
+            (
+                "flag_without_variants",
+                _context((KEY, "old-key", "new-key"), variants=[]),
+                not_applicable(NEEDS_VARIANTS),
+            ),
             # The split check reports a history the reader can't view.
-            ("no_history_access", _context(not_checked=FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS)),
+            (
+                "no_history_access",
+                _context(not_checked=FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS),
+                not_checked("Couldn't check because you can't view the linked feature flag's history"),
+            ),
         ]
     )
-    def test_reports_nothing(self, _name: str, ctx: HealthContext) -> None:
-        self.assertIsNone(bucketing_changed_mid_run(ctx))
+    def test_reports_nothing(self, _name: str, ctx: HealthContext, expected: CheckSkip | None) -> None:
+        self.assertEqual(bucketing_changed_mid_run(ctx), expected)

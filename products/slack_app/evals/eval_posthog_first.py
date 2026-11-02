@@ -24,7 +24,7 @@ To run::
 
 from __future__ import annotations
 
-from products.posthog_ai.eval_harness.base import SandboxedPublicEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import RequiredToolCall
@@ -61,7 +61,7 @@ async def eval_posthog_first(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-slack-posthog-first-cli",
         offline_suite=offline_suite(
             "slack_app/eval_posthog_first::eval_posthog_first",

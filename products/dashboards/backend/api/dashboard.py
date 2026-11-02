@@ -4,10 +4,12 @@ import re
 import json
 import uuid
 import builtins
-from collections.abc import AsyncGenerator
+import contextvars
+from collections.abc import AsyncGenerator, Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
 from enum import StrEnum
+from functools import partial
 from typing import Any, Optional, TypedDict, cast
 
 from django.conf import settings
@@ -41,10 +43,12 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from opentelemetry import trace
 from rest_framework import exceptions, serializers, status, viewsets
+from rest_framework.fields import empty
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
+from rest_framework.utils import html
 from rest_framework.utils.serializer_helpers import ReturnDict
 
 from posthog.schema import InsightVizNode
@@ -54,18 +58,21 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
 from posthog.api.property_filter_access_gate import table_blocking_property_filters
+from posthog.api.query_access_check import denied_query_resources
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.sharing_publish_gate import (
-    check_can_add_insight_to_shared_dashboard,
+    check_can_add_insight_to_dashboard,
     dashboard_filter_leaves,
+    dashboard_shared_or_subscribed,
     is_publicly_shared,
 )
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
+from posthog.caching.insight_result import InsightResult
 from posthog.clickhouse.client.async_task_chain import task_chain_context
-from posthog.constants import GENERATED_DASHBOARD_PREFIX
+from posthog.constants import GENERATED_DASHBOARD_PREFIX, AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource, get_event_source, report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -122,10 +129,13 @@ from products.dashboards.backend.api.dashboard_template_json_schema_parser impor
     DashboardTemplateCreationJSONSchemaParser,
 )
 from products.dashboards.backend.api.widget_openapi_serializers import (
+    DASHBOARD_TILE_GROUP_DEFAULTS,
     GROUP_TITLES_HELP_TEXT,
+    GROUPS_HELP_TEXT,
     WIDGET_BATCH_ADD_OPENAPI_HELP,
     AddDashboardWidgetRequestOpenApi,
     BreakdownColorConfigSerializer,
+    DashboardTileGroupSerializer,
     DashboardWidgetConfigField,
     PatchedDashboardOpenApiSerializer,
     UpdateDashboardWidgetRequestOpenApi,
@@ -135,17 +145,28 @@ from products.dashboards.backend.constants import (
     DASHBOARD_GRID_COLUMN_COUNT,
     MAX_GROUP_KEY_LENGTH,
     MAX_GROUP_TITLE_LENGTH,
-    MAX_GROUP_TITLES,
+    MAX_GROUPS,
     MAX_TEXT_TILE_AGENT_CONTEXT_LENGTH,
     MAX_WIDGETS_BATCH_SIZE,
     RUN_INSIGHTS_DEFAULT_MAX_RESULT_CHARS,
     RUN_INSIGHTS_MAX_TOTAL_CHARS,
     RUN_INSIGHTS_MIN_TILE_CHARS,
 )
+from products.dashboards.backend.customization import (
+    normalize_dashboard_customization,
+    normalized_group_key,
+    stored_customization,
+    stored_groups,
+    validate_template_groups,
+    validated_group_key,
+    validated_group_keys,
+    without_default_settings,
+)
 from products.dashboards.backend.facade.api import DashboardTileBasicSerializer, tile_ids_prefetch
 from products.dashboards.backend.models.dashboard import (
     DASHBOARD_GRID_COMPACTION_MODES,
     DASHBOARD_GRID_SPACING_GAPS,
+    DASHBOARD_TILE_GROUP_DISPLAY_MODES,
     Dashboard,
 )
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, DashboardTileBadge, Text
@@ -165,7 +186,7 @@ from products.dashboards.backend.widget_access import (
     get_widget_product_access_error,
 )
 from products.dashboards.backend.widget_availability import get_widget_feature_enabled
-from products.dashboards.backend.widget_catalog import get_widget_catalog_entries
+from products.dashboards.backend.widget_catalog import get_widget_catalog_entries, parse_widget_type_filter
 from products.dashboards.backend.widget_create import create_widget_tile, prepare_widget_tile_create
 from products.dashboards.backend.widget_layouts import collect_dashboard_sm_layouts_for_dashboard
 from products.dashboards.backend.widget_query_throttle import get_dashboard_widget_query_throttle_error
@@ -209,43 +230,35 @@ AGENT_CONTEXT_HELP_TEXT = (
 )
 
 
-def _normalize_dashboard_customization(customization: Any) -> dict[str, Any]:
-    return customization.copy() if isinstance(customization, dict) else {}
-
-
-def _normalized_group_key(group_key: str) -> str:
-    group_key = group_key.strip()
-    if "\x00" in group_key:
-        raise serializers.ValidationError("Group keys can't contain null characters.")
-    return group_key
-
-
-def _valid_group_titles(customization: Any) -> dict[str, str]:
-    group_titles = _normalize_dashboard_customization(customization).get("group_titles")
-    if not isinstance(group_titles, dict):
-        return {}
-    valid_titles: dict[str, str] = {}
-    for key, title in group_titles.items():
-        if not isinstance(key, str) or not isinstance(title, str):
-            continue
-        try:
-            group_key = _normalized_group_key(key)
-        except serializers.ValidationError:
-            continue
-        if group_key:
-            valid_titles[group_key] = title
-    return valid_titles
-
-
-def _with_group_titles(customization: dict[str, Any], group_titles: dict[str, str] | None) -> dict[str, Any]:
-    customization = {key: value for key, value in customization.items() if key != "group_titles"}
-    if group_titles:
-        customization["group_titles"] = group_titles
+def _with_groups(customization: dict[str, Any], groups: dict[str, dict[str, Any]] | None) -> dict[str, Any]:
+    customization = {key: value for key, value in customization.items() if key not in ("groups", "group_titles")}
+    if groups:
+        customization["groups"] = groups
     return customization
 
 
+def _with_group_titles(customization: dict[str, Any], titles: dict[str, str] | None) -> dict[str, Any]:
+    groups = {
+        key: {field: value for field, value in group.items() if field != "title"}
+        for key, group in stored_groups(customization).items()
+    }
+    for key, title in (titles or {}).items():
+        groups.setdefault(key, {})["title"] = title
+    groups = {key: group for key, group in groups.items() if group}
+    if len(groups) > MAX_GROUPS:
+        raise serializers.ValidationError({"group_titles": f"A dashboard can have at most {MAX_GROUPS} groups."})
+    return _with_groups(customization, groups)
+
+
+class _GroupDictField(serializers.DictField):
+    # DRF reads a dict field that form data omits as an empty dict, and an empty dict clears the stored groups.
+    def get_value(self, dictionary: Any) -> Any:
+        value = super().get_value(dictionary)
+        return empty if html.is_html_input(dictionary) and not value else value
+
+
 def _effective_layout_compaction(customization: Any) -> str:
-    layout_compaction = _normalize_dashboard_customization(customization).get("layout_compaction")
+    layout_compaction = normalize_dashboard_customization(customization).get("layout_compaction")
     return layout_compaction if layout_compaction in DASHBOARD_GRID_COMPACTION_MODES else "vertical"
 
 
@@ -321,6 +334,8 @@ DASHBOARD_SHARED_FIELDS = [
     "customization",
     "grid_spacing",
     "layout_compaction",
+    "group_display",
+    "groups",
     "group_titles",
 ]
 
@@ -349,6 +364,10 @@ class _RunWidgetQueryWorkItem(TypedDict):
     query_fn: Any
     config: dict[str, Any]
     user: User | None
+
+
+def _run_in_context(context: contextvars.Context, work: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+    return context.run(work)
 
 
 def _run_widget_query(
@@ -508,6 +527,14 @@ def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, d
         return order, tile_data
 
 
+def serialize_tile_in_request_context(
+    request_context: contextvars.Context, tile: DashboardTile, order: int, context: dict
+) -> tuple[int, dict]:
+    # A streamed response body runs after the middleware chain has returned, so the request's context variables,
+    # the events table switch among them, reach a tile's queries only through a copy taken inside the view.
+    return request_context.run(serialize_tile_with_context, tile, order, context)
+
+
 class ReorderLayout(StrEnum):
     PRESERVE = "preserve"
     TWO_COLUMN = "two_column"
@@ -619,6 +646,11 @@ class ReorderTilesRequestSerializer(serializers.Serializer):
 class CopyDashboardTileRequestSerializer(serializers.Serializer):
     fromDashboardId = serializers.IntegerField(help_text="Dashboard id the tile currently belongs to.")
     tileId = serializers.IntegerField(help_text="Dashboard tile id to copy.")
+
+
+class CopyDashboardGroupRequestSerializer(serializers.Serializer):
+    fromDashboardId = serializers.IntegerField(help_text="Dashboard id the group currently belongs to.")
+    groupKey = serializers.CharField(max_length=MAX_GROUP_KEY_LENGTH, help_text="Key of the tile group to copy.")
 
 
 class TileLayoutBoxSerializer(serializers.Serializer):
@@ -1299,7 +1331,12 @@ class DashboardBasicSerializer(
         read_only_fields = fields
         extra_kwargs = {
             "name": {"help_text": "Name of the dashboard."},
-            "description": {"help_text": "Description of the dashboard."},
+            "description": {
+                "help_text": (
+                    "Short note for people who open the dashboard. Say what it shows in one or two sentences, "
+                    "about 30 words. Leave it empty when the name already says it. Do not write how it was built or changed."
+                )
+            },
             "pinned": {"help_text": "Whether the dashboard is pinned to the top of the list."},
         }
 
@@ -1345,8 +1382,21 @@ class DashboardCustomizationSerializer(serializers.Serializer):
             "to the left, and stable preserves positions while moving colliding tiles."
         ),
     )
+    group_display = serializers.ChoiceField(
+        choices=DASHBOARD_TILE_GROUP_DISPLAY_MODES,
+        required=False,
+        help_text=(
+            "How tile groups show. sections shows each group as a band that opens and closes. tabs shows one "
+            "group at a time, and tiles outside any group get their own first tab."
+        ),
+    )
+    groups = serializers.DictField(
+        child=DashboardTileGroupSerializer(),
+        required=False,
+        help_text=GROUPS_HELP_TEXT,
+    )
     group_titles = serializers.DictField(
-        child=serializers.CharField(),
+        child=serializers.CharField(max_length=MAX_GROUP_TITLE_LENGTH),
         required=False,
         help_text=GROUP_TITLES_HELP_TEXT,
     )
@@ -1413,7 +1463,23 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
             "to the left, and stable preserves positions while moving colliding tiles."
         ),
     )
-    group_titles = serializers.DictField(
+    group_display = serializers.ChoiceField(
+        choices=DASHBOARD_TILE_GROUP_DISPLAY_MODES,
+        required=False,
+        write_only=True,
+        help_text=(
+            "How tile groups show. sections shows each group as a band that opens and closes. tabs shows one "
+            "group at a time, and tiles outside any group get their own first tab."
+        ),
+    )
+    groups = _GroupDictField(
+        child=DashboardTileGroupSerializer(),
+        required=False,
+        allow_null=True,
+        write_only=True,
+        help_text=GROUPS_HELP_TEXT,
+    )
+    group_titles = _GroupDictField(
         child=serializers.CharField(max_length=MAX_GROUP_TITLE_LENGTH),
         required=False,
         allow_null=True,
@@ -1433,22 +1499,18 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
             "last_accessed_at",
         ]
 
-    def validate_group_titles(self, value: dict[str, str] | None) -> dict[str, str] | None:
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if "groups" in attrs and "group_titles" in attrs:
+            raise serializers.ValidationError({"groups": "Send groups or group_titles, not both."})
+        return super().validate(attrs)
+
+    def validate_groups(self, value: dict[str, dict[str, Any]] | None) -> dict[str, dict[str, Any]] | None:
         if value is None:
             return None
-        if len(value) > MAX_GROUP_TITLES:
-            raise serializers.ValidationError(f"A dashboard can have at most {MAX_GROUP_TITLES} group titles.")
-        normalized: dict[str, str] = {}
-        for key, title in value.items():
-            group_key = _normalized_group_key(key)
-            if not group_key:
-                raise serializers.ValidationError("Group keys can't be empty.")
-            if len(group_key) > MAX_GROUP_KEY_LENGTH:
-                raise serializers.ValidationError(f"Group keys can have at most {MAX_GROUP_KEY_LENGTH} characters.")
-            if group_key in normalized:
-                raise serializers.ValidationError(f'Group key "{group_key}" is used more than once.')
-            normalized[group_key] = title
-        return normalized
+        return {key: without_default_settings(group) for key, group in validated_group_keys(value).items()}
+
+    def validate_group_titles(self, value: dict[str, str] | None) -> dict[str, str] | None:
+        return None if value is None else validated_group_keys(value)
 
     def get_filters(self, dashboard: Dashboard) -> dict:
         request = self.context.get("request")
@@ -1457,17 +1519,13 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
 
     @extend_schema_field(DashboardCustomizationSerializer)
     def get_customization(self, dashboard: Dashboard) -> dict[str, Any]:
-        customization = _normalize_dashboard_customization(dashboard.customization)
-        tile_spacing = customization.get("tile_spacing")
-        layout_compaction = customization.get("layout_compaction")
-        result: dict[str, Any] = {}
-        if isinstance(tile_spacing, str) and tile_spacing in DASHBOARD_GRID_SPACING_GAPS:
-            result["tile_spacing"] = tile_spacing
-        if isinstance(layout_compaction, str) and layout_compaction in DASHBOARD_GRID_COMPACTION_MODES:
-            result["layout_compaction"] = layout_compaction
-        group_titles = _valid_group_titles(customization)
-        if group_titles:
-            result["group_titles"] = group_titles
+        result = stored_customization(dashboard.customization)
+        groups = result.get("groups", {})
+        if groups:
+            result["groups"] = {key: {**DASHBOARD_TILE_GROUP_DEFAULTS, **group} for key, group in groups.items()}
+        titles = {key: group["title"] for key, group in groups.items() if "title" in group}
+        if titles:
+            result["group_titles"] = titles
         return result
 
     def get_variables(self, dashboard: Dashboard) -> dict | None:
@@ -1815,6 +1873,9 @@ class DashboardSerializer(DashboardMetadataSerializer):
         team = self.context["get_team"]()
         grid_spacing = validated_data.pop("grid_spacing", None)
         layout_compaction = validated_data.pop("layout_compaction", None)
+        group_display = validated_data.pop("group_display", None)
+        has_groups = "groups" in validated_data
+        groups = validated_data.pop("groups", None)
         has_group_titles = "group_titles" in validated_data
         group_titles = validated_data.pop("group_titles", None)
         current_count = Dashboard.objects.filter(team_id=team_id, deleted=False).count()
@@ -1867,7 +1928,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             )
 
         if existing_dashboard:
-            validated_data["customization"] = _normalize_dashboard_customization(existing_dashboard.customization)
+            validated_data["customization"] = normalize_dashboard_customization(existing_dashboard.customization)
 
         if grid_spacing is not None:
             validated_data["customization"] = {
@@ -1879,8 +1940,21 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 **validated_data.get("customization", {}),
                 "layout_compaction": layout_compaction,
             }
-        if has_group_titles:
-            validated_data["customization"] = _with_group_titles(validated_data.get("customization", {}), group_titles)
+        if group_display is not None:
+            validated_data["customization"] = {
+                **validated_data.get("customization", {}),
+                "group_display": group_display,
+            }
+
+        def with_requested_groups(customization: dict[str, Any]) -> dict[str, Any]:
+            if has_groups:
+                customization = _with_groups(customization, groups)
+            if has_group_titles:
+                customization = _with_group_titles(customization, group_titles)
+            return customization
+
+        if (has_groups or has_group_titles) and not use_template:
+            validated_data["customization"] = with_requested_groups(validated_data.get("customization", {}))
 
         with transaction.atomic():
             dashboard = Dashboard.objects.create(team_id=team_id, filters=filters, **validated_data)
@@ -1902,6 +1976,12 @@ class DashboardSerializer(DashboardMetadataSerializer):
                         exc_info=True,
                     )
                     raise serializers.ValidationError({"use_template": f"Invalid template provided: {use_template}"})
+                # Group settings in the request apply on top of the template's groups, so they wait for the merge.
+                if has_groups or has_group_titles:
+                    dashboard.customization = with_requested_groups(
+                        normalize_dashboard_customization(dashboard.customization)
+                    )
+                    dashboard.save(update_fields=["customization"])
 
             elif existing_dashboard:
                 existing_tiles = (
@@ -1932,6 +2012,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 "template_key": use_template,
                 "duplicated": bool(use_dashboard),
                 "duplicated_from_dashboard_id": use_dashboard,
+                **self.context.get("creation_event_properties", {}),
             },
             team=dashboard.team,
             request=request,
@@ -2094,6 +2175,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="PATCH")
     def update(self, instance: Dashboard, validated_data: dict, *args: Any, **kwargs: Any) -> Dashboard:
         previous_layout_compaction = _effective_layout_compaction(instance.customization)
+        previous_group_display = instance.group_display
         self._check_delivered_dashboard_filters_access(
             cast(User, self.context["request"].user), instance, self.initial_data
         )
@@ -2101,20 +2183,30 @@ class DashboardSerializer(DashboardMetadataSerializer):
         validated_data.pop("use_template", None)  # Remove attribute if present
         grid_spacing = validated_data.pop("grid_spacing", None)
         layout_compaction = validated_data.pop("layout_compaction", None)
-        if grid_spacing is not None or layout_compaction is not None:
+        group_display = validated_data.pop("group_display", None)
+        if grid_spacing is not None or layout_compaction is not None or group_display is not None:
             validated_data["customization"] = {
-                **_normalize_dashboard_customization(instance.customization),
+                **normalize_dashboard_customization(instance.customization),
                 **({"tile_spacing": grid_spacing} if grid_spacing is not None else {}),
                 **({"layout_compaction": layout_compaction} if layout_compaction is not None else {}),
+                **({"group_display": group_display} if group_display is not None else {}),
             }
+        if "groups" in validated_data:
+            validated_data["customization"] = _with_groups(
+                validated_data.get("customization", normalize_dashboard_customization(instance.customization)),
+                validated_data.pop("groups"),
+            )
         if "group_titles" in validated_data:
             validated_data["customization"] = _with_group_titles(
-                validated_data.get("customization", _normalize_dashboard_customization(instance.customization)),
+                validated_data.get("customization", normalize_dashboard_customization(instance.customization)),
                 validated_data.pop("group_titles"),
             )
 
         being_undeleted = instance.deleted and "deleted" in validated_data and not validated_data["deleted"]
         if being_undeleted:
+            self._check_restored_tiles_access(
+                instance, cast(User, self.context["request"].user), self.context["view"].user_access_control
+            )
             self._undo_delete_related_tiles(instance)
 
         being_deleted = not instance.deleted and validated_data.get("deleted", False)
@@ -2161,6 +2253,8 @@ class DashboardSerializer(DashboardMetadataSerializer):
         # so a later tile failing validation must roll that back too, or a retry with the
         # original text_id can no longer find the tile.
         tile_results: list[tuple[DashboardTile | None, bool]] = []
+        tracks_groups = any("group_key" in tile_data for tile_data in tiles)
+        group_keys_before = instance.tile_group_keys if tracks_groups else set()
         with transaction.atomic():
             tile_ids = [tile["id"] for tile in tiles if tile.get("id") is not None]
             list(
@@ -2188,6 +2282,21 @@ class DashboardSerializer(DashboardMetadataSerializer):
                     tile=tile,
                 )
 
+        if tracks_groups and "request" in self.context:
+            group_keys_after = instance.tile_group_keys
+            for _ in group_keys_after - group_keys_before:
+                report_user_action(
+                    user,
+                    "dashboard tile group created",
+                    {
+                        "dashboard_id": instance.id,
+                        "group_display": instance.group_display,
+                        "group_count": len(group_keys_after),
+                    },
+                    team=instance.team,
+                    request=self.context["request"],
+                )
+
         duplicate_tiles = initial_data.pop("duplicate_tiles", [])
         if duplicate_tiles:
             user_access_control = UserAccessControl(user=user, team=instance.team)
@@ -2206,6 +2315,18 @@ class DashboardSerializer(DashboardMetadataSerializer):
                         "dashboard_id": instance.id,
                         "previous_layout_compaction": previous_layout_compaction,
                         "layout_compaction": layout_compaction,
+                    },
+                    team=instance.team,
+                    request=self.context["request"],
+                )
+            if group_display is not None and group_display != previous_group_display:
+                report_user_action(
+                    user,
+                    "dashboard group display configured",
+                    {
+                        "dashboard_id": instance.id,
+                        "previous_group_display": previous_group_display,
+                        "group_display": group_display,
                     },
                     team=instance.team,
                     request=self.context["request"],
@@ -2308,7 +2429,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
     def _validated_tile_marking(tile_fields: dict) -> dict:
         marking: dict = {}
         if "group_key" in tile_fields:
-            marking["group_key"] = DashboardSerializer._validated_group_key(tile_fields["group_key"])
+            marking["group_key"] = validated_group_key(tile_fields["group_key"])
         if "badge" in tile_fields:
             if tile_fields["badge"] not in (None, *DashboardTileBadge.values):
                 raise serializers.ValidationError(
@@ -2316,22 +2437,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 )
             marking["badge"] = tile_fields["badge"]
         return marking
-
-    @staticmethod
-    def _validated_group_key(group_key: Any) -> str | None:
-        if group_key is None:
-            return None
-        if not isinstance(group_key, str):
-            raise serializers.ValidationError({"group_key": "Group key must be a string or null."})
-        try:
-            group_key = _normalized_group_key(group_key)
-        except serializers.ValidationError as error:
-            raise serializers.ValidationError({"group_key": error.detail}) from error
-        if len(group_key) > MAX_GROUP_KEY_LENGTH:
-            raise serializers.ValidationError(
-                {"group_key": f"Group key can have at most {MAX_GROUP_KEY_LENGTH} characters."}
-            )
-        return group_key or None
 
     @staticmethod
     def _validate_tiles_before_saving(instance: Dashboard, tiles: list[dict]) -> None:
@@ -2431,7 +2536,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         tile_defaults = DashboardSerializer._extract_display_defaults(tile_data)
         # nosemgrep: idor-lookup-without-team -- dashboard=instance constrains to team
         return DashboardTile.objects_including_soft_deleted.update_or_create(
-            id=tile_data.get("id", None),
+            id=tile_data.get("id", None),  # type: ignore[misc]  # id=None matches no row, so a new tile is created
             dashboard=instance,
             defaults={**tile_defaults, **extra_defaults, "dashboard": instance},
         )
@@ -2477,7 +2582,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         # Un-deleting a tile re-exposes its insight on the dashboard's public link.
         insight = existing.insight
         if became_live and insight is not None:
-            check_can_add_insight_to_shared_dashboard(user, instance, insight.query)
+            check_can_add_insight_to_dashboard(user, instance, insight.query)
 
         marking_changed = any(
             getattr(existing, field) != tile_defaults[field]
@@ -2704,6 +2809,35 @@ class DashboardSerializer(DashboardMetadataSerializer):
         DashboardTile.objects_including_soft_deleted.filter(dashboard__id=instance.id).update(deleted=True)
 
     @staticmethod
+    def _check_restored_tiles_access(instance: Dashboard, user: User, user_access_control: UserAccessControl) -> None:
+        """A dashboard restore brings every tile back without a tile write, so the check that
+        gates a single tile restore runs here, once over every insight the restore shows again.
+        An insight can be edited while its dashboard is deleted, so its query may have changed
+        since. The exposure is decided once and the queries compile against one schema, so a
+        restore costs one check rather than one per tile."""
+        if not instance.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+            return
+        if user_access_control.is_organization_admin:
+            return
+        exposure = dashboard_shared_or_subscribed(instance)
+        if exposure is None:
+            return
+        queries = [
+            query
+            for query in Insight.objects_including_soft_deleted.filter(
+                dashboard_tiles__dashboard_id=instance.id, dashboard_tiles__deleted=True
+            )
+            .distinct()
+            .values_list("query", flat=True)
+            if isinstance(query, dict)
+        ]
+        if denied_resources := denied_query_resources(user, instance.team, queries):
+            denied_names = ", ".join(f"`{name}`" for name in denied_resources)
+            raise serializers.ValidationError(
+                f"Can't restore this dashboard: you don't have access to {denied_names}, and this dashboard is {exposure}."
+            )
+
+    @staticmethod
     def _undo_delete_related_tiles(instance: Dashboard) -> None:
         DashboardTile.objects_including_soft_deleted.filter(dashboard__id=instance.id).update(deleted=False)
         # The default Insight manager excludes deleted=True, so traversing tile.insight returns None
@@ -2808,7 +2942,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
     def validate(self, data):
         if data.get("use_dashboard", None) and data.get("use_template", None):
             raise serializers.ValidationError("`use_dashboard` and `use_template` cannot be used together")
-        return data
+        return super().validate(data)
 
     def _update_creation_mode(self, validated_data, use_template: str, use_dashboard: int):
         if use_template:
@@ -3225,6 +3359,8 @@ class DashboardsViewSet(
         # below runs no queries for them.
         team_configs_for_cache_key(self.team)
 
+        request_context = contextvars.copy_context()
+
         # Async generator that handles progressive tile serialization and streaming
         async def async_tile_stream_generator() -> AsyncGenerator[bytes]:
             renderer = SafeJSONRenderer()
@@ -3238,8 +3374,8 @@ class DashboardsViewSet(
                     tile = sorted_tiles[order]
                     try:
                         order_result, tile_data = await database_sync_to_async(
-                            serialize_tile_with_context, thread_sensitive=True
-                        )(tile, order, context)
+                            serialize_tile_in_request_context, thread_sensitive=True
+                        )(request_context, tile, order, context)
                         initial_tiles.append(tile_data)
                     except Exception:
                         logger.exception("Error serializing initial dashboard tile", tile_id=tile.id)
@@ -3261,8 +3397,8 @@ class DashboardsViewSet(
                     tile = sorted_tiles[order]
                     try:
                         order_result, tile_data = await database_sync_to_async(
-                            serialize_tile_with_context, thread_sensitive=True
-                        )(tile, order, context)
+                            serialize_tile_in_request_context, thread_sensitive=True
+                        )(request_context, tile, order, context)
                         tile_json = renderer.render({"type": "tile", "order": order, "tile": tile_data}).decode()
                         yield f"data: {tile_json}\n\n".encode()
                     except Exception:
@@ -3338,7 +3474,7 @@ class DashboardsViewSet(
             DashboardSerializer._check_widget_tile_product_access(tile.widget, user_access_control)
         if tile.insight is not None:
             # The destination's public link must not expose a query the editor can't run.
-            check_can_add_insight_to_shared_dashboard(
+            check_can_add_insight_to_dashboard(
                 cast(User, request.user), to_dashboard_obj, tile.insight.query, self.user_access_control
             )
         try:
@@ -3418,7 +3554,7 @@ class DashboardsViewSet(
                 raise exceptions.ValidationError("This insight is already on the destination dashboard.")
 
             # The destination's public link must not expose a query the editor can't run.
-            check_can_add_insight_to_shared_dashboard(
+            check_can_add_insight_to_dashboard(
                 cast(User, request.user), destination, tile.insight.query, user_access_control
             )
         elif tile.text is not None:
@@ -3444,6 +3580,116 @@ class DashboardsViewSet(
                 context=self.get_serializer_context(),
             ).data
         )
+
+    def _copy_group_tiles(self, request: Request, destination: Dashboard, source_id: int, group_key: str) -> None:
+        if source_id == destination.pk:
+            raise exceptions.ValidationError("Destination must be a different dashboard than the source.")
+
+        source = get_object_or_404(Dashboard, id=source_id, team__project_id=self.team.project_id, deleted=False)
+        access = UserAccessControl(user=cast(User, request.user), team=self.team)
+        if not access.check_access_level_for_object(source, "viewer"):
+            raise exceptions.PermissionDenied("You don't have permission to view the source dashboard.")
+        tiles = list(
+            DashboardTile.objects.filter(dashboard=source, group_key=group_key).select_related("insight", "widget")
+        )
+        if not tiles:
+            raise exceptions.NotFound("Tile group not found.")
+
+        new_key = uuid.uuid4().hex
+        for tile in tiles:
+            if tile.widget_id:
+                if tile.widget is None:
+                    raise exceptions.ValidationError("Widget tile is missing its widget.")
+                DashboardSerializer._check_widget_tile_product_access(tile.widget, access)
+            elif tile.insight_id:
+                insight = tile.insight
+                if insight is None:
+                    raise exceptions.ValidationError("Insight tile is missing its insight.")
+                if not access.check_access_level_for_object(insight, "viewer"):
+                    raise exceptions.PermissionDenied("You don't have permission to view an insight in this group.")
+                if DashboardTile.objects.filter(dashboard=destination, insight_id=tile.insight_id).exists():
+                    raise exceptions.ValidationError(
+                        "An insight in this group is already on the destination dashboard."
+                    )
+                check_can_add_insight_to_dashboard(cast(User, request.user), destination, insight.query, access)
+            elif tile.text_id:
+                if DashboardTile.objects.filter(dashboard=destination, text_id=tile.text_id).exists():
+                    raise exceptions.ValidationError(
+                        "A text card in this group is already on the destination dashboard."
+                    )
+            elif tile.button_tile_id:
+                if DashboardTile.objects.filter(dashboard=destination, button_tile_id=tile.button_tile_id).exists():
+                    raise exceptions.ValidationError("A button in this group is already on the destination dashboard.")
+            else:
+                raise exceptions.ValidationError("This group contains an empty tile.")
+
+        source_tops = {
+            size: min(tile.layouts[size].get("y", 0) for tile in tiles if size in tile.layouts)
+            for size in ("sm", "xs")
+            if any(size in tile.layouts for tile in tiles)
+        }
+        try:
+            with transaction.atomic():
+                # Without this lock, two copies into the same dashboard would overwrite each other's groups.
+                try:
+                    destination.refresh_from_db(
+                        fields=["customization"], from_queryset=Dashboard.objects.select_for_update(no_key=True)
+                    )
+                except Dashboard.DoesNotExist:
+                    raise exceptions.NotFound()
+                groups = stored_groups(destination.customization)
+                if len(groups) >= MAX_GROUPS:
+                    raise exceptions.ValidationError({"groups": f"A dashboard can have at most {MAX_GROUPS} groups."})
+                destination_tiles = list(DashboardTile.objects.filter(dashboard=destination).only("layouts"))
+                destination_bottoms = {
+                    size: max(
+                        (
+                            tile.layouts[size].get("y", 0) + tile.layouts[size].get("h", 0)
+                            for tile in destination_tiles
+                            if size in tile.layouts
+                        ),
+                        default=0,
+                    )
+                    for size in source_tops
+                }
+                for tile in tiles:
+                    if tile.widget_id:
+                        copied = DashboardSerializer._clone_widget_tile_to_dashboard(
+                            tile, destination, cast(User, request.user), keep_group_key=False
+                        )
+                        copied.group_key = new_key
+                    else:
+                        copied = tile.copy_to_dashboard(destination, keep_group_key=False)
+                        copied.group_key = new_key
+                    copied.layouts = {
+                        size: {**layout, "y": layout.get("y", 0) - source_tops[size] + destination_bottoms[size]}
+                        if size in source_tops
+                        else layout
+                        for size, layout in tile.layouts.items()
+                    }
+                    copied.save(update_fields=["group_key", "layouts"])
+                groups[new_key] = stored_groups(source.customization).get(group_key, {})
+                destination.customization = _with_groups(
+                    normalize_dashboard_customization(destination.customization), groups
+                )
+                destination.save(update_fields=["customization"])
+        except (DjangoValidationError, IntegrityError):
+            raise exceptions.ValidationError("Unable to copy this group to the destination dashboard.")
+
+    @extend_schema(request=CopyDashboardGroupRequestSerializer, responses={200: DashboardSerializer})
+    @action(methods=["POST"], detail=True, required_scopes=["dashboard:write"])
+    def copy_group(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Copy a group of tiles and its settings to another dashboard."""
+        destination = self.get_object()
+        if destination.deleted:
+            raise exceptions.NotFound()
+        serializer = CopyDashboardGroupRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        source_id = serializer.validated_data["fromDashboardId"]
+        group_key = normalized_group_key(serializer.validated_data["groupKey"])
+        self._copy_group_tiles(request, destination, source_id, group_key)
+
+        return Response(DashboardSerializer(destination, context=self.get_serializer_context()).data)
 
     @extend_schema(request=ReorderTilesRequestSerializer, responses={200: DashboardSerializer})
     @action(methods=["POST"], detail=True, required_scopes=["dashboard:write"])
@@ -3721,13 +3967,18 @@ class DashboardsViewSet(
                 break
 
             tile_context = {**context, "dashboard_tile": tile, "order": order}
-            tile_data = DashboardTileResultSerializer(tile, context=tile_context).data
+            tile_serializer = DashboardTileResultSerializer(tile, context=tile_context)
+            tile_data = tile_serializer.data
 
             if output_format == "optimized":
                 insight_data = tile_data.get("insight") or {}
                 raw_result = insight_data.get("result")
                 if insight_data and raw_result is not None:
-                    formatted = self._format_insight_for_llm(insight, insight_data)
+                    # The serializer memoizes the insight result, so this reads the response it just rendered.
+                    insight_result = cast(InsightResultSerializer, tile_serializer.fields["insight"]).insight_result(
+                        insight
+                    )
+                    formatted = self._format_insight_for_llm(insight, insight_data, insight_result)
                     if formatted is None:
                         # No formatter covers this query type, so the raw result still has to be bounded.
                         formatted = render_unsupported_result(raw_result)
@@ -3853,13 +4104,19 @@ class DashboardsViewSet(
         if query_work_items:
             max_workers = min(RUN_WIDGETS_QUERY_CONCURRENCY, len(query_work_items))
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # Each worker gets a copy of the request context, so the query tags (such as the API key
+                # access method that the metrics concurrency limits read) reach the widget query.
                 futures = {
                     executor.submit(
-                        _run_widget_query,
-                        self.team,
-                        work_item,
-                        dashboard_id=dashboard.id,
-                        distinct_id=distinct_id,
+                        _run_in_context,
+                        contextvars.copy_context(),
+                        partial(
+                            _run_widget_query,
+                            self.team,
+                            work_item,
+                            dashboard_id=dashboard.id,
+                            distinct_id=distinct_id,
+                        ),
                     ): work_item["tile_id"]
                     for work_item in query_work_items
                 }
@@ -3871,11 +4128,26 @@ class DashboardsViewSet(
 
         return Response({"results": results})
 
-    @extend_schema(responses={200: WidgetCatalogResponseSerializer})
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="widget_type",
+                type=str,
+                enum=sorted(EXPECTED_WIDGET_TYPES),
+                many=True,
+                style="form",
+                explode=False,
+                required=False,
+                description="Widget types to return. Omit to return every registered widget type.",
+            ),
+        ],
+        responses={200: WidgetCatalogResponseSerializer},
+    )
     @action(methods=["GET"], detail=False, required_scopes=["dashboard:read"])
     def widget_catalog(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """List registered dashboard widget types and per-type config_schema documentation for agents."""
-        return Response({"results": get_widget_catalog_entries()})
+        widget_types = parse_widget_type_filter(request.query_params.getlist("widget_type"))
+        return Response({"results": get_widget_catalog_entries(widget_types)})
 
     @extend_schema(
         request=AddDashboardWidgetsBatchRequestOpenApiSerializer,
@@ -4037,7 +4309,9 @@ class DashboardsViewSet(
 
         return tile
 
-    def _format_insight_for_llm(self, insight: Insight, insight_data: dict) -> str | None:
+    def _format_insight_for_llm(
+        self, insight: Insight, insight_data: dict, insight_result: InsightResult
+    ) -> str | None:
         if not settings.EE_AVAILABLE:
             return None
         try:
@@ -4049,7 +4323,13 @@ class DashboardsViewSet(
             query = InsightVizNode.model_validate(query_dict)
             if not query.source:
                 return None
-            result_dict = {"results": insight_data.get("result"), "columns": insight_data.get("columns")}
+            result_dict = {
+                "results": insight_data.get("result"),
+                "columns": insight_data.get("columns"),
+                # Total-value rows carry no dates, so the formatter labels them with the ranges the query ran over.
+                "resolved_date_range": insight_result.resolved_date_range,
+                "resolved_compare_date_range": insight_result.resolved_compare_date_range,
+            }
             return format_query_results_for_llm(query.source, result_dict, self.team)
         except Exception:
             logger.warning("dashboard_run_insights_format_failed", exc_info=True, insight_id=insight.id)
@@ -4061,6 +4341,12 @@ class DashboardsViewSet(
         parser_classes=[DashboardTemplateCreationJSONSchemaParser],
     )
     def create_from_template_json(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        template_body = request.data["template"]
+        if template_body.get("customization") is not None:
+            customization = DashboardCustomizationSerializer(data=template_body["customization"])
+            if not customization.is_valid():
+                raise serializers.ValidationError({"customization": customization.errors})
+        validate_template_groups(template_body.get("customization"), template_body.get("tiles"))
         dashboard = Dashboard.objects.create(
             team_id=self.team_id,
             created_by=cast(User, request.user),
@@ -4068,7 +4354,7 @@ class DashboardsViewSet(
         )
 
         try:
-            dashboard_template = dashboard_template_from_creation_payload(request.data["template"])
+            dashboard_template = dashboard_template_from_creation_payload(template_body)
             creation_context = request.data.get("creation_context")
             create_from_template(
                 dashboard,
@@ -4077,7 +4363,6 @@ class DashboardsViewSet(
                 user_access_control=UserAccessControl(user=cast(User, request.user), team=self.team),
             )
 
-            template_body = request.data["template"]
             raw_scope = template_body.get("scope")
             if raw_scope is None or raw_scope == "":
                 template_scope_props: dict[str, str | None] = {"template_scope": None}

@@ -9,6 +9,7 @@ from drf_spectacular.utils import extend_schema_field
 from opentelemetry import trace
 from rest_framework import exceptions, serializers
 
+from posthog import cloud_utils
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.utils import validate_authorized_url_wildcards
 from posthog.constants import AvailableFeature
@@ -77,6 +78,13 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         )
     )
     available_setup_task_ids = serializers.SerializerMethodField()
+    api_host = serializers.SerializerMethodField(
+        help_text=(
+            "Host the PostHog SDKs send events to, set as their `api_host` option. It is "
+            "`https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, "
+            "and the instance URL when self-hosted."
+        )
+    )
     heatmaps_screenshot_secret = serializers.SerializerMethodField(
         help_text=(
             "Value this project's heatmap screenshots send as a cookie scoped to your domain, "
@@ -135,6 +143,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "managed_viewsets",
             "flag_evaluations_mode",
             "available_setup_task_ids",
+            "api_host",
         )
 
         read_only_fields = (
@@ -159,6 +168,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "managed_viewsets",
             "flag_evaluations_mode",
             "available_setup_task_ids",
+            "api_host",
         )
 
     def get_fields(self) -> dict[str, serializers.Field]:
@@ -199,6 +209,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     @tracer.start_as_current_span("team_serializer.live_events_token")
     def get_live_events_token(self, team: Team) -> str | None:
         return live_events.live_events_token_for_request(team, self.context.get("request"))
+
+    def get_api_host(self, team: Team) -> str:
+        return cloud_utils.get_api_host()
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_heatmaps_screenshot_secret(self, team: Team) -> str | None:
@@ -797,6 +810,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return instance
 
     def _update_workflows_config(self, instance: Team, validated_data: dict[str, Any]) -> Team:
+        team_config.drop_cached_workflows_config(instance)
         old_config = {
             field: getattr(instance.workflows_config, field)
             for field in team_config.TeamWorkflowsConfigSerializer.Meta.fields

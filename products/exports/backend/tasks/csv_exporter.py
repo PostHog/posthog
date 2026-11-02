@@ -5,8 +5,9 @@ import datetime
 import tempfile
 import textwrap
 from collections import OrderedDict
-from collections.abc import Generator, Iterator
+from collections.abc import Generator, Iterator, Mapping
 from contextlib import contextmanager
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, NoReturn, Optional, Protocol
 from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
@@ -40,8 +41,15 @@ from posthog.hogql_queries.utils.breakdowns import (
     BREAKDOWN_OTHER_DISPLAY,
     BREAKDOWN_OTHER_STRING_LABEL,
 )
+from posthog.hogql_queries.utils.result_series import (
+    get_action_names,
+    get_result_series,
+    get_series_custom_name,
+    get_series_key,
+)
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
+from posthog.schema_migrations.upgrade import upgrade
 from posthog.security.spreadsheet_safety import sanitize_formula_injection
 from posthog.tasks.exporter import EXPORT_TIMER
 from posthog.utils import absolute_uri
@@ -276,7 +284,32 @@ def _format_breakdown_value(breakdown_value: Any) -> str:
     return "::".join(breakdown_value)
 
 
-def _convert_response_to_csv_data(data: Any, breakdown_filter: Optional[dict] = None) -> Generator[Any]:
+def _custom_name_column(
+    query: Mapping[str, Any], node: Mapping[str, Any], action_names: Optional[Mapping[int, str | None]]
+) -> str | None:
+    # Each runner names a rename by its own rule: trends counts a `name` other than the series key, stickiness and
+    # lifecycle count only `custom_name`, and the calendar heatmap reports no rename.
+    if query.get("kind") == "TrendsQuery":
+        if (query.get("trendsFilter") or {}).get("display") == "CalendarHeatmap":
+            return None
+        return get_series_custom_name(node, action_names)
+    custom_name = node.get("custom_name")
+    return custom_name if isinstance(custom_name, str) and custom_name else None
+
+
+def _series_query(query: dict) -> dict:
+    # The runner unwraps a visualization node and runs the upgraded query, which stamps `kind` on legacy series nodes.
+    upgraded = upgrade(deepcopy(query))
+    source = upgraded.get("source")
+    return source if upgraded.get("kind") == "InsightVizNode" and isinstance(source, dict) else upgraded
+
+
+def _convert_response_to_csv_data(
+    data: Any,
+    breakdown_filter: Optional[dict] = None,
+    series_query: Optional[Mapping[str, Any]] = None,
+    action_names: Optional[Mapping[int, str | None]] = None,
+) -> Generator[Any]:
     if isinstance(data.get("results"), list):
         results = data.get("results")
         if len(results) > 0 and (isinstance(results[0], list) or isinstance(results[0], tuple)) and data.get("types"):
@@ -380,12 +413,13 @@ def _convert_response_to_csv_data(data: Any, breakdown_filter: Optional[dict] = 
             for index, item in enumerate(results):
                 label = item.get("label", f"Series #{index + 1}")
                 compare_label = item.get("compare_label", "")
-                action = item.get("action")
+                node = get_result_series(series_query, item) if series_query else None
 
                 breakdown_values, breakdowns, has_breakdown_columns = _get_breakdown_info(item, breakdown_filter)
 
-                if has_breakdown_columns and isinstance(action, dict) and action.get("name"):
-                    series_name = action["name"]
+                if has_breakdown_columns and node is not None:
+                    # The breakdown columns carry the value, so the series takes the runner's series label without it.
+                    series_name = get_series_key(node, action_names) or "All events"
                 else:
                     series_name = label
 
@@ -396,8 +430,11 @@ def _convert_response_to_csv_data(data: Any, breakdown_filter: Optional[dict] = 
 
                 label_item = date_labels_item if is_comparison else item
 
-                if isinstance(action, dict) and action.get("custom_name"):
-                    line["custom name"] = action.get("custom_name")
+                custom_name = (
+                    _custom_name_column(series_query, node, action_names) if series_query and node is not None else None
+                )
+                if custom_name:
+                    line["custom name"] = custom_name
 
                 for idx, val in enumerate(breakdown_values):
                     prop_name = breakdowns[idx].get("property") if idx < len(breakdowns) else None
@@ -538,7 +575,16 @@ def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: d
 
             raise unexpected_empty_json_response
 
-        csv_rows = list(_convert_response_to_csv_data(data))
+        # A saved insight's results name their series only through the query that the insights API returns with them.
+        query = data.get("query")
+        series_query = _series_query(query) if isinstance(query, dict) else None
+        csv_rows = list(
+            _convert_response_to_csv_data(
+                data,
+                series_query=series_query,
+                action_names=get_action_names(exported_asset.team, series_query) if series_query else None,
+            )
+        )
         total += len(csv_rows)
         yield from csv_rows
 
@@ -565,6 +611,8 @@ def get_from_query(
     assert query is not None
 
     breakdown_filter = query.get("breakdownFilter") if query else None
+    series_query = _series_query(query)
+    action_names = get_action_names(exported_asset.team, series_query)
     supports_limit = _query_supports_limit(query)
 
     total = 0
@@ -608,7 +656,11 @@ def get_from_query(
         if response_dict.get("error"):
             raise Exception(f"Query failed: {response_dict['error']}")
 
-        rows = list(_convert_response_to_csv_data(response_dict, breakdown_filter=breakdown_filter))
+        rows = list(
+            _convert_response_to_csv_data(
+                response_dict, breakdown_filter=breakdown_filter, series_query=series_query, action_names=action_names
+            )
+        )
         rows = rows[: CSV_EXPORT_LIMIT - total]
         total += len(rows)
         yield from rows

@@ -18,6 +18,7 @@
  * * `error_tracking` - ERROR_TRACKING
  * * `customer_analytics` - CUSTOMER_ANALYTICS
  * * `ticket` - TICKET
+ * * `replay_observation` - REPLAY_OBSERVATION
  */
 export type NotificationEventSourceTypeEnumApi =
     (typeof NotificationEventSourceTypeEnumApi)[keyof typeof NotificationEventSourceTypeEnumApi]
@@ -33,6 +34,7 @@ export const NotificationEventSourceTypeEnumApi = {
     ErrorTracking: 'error_tracking',
     CustomerAnalytics: 'customer_analytics',
     Ticket: 'ticket',
+    ReplayObservation: 'replay_observation',
 } as const
 
 /**

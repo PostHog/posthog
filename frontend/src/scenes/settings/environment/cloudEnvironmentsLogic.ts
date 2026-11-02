@@ -32,6 +32,19 @@ const NEW_ENVIRONMENT: CloudEnvironmentDraft = {
     custom_image_id: null,
 }
 
+export async function listAllPages<T>(
+    fetchPage: (params: { limit: number; offset: number }) => Promise<{ count: number; results: T[] }>
+): Promise<T[]> {
+    const items: T[] = []
+    let count = Infinity
+    while (items.length < count) {
+        const page = await fetchPage({ limit: 100, offset: items.length })
+        items.push(...page.results)
+        count = page.results.length > 0 ? page.count : items.length
+    }
+    return items
+}
+
 function isNetworkAccessLevel(value: string): value is SandboxEnvironmentNetworkAccessLevelEnumApi {
     return (Object.values(SandboxEnvironmentNetworkAccessLevelEnumApi) as string[]).includes(value)
 }
@@ -71,6 +84,9 @@ export interface cloudEnvironmentsLogicActions {
         environment: SandboxEnvironmentDTOApi
     }
     editEnvironment: (environment: SandboxEnvironmentDTOApi) => {
+        environment: SandboxEnvironmentDTOApi
+    }
+    environmentCreated: (environment: SandboxEnvironmentDTOApi) => {
         environment: SandboxEnvironmentDTOApi
     }
     loadEnvironments: () => any
@@ -128,6 +144,7 @@ export const cloudEnvironmentsLogic = kea<cloudEnvironmentsLogicType>([
         closeDraft: true,
         saveDraft: true,
         saveDraftDone: true,
+        environmentCreated: (environment: SandboxEnvironmentDTOApi) => ({ environment }),
         deleteEnvironment: (environment: SandboxEnvironmentDTOApi) => ({ environment }),
     }),
     loaders(({ values }) => ({
@@ -138,13 +155,19 @@ export const cloudEnvironmentsLogic = kea<cloudEnvironmentsLogicType>([
                     if (values.currentProjectId == null) {
                         return null
                     }
-                    const page = await sandboxList(String(values.currentProjectId))
-                    return page.results
+                    const projectId = String(values.currentProjectId)
+                    return await listAllPages((params) => sandboxList(projectId, params))
                 },
             },
         ],
     })),
     reducers({
+        environments: {
+            environmentCreated: (state, { environment }) => [
+                ...(state ?? []).filter((existing) => existing.id !== environment.id),
+                environment,
+            ],
+        },
         draft: [
             null as CloudEnvironmentDraft | null,
             {
@@ -212,7 +235,7 @@ export const cloudEnvironmentsLogic = kea<cloudEnvironmentsLogicType>([
                 if (draft.id) {
                     await sandboxPartialUpdate(String(currentProjectId), draft.id, body)
                 } else {
-                    await sandboxCreate(String(currentProjectId), body)
+                    actions.environmentCreated(await sandboxCreate(String(currentProjectId), body))
                 }
                 lemonToast.success(draft.id ? 'Environment saved' : 'Environment created')
                 actions.closeDraft()

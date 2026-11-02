@@ -552,13 +552,18 @@ UNREACHABLE_HOST_MESSAGE = (
 )
 
 
-def validate_external_host(host: str) -> None:
+def validate_external_host(host: str, *, resolved_ips: ResolvedIPs | None = None) -> None:
     """Raise ``ValueError`` unless ``host`` is safe for our servers to reach.
 
     SSRF guard for a destination that stores a bare host rather than a URL (Postgres,
     Redshift). Applies the same name and IP rules as ``validate_external_url``, so the two
     cannot drift apart. Bypassed in local dev and in tests, unless the
     ``FORCE_URL_VALIDATION`` setting is true.
+
+    A caller that resolves ``host`` itself and dials that answer passes it as ``resolved_ips``,
+    so the addresses checked are the addresses dialed. Without it, the host is resolved here,
+    and a record with a short TTL can answer public for this check and private for the caller's
+    own lookup.
     """
 
     # The host could come from untyped config, so check its type first
@@ -578,6 +583,6 @@ def validate_external_host(host: str) -> None:
 
     # Return the same error message in both cases, to avoid exposing details of our internal
     # network.
-    ips = resolve_host_ips(host)
+    ips = resolve_host_ips(host) if resolved_ips is None else resolved_ips
     if not ips or any(_is_internal_ip(ip) for ip in ips):
         raise ValueError("Host does not resolve to a valid IP address")

@@ -16,6 +16,7 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
+import { urls } from 'scenes/urls'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SceneTitlePanelButton } from '~/layout/scenes/components/SceneTitlePanelButton'
@@ -65,6 +66,10 @@ interface QueryWindowProps {
     autoFocusQueryPane?: boolean
     hideVariables?: boolean
     hideFilters?: boolean
+    hideAiTools?: boolean
+    showOpenInSqlEditor?: boolean
+    /** False removes the button that expands the schema panel. Defaults to true. */
+    canExpandDatabaseTree?: boolean
 }
 
 export function QueryWindow({
@@ -87,6 +92,9 @@ export function QueryWindow({
     autoFocusQueryPane,
     hideVariables,
     hideFilters,
+    hideAiTools,
+    showOpenInSqlEditor,
+    canExpandDatabaseTree = true,
 }: QueryWindowProps): JSX.Element {
     const codeEditorKey = `hogql-editor-${tabId}`
     const logic = sqlEditorLogic({ tabId })
@@ -278,12 +286,14 @@ export function QueryWindow({
                     )}
                 >
                     <div className="flex flex-wrap items-center gap-2">
-                        <ExpandDatabaseTreeButton
-                            showDatabaseTree={showDatabaseTree}
-                            onShowDatabaseTree={onShowDatabaseTree}
-                            mode={mode}
-                            hostProduct={hostProduct}
-                        />
+                        {canExpandDatabaseTree ? (
+                            <ExpandDatabaseTreeButton
+                                showDatabaseTree={showDatabaseTree}
+                                onShowDatabaseTree={onShowDatabaseTree}
+                                mode={mode}
+                                hostProduct={hostProduct}
+                            />
+                        ) : null}
                         {hideRunButton ? null : (
                             <RunButton
                                 onRunQuery={onRunQuery}
@@ -305,7 +315,7 @@ export function QueryWindow({
                         ) : null}
                         {!hideFilters ? <QueryFiltersMenu /> : null}
                         <QueryPlaceholdersMenu />
-                        {editingView ? (
+                        {editingView && mode !== SQLEditorMode.Embedded ? (
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.WarehouseObjects}
                                 minAccessLevel={AccessControlLevel.Editor}
@@ -324,7 +334,8 @@ export function QueryWindow({
                     </div>
 
                     <div className="ml-auto flex items-center gap-2">
-                        <FixErrorButton type="secondary" size="small" source="action-bar" />
+                        {showOpenInSqlEditor ? <OpenInSqlEditorButton /> : null}
+                        {hideAiTools ? null : <FixErrorButton type="secondary" size="small" source="action-bar" />}
                         {editorSettingsItems.length > 0 ? (
                             <LemonMenu
                                 items={editorSettingsItems}
@@ -343,7 +354,7 @@ export function QueryWindow({
                             </LemonMenu>
                         ) : null}
                         {vimModeFeatureEnabled ? <VimrcModal editorKey={codeEditorKey} /> : null}
-                        {mode === SQLEditorMode.Embedded && (
+                        {mode === SQLEditorMode.Embedded && !hideAiTools && (
                             <SceneTitlePanelButton
                                 buttonClassName="size-[26px]"
                                 maxToolProps={executeSqlMaxToolProps}
@@ -485,6 +496,25 @@ const InternalQueryWindow = memo(function InternalQueryWindow({
 
     return <OutputPane tabId={tabId} biMode={biMode} onShareTab={onShareTab} />
 })
+
+function OpenInSqlEditorButton(): JSX.Element {
+    const { editingView, queryInput, hasEditorChanges } = useValues(sqlEditorLogic)
+
+    // Unsaved edits travel with the link, so the view opens in the SQL editor with them applied and not saved.
+    return (
+        <LemonButton
+            type="secondary"
+            size="small"
+            to={urls.sqlEditor({
+                view_id: editingView?.id,
+                query: !editingView || hasEditorChanges ? (queryInput ?? '') : undefined,
+            })}
+            data-attr="sql-editor-open-in-sql-editor"
+        >
+            Open in SQL editor
+        </LemonButton>
+    )
+}
 
 function CollapsedConnectionSelector({ tabId, mode }: { tabId: string; mode?: SQLEditorMode }): JSX.Element | null {
     const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)

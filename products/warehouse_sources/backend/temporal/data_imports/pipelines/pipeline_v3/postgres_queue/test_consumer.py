@@ -1,3 +1,4 @@
+import sys
 import math
 import time
 import asyncio
@@ -84,6 +85,7 @@ from products.warehouse_sources_queue.backend.core.metrics import (
     DEPTH_SAMPLE_AGE_SECONDS,
     HEARTBEAT_RECONNECT_FAILURES_TOTAL,
     HEARTBEAT_RECONNECTS_TOTAL,
+    OLDEST_SERIALIZED_BATCH_SECONDS,
     OLDEST_UNCLAIMED_BATCH_SECONDS,
     ORPHANED_BATCHES_DRAINED_TOTAL,
     QUEUE_SAMPLE_GAUGES,
@@ -98,10 +100,15 @@ from products.warehouse_sources_queue.backend.models import SourceBatchStatus
 
 
 def _freshness(
-    oldest_age_seconds: float | None, *, blocked_batches: int = 0, backlogged_groups: int = 0
+    slot_wait_age_seconds: float | None,
+    *,
+    serialized_age_seconds: float | None = None,
+    blocked_batches: int = 0,
+    backlogged_groups: int = 0,
 ) -> QueueFreshness:
     return QueueFreshness(
-        oldest_age_seconds=oldest_age_seconds,
+        slot_wait_age_seconds=slot_wait_age_seconds,
+        serialized_age_seconds=serialized_age_seconds,
         blocked_batches=blocked_batches,
         backlogged_groups=backlogged_groups,
     )
@@ -2666,7 +2673,7 @@ class TestReconcileFailedRuns:
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_queue_freshness",
                 new_callable=AsyncMock,
-                return_value=_freshness(1234.5, blocked_batches=7, backlogged_groups=3),
+                return_value=_freshness(1234.5, serialized_age_seconds=5678.0, blocked_batches=7, backlogged_groups=3),
             ) as mock_probe,
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_queue_depth",
@@ -2682,6 +2689,7 @@ class TestReconcileFailedRuns:
         ):
             await consumer._reconcile_failed_runs()
         assert OLDEST_UNCLAIMED_BATCH_SECONDS._value.get() == 1234.5
+        assert OLDEST_SERIALIZED_BATCH_SECONDS._value.get() == 5678.0
         assert CLAIMABLE_BATCHES._value.get() == 321
         assert BLOCKED_BATCHES._value.get() == 7
         assert BACKLOGGED_GROUPS._value.get() == 3
@@ -2709,6 +2717,7 @@ class TestReconcileFailedRuns:
             ):
                 await consumer._reconcile_failed_runs()
         assert OLDEST_UNCLAIMED_BATCH_SECONDS._value.get() == 0.0
+        assert OLDEST_SERIALIZED_BATCH_SECONDS._value.get() == 0.0
         assert CLAIMABLE_BATCHES._value.get() == 0
         assert CLAIMABLE_GROUPS._value.get() == 0
         assert TOP_GROUPS_CLAIMABLE_SHARE._value.get() == 0.0
@@ -5032,20 +5041,20 @@ class TestCoalesceGroup:
     @pytest.mark.parametrize(
         "slot_mb,sizes,expected",
         [
-            # A 64 MiB slice at share 1.0 leaves 32 MiB of Arrow for the two copies the loader holds.
-            (64, [(10 * _MIB, 1)] * 5, [[0, 1, 2], [3, 4]]),
+            # A 32 MiB slice at share 1.0 leaves 32 MiB of Arrow for the one copy the loader holds.
+            (32, [(10 * _MIB, 1)] * 5, [[0, 1, 2], [3, 4]]),
             # Wide rows that compress badly join past the parquet cap while they fit the memory budget.
-            (64, [(10 * _MIB, 30 * _MIB)] * 4, [[0, 1, 2], [3]]),
+            (32, [(10 * _MIB, 30 * _MIB)] * 4, [[0, 1, 2], [3]]),
             # A batch bigger than the whole budget still loads, on its own.
-            (64, [(1 * _MIB, 1), (100 * _MIB, 1), (1 * _MIB, 1)], [[0], [1], [2]]),
+            (32, [(1 * _MIB, 1), (100 * _MIB, 1), (1 * _MIB, 1)], [[0], [1], [2]]),
             # A large slice is still bounded by the hard ceiling.
             (100_000, [(10 * _MIB, 1)] * 5, [[0, 1, 2, 3], [4]]),
             # Narrow batches still coalesce until the row cap.
-            (64, [(1024, 1)] * 60, [list(range(50)), list(range(50, 60))]),
+            (32, [(1024, 1)] * 60, [list(range(50)), list(range(50, 60))]),
             # One batch queued before the producer recorded its size puts the set back on the parquet cap.
-            (64, [(10 * _MIB, 30 * _MIB), (None, 30 * _MIB), (10 * _MIB, 30 * _MIB)], [[0, 1], [2]]),
+            (32, [(10 * _MIB, 30 * _MIB), (None, 30 * _MIB), (10 * _MIB, 30 * _MIB)], [[0, 1], [2]]),
             # The metadata is free-form JSON, so any other shape counts as unknown.
-            (64, [("10", 30 * _MIB), (True, 30 * _MIB), (-1, 30 * _MIB)], [[0, 1], [2]]),
+            (32, [("10", 30 * _MIB), (True, 30 * _MIB), (-1, 30 * _MIB)], [[0, 1], [2]]),
             # An unreadable pod limit gives no slice to size against.
             (None, [(10 * _MIB, 30 * _MIB)] * 3, [[0, 1], [2]]),
             # A slice that leaves no memory gives no Arrow budget.
@@ -5307,6 +5316,29 @@ class TestBatchPhaseTracking:
         consumer._report_health()
         assert BATCHES_IN_PHASE.labels(phase="write")._value.get() == 0
 
+    @pytest.mark.parametrize(
+        "ticks, expected_dumps",
+        [
+            pytest.param(["a"], 1, id="first_trip_dumps"),
+            pytest.param(["a", "a", "a"], 1, id="same_batch_dumps_once"),
+            pytest.param(["a", "b"], 2, id="different_batch_dumps_again"),
+        ],
+    )
+    def test_watchdog_trip_dumps_thread_stacks_once_per_stuck_batch(
+        self, ticks: list[str], expected_dumps: int
+    ) -> None:
+        consumer = _make_consumer(stuck_batch_timeout_seconds=0.0)
+        consumer._health_reporter = lambda: None
+
+        with patch.object(batch_consumer_module.faulthandler, "dump_traceback") as dump:
+            for batch_id in ticks:
+                consumer._inflight_started = {batch_id: time.monotonic() - 10}
+                consumer._report_health()
+
+        assert dump.call_count == expected_dumps
+        for call in dump.call_args_list:
+            assert call.kwargs == {"file": sys.stderr, "all_threads": True}
+
     def test_watchdog_trip_names_the_phase_the_batch_stopped_in(self) -> None:
         from products.warehouse_sources.backend.temporal.data_imports.workload_report import report_phase
 
@@ -5320,8 +5352,9 @@ class TestBatchPhaseTracking:
             consumer._report_health()
 
         assert calls == []  # tripped: liveness withheld
-        logger.error.assert_called_once()
-        kwargs = logger.error.call_args.kwargs
+        tripped = [c for c in logger.error.call_args_list if "stuck_batch_watchdog_tripped" in c.args[0]]
+        assert len(tripped) == 1
+        kwargs = tripped[0].kwargs
         assert kwargs.get("batch_id") == batch.id
         assert kwargs.get("phase") == "write"
         assert kwargs.get("phase_seconds") is not None

@@ -137,6 +137,7 @@ Optionally limit the history tables to the last N days; leave empty to sync the 
                 [
                     SourceFieldInputConfig(
                         name="history_days",
+                        sync_setting=True,
                         label="History window (days)",
                         type=SourceFieldInputConfigType.NUMBER,
                         required=False,

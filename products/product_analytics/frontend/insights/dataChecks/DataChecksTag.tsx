@@ -27,7 +27,10 @@ export function DataChecksTag({
                 <IconCheck key={status} />
             ) : status === 'checking' ? (
                 <Spinner key={status} textColored />
-            ) : status === 'no_events' || status === 'inconclusive' ? (
+            ) : status === 'no_events' ||
+              status === 'inconclusive' ||
+              status === 'on_request' ||
+              status === 'partial' ? (
                 <IconCircleDashed key={status} />
             ) : (
                 <IconWarning key={status} />

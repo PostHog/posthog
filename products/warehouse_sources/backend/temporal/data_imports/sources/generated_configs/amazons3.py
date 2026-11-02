@@ -20,11 +20,8 @@ class AmazonS3FileFormatConfig(config.Config):
 
 @config.config
 class AmazonS3SourceConfig(config.Config):
-    bucket: str
-    region: str
+    url_pattern: str
     access_key_id: str
     secret_access_key: str
     file_format: AmazonS3FileFormatConfig
-    path: str | None = None
-    file_pattern: str | None = None
     combine_files: AmazonS3CombineFilesConfig | None = None

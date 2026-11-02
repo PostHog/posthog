@@ -17,17 +17,15 @@ export function TodayTopBar(): JSX.Element {
             <div className="flex translate-y-1 justify-center">
                 <TodayOrgMenu />
             </div>
-            <div className="flex min-w-0 items-center">
+            <div className="flex min-w-0 items-center gap-0.5">
                 <TodayProjectMenu />
+                <TodayTopBarQuickStartButton />
             </div>
             <div className="mx-2 min-w-0">
                 <TodayTopBarSearch />
             </div>
-            <div className="flex min-w-0 items-center gap-2">
-                <TodayTopBarQuickStartButton />
-                <div className="ms-auto">
-                    <TodayTopBarPanelTabs />
-                </div>
+            <div className="flex min-w-0 items-center justify-end">
+                <TodayTopBarPanelTabs />
             </div>
         </header>
     )

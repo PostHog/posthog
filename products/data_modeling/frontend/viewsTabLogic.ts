@@ -18,6 +18,12 @@ import type {
 } from '~/queries/schema/schema-general'
 import { DataModelingEdge, DataModelingNode, DataWarehouseSavedQueryRunHistory } from '~/types'
 
+import {
+    matchesMaterializationStatus,
+    MaterializationStatusFilter,
+    parseDatabaseSearch,
+} from 'products/data_warehouse/frontend/shared/filterMaterializedViewsByStatus'
+
 import { lineageDataLogic } from './lineage/lineageDataLogic'
 import { ParsedLineageSearch, nodeIdsForLineageSearch, parseLineageSearch } from './lineage/lineageSearch'
 
@@ -41,10 +47,12 @@ export interface viewsTabLogicValues {
     enrichedViews: DataWarehouseSavedQuerySummary[]
     filteredViews: DataWarehouseSavedQuerySummary[]
     lineageNames: Set<string> | null
+    materializationStatusFilters: MaterializationStatusFilter[]
     parsedSearch: ParsedLineageSearch
     runHistoryMap: Record<string, DataWarehouseSavedQueryRunHistory[]>
     runHistoryMapLoading: boolean
     searchTerm: string
+    searchText: string
     typeFilter: ViewTypeFilter
     viewsLoading: boolean
     visibleViews: DataWarehouseSavedQuerySummary[]
@@ -58,6 +66,10 @@ export interface viewsTabLogicActions {
     ) => {
         fullRefresh: boolean | undefined
         viewId: string
+    } // dataWarehouseViewsLogic
+    loadDataWarehouseSavedQueries: () => any // dataWarehouseViewsLogic
+    addMaterializingViews: (viewIds: string[]) => {
+        viewIds: string[]
     } // dataWarehouseViewsLogic
     loadDataWarehouseSavedQueriesSuccess: (
         dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
@@ -119,6 +131,13 @@ export interface viewsTabLogicActions {
     setTypeFilter: (typeFilter: ViewTypeFilter) => {
         typeFilter: ViewTypeFilter
     }
+    suggestionAccepted: (
+        viewId: string,
+        startsMaterializing: boolean
+    ) => {
+        viewId: string
+        startsMaterializing: boolean
+    }
 }
 
 export interface viewsTabLogicMeta {
@@ -130,7 +149,9 @@ export interface viewsTabLogicMeta {
         ) => DataWarehouseSavedQuerySummary[]
         filteredViews: (
             enrichedViews: DataWarehouseSavedQuerySummary[],
-            searchTerm: string,
+            parsedSearch: ParsedLineageSearch,
+            lineageNames: Set<string> | null,
+            materializationStatusFilters: MaterializationStatusFilter[],
             typeFilter: ViewTypeFilter
         ) => DataWarehouseSavedQuerySummary[]
         visibleViews: (
@@ -162,7 +183,13 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
         ],
         actions: [
             dataWarehouseViewsLogic,
-            ['deleteDataWarehouseSavedQuery', 'runDataWarehouseSavedQuery', 'loadDataWarehouseSavedQueriesSuccess'],
+            [
+                'deleteDataWarehouseSavedQuery',
+                'runDataWarehouseSavedQuery',
+                'loadDataWarehouseSavedQueries',
+                'addMaterializingViews',
+                'loadDataWarehouseSavedQueriesSuccess',
+            ],
             databaseTableListLogic,
             ['loadDatabase'],
         ],
@@ -175,6 +202,7 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
         runMaterialization: (viewId: string) => ({ viewId }),
         loadRunHistory: (viewIds: string[]) => ({ viewIds }),
         loadVisibleData: true,
+        suggestionAccepted: (viewId: string, startsMaterializing: boolean) => ({ viewId, startsMaterializing }),
         openAccessControlModal: (view: DataWarehouseSavedQuerySummary) => ({ view }),
         closeAccessControlModal: true,
     }),
@@ -258,7 +286,13 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
                     run_history: query.is_materialized ? runHistoryMap[query.id] : undefined,
                 })),
         ],
-        parsedSearch: [(s) => [s.searchTerm], (searchTerm: string) => parseLineageSearch(searchTerm)],
+        searchText: [(s) => [s.searchTerm], (searchTerm: string): string => parseDatabaseSearch(searchTerm).searchText],
+        materializationStatusFilters: [
+            (s) => [s.searchTerm],
+            (searchTerm: string): MaterializationStatusFilter[] =>
+                parseDatabaseSearch(searchTerm).materializationStatusFilters,
+        ],
+        parsedSearch: [(s) => [s.searchText], (searchText: string) => parseLineageSearch(searchText)],
 
         // Lineage names the rows to keep; the graph keys on node id, this table on view name.
         lineageNames: [
@@ -279,11 +313,12 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
         ],
 
         filteredViews: [
-            (s) => [s.enrichedViews, s.parsedSearch, s.lineageNames, s.typeFilter],
+            (s) => [s.enrichedViews, s.parsedSearch, s.lineageNames, s.materializationStatusFilters, s.typeFilter],
             (
                 views: DataWarehouseSavedQuerySummary[],
                 parsedSearch: ParsedLineageSearch,
                 lineageNames: Set<string> | null,
+                materializationStatusFilters: MaterializationStatusFilter[],
                 typeFilter: ViewTypeFilter
             ): DataWarehouseSavedQuerySummary[] => {
                 const term = parsedSearch.term.toLowerCase()
@@ -292,6 +327,9 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
                         return false
                     }
                     if (typeFilter === 'view' && view.is_materialized) {
+                        return false
+                    }
+                    if (!matchesMaterializationStatus(view, materializationStatusFilters)) {
                         return false
                     }
                     if (lineageNames) {
@@ -329,7 +367,18 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
         runMaterialization: ({ viewId }) => {
             actions.runDataWarehouseSavedQuery(viewId)
         },
+        suggestionAccepted: ({ viewId, startsMaterializing }) => {
+            if (startsMaterializing) {
+                actions.addMaterializingViews([viewId])
+            }
+            actions.loadDataWarehouseSavedQueries()
+        },
         loadDataWarehouseSavedQueriesSuccess: () => {
+            const lastPage = Math.max(1, Math.ceil(values.filteredViews.length / PAGE_SIZE))
+            if (values.currentPage > lastPage) {
+                actions.setPage(lastPage)
+                return
+            }
             actions.loadVisibleData()
         },
         setPage: () => {

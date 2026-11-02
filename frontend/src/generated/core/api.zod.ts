@@ -1218,19 +1218,6 @@ export const TaxonomicSearchIntentClassifyCreateBody = /* @__PURE__ */ zod.objec
 })
 
 /**
- * Guess which PostHog core events a search that matched no event name describes.
- * @summary Match an events search to core events
- */
-export const taxonomicSearchIntentMatchEventsCreateBodyQueryMax = 200
-
-export const TaxonomicSearchIntentMatchEventsCreateBody = /* @__PURE__ */ zod.object({
-    query: zod
-        .string()
-        .max(taxonomicSearchIntentMatchEventsCreateBodyQueryMax)
-        .describe('What the person typed into the events list search box, which matched no event name.'),
-})
-
-/**
  * Send a WebRTC session description to another terminal in a Doom room.
  */
 export const terminalNetplaySignalCreateBodyRoomRegExp = new RegExp('^[A-Z0-9]{4,12}$')
@@ -1745,7 +1732,7 @@ export const UsersProductIntroSeenPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Request body for PATCH \/api\/users\/@me\/product_intro_seen.')
 
 /**
- * Idempotent upsert: if the (user, token) pair already exists, `platform` and `last_seen_at` are refreshed. Otherwise a new row is created.
+ * Register the device for the authenticated user, removing registrations for the same token belonging to other users on this instance. Re-registration refreshes `platform` and `last_seen_at`.
  * @summary Register a push notification token
  */
 export const usersPushTokensCreateBodyTokenMax = 512

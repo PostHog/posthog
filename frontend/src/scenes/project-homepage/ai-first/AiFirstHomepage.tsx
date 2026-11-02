@@ -1,9 +1,13 @@
 import { BindLogic, useValues } from 'kea'
+import { Suspense, useEffect } from 'react'
 
 import { Search } from 'lib/components/Search/Search'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { runWhenIdle } from 'lib/utils/async'
 import { cn } from 'lib/utils/css-classes'
-import { ChatHeader } from 'scenes/max/components/AiFirstMaxInstance'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { maxLogic } from 'scenes/max/maxLogic'
+import { SceneContentFallback } from 'scenes/SceneContentFallback'
 import { urls } from 'scenes/urls'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
@@ -14,6 +18,10 @@ import { HomepageInput } from './HomepageInput'
 import { HomepageSearchResults } from './HomepageSearchResults'
 import { HomepageThread } from './HomepageThread'
 
+const ChatHeader = lazyWithRetry(() =>
+    import('scenes/max/components/AiFirstMaxInstance').then((m) => ({ default: m.ChatHeader }))
+)
+
 const PHASE_ORDER = ['idle', 'moving', 'separator', 'content'] as const
 
 function phaseAtLeast(current: string, target: string): boolean {
@@ -23,6 +31,14 @@ function phaseAtLeast(current: string, target: string): boolean {
 export function AiFirstHomepage(): JSX.Element {
     const { mode, animationPhase, query, threadStarted } = useValues(aiFirstHomepageLogic)
     const { conversationId } = useValues(maxLogic({ panelId: HOMEPAGE_TAB_ID }))
+
+    useEffect(
+        () =>
+            runWhenIdle(() => {
+                void import('scenes/max/components/AiFirstMaxInstance').catch(() => {})
+            }),
+        []
+    )
 
     const isIdle = mode === 'idle'
     const isAi = mode === 'ai'
@@ -50,16 +66,24 @@ export function AiFirstHomepage(): JSX.Element {
                     )}
                 >
                     {isAi && (
-                        <ChatHeader conversationId={conversationId} hideBorder>
-                            <SceneBreadcrumbBackButton
-                                forceBackTo={{
-                                    name: 'Project homepage',
-                                    path: urls.projectHomepage(),
-                                    type: 'projectTree',
-                                    key: 'projectHomepage',
-                                }}
-                            />
-                        </ChatHeader>
+                        <Suspense
+                            fallback={
+                                <SceneContentFallback>
+                                    <LemonSkeleton className="h-10 w-full" />
+                                </SceneContentFallback>
+                            }
+                        >
+                            <ChatHeader conversationId={conversationId} hideBorder>
+                                <SceneBreadcrumbBackButton
+                                    forceBackTo={{
+                                        name: 'Project homepage',
+                                        path: urls.projectHomepage(),
+                                        type: 'projectTree',
+                                        key: 'projectHomepage',
+                                    }}
+                                />
+                            </ChatHeader>
+                        </Suspense>
                     )}
                 </div>
 

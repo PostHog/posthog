@@ -22,7 +22,7 @@ A column family is a separate keyspace inside the database, with its own setting
 
 | Column family             | One row per                          | Holds                                                                                                                                                                                                                                                                                        |
 | ------------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `cf_behavioral`           | person and behavioral leaf state key | Behavioral leaf state, its eviction deadline, and replay marks: the firehose offsets already applied                                                                                                                                                                                         |
+| `cf_behavioral`           | person and behavioral leaf state key | Behavioral leaf state, its eviction deadline, and replay marks: the source offsets already applied                                                                                                                                                                                           |
 | `cf_person_records`       | person                               | The person record: matched person conditions, fingerprints, stamp, replay marks                                                                                                                                                                                                              |
 | `cf_stage2`               | cohort and person                    | The membership bit the processor registered for the pair. On the live, sweep, merge, cascade and reconcile paths it is the recomputed truth. On the seed path it is what downstream was last told. Also reconcile dirty markers, and an inventory of membership rows received through merges |
 | `cf_merge_drains_applied` | merge message                        | Marker: this merge was drained                                                                                                                                                                                                                                                               |
@@ -163,6 +163,8 @@ The restore judges each candidate from its `metadata.json` and `offsets.json` be
 A candidate that passes is materialized in `<STORE_PATH>.restore`, a sibling of the store on the same mount.
 A local checkpoint is hard-linked there, SSTs only, with every other file copied.
 A remote one is downloaded there, within `CHECKPOINT_IMPORT_TIMEOUT_SECS`.
+A file that fails to download is downloaded again from its start, up to three tries, while the other files continue.
+A file that fails every try fails the candidate.
 A download that times out fails, and the search stops there, because older candidates are about as large.
 The stage must open read-only with this build's column families and schema, and RocksDB's open checks that every SST its MANIFEST names is present at the recorded size.
 The replay window is then checked again, because a download can outlast part of it.
@@ -195,7 +197,7 @@ The boot then creates the store, and every slice begins behind the coverage fenc
 ### The replay window
 
 A restored slice is only correct if the broker can still replay every input past the checkpoint's position for it.
-The restore checks each partition against the enabled inputs' watermarks:
+The restore checks each partition the pod owns against the enabled inputs' watermarks, because boot recovery deletes the others:
 
 - a partition the manifest does not list is reset,
 - a partition where any enabled input's position lies outside the broker's `[low, high]` range is reset,
@@ -235,7 +237,7 @@ It renames the store to the staging path first, so a deletion cut short never le
 ## Checkpoints
 
 With `CHECKPOINT_ENABLED`, the processor takes a whole-store RocksDB checkpoint into `CHECKPOINT_LOCAL_DIR` every `CHECKPOINT_INTERVAL_MS`, and uploads one in every few to object storage, at `CHECKPOINT_S3_UPLOAD_INTERVAL_MS`.
-The loop starts when boot ends.
+The first checkpoint waits until the pod is ready, so its upload does not compete for the disk with the workers' eviction-queue rebuilds.
 Checkpoints require durable restore, a bucket, and an absolute checkpoint directory without `..` on the store's filesystem but outside the store and its `<STORE_PATH>.restore` staging directory, and the pod fails at start without them.
 
 - **One lineage per pod.**
@@ -256,23 +258,44 @@ Checkpoints require durable restore, a bucket, and an absolute checkpoint direct
   Once a chain is older than `CHECKPOINT_FULL_UPLOAD_INTERVAL_SECS`, the next upload is full, which bounds the age of the oldest object a restore needs.
 - **Paced uploads.**
   One upload reads at most `CHECKPOINT_UPLOAD_MAX_BYTES_PER_SEC` from the store's disk across all its files, so a full upload does not starve the live path.
-- **A final checkpoint.**
-  A graceful stop cancels a periodic upload in flight, takes one more checkpoint once every consumer has made its final commit, and uploads it when the plan is incremental.
-  A full plan stays local, because it cannot finish in the budget, and the next start uploads in full anyway.
-  The upload is cancelled `CHECKPOINT_FINAL_UPLOAD_TIMEOUT_SECS` after the drain, but an S3 request in flight runs to its end, so the checkpoint component's shutdown window is the hard limit.
+- **Failed files.**
+  A file that fails to upload is sent again from its start, up to three tries, while the other files continue.
+  A file that fails every try fails the upload.
+- **A final checkpoint that stays local.**
+  A graceful stop cancels an upload in flight, and takes one more checkpoint once every consumer has made its final commit.
+  It does not upload, so a stop usually takes seconds, and the next start's first upload covers what changed since the last upload.
+  An S3 request in flight when the stop cancels an upload still runs to its end, retries included, and while object storage fails those retries take tens of seconds.
+  The checkpoint component's shutdown window is the hard limit, and a stop that reaches it skips the final checkpoint.
+  It is still the freshest local checkpoint when the volume survives and the store does not.
   An upload stopped before its `metadata.json` is not restorable, so the last finished upload stays the newest restorable one.
-- **No expiry.**
-  Objects are not expired.
-  An expiry, when one is set, must exceed the full-upload interval plus the import window.
+- **An upload on request.**
+  `SIGUSR1` asks the checkpoint loop for a checkpoint that uploads, whatever the cadence: run `kill -USR1 1` from a shell in the pod, such as the Argo terminal.
+  The image has no `kill` binary, so `kubectl exec` needs `sh -c 'kill -USR1 1'`.
+  Before the loop starts, the request waits for it.
+  The pod logs `checkpoint upload requested (SIGUSR1)`, and then `checkpoint uploaded to S3` with `trigger` `requested` and the `checkpoint_id`.
+  A requested checkpoint that fails at any step logs a warning with `trigger` `requested` instead, and is not retried, so send the signal again.
+  A request that arrives during a checkpoint waits for it, and requests that arrive meanwhile count as one.
+- **Compaction of unowned partitions.**
+  Boot deletes the slices of the partitions the pod does not own, and drops the SST files that lie wholly inside them.
+  The other files, such as those that also hold an owned partition, keep the deleted data until a compaction rewrites them.
+  So once the pod is ready, and before its first checkpoint, the checkpoint task compacts every unowned partition that still holds more than 16 MiB in a column family, one at a time.
+  It logs the bytes above that size before and after, and how long the pass took.
+  A routine boot finds none.
+  A compaction cannot be interrupted, so a stop waits for the one in progress.
+- **Expiry by age.**
+  The bucket's lifecycle rule expires objects by age.
+  That age must exceed `CHECKPOINT_FULL_UPLOAD_INTERVAL_SECS` plus `CHECKPOINT_IMPORT_WINDOW_HOURS`, because a restore can pick any upload in the import window, and that upload can name objects as old as its chain's full upload.
 
 The uploader is built on the first upload, so an outage of object storage never stops a pod that has its store.
 A failed build counts `checkpoint_uploads_total{result="unavailable"}`, and the next upload tries again.
 
 These metrics follow checkpoints:
 
-- `checkpoint_last_upload_timestamp_seconds` is the last successful upload, and starts at process start, so a staleness alert fires only once its threshold passes,
+- `checkpoint_last_upload_timestamp_seconds` is the capture time of the newest successful upload.
+  It starts at the upload that `uploaded.json` records, or at process start without one, so a restart does not make an old upload look new,
 - `checkpoint_last_capture_timestamp_seconds` and `checkpoint_last_full_upload_timestamp_seconds` are the last captured manifest and the start of the newest upload's chain,
-- `checkpoint_uploads_total{result, trigger}` and `checkpoint_uploaded_bytes_total{kind}` count uploads and the bytes they sent,
+- `checkpoint_size_bytes` and `checkpoint_file_count` are the size and the file count of the newest local checkpoint,
+- `checkpoint_uploads_total{result, trigger}` and `checkpoint_uploaded_bytes_total{kind}` count uploads and the bytes they sent, where `trigger` is `periodic` or `requested`,
 - `checkpoint_capture_failures_total{reason}` counts ticks skipped before the checkpoint,
 - `checkpoint_restore_total{source}` counts where each boot's store came from: `reopen_live`, `pending`, `local`, `s3` or `cold`,
 - `checkpoint_restore_candidates_total{verdict}` counts the candidates a restore tried,
@@ -327,6 +350,16 @@ Three metrics follow coverage:
 - **Merge markers and tombstones** are removed after their retention period.
 - **Orphaned behavioral rows**, left behind when a leaf's definition changes, a cohort is deleted, or a team leaves the catalog, are not collected.
   They are removed only by a merge drain or a partition wipe.
+- **RocksDB's info logs** have a size cap.
+  The info `LOG` rolls at `COHORT_MAX_LOG_FILE_SIZE_BYTES` (256 MiB), and RocksDB keeps `COHORT_KEEP_LOG_FILE_NUM` (10) files, the active one included, so the info logs use at most about 2.5 GiB.
+  Each open and each roll delete the oldest rolled files beyond that count.
+  The first boot under the cap keeps the newest 9 rolled files that an uncapped build left, and they can be much larger than 256 MiB.
+  The next 9 rolls delete them.
+  Both values must be greater than 0, or the processor does not start.
+- **Usage by file type** of the store directory and the local checkpoints is the `store_file_bytes` gauge.
+  Its `kind` label is `sst`, `wal`, `info_log`, `manifest`, `other` or `checkpoint`.
+  The `checkpoint` value counts only local checkpoint files that the live store does not share, such as SSTs that compaction replaced.
+  It is 0 when checkpoints are off.
 
 ## Tuning that matters
 

@@ -51,7 +51,8 @@ DATA_MODELING_DURATION_HISTOGRAM_BUCKETS = [
     7_200.0,
     14_400.0,
     21_600.0,
-    43_200.0,  # TRINO_SHADOW_RUN_TIMEOUT
+    43_200.0,
+    82_800.0,  # TRINO_SHADOW_RUN_TIMEOUT
 ]
 
 AD_HOC_TIER = "ad_hoc"
@@ -75,6 +76,28 @@ def get_node_suspended_metric(engine: str) -> MetricCounter:
         .create_counter(
             "data_modeling_node_suspended",
             "Number of nodes suspended after repeated materialization failures, by engine.",
+        )
+    )
+
+
+def get_managed_warehouse_trino_compile_failure_metric(error_code: str) -> MetricCounter:
+    return (
+        activity.metric_meter()
+        .with_additional_attributes({"error_code": error_code})
+        .create_counter(
+            "managed_warehouse_shadow_trino_compile_failure",
+            "Number of managed warehouse shadow views that Trino compilation rejected, by error code.",
+        )
+    )
+
+
+def get_managed_warehouse_trino_missing_object_metric(error_name: str) -> MetricCounter:
+    return (
+        activity.metric_meter()
+        .with_additional_attributes({"error_name": error_name})
+        .create_counter(
+            "managed_warehouse_shadow_trino_missing_object",
+            "Number of managed warehouse shadow builds that failed because Trino could not resolve a catalog, schema, table or column, by error name.",
         )
     )
 

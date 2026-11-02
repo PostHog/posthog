@@ -7,7 +7,10 @@
  * streaming splits one answer into two parts, and the Slack relay posts only the
  * last part, so the reply starts mid-sentence at whatever point the stream delta
  * ended. ACP's own `session/…` requests keep their boundary meaning, because a
- * prompt and a permission request do belong in the transcript.
+ * prompt and a permission request do belong in the transcript. A `session/update`
+ * that changes session state or a tool call already on screen adds no row, so it
+ * is neutral. A tool call's updates always follow its `tool_call`, which stays a
+ * boundary, so the rule needs no state and every tracker agrees on it.
  *
  * A response carries no method, so its own line cannot say what it answers.
  * Tracking the outstanding `_posthog/` control calls is what separates the
@@ -38,6 +41,15 @@ const TRANSCRIPT_EVENT_NOTIFICATION_METHODS = new Set([
   "_posthog/user_message",
 ]);
 
+const NEUTRAL_SESSION_UPDATES = new Set<unknown>([
+  "available_commands_update",
+  "config_option_update",
+  "current_mode_update",
+  "session_info_update",
+  "tool_call_update",
+  "usage_update",
+]);
+
 /** `extNotification` puts the double-prefixed `__posthog/…` form on the wire. */
 function canonicalMethod(method: string): string {
   return method.startsWith("__posthog/") ? method.slice(1) : method;
@@ -52,7 +64,11 @@ export class TranscriptBoundaries {
    */
   private neutralCallIds = new Set<unknown>();
 
-  isNeutral(message: { id?: unknown; method?: unknown }): boolean {
+  isNeutral(message: {
+    id?: unknown;
+    method?: unknown;
+    params?: unknown;
+  }): boolean {
     const isCall = message.id !== undefined;
     if (typeof message.method !== "string") {
       return isCall && this.neutralCallIds.delete(message.id);
@@ -66,6 +82,13 @@ export class TranscriptBoundaries {
         this.neutralCallIds.delete(message.id);
       }
       return isPosthogMethod;
+    }
+    if (method === "session/update") {
+      const params = message.params as
+        | { update?: { sessionUpdate?: unknown } }
+        | null
+        | undefined;
+      return NEUTRAL_SESSION_UPDATES.has(params?.update?.sessionUpdate);
     }
     return (
       isPosthogMethod && !TRANSCRIPT_EVENT_NOTIFICATION_METHODS.has(method)

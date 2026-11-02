@@ -14,6 +14,7 @@ import threading
 import dataclasses
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from functools import lru_cache
 from http import HTTPStatus
 from io import StringIO
@@ -41,13 +42,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.settings import CLOUD_DEPLOYMENT
 from posthog.utils import get_instance_region
 
-from products.tasks.backend.constants import (
-    ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS,
-    DEV_STACK_IMAGE_NAME,
-    SNAPSHOT_KIND_DIRECTORY,
-    SNAPSHOT_KIND_FILESYSTEM,
-    SnapshotKind,
-)
+from products.tasks.backend.constants import ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS, DEV_STACK_IMAGE_NAME
 from products.tasks.backend.exceptions import (
     SandboxCleanupError,
     SandboxControlPlaneError,
@@ -147,7 +142,7 @@ SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
 # Dockerfile.sandbox-slim's NODE_MAJOR / uv COPY --from pins (and with Dockerfile.sandbox-base,
 # which both mirror).
 SANDBOX_SLIM_NODE_MAJOR = 24
-SANDBOX_SLIM_UV_IMAGE = "ghcr.io/astral-sh/uv:0.12.13"
+SANDBOX_SLIM_UV_IMAGE = "ghcr.io/astral-sh/uv:0.13.4"
 # Set as image ENV, so the build step that warms the cache and every `uv run` inside the sandbox
 # use the same directory whatever HOME the sandbox process gets.
 SANDBOX_STAMPHOG_UV_CACHE_DIR = "/opt/uv-cache"
@@ -333,12 +328,6 @@ def _sandbox_poll_result(sb: modal.Sandbox) -> str:
 
 def _get_modal_region() -> str:
     return MODAL_REGION_BY_DEPLOYMENT.get(CLOUD_DEPLOYMENT, DEFAULT_MODAL_REGION)
-
-
-def _normalize_snapshot_kind(value: object) -> SnapshotKind:
-    if value == SNAPSHOT_KIND_DIRECTORY:
-        return SNAPSHOT_KIND_DIRECTORY
-    return SNAPSHOT_KIND_FILESYSTEM
 
 
 def _resource_create_kwargs(config: SandboxConfig) -> dict[str, object]:
@@ -617,8 +606,13 @@ def _build_slim_template_image() -> modal.Image:
     changes pays a one-time Modal-side build; every create after that reuses the cached
     image layers.
     """
+    # Modal caches each layer by its definition, so the apt packages below, nodejs included,
+    # keep the versions of their first build. The ISO week in the first layer changes the
+    # definition once a week, so the first create of each week rebuilds them from the newest packages.
+    year, week, _ = datetime.now(UTC).isocalendar()
     return (
         modal.Image.debian_slim()
+        .run_commands(f"echo 'Refresh the apt packages for {year}-W{week:02d}'")
         # bash is required by the NodeSource setup script below; debian_slim doesn't guarantee it.
         .apt_install("git", "ca-certificates", "curl", "bash")
         .run_commands(
@@ -1072,43 +1066,42 @@ class ModalSandbox(AgentServerLaunchMixin):
             config.snapshot_restored = False
             config.image_fallback = None
             snapshot_external_id: str | None = None
-            snapshot_kind = _normalize_snapshot_kind(config.snapshot_kind)
             # No default-fill: a directory snapshot must arrive with an explicit allowed mount
             # path, or the mount below is refused. Defaulting here would silently re-target a
             # snapshot that upstream validation invalidated (mount path stripped).
             snapshot_mount_path: str | None = config.snapshot_mount_path
             snapshot_image: modal.Image | None = None
 
-            if config.snapshot_external_id:
+            if config.resume_snapshot_external_id:
+                snapshot_external_id = config.resume_snapshot_external_id
+                try:
+                    snapshot_image = modal.Image.from_id(config.resume_snapshot_external_id)
+                except Exception as e:
+                    logger.warning(f"Failed to load resume snapshot image {config.resume_snapshot_external_id}: {e}")
+                    capture_exception(e)
+            elif config.snapshot_external_id:
                 snapshot_external_id = config.snapshot_external_id
                 try:
                     snapshot_image = modal.Image.from_id(config.snapshot_external_id)
                 except Exception as e:
-                    logger.warning(f"Failed to load resume snapshot image {config.snapshot_external_id}: {e}")
+                    logger.warning(f"Failed to load snapshot image {config.snapshot_external_id}: {e}")
                     capture_exception(e)
             elif config.snapshot_id:
                 snapshot = SandboxSnapshot.objects.get(id=config.snapshot_id)
                 if snapshot.status == SandboxSnapshot.Status.COMPLETE:
                     snapshot_external_id = snapshot.external_id
-                    snapshot_kind = _normalize_snapshot_kind(snapshot.metadata.get("snapshot_kind"))
-                    metadata_mount_path = snapshot.metadata.get("snapshot_mount_path")
-                    if isinstance(metadata_mount_path, str) and metadata_mount_path:
-                        snapshot_mount_path = metadata_mount_path
                     try:
                         snapshot_image = modal.Image.from_id(snapshot.external_id)
                     except Exception as e:
                         logger.warning(f"Failed to load snapshot image {snapshot.external_id}: {e}")
                         capture_exception(e)
-            # Keep the config's kind authoritative for downstream trust decisions — the
-            # dev-stack bootstrap gate distinguishes directory from filesystem restores.
-            config.snapshot_kind = snapshot_kind
 
             # Creation candidates, best first. Each later entry is a downgrade attempted only
             # when creating from the previous image fails (e.g. its overlay image build errors),
             # so a broken overlay costs the local packages, never the snapshot or custom image.
             candidates: list[ImageCandidate] = []
             requested_dev_stack = config.is_dev_stack_image
-            if snapshot_image is not None and snapshot_kind == SNAPSHOT_KIND_FILESYSTEM:
+            if snapshot_image is not None and config.resume_snapshot_external_id is None:
                 overlaid_snapshot = _attach_local_package_mounts(
                     snapshot_image, config.template, install_dependencies=False
                 )
@@ -1147,7 +1140,7 @@ class ModalSandbox(AgentServerLaunchMixin):
                 )
             candidates.append(ImageCandidate(base_image, "base image"))
             if config.require_snapshot:
-                if snapshot_image is None or snapshot_kind != SNAPSHOT_KIND_FILESYSTEM:
+                if snapshot_image is None or config.resume_snapshot_external_id is not None:
                     raise RuntimeError("The required filesystem snapshot could not be loaded")
                 candidates = [
                     ImageCandidate(
@@ -1192,7 +1185,7 @@ class ModalSandbox(AgentServerLaunchMixin):
                 config.image_fallback = f"{custom_image_failure} -> base image"
 
             directory_mount_applied = False
-            if snapshot_kind == SNAPSHOT_KIND_DIRECTORY and snapshot_image is not None:
+            if config.resume_snapshot_external_id and snapshot_image is not None:
                 # The mount REPLACES the target directory in the running sandbox — over a live
                 # system path (the legacy "/tmp" default) that kills Modal's in-sandbox helpers,
                 # and a snapshot's content only fits the path it was captured from. Last-line
@@ -1236,7 +1229,6 @@ class ModalSandbox(AgentServerLaunchMixin):
                         "sandbox_id": sb.object_id,
                         "winner_label": winner.label,
                         "snapshot_external_id": snapshot_external_id,
-                        "snapshot_kind": snapshot_kind,
                         "snapshot_mount_path": snapshot_mount_path,
                     },
                 )

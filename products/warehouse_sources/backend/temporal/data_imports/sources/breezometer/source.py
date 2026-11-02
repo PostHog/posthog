@@ -78,6 +78,7 @@ Each sync polls every location once per table. To accumulate a history of point-
                     ),
                     SourceFieldInputConfig(
                         name="locations",
+                        sync_setting=True,
                         label="Locations",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,

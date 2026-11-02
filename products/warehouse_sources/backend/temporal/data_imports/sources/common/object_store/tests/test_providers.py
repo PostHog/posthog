@@ -36,15 +36,18 @@ AZURE_KEY = "c2VjcmV0LWtleQ=="
 
 S3_KEYS = {"access_key_id": "AKIAEXAMPLE", "secret_access_key": "secret"}
 PROVIDERS: dict[str, tuple[ObjectStorageSource[Any], dict[str, Any]]] = {
-    "s3": (AmazonS3Source(), {"bucket": "customer-data", "region": "eu-west-1", "path": "exports/", **S3_KEYS}),
-    "gcs": (GoogleCloudStorageSource(), {"bucket": "customer_data", "path": "exports/", **S3_KEYS}),
+    "s3": (
+        AmazonS3Source(),
+        {"url_pattern": "https://customer-data.s3.eu-west-1.amazonaws.com/exports/", **S3_KEYS},
+    ),
+    "gcs": (GoogleCloudStorageSource(), {"url_pattern": "gs://customer_data/exports/", **S3_KEYS}),
     "r2": (
         CloudflareR2Source(),
-        {"account_id": R2_ACCOUNT_ID, "bucket": "customer-data", "path": "exports/", **S3_KEYS},
+        {"url_pattern": f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com/customer-data/exports/", **S3_KEYS},
     ),
     "azure": (
         AzureBlobSource(),
-        {"account_name": "customerstore", "container": "customer-data", "path": "exports/", "account_key": AZURE_KEY},
+        {"url_pattern": "https://customerstore.blob.core.windows.net/customer-data/exports/", "account_key": AZURE_KEY},
     ),
 }
 
@@ -104,19 +107,20 @@ def test_each_provider_reads_from_its_own_endpoint(
 @pytest.mark.parametrize(
     "provider, overrides",
     [
-        ("gcs", {"bucket": "storage.googleapis.com/other"}),
-        ("gcs", {"bucket": "data@evil.example.com"}),
-        ("r2", {"account_id": "evil.example.com/"}),
-        ("r2", {"account_id": f"{R2_ACCOUNT_ID}.evil.example.com"}),
-        ("r2", {"account_id": R2_ACCOUNT_ID[:-1]}),
-        ("r2", {"bucket": "data_with_underscore"}),
-        ("azure", {"account_name": "store.evil.example.com"}),
-        ("azure", {"account_name": "store/x"}),
-        ("azure", {"container": "data/../other"}),
-        ("azure", {"container": "$root"}),
+        ("s3", {"url_pattern": "https://customer-data.s3.us-east-1.amazonaws.com.evil.example.com/a.csv"}),
+        ("s3", {"url_pattern": "https://evil.example.com/customer-data/a.csv"}),
+        ("s3", {"url_pattern": "https://s3.us-east-1.amazonaws.com/Not_A_Bucket/a.csv"}),
+        ("gcs", {"url_pattern": "https://storage.googleapis.com.evil.example.com/data/a.csv"}),
+        ("gcs", {"url_pattern": "https://user@storage.googleapis.com/data/a.csv"}),
+        ("gcs", {"url_pattern": "https://storage.googleapis.com:8443/data/a.csv"}),
+        ("r2", {"url_pattern": f"https://{R2_ACCOUNT_ID}.evil.example.com/data/a.csv"}),
+        ("r2", {"url_pattern": f"https://{R2_ACCOUNT_ID[:-1]}.r2.cloudflarestorage.com/data/a.csv"}),
+        ("r2", {"url_pattern": f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com/data_with_underscore/a.csv"}),
+        ("azure", {"url_pattern": "https://store.evil.example.com/data/a.csv"}),
+        ("azure", {"url_pattern": "https://customerstore.blob.core.windows.net/$root/a.csv"}),
+        ("azure", {"url_pattern": "https://customerstore.blob.core.windows.net/data/a/../b/x.csv"}),
         ("azure", {"account_key": f"{AZURE_KEY};BlobEndpoint=https://evil.example.com"}),
         ("azure", {"account_key": " "}),
-        ("azure", {"path": "a/../b"}),
     ],
 )
 def test_provider_settings_that_could_retarget_the_request_are_rejected(
@@ -143,11 +147,12 @@ def test_provider_settings_that_could_retarget_the_request_are_rejected(
     ],
 )
 def test_gcs_bucket_name_length(bucket: str, valid: bool) -> None:
+    url_pattern = f"https://storage.googleapis.com/{bucket}/exports/"
     if valid:
-        assert _store_config("gcs", bucket=bucket).bucket == bucket
+        assert _store_config("gcs", url_pattern=url_pattern).bucket == bucket
     else:
         with pytest.raises(ObjectStorageError, match=INVALID_CONFIG_ERROR):
-            _store_config("gcs", bucket=bucket)
+            _store_config("gcs", url_pattern=url_pattern)
 
 
 @pytest.mark.parametrize("provider", list(PROVIDERS))

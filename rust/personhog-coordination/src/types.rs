@@ -327,6 +327,10 @@ pub struct ChangelogConfig {
     pub epoch: u64,
     /// The writer's consumer group; a generation retires only once it has read it to the end.
     pub writer_group: String,
+    /// Other consumer groups of the changelog, such as the relay's; a
+    /// generation retires only once each of them has read it to the end too.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub retire_groups: Vec<String>,
     /// Generations some consumer may still be reading.
     pub draining: Vec<Generation>,
 }
@@ -346,8 +350,15 @@ impl ChangelogConfig {
             partitions,
             epoch: 1,
             writer_group: String::new(),
+            retire_groups: Vec::new(),
             draining: Vec::new(),
         }
+    }
+
+    /// Every consumer group a draining generation waits on before it retires.
+    pub fn gated_groups(&self) -> impl Iterator<Item = &str> {
+        std::iter::once(self.writer_group.as_str())
+            .chain(self.retire_groups.iter().map(String::as_str))
     }
 
     pub fn target(&self) -> ChangelogTarget {
@@ -357,9 +368,11 @@ impl ChangelogConfig {
         }
     }
 
-    /// A flip raises the epoch. Within an epoch only a retire changes the
-    /// object, and a retire only shrinks `draining`, so a same-epoch object
-    /// with more generations is an older one delivered late.
+    /// A flip raises the epoch. Within an epoch a retire shrinks `draining`, so
+    /// a same-epoch object with more generations is an older one delivered
+    /// late. A `retire_groups` edit also changes the object within an epoch
+    /// and is never adopted from a watch; nothing reads that list from an
+    /// adopted copy, since the coordinator and the control plane read etcd.
     pub fn supersedes(&self, adopted: &ChangelogConfig) -> bool {
         self.epoch > adopted.epoch
             || (self.epoch == adopted.epoch && self.draining.len() < adopted.draining.len())
@@ -456,6 +469,16 @@ pub struct MigrationState {
     pub blocking: Vec<String>,
     /// Why the saga was cancelled, recorded by the cancelling write.
     pub cancel_reason: Option<String>,
+}
+
+/// A changelog consumer group's proof that it has read a draining generation
+/// to its sealed end; retire waits for one from every group the config names.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DrainReport {
+    pub topic: String,
+    pub group: String,
+    pub reported_by: String,
+    pub reported_at_ms: i64,
 }
 
 /// One leader's report of the old partitions it sealed; the flip takes the union.

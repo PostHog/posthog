@@ -1,5 +1,5 @@
 from dataclasses import field
-from typing import Optional
+from typing import Literal, Optional
 
 from posthog.dataclasses import frozen
 
@@ -33,6 +33,11 @@ class PagerDutyEndpointConfig:
     # their parent, so the parent id belongs in the child's primary key.
     parent: Optional[str] = None
     parent_id_column: Optional[str] = None
+    method: Literal["GET", "POST"] = "GET"
+    # Static query params sent on every list request of the endpoint.
+    extra_params: dict[str, str] = field(default_factory=dict)
+    # None when rows do not arrive in ascending order of the endpoint's incremental field.
+    sort_mode: Optional[Literal["asc"]] = "asc"
 
 
 _CREATED_AT_INCREMENTAL: list[IncrementalField] = [
@@ -40,6 +45,15 @@ _CREATED_AT_INCREMENTAL: list[IncrementalField] = [
         "label": "created_at",
         "type": IncrementalFieldType.DateTime,
         "field": "created_at",
+        "field_type": IncrementalFieldType.DateTime,
+    },
+]
+
+_UPDATED_AT_INCREMENTAL: list[IncrementalField] = [
+    {
+        "label": "updated_at",
+        "type": IncrementalFieldType.DateTime,
+        "field": "updated_at",
         "field_type": IncrementalFieldType.DateTime,
     },
 ]
@@ -68,6 +82,27 @@ PAGERDUTY_ENDPOINTS: dict[str, PagerDutyEndpointConfig] = {
         # fan-out covers the incidents the parent listing returns, which is its default date range.
         parent="incidents",
         parent_id_column="incident_id",
+    ),
+    "incident_notes": PagerDutyEndpointConfig(
+        path="/incidents/{id}/notes",
+        envelope_key="notes",
+        primary_keys=["incident_id", "id"],
+        partition_key="created_at",
+        # Full refresh only, like incident_alerts: responders add notes to an incident long after it
+        # was created, and the child endpoint has no `since` filter.
+        parent="incidents",
+        parent_id_column="incident_id",
+    ),
+    "incident_analytics": PagerDutyEndpointConfig(
+        path="/analytics/raw/incidents",
+        envelope_key="data",
+        partition_key="created_at",
+        incremental_fields=_UPDATED_AT_INCREMENTAL,
+        method="POST",
+        # The metrics change while an incident is open and after it resolves, and `filters.updated_after`
+        # selects the rows the analytics process recomputed. The API sorts only by created_at or
+        # seconds_to_resolve, so rows do not arrive in updated_at order.
+        sort_mode=None,
     ),
     "log_entries": PagerDutyEndpointConfig(
         path="/log_entries",
@@ -136,12 +171,24 @@ PAGERDUTY_ENDPOINTS: dict[str, PagerDutyEndpointConfig] = {
         path="/vendors",
         envelope_key="vendors",
     ),
+    "business_services": PagerDutyEndpointConfig(
+        path="/business_services",
+        envelope_key="business_services",
+    ),
+    "maintenance_windows": PagerDutyEndpointConfig(
+        path="/maintenance_windows",
+        envelope_key="maintenance_windows",
+        # The API documents no default for `filter`, so ask for past, ongoing, and future windows
+        # explicitly. There is no `since` filter or sort param, and `start_time` moves when a window
+        # is edited, so the table is full refresh with no partition key.
+        extra_params={"filter": "all"},
+    ),
 }
 
 ENDPOINTS = tuple(PAGERDUTY_ENDPOINTS.keys())
 
-# Per-endpoint incremental fields for build_endpoint_schemas; only `incidents` exposes a
-# server-side `since` filter with a controllable sort, so only it is incremental-capable.
+# Per-endpoint incremental fields for build_endpoint_schemas; only `incidents` and
+# `incident_analytics` expose a server-side filter on their incremental field.
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: cfg.incremental_fields for name, cfg in PAGERDUTY_ENDPOINTS.items()
 }

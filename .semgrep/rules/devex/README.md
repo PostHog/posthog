@@ -25,3 +25,18 @@ A WARNING rule typically gets flipped to ERROR once its backlog hits zero. The r
 - Include the migration playbook (or a pointer to a skill) in the rule's `message:` field — that's what reviewers and authors see when the rule fires.
 - Scope with `paths.include:` rather than relying only on `paths.exclude:` — narrower scope means faster scans and clearer intent.
 - For legitimate exceptions, prefer `paths.exclude:` for categorical cases (whole dirs/files) and `# nosemgrep: <rule-id>` for case-by-case exemptions at the call site.
+
+## Per-file baseline ratchets
+
+A WARNING rule grandfathers its backlog through `--baseline-commit`, so the backlog has no count that a migration can lower, and a moved file looks new.
+For a migration that runs over many PRs, use a per-file baseline instead:
+
+1. Give the rule `severity: INFO`. The three passes above select WARNING and ERROR only, so they do not run it.
+2. Check in a baseline file that lists `<path> <count>` for each file with findings. `bin/semgrep_ratchet.py --update` writes it from `semgrep --json` output.
+3. Add a step to the `semgrep-devex` job that runs the rule with `--json` and then `bin/semgrep_ratchet.py --findings <json> --baseline <file>`.
+
+The ratchet fails when a file has more findings than its baseline count, and also when it has fewer. So each migration PR lowers the count or removes the line.
+
+| Rule                            | Baseline                                         |
+| ------------------------------- | ------------------------------------------------ |
+| `integration-model-through-sdk` | `posthog/integrations/model_access_baseline.txt` |

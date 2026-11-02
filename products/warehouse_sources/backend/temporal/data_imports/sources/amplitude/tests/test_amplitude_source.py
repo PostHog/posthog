@@ -37,3 +37,12 @@ class TestAmplitudeSource:
     def test_invalid_archive_error_is_classified_retryable(self) -> None:
         error_message = f"{AMPLITUDE_INVALID_ARCHIVE_ERROR}: url=https://amplitude.com/api/2/export?start=20260101T00&end=20260101T23"
         assert any(pattern in error_message for pattern in self.source.get_retryable_errors())
+
+    def test_exhausted_read_timeout_is_classified_retryable(self) -> None:
+        error_message = (
+            "HTTPSConnectionPool(host='amplitude.com', port=443): Max retries exceeded with url: "
+            "/api/2/export?start=20260101T00&end=20260101T23 (Caused by ReadTimeoutError("
+            "\"HTTPSConnectionPool(host='amplitude.com', port=443): Read timed out. (read timeout=299.99)\"))"
+        )
+        assert any(pattern in error_message for pattern in self.source.get_retryable_errors())
+        assert not any(pattern in error_message for pattern in self.source.get_non_retryable_errors())

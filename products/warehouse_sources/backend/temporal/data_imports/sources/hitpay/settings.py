@@ -8,12 +8,12 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 PaginationKind = Literal["cursor", "page", "single"]
 
 
-def _created_at_incremental_fields() -> list[IncrementalField]:
+def _datetime_incremental_fields(field_name: str = "created_at") -> list[IncrementalField]:
     return [
         {
-            "label": "created_at",
+            "label": field_name,
             "type": IncrementalFieldType.DateTime,
-            "field": "created_at",
+            "field": field_name,
             "field_type": IncrementalFieldType.DateTime,
         },
     ]
@@ -31,6 +31,8 @@ class HitpayEndpointConfig:
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     partition_key: str | None = "created_at"
     incremental_fields: list[IncrementalField] = field(default_factory=list)
+    # Day-granularity (YYYY-MM-DD) lower-bound filter on the incremental field.
+    incremental_param: str = "date_from"
 
 
 HITPAY_ENDPOINTS: dict[str, HitpayEndpointConfig] = {
@@ -47,7 +49,7 @@ HITPAY_ENDPOINTS: dict[str, HitpayEndpointConfig] = {
         table_name="charges",
         path="/v1/charges",
         pagination="cursor",
-        incremental_fields=_created_at_incremental_fields(),
+        incremental_fields=_datetime_incremental_fields(),
     ),
     "SubscriptionPlans": HitpayEndpointConfig(
         name="SubscriptionPlans",
@@ -62,6 +64,33 @@ HITPAY_ENDPOINTS: dict[str, HitpayEndpointConfig] = {
         path="/v1/customers",
         pagination="page",
         page_param="page",
+    ),
+    "Payouts": HitpayEndpointConfig(
+        name="Payouts",
+        table_name="payouts",
+        path="/v1/payouts",
+        pagination="cursor",
+        # Payouts change status after creation and the API only filters on creation date, so
+        # an incremental sync would never refresh older payouts. Full refresh only.
+    ),
+    "Invoices": HitpayEndpointConfig(
+        name="Invoices",
+        table_name="invoices",
+        path="/v1/invoices",
+        pagination="cursor",
+    ),
+    "BalanceTransactions": HitpayEndpointConfig(
+        name="BalanceTransactions",
+        table_name="balance_transactions",
+        # `adyen` is the only balance provider HitPay documents (Singapore merchants with a
+        # Cards by Adyen balance).
+        path="/v1/balances/adyen/transactions",
+        pagination="cursor",
+        # Rows carry no `id`; a transfer can post more than one ledger line, so pair it with the timestamp.
+        primary_keys=["transfer_id", "datetime"],
+        partition_key="datetime",
+        incremental_fields=_datetime_incremental_fields("datetime"),
+        incremental_param="created_at_from",
     ),
     "RecurringBilling": HitpayEndpointConfig(
         name="RecurringBilling",

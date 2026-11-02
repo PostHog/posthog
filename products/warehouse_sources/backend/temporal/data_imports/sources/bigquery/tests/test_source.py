@@ -29,7 +29,10 @@ from requests.adapters import HTTPAdapter
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 
-from products.batch_exports.backend.facade.destinations.bigquery import ServiceAccountOwnershipError
+from products.batch_exports.backend.facade.destinations.bigquery import (
+    GoogleCloudCredentialsError,
+    ServiceAccountOwnershipError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery import bigquery as bq_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
@@ -45,6 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.b
     BIGQUERY_INVALID_TOKEN_URI_ERROR,
     BIGQUERY_MISSING_KEY_FILE_FIELDS_ERROR,
     BIGQUERY_NO_CREDENTIALS_ERROR,
+    BIGQUERY_POSTHOG_CREDENTIALS_ERROR,
     BIGQUERY_QUERY_CREATE_RETRY,
     BIGQUERY_QUERY_JOB_RETRY,
     BIGQUERY_READ_ROWS_RETRY,
@@ -1653,6 +1657,7 @@ def test_bigquery_auth_from_keyless_integration_impersonates_only_after_ownershi
     config = BigQuerySourceConfig(dataset_id="my_dataset", auth_type=_integration_auth(integration.id))
 
     with (
+        mock.patch(f"{_BATCH_EXPORT_MODULE}.ensure_our_google_cloud_credentials_are_valid"),
         mock.patch(f"{_BATCH_EXPORT_MODULE}.verify_impersonated_service_account_ownership") as mock_verify,
         mock.patch(f"{_BATCH_EXPORT_MODULE}.get_our_google_cloud_credentials"),
         mock.patch.object(bq_module.google_auth_impersonated_credentials, "Credentials") as mock_impersonated,
@@ -1665,30 +1670,61 @@ def test_bigquery_auth_from_keyless_integration_impersonates_only_after_ownershi
     assert mock_impersonated.call_args.kwargs["target_principal"] == "sa@my-project.iam.gserviceaccount.com"
 
 
+# Verbatim wording from batch exports, which raises the same error for the same check.
+_OWNERSHIP_ERROR = ServiceAccountOwnershipError("sa@my-project.iam.gserviceaccount.com", "org-uuid")
+
+
+@pytest.mark.parametrize(
+    "own_credentials_error, ownership_error, expected_message, expect_non_retryable, expect_ownership_checked",
+    [
+        # The customer has to change their service account description, so the sync must stop
+        # rather than retry the same rejection every run.
+        pytest.param(None, _OWNERSHIP_ERROR, str(_OWNERSHIP_ERROR), True, True, id="ownership_unverified"),
+        # PostHog's worker cannot get its own Google Cloud credentials. The ownership check would
+        # fail with the same "getAccessToken denied" text as a missing customer grant, which is
+        # non-retryable and tells the customer to fix IAM. Nothing on their side can fix this.
+        pytest.param(
+            GoogleCloudCredentialsError(),
+            None,
+            BIGQUERY_POSTHOG_CREDENTIALS_ERROR,
+            False,
+            False,
+            id="posthog_credentials_unavailable",
+        ),
+    ],
+)
 @pytest.mark.django_db
-def test_bigquery_unverified_service_account_ownership_is_reported_and_not_retried(team, settings):
+def test_bigquery_impersonation_precheck_failure_is_reported_and_retried_only_on_posthog_side(
+    team,
+    settings,
+    own_credentials_error,
+    ownership_error,
+    expected_message,
+    expect_non_retryable,
+    expect_ownership_checked,
+):
     settings.BATCH_EXPORT_BIGQUERY_STS_AUDIENCE_FIELD = "//iam.googleapis.com/projects/1/locations/global"
     settings.BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT = "posthog@posthog.iam.gserviceaccount.com"
     integration = _google_cloud_integration(team, with_key=False)
     config = BigQuerySourceConfig(dataset_id="my_dataset", auth_type=_integration_auth(integration.id))
-    # Verbatim wording from batch exports, which raises the same error for the same check.
-    ownership_error = ServiceAccountOwnershipError("sa@my-project.iam.gserviceaccount.com", "org-uuid")
 
     with (
         mock.patch(
-            f"{_BATCH_EXPORT_MODULE}.verify_impersonated_service_account_ownership", side_effect=ownership_error
+            f"{_BATCH_EXPORT_MODULE}.ensure_our_google_cloud_credentials_are_valid", side_effect=own_credentials_error
         ),
+        mock.patch(
+            f"{_BATCH_EXPORT_MODULE}.verify_impersonated_service_account_ownership", side_effect=ownership_error
+        ) as mock_verify,
         mock.patch(f"{_BATCH_EXPORT_MODULE}.get_our_google_cloud_credentials"),
         mock.patch.object(bq_module, "bigquery_client") as mock_client,
     ):
         ok, message = BigQuerySource().validate_credentials(config, team_id=team.id)
 
     assert ok is False
-    assert message == str(ownership_error)
+    assert message == expected_message
     mock_client.assert_not_called()
-    # The customer has to change their service account description, so the sync must stop rather
-    # than retry the same rejection every run.
-    assert any(key in str(ownership_error) for key in BigQuerySource().get_non_retryable_errors())
+    assert mock_verify.called is expect_ownership_checked
+    assert error_message_matches(expected_message, BigQuerySource().get_non_retryable_errors()) is expect_non_retryable
 
 
 @pytest.mark.django_db

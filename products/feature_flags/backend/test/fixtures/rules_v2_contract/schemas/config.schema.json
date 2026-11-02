@@ -365,14 +365,10 @@
     "holdout": {
       "type": "object",
       "required": [
-        "id",
         "seed",
         "exclusion_percentage"
       ],
       "properties": {
-        "id": {
-          "type": "integer"
-        },
         "seed": {
           "$ref": "#/$defs/seed"
         },
@@ -466,7 +462,6 @@
         "id",
         "rule_type",
         "targeting",
-        "experiment_id",
         "paused",
         "rollout_percentage",
         "on_rollout_miss",
@@ -489,9 +484,6 @@
         },
         "metadata": {
           "$ref": "#/$defs/metadata"
-        },
-        "experiment_id": {
-          "type": "integer"
         },
         "paused": {
           "type": "boolean"

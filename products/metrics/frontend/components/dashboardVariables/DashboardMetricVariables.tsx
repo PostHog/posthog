@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
-import { IconGear } from '@posthog/icons'
+import { IconGear, IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
@@ -16,10 +16,12 @@ import { MetricVariablesModal } from './MetricVariablesModal'
 
 const NO_VARIABLES: MetricsDashboardVariable[] = []
 
+type EditorMode = 'edit' | 'add'
+
 export function DashboardMetricVariables({ editable = true }: { editable?: boolean }): JSX.Element | null {
     const { dashboard, dashboardEditing, effectiveEditBarFilters } = useValues(dashboardLogic)
     const { setMetricVariables, setDashboardEditing } = useActions(dashboardLogic)
-    const [editorOpen, setEditorOpen] = useState(false)
+    const [editorMode, setEditorMode] = useState<EditorMode | null>(null)
 
     const metricVariables = effectiveEditBarFilters.metricVariables
     // A name from the URL without a saved definition, such as a deleted variable, has nothing to show.
@@ -62,28 +64,38 @@ export function DashboardMetricVariables({ editable = true }: { editable?: boole
                     onChange={(current) => select(variable.name, current)}
                 />
             ))}
-            {editable && (
+            {editable && shown.length > 0 && (
                 <LemonButton
                     size="small"
                     type="tertiary"
                     icon={<IconGear />}
-                    tooltip={shown.length ? 'Edit variables' : undefined}
-                    onClick={() => setEditorOpen(true)}
+                    tooltip="Edit variables"
+                    onClick={() => setEditorMode('edit')}
                     data-attr="dashboard-metric-variables-edit"
+                />
+            )}
+            {editable && (
+                <LemonButton
+                    size="small"
+                    type="tertiary"
+                    icon={<IconPlusSmall />}
+                    onClick={() => setEditorMode('add')}
+                    data-attr="dashboard-metric-variables-add"
                 >
-                    {shown.length ? null : 'Add variable'}
+                    Add variable
                 </LemonButton>
             )}
-            {editorOpen && (
+            {editorMode && (
                 <MetricVariablesModal
                     dashboardId={dashboard.id}
                     variables={shown}
                     options={options}
                     dateFrom={effectiveEditBarFilters.date_from}
                     dateTo={effectiveEditBarFilters.date_to}
-                    onClose={() => setEditorOpen(false)}
+                    addVariableOnOpen={editorMode === 'add'}
+                    onClose={() => setEditorMode(null)}
                     onSave={(next) => {
-                        setEditorOpen(false)
+                        setEditorMode(null)
                         stage(next, variablesToReload(shown, next))
                     }}
                 />

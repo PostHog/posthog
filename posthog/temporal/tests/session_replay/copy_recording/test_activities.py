@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.conf import settings
 from django.test import override_settings
 
 from asgiref.sync import async_to_sync
@@ -103,7 +104,17 @@ class TestCopySessionRecording(ClickhouseTestMixin, APIBaseTest):
 
         result, client, upload = self._run()
 
-        assert (result.status, result.block_count, result.event_count, result.warnings) == ("copied", 2, 3, [])
+        expected_warnings = (
+            [f"HogQL sees {pre_copied_events} of 3 copied events"]
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+            else []
+        )
+        assert (result.status, result.block_count, result.event_count, result.warnings) == (
+            "copied",
+            2,
+            3,
+            expected_warnings,
+        )
         client.encrypt_blocks.assert_awaited_once()
         assert client.encrypt_blocks.await_args.args[1] == self.target_team.pk
 

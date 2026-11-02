@@ -747,8 +747,16 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response["results"]), 0)
         self.assertEqual(len(queries), 2)
 
+    @parameterized.expand(
+        [
+            ("is_not", "envoy"),
+            # The negative path flips each operator to its positive form and excludes what that form
+            # matches, so an operator without a positive complement returns the opposite of the filter.
+            ("not_icontains_multi", ["envoy"]),
+        ]
+    )
     @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
-    def test_multiple_negative_resource_attribute_filters(self):
+    def test_multiple_negative_resource_attribute_filters(self, container_operator, container_value):
         # Two negative resource attribute filters on disjoint values (no log has both an envoy
         # container AND the kube-system namespace). The fix exists so a resource is excluded when
         # it matches ANY of the negative filters, not just when it matches every one. Pre-fix this
@@ -764,8 +772,8 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "values": [
                             {
                                 "key": "k8s.container.name",
-                                "value": "envoy",
-                                "operator": "is_not",
+                                "value": container_value,
+                                "operator": container_operator,
                                 "type": "log_resource_attribute",
                             },
                             {
@@ -787,7 +795,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertGreater(len(results), 0)
         # neither excluded value appears anywhere — proves OR semantics
         for result in results:
-            self.assertNotEqual(result["resource_attributes"].get("k8s.container.name"), "envoy")
+            self.assertNotIn("envoy", result["resource_attributes"].get("k8s.container.name", ""))
             self.assertNotEqual(result["resource_attributes"].get("k8s.namespace.name"), "kube-system")
         # both excluded groups exist in the test data, so the result count must be strictly less than
         # the unfiltered count. Pre-fix this would have returned every log in range (since no resource
@@ -800,6 +808,59 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             }
         )
         self.assertLess(len(results), len(unfiltered["results"]))
+
+    @time_machine.travel("2025-11-21T00:00:00Z", tick=False)
+    def test_semver_neq_resource_attribute_filter_excludes_only_the_matching_version(self):
+        # The shared fixture holds no semver-shaped resource attribute, so this test inserts its own
+        # resources. The class shares one team and ClickHouse keeps rows between tests, so the rows
+        # sit on 2025-11-20, which is outside the date range of every other test in this class.
+        versions = {"matching": "1.2.3", "other": "2.0.0", "non_semver": "latest", "absent": None}
+        rows = []
+        for body, version in versions.items():
+            resource_attributes = {"service.name": "semver-neq-test-svc"}
+            if version is not None:
+                resource_attributes["service.version"] = version
+            rows.append(
+                {
+                    "uuid": str(uuid4()),
+                    "team_id": self.team.id,
+                    "timestamp": "2025-11-20 10:00:00.000000",
+                    "observed_timestamp": "2025-11-20 10:00:01.000000",
+                    "body": body,
+                    "severity_text": "info",
+                    "severity_number": 9,
+                    "service_name": "semver-neq-test-svc",
+                    "resource_attributes": resource_attributes,
+                    "attributes_map_str": {},
+                }
+            )
+        payload = "\n".join(json.dumps(row) for row in rows)
+        sync_execute(f"INSERT INTO logs FORMAT JSONEachRow\n{payload}")
+
+        response = self._make_logs_api_request(
+            {
+                "dateRange": {"date_from": "2025-11-20T00:00:00Z", "date_to": "2025-11-21T00:00:00Z"},
+                "limit": 10,
+                "filterGroup": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "service.version",
+                                    "value": "1.2.3",
+                                    "operator": "semver_neq",
+                                    "type": "log_resource_attribute",
+                                }
+                            ],
+                        }
+                    ],
+                },
+            }
+        )
+
+        self.assertEqual({result["body"] for result in response["results"]}, {"other", "non_semver", "absent"})
 
     def _run_log_attribute_filter(self, operator: PropertyOperator, mode: PropertyGroupsMode) -> list[dict]:
         query = LogsQuery(

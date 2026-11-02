@@ -211,6 +211,17 @@ class TestLogsAlertEvaluation(APIBaseTest):
         assert configuration.next_check_at is not None
         assert configuration.next_check_at > self.cutoff
 
+    def test_scheduler_lag_counts_the_wait_after_the_tick_that_took_the_check(self) -> None:
+        configuration = self._configuration(next_check_at=self.cutoff)
+
+        with (
+            time_machine.travel(self.cutoff + timedelta(seconds=7), tick=False),
+            patch(f"{_MODULE}.record_scheduler_lag") as record_lag,
+        ):
+            self._run(configuration)
+
+        record_lag.assert_called_once_with(SourceKind.LOGS.value, 7000)
+
     def test_checks_that_can_share_a_query_carry_one_schedule_group(self) -> None:
         same_a = self._configuration(name="A")
         same_b = self._configuration(name="B")
@@ -416,7 +427,12 @@ class TestLogsAlertEvaluation(APIBaseTest):
             ("api", AlertEventKind.FIRING),
             ("worker", AlertEventKind.FIRING),
         ]
-        assert delivery.overflowed == 1
+        # The query cut `web` and anything after it, so more breaching groups may have been turned away.
+        assert (outcome.overflow_is_lower_bound, delivery.overflowed, delivery.overflow_is_lower_bound) == (
+            True,
+            1,
+            True,
+        )
 
         with team_scope(self.team.id):
             platform_testing.set_due_at(configuration.id, self.cutoff - timedelta(minutes=1))
@@ -429,22 +445,28 @@ class TestLogsAlertEvaluation(APIBaseTest):
         }
         self._record(second)
 
-        def run_after(counts: dict[str, int]) -> tuple[dict[str, AlertEventKind], int]:
+        def run_after(counts: dict[str, int]) -> tuple[dict[str, AlertEventKind], int, bool]:
             with team_scope(self.team.id):
                 platform_testing.set_due_at(configuration.id, self.cutoff - timedelta(minutes=1))
             evaluation = self._run_grouped(configuration, counts)
             self._record(evaluation)
             (outcome,) = evaluation.outcomes
-            return {group.labels["service_name"]: group.kind for group in outcome.groups}, outcome.overflowed
+            return (
+                {group.labels["service_name"]: group.kind for group in outcome.groups},
+                outcome.overflowed,
+                outcome.overflow_is_lower_bound,
+            )
 
         # The resolved group is in this check's results, so it keeps its slot and the new breach overflows.
         assert run_after({"api": 500, "worker": 3, "cron": 300}) == (
             {"api": AlertEventKind.CHECK, "worker": AlertEventKind.CHECK},
             1,
+            False,
         )
         assert run_after({"api": 500, "cron": 300}) == (
             {"api": AlertEventKind.CHECK, "cron": AlertEventKind.FIRING},
             0,
+            False,
         )
         with team_scope(self.team.id):
             evicted = platform_testing.alert_for(

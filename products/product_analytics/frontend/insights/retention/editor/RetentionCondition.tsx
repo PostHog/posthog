@@ -6,16 +6,16 @@ import { IconInfo, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getOrdinalSuffix } from 'lib/utils/strings'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { getRetentionPropertyFilterGroupTypes } from 'scenes/insights/utils/propertyTaxonomicGroupTypes'
 
 import { groupsModel } from '~/models/groupsModel'
 import { EditorFilterProps, EntityTypes, FilterType, RetentionPeriod, RetentionType } from '~/types'
 
+import { getRetentionPropertyFilterGroupTypes } from 'products/product_analytics/frontend/insights/editor/propertyTaxonomicGroupTypes'
 import { AggregationSelect } from 'products/product_analytics/frontend/insights/shared/AggregationSelect'
 
 import { dateOptionPlurals, dateOptions, retentionOptionDescriptions, retentionOptions } from '../constants'

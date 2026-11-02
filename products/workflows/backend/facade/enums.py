@@ -67,6 +67,27 @@ class WorkflowIdeaSource(LabeledStrEnum):
     SCOUT = "scout", "Scout"
 
 
+class WorkflowImportSource(LabeledStrEnum):
+    CUSTOMERIO = "customerio", "Customer.io"
+
+
+class WorkflowImportNoteLevel(LabeledStrEnum):
+    # The step behaves differently in PostHog, and the note says how.
+    APPROXIMATED = "approximated", "Approximated"
+    # The setting has no PostHog equivalent and was left out.
+    UNSUPPORTED = "unsupported", "Unsupported"
+    # The step is imported but needs a setting only the team can give, like an email sender.
+    NEEDS_INPUT = "needs_input", "Needs input"
+
+
+class WorkflowImportStatus(LabeledStrEnum):
+    PREVIEW = "preview", "Preview"
+    CREATED = "created", "Created"
+    UPDATED = "updated", "Updated"
+    SKIPPED = "skipped", "Skipped"
+    FAILED = "failed", "Failed"
+
+
 class HogFlowState(LabeledStrEnum):
     DRAFT = "draft"
     ACTIVE = "active"
@@ -109,7 +130,6 @@ class EmailDraftOrigin(LabeledStrEnum):
 
 
 class EmailDraftFallbackReason(LabeledStrEnum):
-    FLAG_OFF = "flag_off", "AI drafts are not enabled for this project"
     AI_NOT_APPROVED = "ai_not_approved", "The organization has not approved AI data processing"
     GATEWAY_UNCONFIGURED = "gateway_unconfigured", "The AI gateway is not configured"
     RATE_LIMITED = "rate_limited", "The project used its hourly AI drafts"
@@ -135,3 +155,50 @@ class RealtimeAudienceCohortState(LabeledStrEnum):
     BUILDING = "building", "Building"
     REBUILDING = "rebuilding", "Rebuilding"
     NEEDS_ATTENTION = "needs_attention", "Needs attention"
+
+
+class EmailDomainSetupMethod(LabeledStrEnum):
+    AUTO = "auto", "Domain Connect"
+    MANUAL = "manual", "Manual DNS records"
+
+
+class EmailDomainSetupStatus(LabeledStrEnum):
+    NOT_STARTED = "not_started", "Not started"
+    PENDING = "pending", "Waiting for DNS records"
+    RECORDS_FOUND = "records_found", "Records found, waiting for verification"
+    VERIFIED = "verified", "Verified"
+    TEMPORARY_FAILURE = "temporary_failure", "Temporary failure"
+    FAILED = "failed", "Failed"
+
+
+class EmailDomainSetupRecordKind(LabeledStrEnum):
+    VERIFICATION = "verification", "Domain ownership"
+    DKIM = "dkim", "DKIM signing"
+    SPF = "spf", "SPF"
+    MAIL_FROM_MX = "mail_from_mx", "MAIL FROM MX"
+    MAIL_FROM_SPF = "mail_from_spf", "MAIL FROM SPF"
+    DMARC = "dmarc", "DMARC"
+
+
+class EmailDomainSetupRecordType(LabeledStrEnum):
+    TXT = "TXT", "TXT"
+    CNAME = "CNAME", "CNAME"
+    MX = "MX", "MX"
+
+
+class EmailDomainSetupRecordStatus(LabeledStrEnum):
+    PENDING = "pending", "Not found yet"
+    FOUND = "found", "Found in DNS"
+    VERIFIED = "verified", "Verified"
+
+
+class EmailDomainSetupStepKey(LabeledStrEnum):
+    DOMAIN_ADDED = "domain_added", "Domain added"
+    RECORDS_FOUND = "records_found", "DNS records found"
+    VERIFIED = "verified", "Verified"
+
+
+class EmailDomainSetupStepState(LabeledStrEnum):
+    DONE = "done", "Done"
+    PENDING = "pending", "Pending"
+    FAILED = "failed", "Failed"

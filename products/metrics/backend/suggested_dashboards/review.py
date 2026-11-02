@@ -31,8 +31,9 @@ from products.metrics.backend.suggested_dashboards.dashboards import (
     panels_from_tiles,
     referenced_variables,
 )
+from products.metrics.backend.suggested_dashboards.llm import MODEL
 from products.metrics.backend.suggested_dashboards.matching import template_metric_names
-from products.metrics.backend.suggested_dashboards.spec import TemplatePanel, template_panels
+from products.metrics.backend.suggested_dashboards.spec import GenerationRecord, TemplatePanel, template_panels
 
 
 class TemplateNotReviewable(Exception):
@@ -206,6 +207,53 @@ def reject(*, template: MetricsDashboardTemplate, user: User) -> MetricsDashboar
         # Suggestions that a team has not acted on go away with the template.
         MetricsDashboardSuggestion.objects.unscoped().filter(template_id=locked.id, dashboard_id__isnull=True).delete()
     _capture_reviewed(user, locked)
+    return locked
+
+
+_REGENERABLE = frozenset(
+    {
+        MetricsDashboardTemplate.Status.PENDING_REVIEW,
+        MetricsDashboardTemplate.Status.REJECTED,
+        MetricsDashboardTemplate.Status.FAILED,
+    }
+)
+
+
+def regenerate(*, template: MetricsDashboardTemplate, user: User) -> MetricsDashboardTemplate:
+    """Discard the panels and the preview of a generated template, and set it to generate again.
+
+    The caller starts the generation. The template keeps its key, so the same metrics never make a second one.
+    """
+    with transaction.atomic():
+        locked = MetricsDashboardTemplate.objects.select_for_update().get(id=template.id)
+        if locked.source != MetricsDashboardTemplate.Source.GENERATED:
+            raise TemplateNotReviewable("Only a generated dashboard can be generated again.")
+        if locked.status not in _REGENERABLE:
+            raise TemplateNotReviewable(
+                "This dashboard is still being generated."
+                if locked.status == MetricsDashboardTemplate.Status.GENERATING
+                else "Reject this dashboard before you generate it again."
+            )
+        source_team = Team.objects.select_related("organization").filter(id=locked.source_team_id).first()
+        if source_team is None:
+            raise TemplateNotReviewable("The project that this dashboard came from no longer exists.")
+        if not source_team.organization.is_ai_data_processing_approved:
+            raise TemplateNotReviewable("The organization of the source project does not allow AI data processing.")
+        record = GenerationRecord.model_validate(locked.generation or {})
+        drop_preview(locked)
+        locked.name = record.requested_name or locked.name
+        locked.metric_names = record.requested_metric_names or locked.metric_names
+        locked.panels = []
+        locked.variables = []
+        locked.generation = GenerationRecord(
+            model=MODEL, requested_name=locked.name, requested_metric_names=locked.metric_names
+        ).model_dump(mode="json")
+        locked.status = MetricsDashboardTemplate.Status.GENERATING
+        locked.reviewed_by = None
+        locked.reviewed_at = None
+        locked.save()
+        MetricsDashboardSuggestion.objects.unscoped().filter(template_id=locked.id, dashboard_id__isnull=True).delete()
+    report_user_action(user, "metrics dashboard template regenerated", {"template_id": str(locked.id)})
     return locked
 
 

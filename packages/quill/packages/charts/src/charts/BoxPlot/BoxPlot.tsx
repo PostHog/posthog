@@ -14,6 +14,7 @@ import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { dimColor } from '../../core/color-utils'
 import { createBarScales, type BarScaleSet, yTickCountForHeight } from '../../core/scales'
+import { useResolvedChartTheme } from '../../core/theme'
 import { resolveAxisLines } from '../../core/types'
 import type {
     ChartConfig,
@@ -92,7 +93,8 @@ export interface BoxPlotClickData<Meta = unknown> {
 export interface BoxPlotProps<Meta = unknown> {
     series: BoxPlotSeries<Meta>[]
     labels: string[]
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     config?: BoxPlotConfig
     /** Optional custom tooltip. Receives the adapter `TooltipContext`; consumers can read
      *  the original datum back out via `entry.series.meta?.datums?.[ctx.dataIndex]`. */
@@ -117,7 +119,7 @@ export function BoxPlot<Meta = unknown>({ onError, ...rest }: BoxPlotProps<Meta>
 function BoxPlotInner<Meta = unknown>({
     series,
     labels,
-    theme,
+    theme: themeProp,
     config,
     tooltip,
     onBoxClick,
@@ -125,6 +127,7 @@ function BoxPlotInner<Meta = unknown>({
     dataAttr,
     children,
 }: Omit<BoxPlotProps<Meta>, 'onError'>): React.ReactElement {
+    const theme = useResolvedChartTheme(themeProp)
     const {
         yScaleType = 'linear',
         showGrid = false,
@@ -174,11 +177,18 @@ function BoxPlotInner<Meta = unknown>({
                 if (!datum) {
                     continue
                 }
-                if (Number.isFinite(datum.min)) {
-                    mins.push(datum.min)
+                const whiskerMin = datum.whiskerMin ?? datum.min
+                const whiskerMax = datum.whiskerMax ?? datum.max
+                if (Number.isFinite(whiskerMin)) {
+                    mins.push(whiskerMin)
                 }
-                if (Number.isFinite(datum.max)) {
-                    maxs.push(datum.max)
+                if (Number.isFinite(whiskerMax)) {
+                    maxs.push(whiskerMax)
+                }
+                // A skewed bucket can put the mean outside its whiskers.
+                if (Number.isFinite(datum.mean)) {
+                    mins.push(datum.mean)
+                    maxs.push(datum.mean)
                 }
             }
             if (mins.length > 0) {
@@ -367,9 +377,14 @@ function BoxPlotInner<Meta = unknown>({
 
     const renderTooltip = useCallback(
         (ctx: TooltipContext<BoxPlotAdaptedMeta<Meta>>) => (
-            <BoxPlotTooltip<Meta> ctx={ctx} userTooltip={tooltip} grouped={grouped} />
+            <BoxPlotTooltip<Meta>
+                ctx={ctx}
+                userTooltip={tooltip}
+                grouped={grouped}
+                valueFormatter={config?.tooltip?.valueFormatter}
+            />
         ),
-        [tooltip, grouped]
+        [tooltip, grouped, config?.tooltip?.valueFormatter]
     )
 
     const onPointClick = useCallback(

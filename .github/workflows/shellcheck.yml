@@ -13,6 +13,15 @@ jobs:
         name: shellcheck
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  # Only these paths exist on disk, so a new step must list the files it reads.
+                  sparse-checkout: |
+                      /.github/scripts/
+                      /.agents/skills/triaging-merge-queue-failures/scripts/
+                      /bin/deploy-hobby
+                      **/AGENTS.md
+                      **/CLAUDE.md
+                  sparse-checkout-cone-mode: false
             # The runner image ships shellcheck, so apt is only a fallback. apt has
             # no retries and a 120s per-fetch timeout by default, and a stalled
             # mirror can hold this job past its timeout, which the merge queue

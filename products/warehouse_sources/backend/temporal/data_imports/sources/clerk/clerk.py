@@ -1,5 +1,6 @@
 import functools
 import dataclasses
+import unicodedata
 from collections.abc import AsyncIterable, Iterable, Iterator
 from typing import Any, Optional
 
@@ -84,9 +85,11 @@ def get_resources(name: str) -> list[EndpointResource]:
         fan_out.query_param: {"type": "resolve", "resource": fan_out.parent, "field": fan_out.parent_field},
         "limit": config.page_size,
     }
+    child = _resource(name, config, f"{config.path}?{fan_out.query_param}={{{fan_out.query_param}}}", child_params)
+    child["resume_parent_pagination"] = True
     return [
         _resource(fan_out.parent, parent_config, parent_config.path, {"limit": parent_config.page_size}),
-        _resource(name, config, f"{config.path}?{fan_out.query_param}={{{fan_out.query_param}}}", child_params),
+        child,
     ]
 
 
@@ -256,8 +259,16 @@ INSTANCE_NOT_FOUND_MESSAGE = (
 )
 
 
+def clean_secret_key(secret_key: str) -> str:
+    # A Clerk secret key is ASCII, so an invisible format character (zero-width space, byte order
+    # mark, direction mark) or Unicode whitespace at either end is debris from the copy, not part of
+    # the key. Remove it so the pasted key works instead of failing the latin-1 header encoding.
+    return "".join(char for char in secret_key if unicodedata.category(char) != "Cf").strip()
+
+
 def validate_credentials(secret_key: str) -> tuple[bool, str | None]:
     """Validate Clerk API credentials by making a test request."""
+    secret_key = clean_secret_key(secret_key)
     # The key rides in the Authorization header, which http.client encodes as latin-1. A character
     # outside that range raises UnicodeEncodeError mid-request, so reject it as user input rather
     # than letting the encoding error surface. A carriage return or newline is ASCII but still
@@ -301,7 +312,15 @@ def validate_credentials(secret_key: str) -> tuple[bool, str | None]:
 
 # Clerk error codes meaning "this account has not switched the feature on". Paired with the
 # statuses Clerk returns them under: 402 carries no body code, so the status alone is the signal.
-_FEATURE_DISABLED_CODES = frozenset({"billing_not_enabled", "feature_not_enabled"})
+_FEATURE_DISABLED_CODES = frozenset(
+    {
+        "billing_not_enabled",
+        "feature_not_enabled",
+        "organization_not_enabled_in_instance",
+        # Enterprise SSO connections need email address sign-in on the instance.
+        "feature_requires_email_address_enabled",
+    }
+)
 
 # A gated list endpoint (the Restrictions allow-list and block-list) answers 404 `resource_not_found`
 # instead of a 4xx feature code when its feature is off. This check only runs for endpoints that carry
@@ -314,7 +333,7 @@ def _is_feature_disabled(response: Optional[Response]) -> bool:
         return False
     if response.status_code == 402:
         return True
-    if response.status_code not in (400, 403, 404):
+    if response.status_code not in (400, 403, 404, 422):
         return False
 
     try:
@@ -393,7 +412,7 @@ def clerk_source(
             "base_url": "https://api.clerk.com/v1",
             "auth": {
                 "type": "bearer",
-                "token": secret_key,
+                "token": clean_secret_key(secret_key),
             },
             "headers": {
                 "Content-Type": "application/json",
@@ -446,13 +465,11 @@ def clerk_source(
     def items() -> Iterable[Any] | AsyncIterable[Any]:
         if webhook_enabled:
             return webhook_source_manager.get_items(table_transformer=_webhook_table_transformer)
-        return polled_items()
-
-    def polled_items() -> Iterator[Any]:
         if gated_feature is None:
-            yield from resource
-            return
-        yield from _skip_when_feature_disabled(iter(resource), endpoint, gated_feature, logger)
+            # The resource itself, so the framework stages a page's resume state before the page is
+            # yielded and a hand-off keeps the rows the pipeline still buffers.
+            return resource
+        return _skip_when_feature_disabled(iter(resource), endpoint, gated_feature, logger)
 
     if endpoint_config.partition_key is None:
         return SourceResponse(

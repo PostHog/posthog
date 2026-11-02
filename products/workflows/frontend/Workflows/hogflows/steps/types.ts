@@ -390,6 +390,10 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
                     utm_content: z.string().optional(),
                 })
                 .optional(),
+            // utm_params keys that follow the team default. Only the Django API reads it, so Node does not declare it.
+            utm_params_from_default: z
+                .array(z.enum(['utm_source', 'utm_medium', 'utm_campaign', 'utm_content']))
+                .optional(),
             template_uuid: z.string().optional(), // May be used later to specify a specific template version
             template_id: z.literal('template-email'),
             inputs: z.record(z.string(), CyclotronInputSchema),
@@ -414,6 +418,8 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             message_category_type: z.enum(['marketing', 'transactional']).optional(),
             template_uuid: z.string().uuid().optional(),
             template_id: z.literal('template-native-push'),
+            // When true, PostHog keeps no copy of the notification's content. Keep in sync with nodejs/src/cdp/schema/hogflow.ts.
+            sensitive: z.boolean().optional(),
             inputs: z.record(z.string(), CyclotronInputSchema),
         }),
     }),
@@ -467,6 +473,7 @@ export const isScheduleTrigger = (action: HogFlowAction): boolean => {
 }
 
 export interface HogflowTestResult {
+    emailSendResult?: { status: 'accepted' | 'skipped' | 'failed'; reason?: string }
     status: 'success' | 'error' | 'skipped'
     logs?: LogEntry[]
     nextActionId: string | null

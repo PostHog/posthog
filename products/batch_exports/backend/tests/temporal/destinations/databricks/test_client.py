@@ -32,7 +32,7 @@ skip_without_real_databricks = pytest.mark.requires_vendor_credentials(*REAL_DAT
 @pytest.fixture
 def client() -> DatabricksClient:
     return DatabricksClient(
-        server_hostname="test",
+        server_hostname="dbc-test.cloud.databricks.com",
         http_path="test",
         client_id="test",
         client_secret="test",
@@ -183,14 +183,17 @@ class TestConnect:
         is left blocking on the hang-prone SDK call.
         """
         # 192.0.2.1 is reserved as non-routable (RFC 5737 TEST-NET-1), so the preflight connect fails
-        # fast (no DNS, no real host).
-        client.server_hostname = "192.0.2.1"
+        # fast (no real host).
+        addrinfo = [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("192.0.2.1", 443))]
         client.connect_timeout_seconds = 0.01
         client.connect_max_attempts = 1
 
-        with pytest.raises(
-            DatabricksConnectionError,
-            match="Failed to connect to Databricks. Please check that your connection details are valid.",
+        with (
+            patch("socket.getaddrinfo", return_value=addrinfo),
+            pytest.raises(
+                DatabricksConnectionError,
+                match="Failed to connect to Databricks. Please check that your connection details are valid.",
+            ),
         ):
             async with client.connect():
                 pass
@@ -267,6 +270,24 @@ class TestConnect:
                 pass
 
         assert mock_sql_connect.sql_connect.call_count == 1
+
+    async def test_refuses_a_host_outside_databricks_zones(
+        self, client: DatabricksClient, mock_sql_connect: MockDatabricksSqlConnect
+    ):
+        client.server_hostname = "dbc.example.com"
+
+        with (
+            patch(
+                "products.batch_exports.backend.temporal.destinations.databricks_batch_export.socket.create_connection",
+            ) as create_connection_mock,
+            pytest.raises(DatabricksConnectionError, match="not a Databricks workspace hostname") as excinfo,
+        ):
+            async with client.connect():
+                pass
+
+        assert excinfo.value.retryable is False
+        create_connection_mock.assert_not_called()
+        mock_sql_connect.sql_connect.assert_not_called()
 
 
 class TestQueryBuilders:

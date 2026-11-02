@@ -3,9 +3,9 @@ import { useActions, useValues } from 'kea'
 import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
+import { escapeDottedHogQLIdentifier } from 'lib/utils/hogql'
 
 import { NodeKind } from '~/queries/schema/schema-general'
-import { escapeDottedHogQLIdentifier } from '~/queries/utils'
 
 import { biEditorLogic } from 'products/business_intelligence/frontend/biEditorLogic'
 
@@ -114,9 +114,7 @@ export function BICalculatedMeasureModal(): JSX.Element | null {
                         onPressCmdEnter={saveCalculatedMeasure}
                         data-attr="bi-calculated-measure-formula"
                     />
-                    <p className="m-0 text-xs text-secondary">
-                        Press Cmd+Space (Ctrl+Space on Windows or Linux) to autocomplete fields.
-                    </p>
+                    <p className="m-0 text-xs text-secondary">Press Ctrl+Space to autocomplete fields.</p>
                     <p className="m-0 text-xs" role="status">
                         {calculatedFieldValidation === 'checking'
                             ? 'Checking SQL…'

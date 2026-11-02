@@ -110,9 +110,9 @@ describe('searchLogic', () => {
     })
 
     it.each([
-        ['materialized views', 'dataManagementItems', 'Models'],
-        ['data modeling', 'dataManagementItems', 'Models'],
-        ['batch exports', 'dataManagementItems', 'Destinations Batch exports'],
+        ['materialized views', 'productsItems', 'Models'],
+        ['data modeling', 'productsItems', 'Models'],
+        ['batch exports', 'productsItems', 'Destinations Batch exports'],
         ['insights', 'productsItems', 'Product analytics'],
         ['semantic layer', 'productsItems', 'Data catalog'],
         ['Semantic Layer', 'productsItems', 'Data catalog'],
@@ -126,26 +126,21 @@ describe('searchLogic', () => {
     })
 
     it.each([
-        ['data quality', true, true],
-        ['dataquality', true, true],
-        ['Data-Quality', true, true],
-        ['models data quality', true, true],
-        ['data quality', false, false],
-        ['', true, false],
-    ])(
-        'lists the Models data quality tab for search %j with the flag on=%s: %s',
-        async (search, flagEnabled, listed) => {
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DATA_QUALITY_CHECKS]: flagEnabled })
-            await searchOnceProductsLoad(search)
+        ['data quality', true],
+        ['dataquality', true],
+        ['Data-Quality', true],
+        ['models data quality', true],
+        ['', false],
+    ])('lists the Models data quality tab for search %j: %s', async (search, listed) => {
+        await searchOnceProductsLoad(search)
 
-            const rows = logic.values.allCategories.flatMap((category) =>
-                category.items.filter((item) => item.href === urls.models('data-quality'))
-            )
-            expect(rows.map((row) => ({ displayName: row.displayName, parentName: row.parentName }))).toEqual(
-                listed ? [{ displayName: 'Data quality', parentName: 'Models' }] : []
-            )
-        }
-    )
+        const rows = logic.values.allCategories.flatMap((category) =>
+            category.items.filter((item) => item.href === urls.models('data-quality'))
+        )
+        expect(rows.map((row) => ({ displayName: row.displayName, parentName: row.parentName }))).toEqual(
+            listed ? [{ displayName: 'Data quality', parentName: 'Models' }] : []
+        )
+    })
 
     it.each([
         ['batch exports', [], '/data-management/destinations?tab=batch'],

@@ -29,6 +29,7 @@ import type {
     FeatureFlagRequestUsageListParams,
     FeatureFlagRequestUsageResponseApi,
     FeatureFlagRollOutToEveryoneRequestApi,
+    FeatureFlagSetActiveRequestApi,
     FeatureFlagSetReleaseConditionRolloutRequestApi,
     FeatureFlagStatusResponseApi,
     FeatureFlagTestEvaluationRequestApi,
@@ -826,15 +827,21 @@ export const getFeatureFlagsDisableCreateUrl = (projectId: string, id: number) =
  *
  * A disabled flag stops evaluating for every consumer, including a linked experiment or a
  * session replay setting. Read the full definition first to report that impact.
+ *
+ * Send the `version` your last read returned. A flag whose `filters.version` is 2 requires
+ * it, and for any flag a change after that version is refused with 409.
  */
 export const featureFlagsDisableCreate = async (
     projectId: string,
     id: number,
+    featureFlagSetActiveRequestApi?: FeatureFlagSetActiveRequestApi,
     options?: RequestInit
 ): Promise<FeatureFlagApi> => {
     return apiMutator<FeatureFlagApi>(getFeatureFlagsDisableCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureFlagSetActiveRequestApi),
     })
 }
 
@@ -850,15 +857,21 @@ export const getFeatureFlagsEnableCreateUrl = (projectId: string, id: number) =>
  * flag whose own flag dependencies are disabled or use an unsupported configuration
  * format is also refused, as is a flag whose release conditions target a deleted cohort.
  * An already-enabled flag is returned unchanged.
+ *
+ * Send the `version` your last read returned. A flag whose `filters.version` is 2 requires
+ * it, and for any flag a change after that version is refused with 409.
  */
 export const featureFlagsEnableCreate = async (
     projectId: string,
     id: number,
+    featureFlagSetActiveRequestApi?: FeatureFlagSetActiveRequestApi,
     options?: RequestInit
 ): Promise<FeatureFlagApi> => {
     return apiMutator<FeatureFlagApi>(getFeatureFlagsEnableCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureFlagSetActiveRequestApi),
     })
 }
 

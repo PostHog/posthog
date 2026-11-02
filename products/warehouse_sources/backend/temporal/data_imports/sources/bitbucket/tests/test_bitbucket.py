@@ -161,6 +161,21 @@ def test_fetch_page_exhausted_5xx_is_classified_retryable(monkeypatch):
     assert not error_message_matches(str(raised.value), BitbucketSource().get_non_retryable_errors().keys())
 
 
+def test_fetch_page_exhausted_read_timeout_is_classified_retryable(monkeypatch):
+    # Same contract as the 5xx case above, for a read timeout that outlasts every try.
+    monkeypatch.setattr(cast(Any, bitbucket._fetch_page).retry, "wait", lambda _: 0)
+    session = Mock()
+    session.get.side_effect = requests.ReadTimeout(
+        "HTTPSConnectionPool(host='api.bitbucket.org', port=443): Read timed out. (read timeout=37.0)"
+    )
+
+    with pytest.raises(requests.ReadTimeout) as raised:
+        bitbucket._fetch_page(session, "https://api.bitbucket.org/2.0/repositories/ws", Mock())
+
+    assert error_message_matches(str(raised.value), BitbucketSource().get_retryable_errors())
+    assert not error_message_matches(str(raised.value), BitbucketSource().get_non_retryable_errors().keys())
+
+
 def test_poisoned_resume_state_is_not_fetched():
     result = _driver().run(
         "repositories",

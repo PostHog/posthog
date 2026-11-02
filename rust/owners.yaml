@@ -20,6 +20,7 @@ rules:
           - '/kafka-assigner-proto/'
           - '/kafka-assigner/'
           - '/kafka-deduplicator/'
+          - '/personhog-changelog-relay/'
           - '/personhog-common/'
           - '/personhog-coordination/'
           - '/personhog-leader/'
@@ -32,6 +33,7 @@ rules:
           - '/property-vals-rs/'
       owners: team-ingestion
     - match:
+          - '/ai-research/'
           - '/replay-anonymizer/'
           - '/replay-anonymizer-node/'
       owners: ai-research
