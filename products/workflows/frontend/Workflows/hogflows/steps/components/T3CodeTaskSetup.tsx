@@ -88,7 +88,7 @@ export function T3CodeTaskSetup({
                                         T3 Code starts threads only in a project with a default model. Set one in the
                                         project's settings in T3 Code.{' '}
                                         <Link
-                                            onClick={() => loadProjects()}
+                                            onClick={() => loadProjects(undefined)}
                                             data-attr="workflow-t3-code-reload-projects"
                                         >
                                             Check again
@@ -154,7 +154,7 @@ export function T3CodeTaskSetup({
                             : machine && projects === null
                               ? {
                                     children: 'Try again',
-                                    onClick: () => loadProjects(),
+                                    onClick: () => loadProjects(undefined),
                                     loading: projectsResultLoading,
                                     'data-attr': 'workflow-t3-code-retry-projects',
                                 }
