@@ -1,5 +1,6 @@
 from collections.abc import Sequence
 from datetime import datetime, timedelta
+from functools import cached_property
 from math import ceil
 from typing import Any, Literal, Optional, cast
 
@@ -46,7 +47,6 @@ from posthog.hogql_queries.utils.sampling import correct_result_for_sampling
 from posthog.hogql_queries.validation.rules import DisallowUnsupportedDataWarehouseSettings
 from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.user import User
 
 from products.actions.backend.models.action import Action
@@ -393,8 +393,13 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             else DEFAULT_INTERVAL
         )
 
+        date_range = self.query.dateRange
+        if self.is_24h_window_calculation and date_range and date_range.excludeIncompletePeriods:
+            # Rolling 24-hour windows end mid-day, so clipping at the period boundary would drop completed returns
+            date_range = date_range.model_copy(update={"excludeIncompletePeriods": None})
+
         return QueryDateRangeWithIntervals(
-            date_range=self.query.dateRange,
+            date_range=date_range,
             total_intervals=total_intervals,
             team=self.team,
             interval=interval,

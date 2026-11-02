@@ -2,6 +2,7 @@ import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { LazyLoader } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
+import { validTeamIds } from '~/common/utils/team-manager'
 
 // Mirrors EmailTrackingConsentMode in products/workflows/backend/models/team_workflows_config.py
 export type EmailTrackingConsentMode = 'off' | 'opt_out' | 'opt_in'
@@ -141,7 +142,7 @@ export class TeamWorkflowsConfigService {
                     email_sending_tier, marketing_frequency_cap_max_messages, marketing_frequency_cap_window_days
              FROM workflows_teamworkflowsconfig
              WHERE team_id = ANY($1)`,
-            [teamIds.map(Number)],
+            [validTeamIds(teamIds)],
             'fetch-team-workflows-configs'
         )
 

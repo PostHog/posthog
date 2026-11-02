@@ -65,10 +65,19 @@ def _variable(item: Any) -> dict[str, Any] | None:
     if kind is None or not isinstance(spec.get("name"), str):
         return None
     variable = {**spec, "type": kind}
+    query = spec.get("query")
     if kind == "datasource":
         # A classic datasource variable names its plugin in `query`.
         variable["query"] = spec.get("pluginId")
-    elif not isinstance(spec.get("query"), str):
+    elif isinstance(query, dict):
+        # A query variable wraps its query as a data query, which names its plugin as a panel query does.
+        plugin = query.get("group") if query.get("kind") == "DataQuery" else query.get("kind")
+        variable["query"] = _dict(query.get("spec"))
+        variable["datasource"] = {
+            "type": _dict(spec.get("datasource")).get("type") or plugin,
+            "uid": _dict(spec.get("datasource")).get("uid") or _dict(query.get("datasource")).get("name"),
+        }
+    elif not isinstance(query, str):
         variable.pop("query", None)
     return variable
 

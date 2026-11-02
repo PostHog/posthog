@@ -7,10 +7,13 @@ from urllib.parse import parse_qsl, urlencode, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt
+from tenacity import retry_if_exception_type, stop_after_attempt
 from urllib3.util.retry import Retry
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.settings import (
@@ -277,7 +280,7 @@ def _wait_strategy(retry_state: Any) -> float:
     return min(2.0**retry_state.attempt_number, MAX_RETRY_WAIT_SECONDS)
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type((FlagsmithRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
     wait=_wait_strategy,

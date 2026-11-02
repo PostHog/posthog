@@ -11,11 +11,14 @@ from urllib.parse import quote, urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.dataclasses import frozen
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.settings import (
@@ -328,7 +331,7 @@ def get_rows(
         )
         return
 
-    @retry(
+    @retry_with_deadline(
         retry=retry_if_exception_type((GladlyRetryableError, requests.ReadTimeout, requests.ConnectionError)),
         stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
         wait=wait_exponential_jitter(initial=2, max=90),
@@ -517,7 +520,7 @@ def _voice_transcript_rows(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[GladlyResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
-    @retry(
+    @retry_with_deadline(
         retry=retry_if_exception_type((GladlyRetryableError, requests.ReadTimeout, requests.ConnectionError)),
         stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
         wait=wait_exponential_jitter(initial=2, max=90),
@@ -594,7 +597,7 @@ def _report_rows(
     db_incremental_field_last_value: Any = None,
     schema_has_ever_synced: bool = False,
 ) -> Iterator[list[dict[str, Any]]]:
-    @retry(
+    @retry_with_deadline(
         retry=retry_if_exception_type((GladlyRetryableError, requests.ReadTimeout, requests.ConnectionError)),
         stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
         wait=wait_exponential_jitter(initial=2, max=90),
@@ -637,7 +640,7 @@ def _report_rows(
     if not inject_row_id:
         required_columns.add(config.primary_key)
 
-    @retry(
+    @retry_with_deadline(
         retry=retry_if_exception_type(GladlyReportUnavailableError),
         stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
         wait=wait_exponential_jitter(initial=2, max=90),

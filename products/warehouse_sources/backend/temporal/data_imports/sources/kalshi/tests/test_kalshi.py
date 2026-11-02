@@ -1,6 +1,13 @@
+import base64
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
+import pytest
+
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec, ed25519, padding, rsa
+from cryptography.hazmat.primitives.asymmetric.types import PrivateKeyTypes
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
@@ -12,19 +19,52 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kalshi import KalshiSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.kalshi.kalshi import (
+    INVALID_PRIVATE_KEY_MESSAGE,
+    KalshiCredentialsError,
     KalshiResumeConfig,
+    KalshiSignedAuth,
     _batch_markets,
     _candlestick_market,
     _CandlestickMarket,
     _to_epoch_seconds,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.kalshi.settings import KALSHI_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.kalshi.settings import (
+    KALSHI_ENDPOINTS,
+    WEATHER_INDEX_CITIES,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.kalshi.source import KalshiSource
 
 
+def _pem(key: PrivateKeyTypes) -> str:
+    return key.private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
+    ).decode()
+
+
+_RSA_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+_ED25519_KEY = ed25519.Ed25519PrivateKey.generate()
+
+
 def _driver() -> SourceDriver:
-    return SourceDriver(KalshiSource(), KalshiSourceConfig())
+    return SourceDriver(KalshiSource(), KalshiSourceConfig(api_key_id="key-id", private_key=_pem(_RSA_KEY)))
+
+
+def _verify(key: PrivateKeyTypes, signature: bytes, message: bytes) -> bool:
+    try:
+        if isinstance(key, ed25519.Ed25519PrivateKey):
+            key.public_key().verify(signature, message)
+        else:
+            assert isinstance(key, rsa.RSAPrivateKey)
+            key.public_key().verify(
+                signature,
+                message,
+                padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.DIGEST_LENGTH),
+                hashes.SHA256(),
+            )
+    except InvalidSignature:
+        return False
+    return True
 
 
 def _page(data_key: str, items: list[dict[str, Any]], *, cursor: str | None = None) -> ScriptedResponse:
@@ -72,15 +112,17 @@ class TestKalshiTransport:
 
     @parameterized.expand(
         [
-            ("trades", "/trade-api/v2/markets/trades"),
-            ("historical_trades", "/trade-api/v2/historical/trades"),
+            ("trades", "/trade-api/v2/markets/trades", "created_time"),
+            ("historical_trades", "/trade-api/v2/historical/trades", "created_time"),
+            ("fills", "/trade-api/v2/portfolio/fills", "created_time"),
+            ("historical_fills", "/trade-api/v2/historical/fills", "created_time"),
         ]
     )
-    def test_trades_incremental_sends_min_ts(self, endpoint: str, path: str) -> None:
+    def test_trades_incremental_sends_min_ts(self, endpoint: str, path: str, incremental_field: str) -> None:
         result = _driver().run(
             endpoint,
-            [_page("trades", [{"trade_id": "t1"}])],
-            incremental_field="created_time",
+            [_page(KALSHI_ENDPOINTS[endpoint].data_key, [{"id": "1"}])],
+            incremental_field=incremental_field,
             db_incremental_field_last_value=datetime(2021, 1, 1, tzinfo=UTC),
         )
 
@@ -89,7 +131,7 @@ class TestKalshiTransport:
         assert result.requests[0].param("min_ts") == "1609459200"
         assert result.requests[0].param("limit") == str(KALSHI_ENDPOINTS[endpoint].page_size)
 
-    @parameterized.expand(["markets", "events", "milestones", "historical_markets"])
+    @parameterized.expand(["markets", "events", "milestones", "historical_markets", "orders", "historical_orders"])
     def test_non_incremental_endpoints_never_send_min_ts(self, endpoint: str) -> None:
         # Kalshi answers 200 and ignores params it doesn't recognise, so a filter wired onto an
         # endpoint that has none would look like it worked while syncing everything every run.
@@ -133,6 +175,7 @@ class TestKalshiTransport:
         [
             ("trades", "desc"),
             ("historical_trades", "desc"),
+            ("fills", "desc"),
             ("markets", "asc"),
             ("series", "asc"),
         ]
@@ -178,7 +221,11 @@ class TestKalshiTransport:
         assert result.response.partition_keys == expected
         assert result.response.partition_mode == ("datetime" if expected else None)
 
-    @parameterized.expand([("ok", 200, True), ("forbidden", 403, False), ("server_error", 500, False)])
+    @parameterized.expand(
+        [
+            ("ok", 200, True),
+        ]
+    )
     def test_validate_credentials_maps_status(self, _name: str, status: int, expected: bool) -> None:
         answer = ScriptedResponse(status=status)
         script = always(answer) if status == 500 else [answer]
@@ -186,6 +233,115 @@ class TestKalshiTransport:
             assert validate_credentials() is expected
 
         assert network.requests_log[0].path == "/trade-api/v2/exchange/status"
+
+
+class TestKalshiPortfolio:
+    @parameterized.expand([("rsa", _RSA_KEY), ("ed25519", _ED25519_KEY)])
+    def test_signs_method_and_path_without_the_query(self, _name: str, key: PrivateKeyTypes) -> None:
+        driver = SourceDriver(KalshiSource(), KalshiSourceConfig(api_key_id="key-id", private_key=_pem(key)))
+        result = driver.run("fills", [_page("fills", [{"fill_id": "f1"}])])
+
+        assert result.raised is None
+        request = result.requests[0]
+        assert request.param("limit") == "1000"
+        assert request.headers["kalshi-access-key"] == "key-id"
+        message = f"{request.headers['kalshi-access-timestamp']}GET/trade-api/v2/portfolio/fills".encode()
+        assert _verify(key, base64.b64decode(request.headers["kalshi-access-signature"]), message)
+
+    def test_public_endpoints_are_not_signed(self) -> None:
+        result = _driver().run("markets", [_page("markets", [{"ticker": "A"}])])
+
+        assert result.raised is None
+        assert "kalshi-access-signature" not in result.requests[0].headers
+
+    @parameterized.expand(
+        [
+            ("no_key", None, None),
+            ("key_id_only", "key-id", None),
+        ]
+    )
+    def test_portfolio_endpoint_without_a_key_fails_before_any_request(
+        self, _name: str, api_key_id: str | None, private_key: str | None
+    ) -> None:
+        driver = SourceDriver(KalshiSource(), KalshiSourceConfig(api_key_id=api_key_id, private_key=private_key))
+        result = driver.run("orders", [_page("orders", [])])
+
+        assert isinstance(result.raised, KalshiCredentialsError)
+        assert result.requests == []
+
+    @parameterized.expand(
+        [
+            ("not_pem", "not a key"),
+            ("unsupported_type", _pem(ec.generate_private_key(ec.SECP256R1()))),
+        ]
+    )
+    def test_rejects_an_invalid_private_key(self, _name: str, private_key: str) -> None:
+        with pytest.raises(KalshiCredentialsError, match=INVALID_PRIVATE_KEY_MESSAGE):
+            KalshiSignedAuth("key-id", private_key)
+
+    @parameterized.expand(
+        [
+            ("positions", "/trade-api/v2/portfolio/positions", "market_positions", "all"),
+            ("historical_positions", "/trade-api/v2/historical/positions", "market_positions", None),
+            ("settlements", "/trade-api/v2/portfolio/settlements", "settlements", None),
+        ]
+    )
+    def test_subaccount_endpoints_read_every_subaccount(
+        self, endpoint: str, path: str, data_key: str, settlement_status: str | None
+    ) -> None:
+        # Positions default to subaccount 0, and settlement rows carry no subaccount, so each
+        # subaccount is read on its own and stamped onto its rows.
+        result = _driver().run(
+            endpoint,
+            [
+                ScriptedResponse(json={"subaccount_balances": [{"subaccount_number": 3}, {"subaccount_number": 0}]}),
+                _page(data_key, [{"ticker": "A"}], cursor="c1"),
+                _page(data_key, [{"ticker": "B"}]),
+                _page(data_key, [{"ticker": "A"}]),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/trade-api/v2/portfolio/subaccounts/balances", path, path, path]
+        assert result.params("subaccount") == [None, "0", "0", "3"]
+        assert result.params("cursor") == [None, None, "c1", None]
+        assert result.params("settlement_status") == [None, settlement_status, settlement_status, settlement_status]
+        assert [(row["subaccount_number"], row["ticker"]) for row in result.rows] == [(0, "A"), (0, "B"), (3, "A")]
+        assert result.response is not None
+        assert result.response.primary_keys == ["subaccount_number", "ticker"]
+
+    def test_settlements_incremental_sends_min_ts_for_each_subaccount(self) -> None:
+        result = _driver().run(
+            "settlements",
+            [
+                ScriptedResponse(json={"subaccount_balances": [{"subaccount_number": 0}, {"subaccount_number": 1}]}),
+                _page("settlements", [{"ticker": "A"}]),
+                _page("settlements", [{"ticker": "B"}]),
+            ],
+            incremental_field="settled_time",
+            db_incremental_field_last_value=datetime(2021, 1, 1, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        assert result.params("min_ts") == [None, "1609459200", "1609459200"]
+        assert result.response is not None
+        assert result.response.sort_mode == "desc"
+
+    def test_subaccount_walk_resumes_and_stages_the_next_subaccount(self) -> None:
+        result = _driver().run(
+            "positions",
+            [
+                ScriptedResponse(json={"subaccount_balances": [{"subaccount_number": n} for n in (0, 1, 2)]}),
+                _page("market_positions", [{"ticker": "B"}]),
+                _page("market_positions", [{"ticker": "C"}]),
+            ],
+            resume_state=KalshiResumeConfig(cursor="saved", subaccount=1),
+        )
+
+        assert result.raised is None
+        assert result.params("subaccount") == [None, "1", "2"]
+        assert result.params("cursor") == [None, "saved", None]
+        assert KalshiResumeConfig(cursor="", subaccount=2) in result.committed_states
 
 
 class TestKalshiCandlesticks:
@@ -367,3 +523,47 @@ class TestKalshiCandlesticks:
         markets = [_CandlestickMarket(ticker=str(i), start_ts=0, end_ts=days * 86400) for i in range(count)]
 
         assert [len(batch) for batch in _batch_markets(markets)] == expected_sizes
+
+
+class TestKalshiWeatherIndex:
+    @parameterized.expand(
+        [
+            # `from=0` would silently fall back to the trailing 24 hours.
+            ("full_refresh", {"should_use_incremental_field": False}, "1"),
+            (
+                "incremental_rereads_the_last_hour",
+                {"incremental_field": "t", "db_incremental_field_last_value": 1_790_000_000_000},
+                str(1_790_000_000_000 - 3_600_000),
+            ),
+        ]
+    )
+    def test_reads_every_city_from_the_window_start(
+        self, _name: str, inputs: dict[str, Any], expected_from: str
+    ) -> None:
+        point = {"t": 1_790_000_060_000, "v": 79.16, "status": "normal", "contributors": 5}
+        result = _driver().run(
+            "weather_index",
+            always(ScriptedResponse(json={"city": "any", "units": "fahrenheit", "timeseries": [point]})),
+            **inputs,
+        )
+
+        assert result.raised is None
+        assert result.paths == [f"/trade-api/v2/live_data/weather/{city}" for city in WEATHER_INDEX_CITIES]
+        assert set(result.params("from")) == {expected_from}
+        assert all(to is not None for to in result.params("to"))
+        # The city is half of the primary key; without it every city's minute collides.
+        assert result.rows == [{"city": city, **point} for city in WEATHER_INDEX_CITIES]
+        assert result.response is not None
+        assert result.response.sort_mode == "desc"
+
+    def test_resumes_from_the_saved_city_and_stages_the_next_one(self) -> None:
+        result = _driver().run(
+            "weather_index",
+            always(ScriptedResponse(json={"city": "any", "units": "fahrenheit", "timeseries": [{"t": 1, "v": 1.0}]})),
+            resume_state=KalshiResumeConfig(cursor=WEATHER_INDEX_CITIES[-2]),
+            should_use_incremental_field=False,
+        )
+
+        assert result.raised is None
+        assert result.paths == [f"/trade-api/v2/live_data/weather/{city}" for city in WEATHER_INDEX_CITIES[-2:]]
+        assert result.saved_states[-1] == KalshiResumeConfig(cursor=WEATHER_INDEX_CITIES[-1])

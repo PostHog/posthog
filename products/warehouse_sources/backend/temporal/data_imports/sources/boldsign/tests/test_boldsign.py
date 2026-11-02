@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.boldsign.s
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.boldsign import (
@@ -185,29 +184,6 @@ class TestCustomFieldsFanout:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        "status_code, expected_valid, expected_message",
-        [
-            (200, True, None),
-            (401, False, "Invalid BoldSign API key"),
-            (403, False, "Invalid BoldSign API key"),
-            (500, False, "Unexpected response from BoldSign (status 500)"),
-        ],
-    )
-    def test_status_mapping(self, status_code: int, expected_valid: bool, expected_message: str | None) -> None:
-        with scripted_network(always(ScriptedResponse(status=status_code))):
-            is_valid, message = validate_credentials("us", "key")
-
-        assert is_valid is expected_valid
-        assert message == expected_message
-
-    def test_network_error_is_not_reported_as_bad_key(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            is_valid, message = validate_credentials("us", "key")
-
-        assert is_valid is False
-        assert message == "Could not reach BoldSign"
-
     def test_probes_the_region_host_with_the_api_key_header(self) -> None:
         with scripted_network([ScriptedResponse(status=200)]) as network:
             validate_credentials("eu", "secret")

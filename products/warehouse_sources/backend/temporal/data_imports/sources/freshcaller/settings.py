@@ -15,7 +15,7 @@ PER_PAGE = 1000
 DEFAULT_START_DATETIME = "2022-01-01T00:00:00Z"
 
 
-@dataclass
+@dataclass(frozen=True)
 class FreshcallerEndpointConfig:
     name: str
     path: str
@@ -23,7 +23,7 @@ class FreshcallerEndpointConfig:
     # (e.g. {"users": [...], "meta": {...}}); `data_key` is that key.
     data_key: str
     # `True` only where the list endpoint honors a genuine server-side `by_time` window on
-    # `created_time`. `users`/`teams` expose no time filter -> full refresh only.
+    # `created_time`. `users`/`teams`/`user_statuses` expose no time filter -> full refresh only.
     supports_incremental: bool = False
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Stable datetime field used for partitioning. Always a creation timestamp, never a
@@ -60,6 +60,13 @@ FRESHCALLER_ENDPOINTS: dict[str, FreshcallerEndpointConfig] = {
         name="teams",
         path="/api/v1/teams",
         data_key="teams",
+    ),
+    # The reference lists this collection under the hyphenated path but names the objects
+    # `user_statuses` (e.g. `user_statuses.id` on users), so that is the wrapper key.
+    "user_statuses": FreshcallerEndpointConfig(
+        name="user_statuses",
+        path="/api/v1/user-statuses",
+        data_key="user_statuses",
     ),
     "calls": FreshcallerEndpointConfig(
         name="calls",

@@ -486,6 +486,50 @@ class TestCustomerEmailIngestion(MailgunWebhookTestMixin, BaseTest):
 
     @parameterized.expand(
         [
+            ("other_account", "other", {("identity", "person_group"), ("other", "known_email")}),
+            ("linked_account", "identity", {("identity", "person_group")}),
+        ]
+    )
+    def test_append_only_rematch_keeps_existing_account_links(
+        self, _name: str, known_email_account: str, expected_links: set[tuple[str, str]]
+    ) -> None:
+        account_model = apps.get_model("customer_analytics", "Account")
+        external_ids_by_account_id = {
+            str(
+                account_model.objects.for_team(self.team.id)
+                .create(
+                    team=self.team,
+                    name=external_id,
+                    external_id=external_id,
+                    _properties={
+                        "known_emails": ["customer@customer.example"] if external_id == known_email_account else []
+                    },
+                )
+                .id
+            ): external_id
+            for external_id in ("identity", "other")
+        }
+        response = self._post_email(message_id="<append-only@customer.example>")
+        assert response.status_code == 202
+        thread = EmailThread.objects.for_team(self.team.id).get()
+        identity_account_id = next(
+            account_id for account_id, external_id in external_ids_by_account_id.items() if external_id == "identity"
+        )
+        EmailThreadAccountLink.objects.for_team(self.team.id).create(
+            team=self.team,
+            thread=thread,
+            account_id=identity_account_id,
+            account_external_id="identity",
+            match_source="person_group",
+        )
+
+        recalculate_email_thread_links(self.team.id, thread_ids=[str(thread.id)], append_only=True)
+
+        links = EmailThreadAccountLink.objects.for_team(self.team.id).filter(thread=thread)
+        assert {(external_ids_by_account_id[link.account_id], link.match_source) for link in links} == expected_links
+
+    @parameterized.expand(
+        [
             ("different_envelope", {"sender": "attacker@example.com"}),
             (
                 "unaligned_dkim",

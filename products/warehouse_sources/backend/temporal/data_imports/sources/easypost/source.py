@@ -58,7 +58,7 @@ class EasypostSource(ResumableSource[EasypostSourceConfig, EasypostResumeConfig]
             name=ExternalDataSourceType.EASYPOST,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="EasyPost",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your EasyPost API key to automatically pull your EasyPost shipping data into the PostHog Data warehouse.
 
 You can find your API keys in your [EasyPost account settings](https://www.easypost.com/account/api-keys). Use a production key to sync production data, or a test key to sync test-mode data.""",

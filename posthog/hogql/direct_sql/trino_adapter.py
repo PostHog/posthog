@@ -244,6 +244,7 @@ class TrinoAdapter:
 
     def validate_source_config(self, source: ExternalDataSource, team: Team) -> tuple[TrinoSource, TrinoSourceConfig]:
         from products.warehouse_sources.backend.facade.source_management import (
+            MANAGED_WAREHOUSE_TRINO_SOURCE_TYPE,  # noqa: PLC0415 — avoids loading every source during HogQL startup
             SourceRegistry,  # noqa: PLC0415 — avoids loading every source during HogQL startup
         )
         from products.warehouse_sources.backend.facade.types import (
@@ -255,7 +256,9 @@ class TrinoAdapter:
 
         trino_source = cast("TrinoSource", SourceRegistry.get_source(ExternalDataSourceType.TRINO))
         config = parse_direct_source_config(trino_source, source)
-        is_valid, error = trino_source.is_database_host_valid(config.host, team.pk)
+        is_valid, error = trino_source.is_database_host_valid(
+            config.host, team.pk, port=config.port, source_type=MANAGED_WAREHOUSE_TRINO_SOURCE_TYPE
+        )
         if not is_valid:
             raise ExposedHogQLError(error or "Invalid Trino host.")
         return trino_source, config

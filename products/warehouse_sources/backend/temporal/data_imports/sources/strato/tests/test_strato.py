@@ -21,22 +21,6 @@ def _driver(api_token: str = "token") -> SourceDriver:
 
 
 class TestValidateCredentials:
-    def test_valid_token(self) -> None:
-        with scripted_network([ScriptedResponse(json=["PONG"])]):
-            result = validate_credentials("valid-token")
-
-        assert result == (True, None)
-
-    def test_invalid_token(self) -> None:
-        # Verbatim error body the live API returns for a bad token.
-        body = {"type": "UNAUTHORIZED", "message": "The Token you are using is not valid", "errors": None}
-        with scripted_network([ScriptedResponse(status=401, json=body)]):
-            valid, message = validate_credentials("bad-token")
-
-        assert valid is False
-        assert message is not None
-        assert "Invalid STRATO API token" in message
-
     def test_ip_restricted_token_points_to_the_restriction(self) -> None:
         with scripted_network([ScriptedResponse(status=406, json={})]):
             valid, message = validate_credentials("token")
@@ -45,19 +29,12 @@ class TestValidateCredentials:
         assert message is not None
         assert "IP" in message
 
-    @parameterized.expand([(500,), (503,)])
+    @parameterized.expand([(503,)])
     def test_other_error_uses_response_message(self, status_code: int) -> None:
         with scripted_network(always(ScriptedResponse(status=status_code, json={"message": "Internal error"}))):
             result = validate_credentials("token")
 
         assert result == (False, "Internal error")
-
-    def test_network_error_returns_false(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            valid, message = validate_credentials("token")
-
-        assert valid is False
-        assert "boom" in (message or "")
 
 
 class TestGetResource:

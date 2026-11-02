@@ -52,7 +52,7 @@ class EventeeSource(SimpleSource[EventeeSourceConfig]):
             name=ExternalDataSourceType.EVENTEE,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Eventee",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Eventee API token to pull your event's content into the PostHog Data warehouse.
 
 Generate a token in your Eventee admin dashboard under **Settings → Features**. The token is scoped to a single event, so connect one source per event you want to import.

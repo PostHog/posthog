@@ -255,7 +255,7 @@ class PanelResolver:
                         name=panel.title,
                         description=panel.description,
                         query=insight_query(
-                            queries[key],
+                            self._templated(panel, queries[key]),
                             panel.display,
                             catalog=self._catalog,
                             validator=self._validator,
@@ -280,6 +280,17 @@ class PanelResolver:
         return PanelQuery(
             language="promql", promql=combine_targets([(target.ref_id, target.expr) for target in panel.targets])
         )
+
+    @staticmethod
+    def _templated(panel: PanelSpec, query: PanelQuery) -> PanelQuery:
+        """The checked query, with the references to live dashboard variables put back.
+
+        The check runs with the saved variable values, because a query with `$name` in it cannot run.
+        """
+        if query.language != "promql" or not any(target.templated_expr for target in panel.targets):
+            return query
+        promql = combine_targets([(target.ref_id, target.templated_expr or target.expr) for target in panel.targets])
+        return query.model_copy(update={"promql": promql})
 
 
 def _query_metric_names(queries: Iterable[PanelQuery]) -> list[str]:
@@ -631,6 +642,9 @@ class DashboardImporter:
                     tiles=tuple(_new_tile(tile) for tile in tiles),
                     idempotency_key=idempotency_key,
                     date_from=state.date_from,
+                    filters={"metricVariables": state.spec.metric_variables}
+                    if state.spec and state.spec.metric_variables
+                    else None,
                 ),
             )
         except DashboardCreationDenied as error:
@@ -730,6 +744,13 @@ class DashboardImporter:
                 key=answer.key, title=title, outcome="failed", reason=error or "The query did not pass the check."
             )
         # The parser maps a Grafana panel's display exactly, so only a screenshot panel takes the agent's display.
+        query = answer.query
+        if spec_panel is not None and any(target.templated_expr for target in spec_panel.targets):
+            unchanged = combine_targets([(target.ref_id, target.expr) for target in spec_panel.targets])
+            if query.language == "promql" and query.promql == unchanged:
+                query = PanelResolver._templated(spec_panel, query)
+            else:
+                reason = " ".join([reason, "The panel keeps the saved values of the dashboard variables."]).strip()
         if spec_panel is not None:
             display = spec_panel.display
         else:
@@ -747,7 +768,7 @@ class DashboardImporter:
             tile=insight_tile(
                 name=title,
                 description=spec_panel.description if spec_panel else "",
-                query=insight_query(answer.query, display, catalog=catalog, validator=validator, date_from=date_from),
+                query=insight_query(query, display, catalog=catalog, validator=validator, date_from=date_from),
                 layout=layout,
             ),
         )
@@ -900,7 +921,14 @@ def _new_tile(tile: TileDraft) -> NewInsightTile | NewTextTile:
     layout = TileLayout(x=tile.layout.x, y=tile.layout.y, w=tile.layout.w, h=tile.layout.h)
     if tile.kind == "text":
         return NewTextTile(body=tile.text or "", layout=layout)
-    return NewInsightTile(name=tile.name, description=tile.description, query=tile.query or {}, layout=layout)
+    # Grafana shows a panel description only in a tooltip, and the tile's (i) popover still shows a hidden one.
+    return NewInsightTile(
+        name=tile.name,
+        description=tile.description,
+        query=tile.query or {},
+        layout=layout,
+        show_description=False if tile.description else None,
+    )
 
 
 def _delete_inputs(paths: list[str]) -> None:

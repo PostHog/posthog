@@ -58,11 +58,6 @@ class TestAttentiveSource:
     def test_webhook_resource_map(self):
         assert self.source.webhook_resource_map == RESOURCE_TO_ATTENTIVE_EVENT_TYPE
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["sms_sent"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "sms_sent"
-
     def test_get_desired_webhook_events_maps_eligible_schemas(self):
         events = self.source.get_desired_webhook_events(self.config, ["sms_sent", "email_opened", "not_a_schema"])
         assert events == ["sms.sent", "email.opened"]

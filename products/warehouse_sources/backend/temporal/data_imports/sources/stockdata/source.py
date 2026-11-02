@@ -45,10 +45,10 @@ class StockDataSource(ResumableSource[StockDataSourceConfig, StockDataResumeConf
         return {
             "401 Client Error: Unauthorized for url: https://api.stockdata.org": "Your StockData.org API token is invalid. Generate a new token in your StockData.org dashboard, then reconnect.",
             "402 Client Error: Payment Required for url: https://api.stockdata.org": "Your StockData.org plan's usage limit has been reached. Upgrade your plan or wait for the quota to reset, then resync.",
-            "403 Client Error: Forbidden for url: https://api.stockdata.org": "Your StockData.org plan does not grant access to this data (e.g. dividends and splits require a Standard or higher plan). Upgrade your plan or deselect the restricted tables, then resync.",
-            # The price tables need at least one symbol; without one the sync can never make
+            "403 Client Error: Forbidden for url: https://api.stockdata.org": "Your StockData.org plan does not grant access to this data (e.g. dividends, splits, and the news stats tables require a Standard or higher plan). Upgrade your plan or deselect the restricted tables, then resync.",
+            # The price and entity search tables need at least one symbol; without one the sync can never make
             # progress, so fail permanently with a fix-it message rather than retrying.
-            "StockData.org API error [missing_symbols]": "One or more of the selected tables (quote, EOD, intraday, dividends, splits) requires symbols. Add symbols to the source configuration, then resync.",
+            "StockData.org API error [missing_symbols]": "One or more of the selected tables (quote, EOD, intraday, dividends, splits, entity search) requires symbols. Add symbols to the source configuration, then resync.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -70,8 +70,8 @@ class StockDataSource(ResumableSource[StockDataSourceConfig, StockDataResumeConf
         schemas = [
             SourceSchema(
                 name=endpoint.name,
-                # Only news (published_after) and the EOD/intraday price feeds (date_from) expose a
-                # server-side date filter; quote, dividends, and splits are full refresh only.
+                # Only news and the news stats time series (published_after) and the EOD/intraday
+                # price feeds (date_from) expose a server-side date filter; the rest are full refresh only.
                 supports_incremental=bool(endpoint.incremental_fields),
                 supports_append=bool(endpoint.incremental_fields),
                 incremental_fields=list(endpoint.incremental_fields),
@@ -122,14 +122,14 @@ class StockDataSource(ResumableSource[StockDataSourceConfig, StockDataResumeConf
             name=ExternalDataSourceType.STOCKDATA,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="StockData.org",
-            releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Enter your StockData.org API token to pull market news with sentiment plus quote, end-of-day, intraday, dividend, and split price data into the PostHog Data warehouse.
+            releaseStatus=ReleaseStatus.BETA,
+            caption="""Enter your StockData.org API token to pull market news with sentiment, news stats, entity and news source metadata, plus quote, end-of-day, intraday, dividend, and split price data into the PostHog Data warehouse.
 
 You can find your API token in your [StockData.org dashboard](https://www.stockdata.org/dashboard).
 
-Add one or more comma-separated **symbols** (e.g. `AAPL,MSFT,TSLA`) to sync the price tables (quote, EOD, intraday, dividends, splits) — those endpoints require at least one symbol. The news table works without symbols (all market news) and is filtered to your symbols when they are set.
+Add one or more comma-separated **symbols** (e.g. `AAPL,MSFT,TSLA`) to sync the price tables (quote, EOD, intraday, dividends, splits) and the entity search table — those endpoints require at least one symbol. The news and news stats tables work without symbols (all market news) and are filtered to your symbols when they are set.
 
-Note: StockData.org plans are limited by daily request quotas (100 requests/day on the free plan), and some tables (dividends, splits) require a Standard or higher plan.""",
+Note: StockData.org plans are limited by daily request quotas (100 requests/day on the free plan), and some tables (dividends, splits, news stats) require a Standard or higher plan.""",
             iconPath="/static/services/stockdata.png",
             docsUrl="https://posthog.com/docs/cdp/sources/stockdata",
             fields=cast(
@@ -145,6 +145,7 @@ Note: StockData.org plans are limited by daily request quotas (100 requests/day 
                     ),
                     SourceFieldInputConfig(
                         name="symbols",
+                        sync_setting=True,
                         label="Symbols",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

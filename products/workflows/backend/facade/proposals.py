@@ -5,6 +5,7 @@ from products.workflows.backend.services.proposal_approval import approve_propos
 from products.workflows.backend.services.proposal_notifications import notify_proposal_filed
 from products.workflows.backend.services.workflow_proposals import (
     PROPOSAL_MERGE_BY_ID_FIELDS,
+    absolute_window,
     as_the_serializer_stores_it,
     count_proposals,
     create_proposal,
@@ -25,6 +26,7 @@ from products.workflows.backend.services.workflow_proposals import (
 )
 
 __all__ = [
+    "absolute_window",
     "approve_proposal",
     "HOG_FLOW_VERSION_APP_SOURCE",
     "PROPOSAL_MERGE_BY_ID_FIELDS",

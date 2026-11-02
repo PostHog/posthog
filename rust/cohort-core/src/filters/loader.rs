@@ -1,5 +1,4 @@
-//! SQL load + pure row→catalog transform. [`load_realtime_cohorts`] is the only DB touch;
-//! [`build_catalog_from_rows`] is pure so the catalog logic is testable without Postgres.
+//! SQL loads + pure row→catalog transform.
 
 use std::collections::HashMap;
 
@@ -19,13 +18,23 @@ use crate::metrics::{
 };
 use crate::seed::{BehavioralShapeHash, PersonShapeHash, ScopeKind, ShapeHashError};
 
+macro_rules! realtime_cohorts_select {
+    () => {
+        "SELECT c.id, c.team_id, c.filters, \
+                c.behavioral_filters_shape_hash, c.person_filters_shape_hash, t.timezone \
+         FROM posthog_cohort c \
+         JOIN posthog_team t ON t.id = c.team_id \
+         WHERE c.cohort_type = 'realtime' AND c.deleted = false AND c.filters IS NOT NULL"
+    };
+}
+
 /// Realtime cohorts to load, mirroring the Node filter manager's predicate, joined to
 /// `posthog_team` for the team timezone the bucket variants use for calendar-day computation.
-pub const REALTIME_COHORTS_SQL: &str = "SELECT c.id, c.team_id, c.filters, \
-            c.behavioral_filters_shape_hash, c.person_filters_shape_hash, t.timezone \
-     FROM posthog_cohort c \
-     JOIN posthog_team t ON t.id = c.team_id \
-     WHERE c.cohort_type = 'realtime' AND c.deleted = false AND c.filters IS NOT NULL";
+pub const REALTIME_COHORTS_SQL: &str = realtime_cohorts_select!();
+
+/// Separate from [`REALTIME_COHORTS_SQL`] so a generic plan keeps the `team_id` index.
+const REALTIME_COHORTS_FOR_TEAMS_SQL: &str =
+    concat!(realtime_cohorts_select!(), " AND c.team_id = ANY($1)");
 
 /// One realtime cohort row; `filters` is the `jsonb` column decoded to a `Value`.
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -41,6 +50,17 @@ pub struct CohortRow {
 
 pub async fn load_realtime_cohorts(pool: &PgPool) -> Result<Vec<CohortRow>, FilterError> {
     let rows = sqlx::query_as::<_, CohortRow>(REALTIME_COHORTS_SQL)
+        .fetch_all(pool)
+        .await?;
+    Ok(rows)
+}
+
+pub async fn load_realtime_cohorts_for_teams(
+    pool: &PgPool,
+    team_ids: &[i32],
+) -> Result<Vec<CohortRow>, FilterError> {
+    let rows = sqlx::query_as::<_, CohortRow>(REALTIME_COHORTS_FOR_TEAMS_SQL)
+        .bind(team_ids)
         .fetch_all(pool)
         .await?;
     Ok(rows)

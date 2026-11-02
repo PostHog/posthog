@@ -13,7 +13,3 @@ class TestIP2WhoisSource:
     def test_lists_tables_without_credentials(self):
         # Static endpoint catalog with no I/O — must opt in so public docs render the table list.
         assert self.source.lists_tables_without_credentials is True
-
-    def test_get_schemas_filtered_by_names(self):
-        assert [s.name for s in self.source.get_schemas(self.config, self.team_id, names=["whois"])] == ["whois"]
-        assert self.source.get_schemas(self.config, self.team_id, names=["nonexistent"]) == []

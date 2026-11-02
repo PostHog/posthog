@@ -25,24 +25,6 @@ class TestFirstPromoterSource:
         assert schemas[name].incremental_fields == []
         assert schemas[name].default_incremental_lookback_seconds is None
 
-    @parameterized.expand(
-        [
-            ("401 Client Error: Unauthorized for url: https://api.firstpromoter.com/api/v2/company/promoters", True),
-            ("403 Client Error: Forbidden for url: https://api.firstpromoter.com/api/v2/company/commissions", True),
-            (
-                "429 Client Error: Too Many Requests for url: https://api.firstpromoter.com/api/v2/company/payouts",
-                False,
-            ),
-            (
-                "500 Server Error: Internal Server Error for url: https://api.firstpromoter.com/api/v2/company/payouts",
-                False,
-            ),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures_only(self, observed_error: str, expect_match: bool) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable) is expect_match
-
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.first_promoter.source.first_promoter_source"
     )

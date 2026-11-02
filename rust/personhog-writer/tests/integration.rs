@@ -9,10 +9,12 @@ use common::{
     cleanup_team, create_local_kafka_producer, create_mock_kafka, create_test_pool, make_person,
     unique_team_id, KAFKA_BOOTSTRAP, TARGET_TABLE, TOPIC,
 };
+use personhog_coordination::follow::Follower;
+use personhog_coordination::types::{ChangelogConfig, Generation};
 use personhog_proto::personhog::types::v1::Person;
 use personhog_writer::buffer::BufferedPerson;
 use personhog_writer::consumer::{ConsumerTask, FlushBatch};
-use personhog_writer::kafka::PersonConsumer;
+use personhog_writer::kafka::{PersonConsumer, Source};
 use personhog_writer::pg::PgStore;
 use personhog_writer::store::{
     BatchOutcome, PersonDb, PersonWriteStore, WriteError, WriteErrorKind,
@@ -24,11 +26,22 @@ use rdkafka::producer::FutureRecord;
 use rdkafka::{ClientConfig, Offset, TopicPartitionList};
 use tokio::sync::mpsc;
 
+fn source_on(topic: &str, partition: i32) -> Source {
+    Source {
+        topic: Arc::from(topic),
+        partition,
+    }
+}
+
+fn source(partition: i32) -> Source {
+    source_on(TOPIC, partition)
+}
+
 fn rows(persons: Vec<Person>) -> Vec<BufferedPerson> {
     persons
         .into_iter()
         .map(|person| BufferedPerson {
-            partition: 0,
+            source: source(0),
             person,
         })
         .collect()
@@ -723,8 +736,11 @@ async fn multi_lane_consumer_routes_partitions_and_flushes_independently() {
         .await
         .expect("lane 0 should flush on size")
         .expect("lane 0 channel should be open");
-    assert_eq!(batch0.offsets.keys().copied().collect::<Vec<_>>(), vec![0]);
-    assert_eq!(batch0.offsets[&0], 3); // four messages, offsets 0..=3
+    assert_eq!(
+        batch0.offsets.keys().cloned().collect::<Vec<_>>(),
+        vec![source(0)]
+    );
+    assert_eq!(batch0.offsets[&source(0)], 3); // four messages, offsets 0..=3
     let mut persons0 = batch0.persons;
     persons0.sort_by_key(|p| p.person.id);
     assert_eq!(
@@ -767,8 +783,11 @@ async fn multi_lane_consumer_routes_partitions_and_flushes_independently() {
         .await
         .expect("lane 1 should flush on size")
         .expect("lane 1 channel should be open");
-    assert_eq!(batch1.offsets.keys().copied().collect::<Vec<_>>(), vec![1]);
-    assert_eq!(batch1.offsets[&1], 2); // three messages, offsets 0..=2
+    assert_eq!(
+        batch1.offsets.keys().cloned().collect::<Vec<_>>(),
+        vec![source(1)]
+    );
+    assert_eq!(batch1.offsets[&source(1)], 2); // three messages, offsets 0..=2
     let mut ids1: Vec<i64> = batch1.persons.iter().map(|p| p.person.id).collect();
     ids1.sort_unstable();
     assert_eq!(ids1, vec![4, 5, 6]);
@@ -848,14 +867,15 @@ async fn capped_drains_commit_only_the_partitions_they_carry() {
             .iter()
             .map(|p| if p.person.id <= 3 { 0 } else { 1 })
             .collect();
-        let committed: std::collections::HashSet<i32> = batch.offsets.keys().copied().collect();
+        let committed: std::collections::HashSet<i32> =
+            batch.offsets.keys().map(|s| s.partition).collect();
         assert_eq!(
             committed, partitions_in_batch,
             "a batch's offsets must cover exactly the partitions it drained"
         );
 
-        for (partition, offset) in &batch.offsets {
-            let entry = max_offset_seen.entry(*partition).or_insert(-1);
+        for (source, offset) in &batch.offsets {
+            let entry = max_offset_seen.entry(source.partition).or_insert(-1);
             *entry = (*entry).max(*offset);
         }
         seen_persons += batch.persons.len();
@@ -955,7 +975,7 @@ async fn revoked_partitions_are_dropped_and_their_offsets_stay_uncommitted() {
     wait_until(Duration::from_secs(20), || {
         first
             .positions()
-            .map(|p| p.get(&0) == Some(&2) && p.get(&1) == Some(&2))
+            .map(|p| p.get(&source(0)) == Some(&2) && p.get(&source(1)) == Some(&2))
             .unwrap_or(false)
     })
     .await
@@ -981,7 +1001,7 @@ async fn revoked_partitions_are_dropped_and_their_offsets_stay_uncommitted() {
     let mut flushed_partitions = HashSet::new();
     while let Ok(Some(batch)) = tokio::time::timeout(Duration::from_secs(10), rx.recv()).await {
         flushed_ids.extend(batch.persons.iter().map(|p| p.person.id));
-        flushed_partitions.extend(batch.offsets.keys().copied());
+        flushed_partitions.extend(batch.offsets.keys().map(|s| s.partition));
     }
     flushed_ids.sort_unstable();
     let kept_ids = if kept == 0 { vec![1, 2] } else { vec![3, 4] };
@@ -992,7 +1012,7 @@ async fn revoked_partitions_are_dropped_and_their_offsets_stay_uncommitted() {
     assert_eq!(flushed_partitions, HashSet::from([kept]));
 
     first
-        .commit_offsets(&HashMap::from([(kept, 1), (revoked, 1)]))
+        .commit_offsets(&HashMap::from([(source(kept), 1), (source(revoked), 1)]))
         .unwrap();
     let mut probe = TopicPartitionList::new();
     probe.add_partition(TOPIC, kept);
@@ -1013,6 +1033,166 @@ async fn revoked_partitions_are_dropped_and_their_offsets_stay_uncommitted() {
         None,
         "the revoked partition must stay uncommitted"
     );
+}
+
+const NEXT_TOPIC: &str = "personhog_updates_g2";
+
+fn plain_member_config(bootstrap: &str, group: &str) -> ClientConfig {
+    ClientConfig::new()
+        .set("bootstrap.servers", bootstrap)
+        .set("group.id", group)
+        .set("auto.offset.reset", "earliest")
+        .set("enable.auto.commit", "false")
+        .set("enable.auto.offset.store", "false")
+        .set("session.timeout.ms", "6000")
+        .set("heartbeat.interval.ms", "1000")
+        .clone()
+}
+
+/// After a resubscribe the assignment reuses the partition numbers, so an
+/// old-topic batch still in flight must never commit onto the next topic.
+#[tokio::test]
+async fn a_late_batch_never_commits_its_offsets_onto_the_next_topic() {
+    let (mock_cluster, _producer) = common::create_mock_kafka_with_partitions(2).await;
+    mock_cluster
+        .create_topic(NEXT_TOPIC, 2, 1)
+        .expect("create the next generation");
+    let bootstrap = mock_cluster.bootstrap_servers();
+    let member = plain_member_config(&bootstrap, "test-late-batch");
+
+    let consumer = Arc::new(PersonConsumer::new(&member, TOPIC.to_string()).unwrap());
+    // Keeps the client polled, so rebalances land.
+    {
+        let consumer = Arc::clone(&consumer);
+        tokio::spawn(async move {
+            loop {
+                drop(consumer.recv().await);
+            }
+        });
+    }
+    let assigned_to = |consumer: &PersonConsumer, topic: &str| {
+        consumer
+            .assigned_partitions()
+            .ok()
+            .flatten()
+            .is_some_and(|a| a == HashSet::from([source_on(topic, 0), source_on(topic, 1)]))
+    };
+    wait_until(Duration::from_secs(20), || assigned_to(&consumer, TOPIC))
+        .await
+        .expect("the member owns the first topic");
+
+    let probe: StreamConsumer = plain_member_config(&bootstrap, "test-late-batch")
+        .create()
+        .unwrap();
+    let mut both = TopicPartitionList::new();
+    for topic in [TOPIC, NEXT_TOPIC] {
+        both.add_partition(topic, 0);
+        both.add_partition(topic, 1);
+    }
+    let committed_on = |topic: &str, partition: i32| {
+        probe
+            .committed_offsets(both.clone(), Duration::from_secs(2))
+            .ok()
+            .and_then(|c| {
+                c.elements()
+                    .iter()
+                    .find(|e| e.topic() == topic && e.partition() == partition)
+                    .and_then(|e| match e.offset() {
+                        Offset::Offset(offset) => Some(offset),
+                        _ => None,
+                    })
+            })
+    };
+
+    consumer
+        .commit_offsets(&HashMap::from([(source(0), 1)]))
+        .unwrap();
+    wait_until(Duration::from_secs(10), || {
+        committed_on(TOPIC, 0) == Some(2)
+    })
+    .await
+    .expect("the first topic's commit lands");
+
+    consumer.resubscribe(NEXT_TOPIC.to_string()).unwrap();
+    wait_until(Duration::from_secs(20), || {
+        assigned_to(&consumer, NEXT_TOPIC)
+    })
+    .await
+    .expect("the member moves to the next topic");
+
+    // Commits are sequenced on the client: the live one landing proves the late one was handled.
+    consumer
+        .commit_offsets(&HashMap::from([(source(1), 5)]))
+        .unwrap();
+    consumer
+        .commit_offsets(&HashMap::from([(source_on(NEXT_TOPIC, 0), 0)]))
+        .unwrap();
+    wait_until(Duration::from_secs(10), || {
+        committed_on(NEXT_TOPIC, 0) == Some(1)
+    })
+    .await
+    .expect("the next topic's commit lands");
+
+    assert_eq!(
+        committed_on(NEXT_TOPIC, 1),
+        None,
+        "an old-topic batch must not commit onto the next topic"
+    );
+    assert_eq!(
+        committed_on(TOPIC, 1),
+        None,
+        "a batch for a partition no longer assigned is not committed"
+    );
+    assert_eq!(committed_on(TOPIC, 0), Some(2));
+}
+
+/// The draining flag follows the subscribed topic, not the move: a writer
+/// already on the topic when it was sealed raises it too.
+#[tokio::test]
+async fn the_draining_flag_follows_the_subscribed_topic_not_the_move() {
+    let (mock_cluster, _producer) = common::create_mock_kafka_with_partitions(1).await;
+    mock_cluster
+        .create_topic(NEXT_TOPIC, 1, 1)
+        .expect("create the next generation");
+    let member = plain_member_config(&mock_cluster.bootstrap_servers(), "test-follow");
+    let consumer = PersonConsumer::new(&member, TOPIC.to_string()).unwrap();
+    let flipped = ChangelogConfig {
+        topic: NEXT_TOPIC.to_string(),
+        partitions: 1,
+        epoch: 2,
+        writer_group: "test-follow".to_string(),
+        retire_groups: vec![],
+        draining: vec![Generation {
+            topic: TOPIC.to_string(),
+            partitions: 1,
+            epoch: 1,
+        }],
+    };
+
+    let mut follower = Follower::default();
+    follower
+        .follow_once(&consumer, &flipped, |_| async { Ok(false) })
+        .await
+        .unwrap();
+    assert_eq!(consumer.topic(), TOPIC);
+    assert!(
+        consumer.is_draining(),
+        "the subscribed topic is a sealed generation"
+    );
+
+    follower
+        .follow_once(&consumer, &flipped, |_| async { Ok(true) })
+        .await
+        .unwrap();
+    assert_eq!(consumer.topic(), NEXT_TOPIC);
+    assert!(!consumer.is_draining());
+
+    // A later probe that cannot vouch for the old generation never sends it back.
+    follower
+        .follow_once(&consumer, &flipped, |_| async { Ok(false) })
+        .await
+        .unwrap();
+    assert_eq!(consumer.topic(), NEXT_TOPIC);
 }
 
 // ============================================================

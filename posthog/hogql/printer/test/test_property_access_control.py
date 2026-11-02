@@ -2,8 +2,6 @@ import uuid
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, cleanup_materialized_columns, materialized
 
-from django.conf import settings
-
 from parameterized import parameterized
 
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
@@ -149,13 +147,56 @@ class TestRestrictPropertiesInHogQL(BaseTest):
         assert "NULL AS secret_field" in sql
         assert "public_field" in sql
         assert "'secret_field'" not in sql
-        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            assert "JSONDropKeys" not in sql
-            assert not any("secret_field" in str(v) for v in values.values())
-        else:
-            assert "JSONDropKeys" in sql
-            self._assert_value_present(values, "secret_field")
-            self._assert_value_present(values, "public_field")
+        assert "JSONDropKeys" not in sql
+        assert not any("secret_field" in str(v) for v in values.values())
+
+    @parameterized.expand(
+        [
+            ("unrestricted_key", "properties.public_field", "secret_field", False),
+            ("unrestricted_nested_key", "properties.public_field.inner", "secret_field", False),
+            (
+                "json_function_with_unrestricted_key",
+                "JSONExtractString(properties, 'public_field')",
+                "secret_field",
+                False,
+            ),
+            ("json_has_unrestricted_key", "JSONHas(properties, 'public_field')", "secret_field", False),
+            ("json_function_with_user_alias", "JSONHas(properties AS p, 'public_field') AS h, p", "secret_field", True),
+            ("sibling_of_dotted_restriction", "properties.`customer.name`", "customer.ssn", False),
+            ("parent_of_dotted_restriction", "properties.customer", "customer.ssn", True),
+            ("flat_key_under_restriction", "properties.`secret_field.inner`", "secret_field", True),
+            ("json_function_reads_parent", "JSONExtractRaw(properties, 'customer')", "customer.ssn", True),
+            ("json_function_reads_by_position", "JSONExtractRaw(properties, 1)", "secret_field", True),
+            ("json_function_whole_document", "JSONExtractKeys(properties)", "secret_field", True),
+            (
+                "json_extract_with_type_only",
+                "JSONExtract(properties, 'Tuple(secret_field String)')",
+                "secret_field",
+                True,
+            ),
+        ]
+    )
+    def test_key_read_keeps_json_drop_keys_only_when_it_overlaps_a_restriction(
+        self, _name: str, expression: str, restricted_key: str, expect_mask: bool
+    ) -> None:
+        self.event_prop.name = restricted_key
+        self.event_prop.save()
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=self.event_prop,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        context = HogQLContext(
+            team_id=self.team.pk,
+            team=self.team,
+            user=self.user,
+            enable_select_queries=True,
+            modifiers=HogQLQueryModifiers(useNewEventsSchema=False),
+        )
+        sql, _ = prepare_and_print_ast(
+            parse_select(f"SELECT {expression} AS x FROM events"), context=context, dialect="clickhouse"
+        )
+        assert ("JSONDropKeys" in sql) is expect_mask, sql
 
     def test_user_override_allows_access(self):
         # default: none
@@ -684,7 +725,10 @@ class TestRestrictedPersonPropertiesBlobQuery(ClickhouseTestMixin, BaseTest):
         )
 
         response = execute_hogql_query(
-            "SELECT distinct_id, person.properties FROM events ORDER BY distinct_id",
+            # Scope to this test's distinct_ids so events left in ClickHouse by other tests don't leak in.
+            "SELECT distinct_id, person.properties FROM events "
+            "WHERE distinct_id IN ('with-person-properties', 'without-person-properties') "
+            "ORDER BY distinct_id",
             team=self.team,
             user=self.user,
             modifiers=HogQLQueryModifiers(

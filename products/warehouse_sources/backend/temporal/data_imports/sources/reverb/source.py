@@ -55,7 +55,7 @@ class ReverbSource(ResumableSource[ReverbSourceConfig, ReverbResumeConfig]):
             name=ExternalDataSourceType.REVERB,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Reverb",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Reverb personal access token to pull your shop's orders, listings, payouts, payments, and refund requests into the PostHog Data warehouse.
 
 Create a token from **My Profile → API & Integrations** in your Reverb account, with the `read_listings`, `read_orders`, and `read_payouts` scopes. The token doesn't expire.""",

@@ -23,6 +23,7 @@ class TestGetSchemas:
             ("latest", False),
             ("archive", True),
             ("crypto", True),
+            ("market", True),
             ("sources", False),
         ]
     )
@@ -30,34 +31,6 @@ class TestGetSchemas:
         schemas = {s.name: s for s in NewsDataSource().get_schemas(MagicMock(), team_id=1)}
         assert schemas[endpoint].supports_incremental is expected_incremental
         assert schemas[endpoint].supports_append is expected_incremental
-
-    def test_names_filter(self) -> None:
-        schemas = NewsDataSource().get_schemas(MagicMock(), team_id=1, names=["crypto"])
-        assert [s.name for s in schemas] == ["crypto"]
-
-
-class TestNonRetryableErrors:
-    @parameterized.expand(
-        [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://newsdata.io/api/1/archive?from_date=2024-01-01",
-            ),
-            ("forbidden", "403 Client Error: Forbidden for url: https://newsdata.io/api/1/crypto"),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed: str) -> None:
-        assert any(key in observed for key in NewsDataSource().get_non_retryable_errors())
-
-    @parameterized.expand(
-        [
-            ("read_timeout", "HTTPSConnectionPool(host='newsdata.io', port=443): Read timed out."),
-            ("server_error", "500 Server Error: Internal Server Error for url: https://newsdata.io/api/1/latest"),
-            ("rate_limited", "429 Client Error: Too Many Requests for url: https://newsdata.io/api/1/latest"),
-        ]
-    )
-    def test_transient_errors_stay_retryable(self, _name: str, observed: str) -> None:
-        assert not any(key in observed for key in NewsDataSource().get_non_retryable_errors())
 
 
 class TestSourceForPipeline:

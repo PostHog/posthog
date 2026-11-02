@@ -8,7 +8,10 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
-    rest_api_resource,
+    rest_api_resources,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    rename_parent_fields,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     PageNumberPaginator,
@@ -17,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.opencorporates.settings import (
+    COMPANY_FANOUT_PARENT,
     MAX_PAGE,
     OPENCORPORATES_ENDPOINTS,
     PER_PAGE,
@@ -30,7 +34,9 @@ OPENCORPORATES_BASE_URL = "https://api.opencorporates.com/v0.4"
 @dataclasses.dataclass(frozen=True)
 class OpencorporatesResumeConfig:
     # Next 1-indexed page to fetch — OpenCorporates uses page-number pagination.
-    next_page: int
+    next_page: int | None = None
+    # Per-company progress of the company filings/statements fan-out.
+    fanout_state: dict[str, Any] | None = None
 
 
 def _format_incremental_filter(value: Any) -> str:
@@ -45,6 +51,14 @@ def _format_incremental_filter(value: Any) -> str:
     if isinstance(value, date):
         return f"{value.isoformat()}:"
     return f"{str(value)[:10]}:"
+
+
+def _unwrap(item_key: str) -> Any:
+    def _mapper(row: dict[str, Any]) -> dict[str, Any]:
+        inner = row.get(item_key)
+        return inner if isinstance(inner, dict) else row
+
+    return _mapper
 
 
 class OpencorporatesPaginator(PageNumberPaginator):
@@ -80,27 +94,68 @@ def opencorporates_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = OPENCORPORATES_ENDPOINTS[endpoint]
+    search_config = OPENCORPORATES_ENDPOINTS[COMPANY_FANOUT_PARENT] if config.company_fanout else config
 
-    params: dict[str, Any] = {"q": query, "per_page": PER_PAGE}
-    if jurisdiction_code:
-        params["jurisdiction_code"] = jurisdiction_code
+    search_params: dict[str, Any] = {}
+    if search_config.paginated:
+        search_params["per_page"] = PER_PAGE
+    if search_config.sends_query:
+        search_params["q"] = query
+    if search_config.sends_jurisdiction_code and jurisdiction_code:
+        search_params["jurisdiction_code"] = jurisdiction_code
     if config.supports_incremental and should_use_incremental_field and db_incremental_field_last_value is not None:
-        params["updated_at"] = _format_incremental_filter(db_incremental_field_last_value)
+        search_params["updated_at"] = _format_incremental_filter(db_incremental_field_last_value)
         # Date facets are only ever returned newest-first — there is no ascending option.
-        params["order"] = "updated_at"
+        search_params["order"] = "updated_at"
 
-    resource: EndpointResource = {
-        "name": endpoint,
+    search_resource: EndpointResource = {
+        "name": search_config.name,
         "endpoint": {
-            "path": config.path,
-            "params": params,
-            "data_selector": config.data_selector,
+            "path": search_config.path,
+            "params": search_params,
+            "data_selector": search_config.data_selector,
+            "paginator": OpencorporatesPaginator() if search_config.paginated else "single_page",
         },
         "write_disposition": {"disposition": "merge", "strategy": "upsert"}
         if should_use_incremental_field
         else "replace",
         "table_format": "delta",
     }
+    if search_config.item_key:
+        search_resource["data_map"] = _unwrap(search_config.item_key)
+
+    resources: list[str | EndpointResource] = [search_resource]
+    if config.company_fanout:
+        resources.append(
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": {
+                        "jurisdiction_code": {
+                            "type": "resolve",
+                            "resource": COMPANY_FANOUT_PARENT,
+                            "field": "jurisdiction_code",
+                        },
+                        "company_number": {
+                            "type": "resolve",
+                            "resource": COMPANY_FANOUT_PARENT,
+                            "field": "company_number",
+                        },
+                        "per_page": PER_PAGE,
+                    },
+                    "data_selector": config.data_selector,
+                    "paginator": OpencorporatesPaginator(),
+                },
+                "include_from_parent": ["jurisdiction_code", "company_number"],
+                "data_map": rename_parent_fields(
+                    COMPANY_FANOUT_PARENT,
+                    {"jurisdiction_code": "company_jurisdiction_code", "company_number": "company_number"},
+                ),
+                "write_disposition": "replace",
+                "table_format": "delta",
+            }
+        )
 
     rest_config: RESTAPIConfig = {
         "client": {
@@ -108,31 +163,36 @@ def opencorporates_source(
             # api_token rides in the query string (the API's only auth method); the framework auth
             # redacts its value from every logged URL, captured sample, and raised error message.
             "auth": {"type": "api_key", "api_key": api_token, "name": "api_token", "location": "query"},
-            "paginator": OpencorporatesPaginator(),
         },
-        "resources": [resource],
+        "resources": resources,
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
         if resume is not None:
-            initial_paginator_state = {"page": resume.next_page}
+            if config.company_fanout:
+                initial_paginator_state = resume.fanout_state
+            elif resume.next_page is not None:
+                initial_paginator_state = {"page": resume.next_page}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if config.company_fanout:
+            if state is not None:
+                resumable_source_manager.save_state(OpencorporatesResumeConfig(fanout_state=state))
         # Persist only while a next page remains; save AFTER a page is yielded so a crash re-yields
         # the last page (merge dedupes on primary key) rather than skipping it.
-        if state and state.get("page") is not None:
+        elif state and state.get("page") is not None:
             resumable_source_manager.save_state(OpencorporatesResumeConfig(next_page=int(state["page"])))
 
-    rest_resource = rest_api_resource(
+    rest_resource = rest_api_resources(
         rest_config,
         team_id,
         job_id,
         db_incremental_field_last_value,
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
-    )
+    )[-1]
 
     partition_kwargs: dict[str, Any] = {}
     if config.partition_key is not None:

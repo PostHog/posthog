@@ -618,4 +618,6 @@ class MotherDuckImplementation(SQLSourceImplementation[MotherduckSourceConfig, A
             items=get_rows,
             primary_keys=primary_keys,
             rows_to_sync=rows_to_sync,
+            # One statement with `ORDER BY <incremental field>`, read as one stream.
+            sort_mode="asc" if incremental_field is not None else None,
         )

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import json
 import datetime as dt
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
@@ -19,8 +20,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_securi
     ACCESS_DENIED_CODES,
     ENDPOINTS,
     ERROR_MESSAGES,
+    INCREMENTAL_FIELDS,
     SECURITY_HUB_API_VERSION,
     SUBSCRIPTION_MESSAGE,
+    UNMODELED_OPERATION_PATHS,
     SecurityHubEndpoint,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -41,6 +44,9 @@ TRANSPORT_RETRY = BoundedRetry(
     raise_on_status=False,
 )
 _CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
+_UNORDERED_INCREMENTAL = frozenset({"finding_history", "findings_v2"})
+# CreatedAt never changes, so a finding keeps its position while the walk pages through findings.
+_FINDING_HISTORY_PARENT_SORT = [{"Field": "CreatedAt", "SortOrder": "asc"}]
 
 
 @frozen
@@ -49,6 +55,8 @@ class AwsSecurityHubResumeConfig:
     updated_after: str | None = None
     finished: bool = False
     parent_id: str | None = None
+    parent_token: str | None = None
+    cutoff: str | None = None
 
 
 class AwsSecurityHubError(Exception):
@@ -93,8 +101,19 @@ class AwsSecurityHubClient:
             ),
         )
 
+    def serialize(self, operation: str, payload: dict[str, Any]) -> dict[str, Any]:
+        if operation in self.model.operation_names:
+            return self.serializer.serialize_to_request(payload, self.model.operation_model(operation))
+        return {
+            "method": "POST",
+            "url_path": UNMODELED_OPERATION_PATHS[operation],
+            "query_string": {},
+            "headers": {"Content-Type": "application/json"},
+            "body": json.dumps(payload).encode(),
+        }
+
     def request(self, operation: str, payload: dict[str, Any]) -> dict[str, Any]:
-        serialized = self.serializer.serialize_to_request(payload, self.model.operation_model(operation))
+        serialized = self.serialize(operation, payload)
         url = self.base_url + serialized["url_path"]
         if serialized["query_string"]:
             url += "?" + urlencode(serialized["query_string"], doseq=True)
@@ -131,11 +150,35 @@ def normalize_row(item: dict[str, Any]) -> dict[str, Any]:
         "processed_at",
         "invited_at",
         "control_status_updated_at",
+        "update_time",
+        "created_time",
+        "modified_time",
+        "resource_creation_time_dt",
+        "resource_detail_capture_time_dt",
     ):
         if isinstance(row.get(key), str):
             timestamp = dt.datetime.fromisoformat(row[key].replace("Z", "+00:00"))
             row[key] = timestamp if timestamp.tzinfo else timestamp.replace(tzinfo=dt.UTC)
     return row
+
+
+def _prepare(endpoint: str, item: dict[str, Any]) -> dict[str, Any]:
+    if endpoint == "finding_history":
+        record = dict(item)
+        identifier = record.pop("FindingIdentifier", None) or {}
+        return {"ProductArn": identifier.get("ProductArn"), "FindingId": identifier.get("Id"), **record}
+    if endpoint == "findings_v2":
+        # OCSF findings nest their identity and timestamps, so copy them to top-level columns for keys and syncs.
+        info = item.get("finding_info") or {}
+        product = (item.get("metadata") or {}).get("product") or {}
+        return {
+            **item,
+            "product_uid": product.get("uid"),
+            "finding_uid": info.get("uid"),
+            "created_time": info.get("created_time_dt"),
+            "modified_time": info.get("modified_time_dt"),
+        }
+    return item
 
 
 def get_rows(
@@ -151,21 +194,34 @@ def get_rows(
     if state and state.finished:
         return
     updated_after = None
-    if endpoint == "findings" and should_use_incremental_field and db_incremental_field_last_value is not None:
+    if endpoint in INCREMENTAL_FIELDS and should_use_incremental_field and db_incremental_field_last_value is not None:
         value = db_incremental_field_last_value
         timestamp = (
             value if isinstance(value, dt.datetime) else dt.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
         )
         updated_after = (timestamp if timestamp.tzinfo else timestamp.replace(tzinfo=dt.UTC)).isoformat()
+    cutoff = None
+    if endpoint in _UNORDERED_INCREMENTAL and should_use_incremental_field:
+        # A row that changes mid-run sits below the run's highest value, so the next run would skip it.
+        # An upper bound keeps every change after the cutoff for the next run.
+        cutoff = dt.datetime.now(dt.UTC).isoformat()
     if state:
         updated_after = state.updated_after
+        cutoff = state.cutoff
     client = AwsSecurityHubClient(config, api_version)
     try:
+        if endpoint == "finding_history":
+            yield from _finding_history_rows(client, manager, state, updated_after, cutoff)
+            return
         filters: dict[str, Any] = {}
         if endpoint == "findings":
             filters["SortCriteria"] = [{"Field": "UpdatedAt", "SortOrder": "asc"}]
             if updated_after:
                 filters["Filters"] = {"UpdatedAt": [{"Start": updated_after}]}
+        if endpoint == "findings_v2" and cutoff:
+            window = {"End": cutoff, **({"Start": updated_after} if updated_after else {})}
+            date_filter = {"FieldName": "finding_info.modified_time_dt", "Filter": window}
+            filters["Filters"] = {"CompositeFilters": [{"DateFilters": [date_filter]}]}
         parent_ids: list[str | None] = [None]
         parent_field = None
         if endpoint_config.parent:
@@ -184,11 +240,12 @@ def get_rows(
             pages = _pages(client, endpoint_config, start_token, {**filters, **path_params})
             start_token = None
             for items, token in pages:
-                rows = [normalize_row({**path_params, **item}) for item in items]
+                rows = [normalize_row(_prepare(endpoint, {**path_params, **item})) for item in items]
                 manager.save_state(
                     AwsSecurityHubResumeConfig(
                         next_token=token,
                         updated_after=updated_after,
+                        cutoff=cutoff,
                         finished=token is None and next_parent is None,
                         parent_id=parent_id if token else next_parent,
                     )
@@ -200,22 +257,112 @@ def get_rows(
         client.session.close()
 
 
+def _finding_history_rows(
+    client: AwsSecurityHubClient,
+    manager: ResumableSourceManager[AwsSecurityHubResumeConfig],
+    state: AwsSecurityHubResumeConfig | None,
+    start_time: str | None,
+    cutoff: str | None,
+) -> Iterator[list[dict[str, Any]]]:
+    history = ENDPOINTS["finding_history"]
+    extra = {key: value for key, value in (("StartTime", start_time), ("EndTime", cutoff)) if value}
+    parent_token = state.parent_token if state else None
+    resume_from = state.parent_id if state else None
+    start_token = state.next_token if state else None
+    while True:
+        payload: dict[str, Any] = {"MaxResults": 100, "SortCriteria": _FINDING_HISTORY_PARENT_SORT}
+        if parent_token:
+            payload["NextToken"] = parent_token
+        result = client.request("GetFindings", payload)
+        next_parent_token = result.get("NextToken") or None
+        identifiers = [
+            {"Id": finding["Id"], "ProductArn": finding["ProductArn"]}
+            for finding in result.get("Findings") or []
+            if finding.get("Id") and finding.get("ProductArn")
+        ]
+        keys = [_finding_key(identifier) for identifier in identifiers]
+        if resume_from in keys:
+            identifiers = identifiers[keys.index(resume_from) :]
+            keys = keys[keys.index(resume_from) :]
+        else:
+            start_token = None
+        resume_from = None
+        if not identifiers:
+            manager.save_state(
+                AwsSecurityHubResumeConfig(
+                    updated_after=start_time,
+                    cutoff=cutoff,
+                    parent_token=next_parent_token,
+                    finished=next_parent_token is None,
+                )
+            )
+            manager.safe_point()
+        for index, identifier in enumerate(identifiers):
+            next_key = keys[index + 1] if index + 1 < len(keys) else None
+            pages = _pages(client, history, start_token, {"FindingIdentifier": identifier, **extra})
+            start_token = None
+            for records, token in pages:
+                rows = [normalize_row(_prepare("finding_history", record)) for record in records]
+                if token or next_key:
+                    next_state = AwsSecurityHubResumeConfig(
+                        updated_after=start_time,
+                        cutoff=cutoff,
+                        parent_token=parent_token,
+                        parent_id=keys[index] if token else next_key,
+                        next_token=token,
+                    )
+                else:
+                    next_state = AwsSecurityHubResumeConfig(
+                        updated_after=start_time,
+                        cutoff=cutoff,
+                        parent_token=next_parent_token,
+                        finished=next_parent_token is None,
+                    )
+                manager.save_state(next_state)
+                if rows:
+                    yield rows
+                manager.safe_point()
+        if next_parent_token is None:
+            return
+        parent_token = next_parent_token
+
+
+def _finding_key(identifier: dict[str, str]) -> str:
+    return f"{identifier['ProductArn']}\n{identifier['Id']}"
+
+
+def _items(endpoint: SecurityHubEndpoint, result: dict[str, Any]) -> list[dict[str, Any]]:
+    items = result.get(endpoint.result_key) or []
+    if isinstance(items, dict):
+        # GetInsightResults returns one object with the grouped counts nested inside it.
+        group_by = items.get("GroupByAttribute")
+        return [{"GroupByAttribute": group_by, **value} for value in items.get("ResultValues") or []]
+    return items
+
+
 def _pages(
     client: AwsSecurityHubClient, endpoint: SecurityHubEndpoint, token: str | None, extra: dict[str, Any]
 ) -> Iterator[tuple[list[dict[str, Any]], str | None]]:
     while True:
-        payload: dict[str, Any] = {"MaxResults": endpoint.page_size, **dict(endpoint.params), **extra}
+        payload: dict[str, Any] = {**dict(endpoint.params), **extra}
+        if endpoint.page_size:
+            payload["MaxResults"] = endpoint.page_size
         if token:
             payload["NextToken"] = token
         result = client.request(endpoint.operation, payload)
         token = result.get("NextToken") or None
-        yield result.get(endpoint.result_key) or [], token
+        yield _items(endpoint, result), token
         if token is None:
             return
 
 
 def _probe(client: AwsSecurityHubClient, endpoint: SecurityHubEndpoint) -> None:
     path_params: dict[str, Any] = {}
+    if endpoint.operation == "GetFindingHistory":
+        findings = client.request("GetFindings", {"MaxResults": 1}).get("Findings") or []
+        if not findings:
+            return
+        path_params["FindingIdentifier"] = {"Id": findings[0]["Id"], "ProductArn": findings[0]["ProductArn"]}
     if endpoint.parent:
         parent_name, parent_field = endpoint.parent
         parent = ENDPOINTS[parent_name]
@@ -223,7 +370,7 @@ def _probe(client: AwsSecurityHubClient, endpoint: SecurityHubEndpoint) -> None:
         if not items:
             return
         path_params[parent_field] = items[0][parent_field]
-    client.request(endpoint.operation, {"MaxResults": 1, **path_params})
+    client.request(endpoint.operation, {**({"MaxResults": 1} if endpoint.page_size else {}), **path_params})
 
 
 def validate_credentials(
@@ -288,7 +435,9 @@ def aws_security_hub_source(
             config, endpoint, api_version, manager, should_use_incremental_field, db_incremental_field_last_value
         ),
         primary_keys=list(endpoint_config.primary_keys),
-        sort_mode="asc" if endpoint == "findings" else None,
+        # Finding history arrives grouped by finding, and GetFindingsV2 is not sorted, so the pipeline
+        # takes the highest value of the run as the watermark when the run ends.
+        sort_mode="asc" if endpoint == "findings" else "desc" if endpoint in INCREMENTAL_FIELDS else None,
         partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
         partition_mode="datetime" if endpoint_config.partition_key else None,
         partition_format="month" if endpoint_config.partition_key else None,

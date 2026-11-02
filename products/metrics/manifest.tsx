@@ -1,7 +1,6 @@
-import { FEATURE_FLAGS, INSIGHT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { MetricsQuery, NodeKind, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
+import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 import { FileSystemIconColor, ProductManifest } from '~/types'
 
 import type { MetricsSceneActiveTab } from './frontend/metricsSceneLogic'
@@ -42,19 +41,6 @@ export const manifest: ProductManifest = {
             templateId ? `/metrics/dashboard-review/${templateId}` : '/metrics/dashboard-review',
     },
     fileSystemTypes: {},
-    treeItemsNew: [
-        {
-            path: `Insight/Metrics`,
-            type: 'insight',
-            href: urls.insightNew({
-                query: { kind: NodeKind.MetricsQuery, clauses: [], dateRange: { date_from: '-1h' } } as MetricsQuery,
-            }),
-            flag: FEATURE_FLAGS.METRICS_INSIGHT_BUILDER,
-            iconType: 'metrics',
-            visualOrder: INSIGHT_VISUAL_ORDER.metrics,
-            sceneKeys: ['Insight'],
-        },
-    ],
     treeItemsProducts: [
         {
             path: 'Metrics',

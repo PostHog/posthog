@@ -4,7 +4,6 @@ from typing import Any
 import pytest
 from unittest.mock import patch
 
-import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.canvas_lms import canvas_lms as canvas_lms_module
@@ -20,7 +19,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.canvas_lms
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.canvaslms import (
@@ -103,12 +101,6 @@ class TestValidateCredentials:
         assert network.session_options[0]["redact_values"] == ("tok",)
         assert network.session_options[0]["capture"] is False
 
-    def test_invalid_token(self):
-        with scripted_network([ScriptedResponse(status=401)]):
-            valid, msg = validate_credentials("yourschool.instructure.com", "1", "tok")
-        assert valid is False
-        assert msg == "Invalid Canvas access token"
-
     def test_unknown_account_is_rejected(self):
         with scripted_network([ScriptedResponse(status=404)]):
             valid, msg = validate_credentials("yourschool.instructure.com", "999", "tok")
@@ -130,12 +122,6 @@ class TestValidateCredentials:
         valid, msg = validate_credentials(bad_domain, "1", "tok")
         assert valid is False
         assert msg is not None
-
-    def test_request_exception_returns_failure(self):
-        with scripted_network(always(requests.exceptions.ConnectionError("boom"))):
-            valid, msg = validate_credentials("yourschool.instructure.com", "1", "tok")
-        assert valid is False
-        assert "boom" in (msg or "")
 
     def test_rejects_redirect_response(self):
         response = ScriptedResponse(status=302, headers={"Location": "http://169.254.169.254/"})

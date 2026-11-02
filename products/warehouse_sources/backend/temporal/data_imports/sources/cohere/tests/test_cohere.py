@@ -46,22 +46,34 @@ class TestOffsetPagination:
 
 
 class TestPageTokenPagination:
-    def test_follows_next_page_token(self) -> None:
+    @pytest.mark.parametrize(
+        "endpoint, key, expected_path, expected_order_by",
+        [
+            ("models", "name", "/v1/models", [None, None]),
+            # Batches exist only on /v2/; a /v1/ request would 404 on every sync.
+            ("batches", "id", "/v2/batches", ["created_at", "created_at"]),
+        ],
+    )
+    def test_follows_next_page_token(
+        self, endpoint: str, key: str, expected_path: str, expected_order_by: list[str | None]
+    ) -> None:
         result = _driver().run(
-            "models",
+            endpoint,
             [
-                _response("models", [{"name": "command"}], extra={"next_page_token": "t2"}),
-                _response("models", [{"name": "embed"}]),
+                _response(endpoint, [{key: "first"}], extra={"next_page_token": "t2"}),
+                _response(endpoint, [{key: "second"}]),
             ],
         )
 
         assert result.raised is None
-        assert [row["name"] for row in result.rows] == ["command", "embed"]
+        assert [row[key] for row in result.rows] == ["first", "second"]
+        assert {request.path for request in result.requests} == {expected_path}
         # First request carries the page size but no token; the second carries the token from the
-        # first response. Absence of a token in the second response ends pagination. /models caps
-        # page_size at 1000.
+        # first response. Absence of a token in the second response ends pagination. Both endpoints
+        # cap page_size at 1000.
         assert result.params("page_size") == ["1000", "1000"]
         assert result.params("page_token") == [None, "t2"]
+        assert result.params("order_by") == expected_order_by
         assert len(result.requests) == 2
 
 

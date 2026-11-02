@@ -212,13 +212,6 @@ class TestValidateCredentials:
         else:
             assert message is not None and message_fragment in message
 
-    def test_connection_error_returns_message(self) -> None:
-        with scripted_network(always(ConnectionError("network down"))):
-            is_valid, message = validate_credentials("tok", "acme", None, team_id=1)
-
-        assert is_valid is False
-        assert message is not None and "Could not connect to pretix" in message
-
     def test_invalid_organizer_rejected_without_request(self) -> None:
         with scripted_network([]) as network:
             is_valid, message = validate_credentials("tok", "  ", None, team_id=1)

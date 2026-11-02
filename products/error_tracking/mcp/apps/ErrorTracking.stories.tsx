@@ -115,6 +115,27 @@ export const WithBreakdown: Story = {
     name: 'Issue with breakdown',
 }
 
+const issueWithSummary: ErrorIssueData = {
+    ...activeIssue,
+    summary_status: 'ready',
+    summary: {
+        what_happened:
+            'The dashboard grid throws a TypeError when it renders a dashboard whose items list is null. The page stays blank.',
+        likely_cause:
+            'DashboardGrid.tsx calls map on dashboard items before the items request finishes, so the value is still null.',
+        who_is_affected: 'About 40 users in the last 7 days, mostly on Chrome, all on the dashboard page.',
+        suggested_next_step:
+            'Default dashboard items to an empty list in DashboardGrid.tsx until the request finishes.',
+        category: 'own_code',
+        generated_at: '2025-12-11T09:00:00Z',
+    },
+}
+
+export const WithSummary: Story = {
+    render: () => <ErrorIssueView issue={issueWithSummary} />,
+    name: 'Issue with summary',
+}
+
 const sampleListData: ErrorIssueListData = {
     count: 4,
     results: [activeIssue, resolvedIssue, issueWithLinks, suppressedIssue],

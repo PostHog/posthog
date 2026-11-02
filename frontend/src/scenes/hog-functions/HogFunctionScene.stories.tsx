@@ -118,11 +118,78 @@ const MOCK_HOG_FUNCTION_TEMPLATING_WARNING = {
     },
 }
 
+const MOCK_HOG_FUNCTION_WITH_DRAFT_ID = '0196b144-1f82-0000-0d0d-a01de54d6751'
+
+const MOCK_HOG_FUNCTION_WITH_DRAFT = {
+    ...MOCK_HOG_FUNCTION,
+    id: MOCK_HOG_FUNCTION_WITH_DRAFT_ID,
+    batch_export_id: null,
+    // A large staged change, so the publish dialog shows how a multi-field diff renders.
+    draft: {
+        hog: [
+            'if (empty(inputs.url)) {',
+            "    throw Error('Webhook URL is required')",
+            '}',
+            '',
+            'let payload := {',
+            "    'event': event.event,",
+            "    'distinct_id': event.distinct_id,",
+            "    'timestamp': event.timestamp,",
+            "    'summary': f'{person.name} submitted a score of {event.properties.score}',",
+            '}',
+            '',
+            'let res := fetch(inputs.url, {',
+            "  'headers': inputs.headers,",
+            "  'body': payload,",
+            "  'method': inputs.method",
+            '});',
+            '',
+            'if (res.status >= 400) {',
+            "    throw Error(f'Webhook returned {res.status}: {res.body}')",
+            '}',
+            '',
+            'if (inputs.thread_details and res.body.ts) {',
+            '    fetch(inputs.url, {',
+            "        'headers': inputs.headers,",
+            "        'body': {'thread_ts': res.body.ts, 'properties': event.properties},",
+            "        'method': inputs.method",
+            '    })',
+            '}',
+        ].join('\n'),
+        inputs_schema: [
+            ...MOCK_HOG_FUNCTION.inputs_schema,
+            { key: 'headers', type: 'dictionary', label: 'Headers', secret: false, required: false },
+            {
+                key: 'thread_details',
+                type: 'boolean',
+                label: 'Post details in a thread',
+                secret: false,
+                required: false,
+            },
+        ],
+        inputs: {
+            url: { value: 'https://example.com/webhook-v2' },
+            method: { value: 'POST' },
+            headers: { value: { 'Content-Type': 'application/json' } },
+            thread_details: { value: true },
+        },
+        filters: {
+            events: [{ id: 'survey sent', type: 'events', name: 'survey sent', order: 0 }],
+            properties: [{ key: '$survey_id', value: 'example-survey', operator: 'exact', type: 'event' }],
+            filter_test_accounts: true,
+        },
+        mappings: null,
+        masking: null,
+    },
+    draft_updated_at: '2024-01-14T10:00:00Z',
+}
+
 const commonMocks = {
     get: {
         [`/api/environments/:team_id/hog_functions/${MOCK_HOG_FUNCTION_ID}/`]: MOCK_HOG_FUNCTION,
         [`/api/environments/:team_id/hog_functions/${MOCK_HOG_FUNCTION_TEMPLATING_WARNING_ID}/`]:
             MOCK_HOG_FUNCTION_TEMPLATING_WARNING,
+        [`/api/environments/:team_id/hog_functions/${MOCK_HOG_FUNCTION_WITH_DRAFT_ID}/`]: MOCK_HOG_FUNCTION_WITH_DRAFT,
         '/api/environments/:team_id/hog_functions/': { count: 1, results: [MOCK_HOG_FUNCTION], next: null },
         [`/api/environments/:team_id/batch_exports/${MOCK_BATCH_EXPORT_ID}/`]: MOCK_BATCH_EXPORT,
         [`/api/environments/:team_id/batch_exports/${MOCK_BATCH_EXPORT_ID}/runs/`]: { results: [], next: null },
@@ -131,6 +198,13 @@ const commonMocks = {
         // Fallback in case enableBackfills is triggered (e.g. for hog functions without batch_export_id)
         [`/api/environments/:team_id/hog_functions/${MOCK_HOG_FUNCTION_ID}/enable_backfills/`]: {
             batch_export_id: MOCK_BATCH_EXPORT_ID,
+        },
+        [`/api/environments/:team_id/hog_functions/${MOCK_HOG_FUNCTION_WITH_DRAFT_ID}/publish/`]: {
+            published: false,
+            draft_updated_at: MOCK_HOG_FUNCTION_WITH_DRAFT.draft_updated_at,
+            confirm_token: 'mock-confirm-token',
+            changed_fields: ['filters', 'hog', 'inputs', 'inputs_schema'],
+            function: null,
         },
     },
 }
@@ -247,5 +321,11 @@ export const Configuration: Story = {
 export const ConfigurationWithTemplatingWarning: Story = {
     parameters: {
         pageUrl: urls.hogFunction(MOCK_HOG_FUNCTION_TEMPLATING_WARNING_ID),
+    },
+}
+
+export const ConfigurationWithStagedDraft: Story = {
+    parameters: {
+        pageUrl: urls.hogFunction(MOCK_HOG_FUNCTION_WITH_DRAFT_ID),
     },
 }

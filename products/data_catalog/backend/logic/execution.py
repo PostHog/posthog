@@ -23,6 +23,7 @@ from rest_framework.exceptions import Throttled, ValidationError
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError
 
+from posthog.api.query import CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS
 from posthog.api.services.query import process_query_dict
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import (
@@ -119,7 +120,7 @@ def run_metric(
             )
         except ConcurrencyLimitExceeded:
             run.record("concurrency_limited")
-            raise Throttled(detail=_CONCURRENCY_LIMIT_MESSAGE)
+            raise Throttled(wait=CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS, detail=_CONCURRENCY_LIMIT_MESSAGE)
         except ValidationError:
             run.record("rejected")
             raise

@@ -30,7 +30,7 @@ from posthog.hogql_queries.ai.sentiment_evaluations import (
     get_sentiment_for_generation,
     load_generation_sentiment_evaluations_for_traces,
 )
-from posthog.hogql_queries.ai.utils import merge_heavy_properties
+from posthog.hogql_queries.ai.utils import merge_heavy_properties, with_global_in_subqueries
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -65,11 +65,18 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
     cached_response: CachedSessionQueryResponse
     paginator: HogQLHasMorePaginator
 
-    def __init__(self, *args: Any, for_evaluation: bool = False, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        *args: Any,
+        for_evaluation: bool = False,
+        bypass_property_access_control: bool = False,
+        **kwargs: Any,
+    ) -> None:
         # Online evaluations need a time-bounded primary query and no events fallback: an
         # aged-out session must surface as "expired", not as a stripped events scan whose rows
         # lack input/output_choices, which would have the judge grade an empty transcript.
         self.for_evaluation = for_evaluation
+        self._bypass_property_access_control = bypass_property_access_control
         super().__init__(*args, **kwargs)
         limit = self.query.limit
         if self.limit_context == LimitContext.EXPORT:
@@ -88,12 +95,9 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
 
         query = self._build_query()
 
-        # Evaluation reads one session by id, so it skips the full per-team catalog build (see
-        # query_ai_events). Interactive reads keep the full catalog because their request modifiers
-        # can name warehouse tables.
-        database = (
-            Database.create_for_posthog_tables(self.team, modifiers=self.modifiers) if self.for_evaluation else None
-        )
+        # The query reads only ai_events or events and takes no property filters, so it skips the full
+        # per-team catalog build, which takes seconds on a project with a large data warehouse.
+        database = Database.create_for_posthog_tables(self.team, modifiers=self.modifiers)
         with self.timings.measure("session_query_ai_events_execute"), tags_context(product=Product.LLM_ANALYTICS):
             tag_queries(ai_query_source="dedicated_table")
             query_result = self.paginator.execute_hogql_query(
@@ -108,7 +112,12 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
                 timings=self.timings,
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
-                context=HogQLContext(team_id=self.team.pk, user=self.user, database=database),
+                context=HogQLContext(
+                    team_id=self.team.pk,
+                    user=self.user,
+                    database=database,
+                    restricted_properties=set() if self._bypass_property_access_control else None,
+                ),
             )
 
         if not query_result.results and not self.for_evaluation:
@@ -135,7 +144,13 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
                     timings=self.timings,
                     modifiers=self.modifiers,
                     limit_context=self.limit_context,
-                    context=HogQLContext(team_id=self.team.pk, user=self.user, use_new_events_schema=events_schema),
+                    context=HogQLContext(
+                        team_id=self.team.pk,
+                        user=self.user,
+                        use_new_events_schema=events_schema,
+                        database=database,
+                        restricted_properties=set() if self._bypass_property_access_control else None,
+                    ),
                 )
 
         columns: list[str] = query_result.columns or []
@@ -282,7 +297,7 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
             ORDER BY first_timestamp DESC
             """,
         )
-        return cast(ast.SelectQuery, query)
+        return cast(ast.SelectQuery, with_global_in_subqueries(query))
 
     def get_cache_payload(self) -> dict[str, Any]:
         payload = {**super().get_cache_payload(), "schema_version": 2}
@@ -290,6 +305,8 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
         # with a plain read. Keyed only when on, so plain reads keep their cache entries.
         if self.for_evaluation:
             payload["for_evaluation"] = True
+        if self._bypass_property_access_control:
+            payload["bypass_property_access_control"] = True
         return payload
 
     def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:

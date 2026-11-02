@@ -194,6 +194,7 @@ export const ChangeFeedListParams = () => zod.object({
         ),
 })
 
+export const changeFeedListQueryKindsDefault = []
 export const changeFeedListQueryLimitDefault = 100
 export const changeFeedListQueryLimitMax = 500
 
@@ -206,6 +207,18 @@ export const ChangeFeedListQueryParams = () => zod.object({
         .datetime({ offset: true })
         .optional()
         .describe('End of the time window (inclusive), ISO 8601. Defaults to now.'),
+    kinds: zod
+        .array(
+            zod
+                .enum(['feature_flag', 'experiment', 'release', 'annotation'])
+                .describe(
+                    '\* `feature_flag` - Feature flag\n\* `experiment` - Experiment\n\* `release` - Release\n\* `annotation` - Annotation'
+                )
+        )
+        .default(changeFeedListQueryKindsDefault)
+        .describe(
+            'Return only these kinds of change. Omit to return every kind. Use `feature_flag` and `experiment` to see configuration edits without releases and annotations.'
+        ),
     limit: zod
         .number()
         .min(1)

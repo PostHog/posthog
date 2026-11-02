@@ -7,10 +7,12 @@ from django.core.cache import cache
 import requests
 from rest_framework.exceptions import ValidationError
 
+from posthog.integrations import IntegrationNotFound
 from posthog.models.integration import (
     ERROR_TOKEN_REFRESH_FAILED,
     GoogleAdsIntegration,
-    Integration,
+    GoogleAdsQuotaExhaustedError,
+    GoogleAdsScopeInsufficientError,
     OauthIntegration,
     google_ads_hierarchy_level,
 )
@@ -24,6 +26,9 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfigType,
     SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigConverter,
+    SourceFieldSelectConfigOption,
     SourceFieldSwitchGroupConfig,
     SuggestedTable,
 )
@@ -183,6 +188,8 @@ class GoogleAdsSource(
             # recover — the user must reconnect their Google Ads account. Model-specific so we don't
             # swallow unrelated `DoesNotExist` errors from other models, which may be real bugs.
             "Integration matching query does not exist": "Your Google Ads connection is no longer available — it may have been disconnected. Please reconnect your Google Ads account.",
+            # `_get_integration` raises `IntegrationNotFound("Integration not found: <id>")` for the same case.
+            "Integration not found": "Your Google Ads connection is no longer available — it may have been disconnected. Please reconnect your Google Ads account.",
             # gapic wraps a transport-level UNAUTHENTICATED into google.api_core.exceptions.Unauthenticated,
             # whose str() is "401 Request is missing required authentication credential. ..." — it never
             # contains the bare "UNAUTHENTICATED" token, so the gRPC-status keys above don't catch it.
@@ -302,6 +309,7 @@ class GoogleAdsSource(
             db_incremental_field_last_value_before_lookback=inputs.db_incremental_field_last_value_before_lookback,
             history_start=inputs.history_start,
             requested_start=config.start_date if isinstance(config, GoogleAdsSourceConfig) else None,
+            skip_removed=isinstance(config, GoogleAdsSourceConfig) and config.skip_removed_keywords,
         )
 
     @property
@@ -336,6 +344,7 @@ class GoogleAdsSource(
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date",
                         caption=(
                             "Earliest date to import, as YYYY-MM-DD. On a source that has already "
@@ -348,8 +357,27 @@ class GoogleAdsSource(
                         placeholder="2020-01-01",
                         secret=False,
                     ),
+                    SourceFieldSelectConfig(
+                        name="skip_removed_keywords",
+                        sync_setting=True,
+                        label="Skip removed keywords?",
+                        caption=(
+                            "Leave out keywords that are removed, or that sit in a removed ad group or "
+                            "campaign, from the keyword and ad group criterion tables. Every sync reads "
+                            "these tables in full, so removed keywords count towards your billed row "
+                            "usage on each sync."
+                        ),
+                        required=True,
+                        defaultValue="false",
+                        converter=SourceFieldSelectConfigConverter.STR_TO_BOOL,
+                        options=[
+                            SourceFieldSelectConfigOption(label="Yes", value="true"),
+                            SourceFieldSelectConfigOption(label="No", value="false"),
+                        ],
+                    ),
                     SourceFieldSwitchGroupConfig(
                         name="is_mcc_account",
+                        account_selector=True,
                         label="Using MCC account?",
                         caption="Whether your account is a Google Ads MCC account and you're accessing a clients account?",
                         default=False,
@@ -410,6 +438,9 @@ class GoogleAdsSource(
 
         try:
             accounts = GoogleAdsIntegration(integration).list_google_ads_accessible_accounts()
+        except GoogleAdsScopeInsufficientError as e:
+            # Reconnecting alone repeats the same consent screen, so name the permission to allow.
+            raise IntegrationAccountListingError(_SCOPE_INSUFFICIENT_ERROR) from e
         except ValidationError as e:
             # Raised only for a 401/403 from Google: revoked credentials, or the connected account
             # lost access.
@@ -423,6 +454,12 @@ class GoogleAdsSource(
             # a clean message instead of the raw connection error.
             raise IntegrationAccountListingError(
                 "Google Ads did not respond in time while listing your accounts. Please try again."
+            ) from e
+        except GoogleAdsQuotaExhaustedError as e:
+            # Unlike the sync path, no Temporal activity retries this interactive call, so a 429
+            # otherwise surfaces as an unhandled 500 instead of something the user can act on.
+            raise IntegrationAccountListingError(
+                "Google Ads rate-limited this request. Please wait a moment and try again."
             ) from e
 
         names_by_id = {account["id"]: account["name"] for account in accounts}
@@ -552,7 +589,7 @@ class GoogleAdsSource(
                     'enable "Using MCC account?" and enter your manager\'s customer ID, then try again.',
                 )
             return True, None
-        except Integration.DoesNotExist:
+        except IntegrationNotFound:
             return (
                 False,
                 "The Google Ads connection for this source no longer exists. Please reconnect your Google Ads account.",

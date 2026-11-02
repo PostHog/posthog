@@ -43,6 +43,9 @@ const FULL_RUN_PATTERNS = [
     'frontend/src/lib/',
     'frontend/src/styles/',
     'frontend/src/mocks/',
+    // A staticDirs source in common/storybook/.storybook/main.ts. The stories fetch it by URL,
+    // so no story imports it and a selective run would render zero stories.
+    'posthog/templates/replay_player_frame/',
     'common/tailwind/',
     'tailwind.config.js',
     'tailwind.config.ts',

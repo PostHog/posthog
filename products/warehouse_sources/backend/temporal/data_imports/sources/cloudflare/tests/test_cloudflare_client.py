@@ -6,6 +6,7 @@ import pytest
 import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.cloudflare import (
+    DNS_ANALYTICS_ALL_ZONES_FAILED,
     PAGE_SIZE,
     TokenCheck,
     _redact_access_app,
@@ -22,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare
     ZONES_PARENT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.source import CloudflareSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
@@ -175,12 +177,28 @@ class TestZoneFanout:
 
         assert isinstance(result.raised, requests.HTTPError)
 
-    def test_forbidden_zone_listing_propagates(self) -> None:
-        # No zone access at all (the top-level listing) must still fail loudly
-        # so the schema is flagged non-retryable rather than silently emptied.
-        result = _driver().run("dns_records", [_error_response(403)])
+    @pytest.mark.parametrize(
+        "endpoint, expected_message",
+        [
+            ("zones", "can't list your zones"),
+            ("dns_records", "can't list your zones"),
+            ("audit_logs", "can't list your accounts"),
+        ],
+    )
+    def test_forbidden_parent_listing_fails_with_the_permission_to_add(
+        self, endpoint: str, expected_message: str
+    ) -> None:
+        # No access to the top-level listing must still fail loudly so the schema is flagged
+        # non-retryable rather than silently emptied, and the customer is told which list it was.
+        result = _driver().run(endpoint, [_error_response(403)])
 
         assert isinstance(result.raised, requests.HTTPError)
+        message = next(
+            message
+            for pattern, message in CloudflareSource().get_non_retryable_errors().items()
+            if error_message_matches(str(result.raised), [pattern])
+        )
+        assert message is not None and expected_message in message
 
 
 class TestRetry:
@@ -214,7 +232,7 @@ class TestCloudflareSourceResponse:
         assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == list(config.primary_keys)
-        assert response.sort_mode == "asc"
+        assert response.sort_mode is None
         assert response.partition_mode is None
         assert response.partition_keys is None
 
@@ -232,10 +250,18 @@ class TestEndpointConfigConsistency:
 
 
 class TestAccountFanout:
-    @pytest.mark.parametrize("status_code", [403, 404])
-    def test_skips_account_the_token_cannot_read(self, status_code: int) -> None:
+    @pytest.mark.parametrize(
+        "endpoint, status_code",
+        [
+            ("kv_namespaces", 403),
+            ("kv_namespaces", 404),
+            ("kv_namespaces", 401),
+            ("d1_databases", 401),
+        ],
+    )
+    def test_skips_account_the_token_cannot_read(self, endpoint: str, status_code: int) -> None:
         result = _driver().run(
-            "kv_namespaces",
+            endpoint,
             [
                 _response([{"id": "a1"}, {"id": "a2"}], total_pages=1),
                 _error_response(status_code),
@@ -256,12 +282,7 @@ class TestSinglePageEndpoints:
         # These endpoints document no page params, so Cloudflare ignores `page` and would
         # return the same rows forever if the page-number paginator were used.
         full_page = [{"id": str(i)} for i in range(PAGE_SIZE)]
-        child = (
-            _raw_response({"success": True, "result": {"data": full_page}})
-            if endpoint == "dns_analytics_report"
-            else _response(full_page)
-        )
-        result = _driver().run(endpoint, [_response([{"id": "z1"}], total_pages=1), child])
+        result = _driver().run(endpoint, [_response([{"id": "z1"}], total_pages=1), _response(full_page)])
 
         assert result.raised is None
         assert len(result.requests) == 2
@@ -269,36 +290,92 @@ class TestSinglePageEndpoints:
         assert result.requests[1].param("per_page") is None
 
 
+def _dns_groups(*groups: tuple[str, str, int, int]) -> ScriptedResponse:
+    return _raw_response(
+        {
+            "data": {
+                "viewer": {
+                    "zones": [
+                        {
+                            "dnsAnalyticsAdaptiveGroups": [
+                                {
+                                    "count": count,
+                                    "dimensions": {
+                                        "queryType": query_type,
+                                        "responseCode": response_code,
+                                        "responseCached": cached,
+                                    },
+                                }
+                                for query_type, response_code, cached, count in groups
+                            ]
+                        }
+                    ]
+                }
+            },
+            "errors": None,
+        }
+    )
+
+
+def _graphql_error(message: str) -> ScriptedResponse:
+    return _raw_response({"data": None, "errors": [{"message": message}]})
+
+
 class TestDnsAnalyticsReport:
-    def test_positional_report_arrays_become_named_columns(self) -> None:
+    def test_cached_groups_sum_into_report_columns_and_unreadable_zones_are_skipped(self) -> None:
         result = _driver().run(
             "dns_analytics_report",
             [
-                _response([{"id": "z1"}], total_pages=1),
-                _raw_response(
-                    {
-                        "success": True,
-                        "result": {
-                            "rows": 1,
-                            "data": [{"dimensions": ["A", "NOERROR"], "metrics": [10, 4]}],
-                        },
-                    }
-                ),
+                _response([{"id": "z1"}, {"id": "z2"}], total_pages=1),
+                _graphql_error("not authorized for zone z1"),
+                _dns_groups(("A", "NOERROR", 1, 6), ("A", "NOERROR", 0, 4), ("MX", "NXDOMAIN", 0, 2)),
             ],
         )
 
         assert result.raised is None
         assert result.rows == [
-            {
-                "queryType": "A",
-                "responseCode": "NOERROR",
-                "queryCount": 10,
-                "uncachedCount": 4,
-                "_zone_id": "z1",
-            }
+            {"queryType": "A", "responseCode": "NOERROR", "queryCount": 10, "uncachedCount": 4, "_zone_id": "z2"},
+            {"queryType": "MX", "responseCode": "NXDOMAIN", "queryCount": 2, "uncachedCount": 2, "_zone_id": "z2"},
         ]
-        assert result.requests[1].param("metrics") == "queryCount,uncachedCount"
-        assert result.requests[1].param("dimensions") == "queryType,responseCode"
+        graphql_request = result.requests[2]
+        assert (graphql_request.method, graphql_request.path) == ("POST", "/client/v4/graphql")
+        assert graphql_request.json()["variables"]["zoneTag"] == "z2"
+
+    def test_token_without_analytics_permission_syncs_no_rows(self) -> None:
+        denied = "Actor 'com.cloudflare.api.token.abc' does not have permission 'com.cloudflare.api.account.zone.analytics.read' for zone z1"
+        result = _driver().run(
+            "dns_analytics_report",
+            [
+                _response([{"id": "z1"}, {"id": "z2"}], total_pages=1),
+                _graphql_error(denied),
+                _graphql_error(denied),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == []
+
+    @pytest.mark.parametrize(
+        "second_zone_error",
+        [
+            "unknown field dnsAnalyticsAdaptiveGroups",
+            "Actor 'com.cloudflare.api.token.abc' does not have permission 'com.cloudflare.api.account.zone.analytics.read' for zone z2",
+        ],
+    )
+    def test_broken_query_on_every_zone_fails_without_disabling(self, second_zone_error: str) -> None:
+        result = _driver().run(
+            "dns_analytics_report",
+            [
+                _response([{"id": "z1"}, {"id": "z2"}], total_pages=1),
+                _graphql_error("unknown field dnsAnalyticsAdaptiveGroups"),
+                _graphql_error(second_zone_error),
+            ],
+        )
+
+        assert isinstance(result.raised, ValueError)
+        assert DNS_ANALYTICS_ALL_ZONES_FAILED in str(result.raised)
+        assert "unknown field dnsAnalyticsAdaptiveGroups" in str(result.raised)
+        assert not error_message_matches(str(result.raised), CloudflareSource().get_non_retryable_errors().keys())
 
 
 class TestLogpushDestinationRedaction:

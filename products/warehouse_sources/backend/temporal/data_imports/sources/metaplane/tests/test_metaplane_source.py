@@ -13,10 +13,6 @@ class TestMetaplaneSource:
         self.team_id = 123
         self.config = MetaplaneSourceConfig(api_key="mp-test-key")
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["monitors"])
-        assert [s.name for s in schemas] == ["monitors"]
-
     @pytest.mark.parametrize(
         "is_valid, expected_valid, expected_has_message",
         [

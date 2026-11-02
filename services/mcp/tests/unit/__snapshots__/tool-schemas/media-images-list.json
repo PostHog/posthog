@@ -11,7 +11,7 @@
         },
         "purpose": {
             "description": "The library to list, e.g. \"email\". Required.",
-            "enum": ["canvas", "email"],
+            "enum": ["canvas", "email", "experiment"],
             "type": "string"
         },
         "search": {

@@ -70,7 +70,7 @@ class GustoSource(ResumableSource[GustoSourceConfig, GustoResumeConfig]):
             name=ExternalDataSourceType.GUSTO,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Gusto",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["payroll", "hris", "zenpayroll"],
             caption="""Pull your Gusto payroll and people data into the PostHog Data warehouse.
 

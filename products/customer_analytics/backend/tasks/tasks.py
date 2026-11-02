@@ -11,9 +11,11 @@ from posthog.models.scoping import with_team_scope
 from products.customer_analytics.backend.facade.email_matching import (
     finish_email_thread_link_recalculation,
     recalculate_email_thread_links,
+    recalculate_email_thread_links_for_account_properties,
 )
 from products.customer_analytics.backend.logic.announcements import send_pending_deliveries
 from products.customer_analytics.backend.logic.custom_property_sync import sync_custom_property_values
+from products.customer_analytics.backend.logic.email_matching_monitoring import track_email_thread_matching
 from products.customer_analytics.backend.logic.feature_request_github import process_github_issue_update
 
 logger = structlog.get_logger(__name__)
@@ -159,8 +161,34 @@ def rematch_account_meetings(team_id: int, account_id: str) -> None:
 )
 @with_team_scope()
 def recalculate_email_thread_account_links(team_id: int) -> None:
-    recalculate_email_thread_links(team_id)
-    finish_email_thread_link_recalculation(team_id)
+    with track_email_thread_matching(team_id, "full"):
+        recalculate_email_thread_links(team_id)
+        finish_email_thread_link_recalculation(team_id)
+
+
+@shared_task(
+    name="customer_analytics.recalculate_email_thread_account_links_for_account_properties",
+    ignore_result=True,
+    autoretry_for=(Exception,),
+    max_retries=3,
+    retry_backoff=True,
+    retry_jitter=True,
+)
+@with_team_scope()
+def recalculate_email_thread_account_links_for_account_properties(
+    team_id: int,
+    account_id: str,
+    *,
+    previous_known_emails: list[str],
+    previous_email_domains: list[str],
+) -> None:
+    with track_email_thread_matching(team_id, "account_properties"):
+        recalculate_email_thread_links_for_account_properties(
+            team_id,
+            account_id,
+            previous_known_emails=previous_known_emails,
+            previous_email_domains=previous_email_domains,
+        )
 
 
 @shared_task(
@@ -173,7 +201,8 @@ def recalculate_email_thread_account_links(team_id: int) -> None:
 )
 @with_team_scope()
 def recalculate_email_thread_account_links_for_threads(team_id: int, thread_ids: list[str]) -> None:
-    recalculate_email_thread_links(team_id, thread_ids=thread_ids)
+    with track_email_thread_matching(team_id, "threads"):
+        recalculate_email_thread_links(team_id, thread_ids=thread_ids, append_only=True)
 
 
 # autoretry_for is load-bearing: bare max_retries kwargs without it are silently inert.

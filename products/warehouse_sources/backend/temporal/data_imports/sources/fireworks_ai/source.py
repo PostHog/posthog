@@ -57,7 +57,7 @@ class FireworksAISource(ResumableSource[FireworksAISourceConfig, FireworksAIResu
             name=ExternalDataSourceType.FIREWORKSAI,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Fireworks AI",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Fireworks AI API key and account ID to sync your models, datasets, deployments, routers, fine-tuning jobs, batch inference jobs, evaluations, account users, and token and spend usage into the PostHog Data warehouse.
 
 You can find or create an API key in your [Fireworks AI account settings](https://app.fireworks.ai/settings/users/api-keys). Your account ID is shown in your account settings and in every resource name (`accounts/<account-id>/...`).""",

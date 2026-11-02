@@ -52,7 +52,7 @@ class RenderSource(ResumableSource[RenderSourceConfig, RenderResumeConfig]):
             name=ExternalDataSourceType.RENDER,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Render",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Render API key to pull your services, deploys, jobs, and databases into the PostHog Data warehouse.
 
 You can create an API key in your [Render account settings](https://dashboard.render.com/settings#api-keys).

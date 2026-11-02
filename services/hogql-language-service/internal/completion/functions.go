@@ -63,5 +63,5 @@ toStartOfISOYear toStartOfInterval toStartOfMinute toStartOfMonth toStartOfQuart
 toYYYYMMDD toYYYYMMDDhhmmss toYear toYearWeek to_char to_date to_timestamp today tokens topK topLevelDomain transform translate translateUTF8 trim trimLeft trimRight trunc tryBase58Decode tryBase64Decode
 tumble tumbleEnd tumbleStart tuple tupleDivide tupleDivideByNumber tupleElement tupleHammingDistance tupleMinus tupleMultiply tupleMultiplyByNumber tupleNegate tuplePlus tupleToNameValuePairs unhex uniq uniqCombined uniqCombined64 uniqExact uniqExactIf
 uniqExactMerge uniqExactState uniqHLL12 uniqHLL12If uniqIf uniqMap uniqMapMerge uniqMapMergeIf uniqMerge uniqMergeIf uniqState uniqStateIf uniqTheta uniqThetaIf uniqUpToMerge uniqueSurveySubmissionsFilter untuple upper upperUTF8 varPop
-varPopIf varSamp varSampIf width_bucket windowFunnel xor yesterday
+varPopIf varSamp varSampIf width_bucket windowFunnel withIcon xor yesterday
 `)

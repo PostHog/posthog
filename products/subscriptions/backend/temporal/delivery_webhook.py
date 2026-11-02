@@ -12,9 +12,9 @@ from posthog.security.pinned_requests import SSRFBlockedError, pinned_session
 from posthog.security.url_validation import is_microsoft_teams_webhook_url
 from posthog.settings.utils import get_from_env
 
-from products.exports.backend.models.subscription import Subscription
 from products.subscriptions.backend.logic import _capture_delivery_failed_event
 from products.subscriptions.backend.logic.auto_disable import WEBHOOK_REJECTED_DISABLE_REASON
+from products.subscriptions.backend.models.subscription import Subscription
 from products.subscriptions.backend.temporal.delivery_common import auto_disable_and_return, error_detail_results
 from products.subscriptions.backend.temporal.retry_policy import SUBSCRIPTION_DELIVER_ATTEMPT_TIMEOUT
 from products.subscriptions.backend.temporal.types import DeliverSubscriptionResult, RecipientResult

@@ -81,11 +81,28 @@ describe('createEventFiltersBatchAppMetricsBeforeBatchStep', () => {
 describe('createApplyEventFiltersStep', () => {
     const mockManager = {
         getFilter: jest.fn(),
-    } as unknown as jest.Mocked<Pick<EventFilterManager, 'getFilter'>> & EventFilterManager
+        dropsAllEvents: jest.fn(),
+    } as unknown as jest.Mocked<Pick<EventFilterManager, 'getFilter' | 'dropsAllEvents'>> & EventFilterManager
 
     beforeEach(() => {
         jest.clearAllMocks()
         resetMetrics()
+        mockManager.dropsAllEvents.mockReturnValue(false)
+    })
+
+    it('drops events the pipeline override drops, without a filter', async () => {
+        mockManager.dropsAllEvents.mockReturnValue(true)
+        mockManager.getFilter.mockReturnValue(null)
+        const step = createApplyEventFiltersStep(mockManager)
+        const input = {
+            team: createTestTeam({ id: 1 }),
+            headers: createTestEventHeaders({ event: '$exception' }),
+            eventFiltersBatchAppMetrics: new EventFiltersBatchAppMetrics(mockOutputs),
+        }
+
+        const result = await step(input)
+
+        expect(result).toEqual(expect.objectContaining({ reason: 'event_filter_pipeline_override' }))
     })
 
     it('passes through when no filter exists for the team', async () => {

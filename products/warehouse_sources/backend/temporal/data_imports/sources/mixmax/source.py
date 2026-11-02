@@ -52,7 +52,7 @@ class MixMaxSource(ResumableSource[MixMaxSourceConfig, MixmaxResumeConfig]):
             name=ExternalDataSourceType.MIXMAX,
             category=DataWarehouseSourceCategory.SALES,
             label="Mixmax",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             # Kept hidden while the source lands without live-API credential verification; flip off
             # (delete this) once it has synced end-to-end against a real Mixmax workspace.
             caption="""Enter your Mixmax API token to sync your Mixmax data into the PostHog Data warehouse.

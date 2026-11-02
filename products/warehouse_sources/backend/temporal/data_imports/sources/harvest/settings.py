@@ -1,6 +1,10 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ResponseAction
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
 from products.warehouse_sources.backend.types import IncrementalField
 
@@ -28,6 +32,21 @@ class HarvestEndpointConfig:
     # partitioning only adds overhead.
     partition_key: Optional[str] = None
     description: Optional[str] = None
+    # Set for sub-resources that Harvest only lists per parent object (e.g. an invoice's payments).
+    fanout: Optional[DependentEndpointConfig] = None
+
+    @property
+    def incremental_fields(self) -> list[IncrementalField]:
+        return [incremental_field("updated_at")] if self.supports_updated_since else []
+
+    @property
+    def default_incremental_field(self) -> Optional[str]:
+        return "updated_at" if self.supports_updated_since else None
+
+
+# A parent deleted between the parent listing and its child fetch answers 404. Treat it as an
+# empty child so one deleted invoice or user doesn't abort the whole fan-out.
+_MISSING_PARENT_IGNORE: list[ResponseAction] = [{"status_code": 404, "action": "ignore"}]
 
 
 HARVEST_ENDPOINTS: dict[str, HarvestEndpointConfig] = {
@@ -76,6 +95,23 @@ HARVEST_ENDPOINTS: dict[str, HarvestEndpointConfig] = {
         data_key="invoice_item_categories",
         description="Categories available for invoice line items.",
     ),
+    "invoice_payments": HarvestEndpointConfig(
+        name="invoice_payments",
+        path="invoices/{invoice_id}/payments",
+        data_key="invoice_payments",
+        primary_keys=["invoice_id", "id"],
+        partition_key="created_at",
+        # Payment rows don't carry their invoice, so the parent id is injected as `invoice_id`.
+        fanout=DependentEndpointConfig(
+            parent_name="invoices",
+            resolve_param="invoice_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "invoice_id"},
+            child_response_actions=_MISSING_PARENT_IGNORE,
+        ),
+        description="Payments recorded against each invoice, including partial payments.",
+    ),
     "invoices": HarvestEndpointConfig(
         name="invoices",
         path="invoices",
@@ -83,6 +119,22 @@ HARVEST_ENDPOINTS: dict[str, HarvestEndpointConfig] = {
         page_size=100,
         partition_key="created_at",
         description="Invoices issued to clients, including their line items.",
+    ),
+    "pto_requests": HarvestEndpointConfig(
+        name="pto_requests",
+        path="pto/requests",
+        data_key="pto_requests",
+        partition_key="created_at",
+        description="Time off requests and their review status. Non-administrators only see their own requests.",
+    ),
+    "pto_types": HarvestEndpointConfig(
+        name="pto_types",
+        path="pto/types",
+        data_key="pto_types",
+        # The listing only returns active policies by default, so an incremental merge would never
+        # see a policy get deactivated. The table is tiny, so full refresh keeps it accurate.
+        supports_updated_since=False,
+        description="Time off policies (leave categories) and their accrual rules. Only active policies are listed.",
     ),
     "projects": HarvestEndpointConfig(
         name="projects",
@@ -123,6 +175,23 @@ HARVEST_ENDPOINTS: dict[str, HarvestEndpointConfig] = {
         data_key="user_assignments",
         description="Users assigned to projects, with their rate and budget.",
     ),
+    "user_cost_rates": HarvestEndpointConfig(
+        name="user_cost_rates",
+        path="users/{user_id}/cost_rates",
+        data_key="cost_rates",
+        primary_keys=["user_id", "id"],
+        supports_updated_since=False,
+        fanout=DependentEndpointConfig(
+            parent_name="users",
+            resolve_param="user_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "user_id"},
+            child_response_actions=_MISSING_PARENT_IGNORE,
+        ),
+        description="Each user's cost rate history, with the dates each rate was in effect. Full refresh "
+        "only - the endpoint has no server-side modified-since filter. Needs an administrator.",
+    ),
     "users": HarvestEndpointConfig(
         name="users",
         path="users",
@@ -137,8 +206,7 @@ ENDPOINTS = tuple(HARVEST_ENDPOINTS.keys())
 # via `updated_since`. Endpoints without that filter advertise no incremental field, so
 # `build_endpoint_schemas` marks them full refresh only.
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
-    name: [incremental_field("updated_at")] if config.supports_updated_since else []
-    for name, config in HARVEST_ENDPOINTS.items()
+    name: config.incremental_fields for name, config in HARVEST_ENDPOINTS.items()
 }
 
 DESCRIPTIONS: dict[str, str] = {

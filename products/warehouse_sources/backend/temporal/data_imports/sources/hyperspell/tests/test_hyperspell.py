@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hyperspell import (
     HyperspellSourceConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.hyperspell import hyperspell
 from products.warehouse_sources.backend.temporal.data_imports.sources.hyperspell.hyperspell import (
     HyperspellResumeConfig,
     validate_credentials,
@@ -22,7 +23,7 @@ def _driver(user_ids: str | None = None) -> SourceDriver:
     return SourceDriver(HyperspellSource(), HyperspellSourceConfig(api_key="hs_test", region="us", user_ids=user_ids))
 
 
-def _page(body: dict[str, Any]) -> ScriptedResponse:
+def _page(body: dict[str, Any] | list[dict[str, Any]]) -> ScriptedResponse:
     return ScriptedResponse(json=body)
 
 
@@ -179,6 +180,121 @@ class TestGetRows:
                     "integration_id": "int-slack",
                     "selected": True,
                 },
+            ]
+        ]
+
+    def test_connection_folders_walk_tree_of_folder_capable_connections(self) -> None:
+        result = _driver(user_ids="user-1").run(
+            "connection_folders",
+            [
+                _page(
+                    {
+                        "integrations": [
+                            {"id": "int-drive", "supports_folder_selection": True},
+                            {"id": "int-slack", "supports_folder_selection": False},
+                        ]
+                    }
+                ),
+                _page(
+                    {
+                        "connections": [
+                            {"id": "conn-slack", "integration_id": "int-slack"},
+                            {"id": "conn-drive", "integration_id": "int-drive"},
+                        ]
+                    }
+                ),
+                _page(
+                    {
+                        "folders": [
+                            {"provider_folder_id": "F1", "name": "Projects", "has_children": True},
+                            {"provider_folder_id": "F2", "name": "Archive", "has_children": False},
+                        ]
+                    }
+                ),
+                _page(
+                    {
+                        "folders": [
+                            {
+                                "provider_folder_id": "F3",
+                                "name": "Alpha",
+                                "parent_folder_id": "F1",
+                                "has_children": False,
+                                "policy": {"id": "pol-1", "sync_mode": "skip"},
+                            },
+                            # Already listed under the root; a second parent must not duplicate the row.
+                            {"provider_folder_id": "F2", "name": "Archive", "has_children": False},
+                        ]
+                    }
+                ),
+            ],
+        )
+
+        assert result.raised is None
+        assert len(result.requests) == 4
+        assert result.requests[2].url.endswith("/connections/conn-drive/folders")
+        assert result.requests[3].url.endswith("/connections/conn-drive/folders?parent_id=F1")
+        assert result.requests[3].headers["x-as-user"] == "user-1"
+        assert [[row["provider_folder_id"] for row in batch] for batch in result.items] == [["F1", "F2"], ["F3"]]
+        assert result.items[1][0] == {
+            "provider_folder_id": "F3",
+            "name": "Alpha",
+            "parent_folder_id": "F1",
+            "has_children": False,
+            "policy": {"id": "pol-1", "sync_mode": "skip"},
+            "user_id": "user-1",
+            "connection_id": "conn-drive",
+            "integration_id": "int-drive",
+        }
+
+    def test_connection_folders_walk_stops_at_request_cap(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(hyperspell, "MAX_FOLDER_REQUESTS_PER_CONNECTION", 2)
+
+        result = _driver().run(
+            "connection_folders",
+            [
+                _page({"integrations": [{"id": "int-drive", "folder_selection_required": True}]}),
+                _page({"connections": [{"id": "conn-drive", "integration_id": "int-drive"}]}),
+                _page({"folders": [{"provider_folder_id": "F1", "has_children": True}]}),
+                _page({"folders": [{"provider_folder_id": "F2", "has_children": True}]}),
+            ],
+        )
+
+        assert result.raised is None
+        assert len(result.requests) == 4
+        assert [[row["provider_folder_id"] for row in batch] for batch in result.items] == [["F1"], ["F2"]]
+
+    def test_emotional_states_reads_bare_array_per_user(self) -> None:
+        result = _driver(user_ids="user-1, user-2").run(
+            "emotional_states",
+            [
+                _page(
+                    [
+                        {
+                            "resource_id": "es-2",
+                            "summary": "calm",
+                            "extracted_at": "2026-01-02T00:00:00Z",
+                            "session_id": None,
+                            "relationship_id": None,
+                        }
+                    ]
+                ),
+                _page([]),
+            ],
+        )
+
+        assert result.raised is None
+        assert [request.headers["x-as-user"] for request in result.requests] == ["user-1", "user-2"]
+        assert result.params("limit") == ["20", "20"]
+        assert result.items == [
+            [
+                {
+                    "resource_id": "es-2",
+                    "summary": "calm",
+                    "extracted_at": "2026-01-02T00:00:00Z",
+                    "session_id": None,
+                    "relationship_id": None,
+                    "user_id": "user-1",
+                }
             ]
         ]
 

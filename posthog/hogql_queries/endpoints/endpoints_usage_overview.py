@@ -1,3 +1,5 @@
+from functools import cached_property
+
 from posthog.schema import (
     CachedEndpointsUsageOverviewQueryResponse,
     EndpointsUsageOverviewItem,
@@ -11,7 +13,6 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.endpoints.endpoints_usage_query_runner import EndpointsUsageQueryRunner
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
-from posthog.models.filters.mixins.utils import cached_property
 
 
 class EndpointsUsageOverviewQueryRunner(EndpointsUsageQueryRunner[EndpointsUsageOverviewQueryResponse]):

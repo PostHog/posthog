@@ -81,6 +81,8 @@ class TestBingAdsClient:
         self.access_token = "test_access_token"
         self.refresh_token = "test_refresh_token"
         self.developer_token = "test_developer_token"
+        self.client_id = "test_client_id"
+        self.client_secret = "test_client_secret"
         self.account_id = 12345
         self.customer_id = 67890
 
@@ -105,7 +107,9 @@ class TestBingAdsClient:
 
         instance.GetAccountsInfo.side_effect = accounts_for
 
-        client = BingAdsClient(self.access_token, self.refresh_token, self.developer_token)
+        client = BingAdsClient(
+            self.access_token, self.refresh_token, self.developer_token, self.client_id, self.client_secret
+        )
         result = client.list_accounts()
 
         assert result == [
@@ -136,7 +140,9 @@ class TestBingAdsClient:
         instance.GetUser.return_value = mock.MagicMock(User=mock.MagicMock(CustomerId=111))
         instance.GetCustomersInfo.side_effect = _make_webfault("Server raised fault: 'Invalid client data.'", None)
 
-        client = BingAdsClient(self.access_token, self.refresh_token, self.developer_token)
+        client = BingAdsClient(
+            self.access_token, self.refresh_token, self.developer_token, self.client_id, self.client_secret
+        )
         with pytest.raises(ValueError, match="Failed to list Bing Ads accounts"):
             client.list_accounts()
 
@@ -155,7 +161,9 @@ class TestBingAdsClient:
             "invalid_grant The provided authorization grant has expired or been revoked."
         )
 
-        client = BingAdsClient(self.access_token, self.refresh_token, self.developer_token)
+        client = BingAdsClient(
+            self.access_token, self.refresh_token, self.developer_token, self.client_id, self.client_secret
+        )
         with pytest.raises(ValueError) as exc_info:
             client.get_customer_id()
 
@@ -174,7 +182,9 @@ class TestBingAdsClient:
             "HTTPSConnectionPool(host='bingads.microsoft.com', port=443): Max retries exceeded"
         )
 
-        client = BingAdsClient(self.access_token, self.refresh_token, self.developer_token)
+        client = BingAdsClient(
+            self.access_token, self.refresh_token, self.developer_token, self.client_id, self.client_secret
+        )
         with pytest.raises(ValueError) as exc_info:
             client.get_customer_id()
 
@@ -197,7 +207,9 @@ class TestBingAdsClient:
         mock_client_instance = mock_service_client.return_value
         mock_client_instance.GetUser.side_effect = webfault
 
-        client = BingAdsClient(self.access_token, self.refresh_token, self.developer_token)
+        client = BingAdsClient(
+            self.access_token, self.refresh_token, self.developer_token, self.client_id, self.client_secret
+        )
         with pytest.raises(ValueError) as exc_info:
             client.get_customer_id()
 
@@ -217,7 +229,9 @@ class TestBingAdsClient:
         mock_client_instance = mock_service_client.return_value
         mock_client_instance.GetUser.side_effect = webfault
 
-        client = BingAdsClient(self.access_token, self.refresh_token, self.developer_token)
+        client = BingAdsClient(
+            self.access_token, self.refresh_token, self.developer_token, self.client_id, self.client_secret
+        )
         with pytest.raises(ValueError) as exc_info:
             client.get_customer_id()
 
@@ -256,7 +270,9 @@ class TestBingAdsClient:
         mock_reporting.ReportingServiceManager.side_effect = fake_manager
         mock_iter_pages.return_value = iter([])
 
-        client = BingAdsClient(self.access_token, self.refresh_token, self.developer_token)
+        client = BingAdsClient(
+            self.access_token, self.refresh_token, self.developer_token, self.client_id, self.client_secret
+        )
         # The report is a generator now, so the manager is only built once it is drained.
         list(
             client.get_performance_report(
@@ -294,7 +310,9 @@ class TestBingAdsClient:
         mock_client_instance = mock_service_client.return_value
         mock_client_instance.GetCampaignsByAccountId.return_value = mock_campaigns
 
-        client = BingAdsClient(self.access_token, self.refresh_token, self.developer_token)
+        client = BingAdsClient(
+            self.access_token, self.refresh_token, self.developer_token, self.client_id, self.client_secret
+        )
         result = list(client.get_campaigns(self.account_id, self.customer_id))
 
         assert len(result) == 1
@@ -323,7 +341,9 @@ class TestBingAdsClient:
         mock_client_instance = mock_service_client.return_value
         mock_client_instance.GetCampaignsByAccountId.side_effect = webfault
 
-        client = BingAdsClient(self.access_token, self.refresh_token, self.developer_token)
+        client = BingAdsClient(
+            self.access_token, self.refresh_token, self.developer_token, self.client_id, self.client_secret
+        )
         with pytest.raises(ValueError) as exc_info:
             list(client.get_campaigns(self.account_id, self.customer_id))
 
@@ -344,7 +364,9 @@ class TestBingAdsClient:
             "HTTPSConnectionPool(host='bingads.microsoft.com', port=443): Max retries exceeded"
         )
 
-        client = BingAdsClient(self.access_token, self.refresh_token, self.developer_token)
+        client = BingAdsClient(
+            self.access_token, self.refresh_token, self.developer_token, self.client_id, self.client_secret
+        )
         with pytest.raises(ValueError) as exc_info:
             list(client.get_campaigns(self.account_id, self.customer_id))
 

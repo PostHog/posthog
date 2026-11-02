@@ -425,4 +425,138 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "last_transaction_at": "Timestamp of the last credit transaction on the balance.",
         },
     },
+    "credit_entitlement_ledger": {
+        "description": "Credit transactions on each customer's balance for each credit entitlement.",
+        "docs_url": f"{_DOCS_ROOT}/credit-entitlements/list-customer-ledger",
+        "columns": {
+            "id": "Unique identifier of the ledger entry.",
+            "credit_entitlement_id": "Credit entitlement the entry is for.",
+            "customer_id": "Customer the entry belongs to.",
+            "brand_id": "Brand the entry belongs to.",
+            "business_id": "Business the entry belongs to.",
+            "transaction_type": (
+                "Type of transaction, for example credit_added, credit_deducted, credit_expired, "
+                "overage_charged or manual_adjustment."
+            ),
+            "is_credit": "Whether the entry adds credits (true) or removes them (false).",
+            "amount": "Number of credits in the transaction.",
+            "balance_before": "Credit balance before the transaction.",
+            "balance_after": "Credit balance after the transaction.",
+            "overage_before": "Overage before the transaction.",
+            "overage_after": "Overage after the transaction.",
+            "grant_id": "Credit grant the transaction applies to, if any.",
+            "reference_id": "ID of the object that caused the transaction, if any.",
+            "reference_type": "Type of the object that caused the transaction, if any.",
+            "description": "Description of the transaction.",
+            "metadata": "Metadata attached to the entry.",
+            "created_at": "Timestamp when the entry was created.",
+        },
+    },
+    "credit_entitlement_grants": {
+        "description": "Credit grants given to each customer for each credit entitlement.",
+        "docs_url": f"{_DOCS_ROOT}/credit-entitlements/list-customer-grants",
+        "columns": {
+            "id": "Unique identifier of the grant.",
+            "credit_entitlement_id": "Credit entitlement the grant is for.",
+            "customer_id": "Customer the grant belongs to.",
+            "initial_amount": "Number of credits granted.",
+            "remaining_amount": "Number of granted credits not yet used.",
+            "is_expired": "Whether the grant has expired.",
+            "is_rolled_over": "Whether the grant was rolled over from an earlier grant.",
+            "rollover_count": "Number of times the credits were rolled over.",
+            "parent_grant_id": "Grant this grant was rolled over from, if any.",
+            "source_type": "Origin of the grant: subscription, one_time, addon, api or rollover.",
+            "source_id": "ID of the object that created the grant, if any.",
+            "expires_at": "Timestamp when the grant expires, if it expires.",
+            "metadata": "Metadata attached to the grant.",
+            "created_at": "Timestamp when the grant was created.",
+            "updated_at": "Timestamp when the grant was last modified.",
+        },
+    },
+    "customer_wallets": {
+        "description": "Prepaid wallet balance of each customer, one row per currency.",
+        "docs_url": f"{_DOCS_ROOT}/customers/get-customer-wallets",
+        "columns": {
+            "customer_id": "Customer the wallet belongs to.",
+            "currency": "Currency of the wallet, as an ISO 4217 code.",
+            "balance": "Wallet balance, in the currency's smallest unit.",
+            "created_at": "Timestamp when the wallet was created.",
+            "updated_at": "Timestamp when the wallet was last modified.",
+        },
+    },
+    "customer_wallet_ledger_entries": {
+        "description": "Credits and debits on each customer's wallet, with the balance before and after each one.",
+        "docs_url": f"{_DOCS_ROOT}/customers/get-customer-wallets-ledger-entries",
+        "columns": {
+            "id": "Unique identifier of the wallet transaction.",
+            "customer_id": "Customer the wallet belongs to.",
+            "business_id": "Identifier of the business that owns the wallet.",
+            "currency": "Currency of the wallet, as an ISO 4217 code.",
+            "amount": "Transaction amount, in the currency's smallest unit.",
+            "is_credit": "Whether the transaction adds funds to the wallet (true) or removes them (false).",
+            "event_type": (
+                "Event that caused the transaction: payment, payment_reversal, refund, refund_reversal, "
+                "dispute, dispute_reversal or merchant_adjustment."
+            ),
+            "before_balance": "Wallet balance before the transaction, in the currency's smallest unit.",
+            "after_balance": "Wallet balance after the transaction, in the currency's smallest unit.",
+            "reason": "Optional reason recorded for the transaction.",
+            "reference_object_id": "Identifier of the object that caused the transaction, such as a payment or refund.",
+            "created_at": "Timestamp when the transaction was recorded.",
+        },
+    },
+    "entitlement_grants": {
+        "description": "Grants of each entitlement to customers, with their delivery and revocation state.",
+        "docs_url": f"{_DOCS_ROOT}/entitlements/list-grants",
+        "columns": {
+            "id": "Unique identifier of the grant.",
+            "entitlement_id": "Identifier of the entitlement this grant was issued from.",
+            "customer_id": "Identifier of the customer the grant was issued to.",
+            "business_id": "Identifier of the business that owns the grant.",
+            "brand_id": "Brand id this grant belongs to.",
+            "status": "Lifecycle status of the grant: Pending, Delivered, Failed or Revoked.",
+            "integration_type": "The integration type of the grant's entitlement (e.g. `license_key`).",
+            "metadata": "Arbitrary key-value metadata recorded on the grant.",
+            "payment_id": "Identifier of the payment that triggered this grant, when applicable.",
+            "subscription_id": "Identifier of the subscription that triggered this grant, when applicable.",
+            "delivered_at": "Timestamp when the grant transitioned to `delivered`, when applicable.",
+            "revoked_at": "Timestamp when the grant transitioned to `revoked`, when applicable.",
+            "revocation_reason": "Reason recorded when the grant was revoked, when applicable.",
+            "error_code": "Machine-readable code reported when delivery failed, when applicable.",
+            "error_message": "Human-readable message reported when delivery failed, when applicable.",
+            "digital_product_delivery": (
+                "Digital-product-delivery payload, present when the entitlement integration is `digital_files`."
+            ),
+            "feature": (
+                "Typed feature payload, present only when the entitlement integration is `feature_flag`; "
+                "`null` for every other integration type."
+            ),
+            "license_key": "License-key delivery payload, present when the entitlement integration is `license_key`.",
+            "oauth_url": "Customer-facing OAuth URL for OAuth-style integrations, when applicable.",
+            "oauth_expires_at": "Timestamp when `oauth_url` stops being valid, when applicable.",
+            "created_at": "Timestamp when the grant was created.",
+            "updated_at": "Timestamp when the grant was last modified.",
+        },
+    },
+    "customer_emails": {
+        "description": "Emails Dodo Payments sent to each customer, with their delivery status.",
+        "docs_url": f"{_DOCS_ROOT}/customers/list-customer-emails",
+        "columns": {
+            "customer_id": "Customer the email was sent to.",
+            "email_log_id": "Unique identifier of the email.",
+            "category": (
+                "Group the email belongs to: payments, refunds, subscriptions, dunning_recovery, entitlements or auth."
+            ),
+            "email_type": "Kind of email, for example payment_successful.",
+            "status": "Delivery status: sent, delivered, failed, complained or blocked.",
+            "failure_code": "Reason the email did not arrive. Null unless the email failed.",
+            "failure_reason": "Explanation of the failure code. Null unless the email failed.",
+            "from": "Address the email was sent from.",
+            "recipient": "Address the email was sent to.",
+            "subject": "Subject line of the email.",
+            "has_preview": "Whether the email has content to show.",
+            "policies": "Actions allowed on the email.",
+            "created_at": "Timestamp when the email was sent.",
+        },
+    },
 }

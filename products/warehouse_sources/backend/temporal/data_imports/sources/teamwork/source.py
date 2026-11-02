@@ -57,7 +57,7 @@ class TeamworkSource(ResumableSource[TeamworkSourceConfig, TeamworkResumeConfig]
             name=ExternalDataSourceType.TEAMWORK,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Teamwork",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Teamwork.com site and API key to pull your Teamwork projects data into the PostHog Data warehouse.
 
 Find your API key under **Profile → Edit my details → API & Mobile** in Teamwork. The key inherits your own permissions, so it can only sync data you can see.""",

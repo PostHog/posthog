@@ -1,6 +1,7 @@
 import pytest
 from unittest.mock import patch
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.dub.settings import (
     ENDPOINTS,
     PLAN_GATED_ENDPOINTS,
@@ -66,3 +67,14 @@ class TestDubSource:
             assert permissions[endpoint] == "Business plan required"
         assert permissions["links"] is None
         assert permissions["tags"] is None
+
+    @pytest.mark.parametrize("path", ["/events", "/analytics"])
+    def test_exhausted_rate_limit_stays_retryable_with_sync_frequency_guidance(self, path: str) -> None:
+        observed_error = f"RESTClientRetryableError: HTTP 429 for https://api.dub.co{path}"
+        assert not error_message_matches(observed_error, self.source.get_non_retryable_errors().keys())
+        messages = [
+            message
+            for pattern, message in self.source.get_retry_exhausted_errors().items()
+            if error_message_matches(observed_error, [pattern])
+        ]
+        assert messages and "sync them less often" in messages[0]

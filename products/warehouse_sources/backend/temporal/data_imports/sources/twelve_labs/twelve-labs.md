@@ -9,14 +9,11 @@ sourceId: TwelveLabs
 import SourceSetupIntro from "../\_snippets/source-setup-intro.mdx"
 import SyncModes from "../\_snippets/sync-modes.mdx"
 import TroubleshootingLink from "../\_snippets/dw-troubleshooting-link.mdx"
-import AlphaRelease from "../\_snippets/alpha-release.mdx"
-
-<AlphaRelease />
 
 Sync your [Twelve Labs](https://www.twelvelabs.io) video understanding library into PostHog. This
 connector imports your indexes, the videos in each index, the video indexing tasks that track the
-upload and indexing lifecycle, and the transcriptions of your video and audio assets, so you can
-analyze library growth, indexing throughput, indexing failures, and spoken content alongside the rest
+upload and indexing lifecycle, the transcriptions of your video and audio assets, and the tags on
+your knowledge store video items, so you can analyze library growth, indexing throughput, indexing failures, and spoken content alongside the rest
 of your data.
 
 ## Prerequisites
@@ -44,6 +41,10 @@ daily request quota. Enable it when you need per-video metadata.
 `asset_transcriptions` works the same way: it makes one request per video or audio asset, syncs by
 full refresh, and is disabled by default. Each row holds the transcription status plus its sentences
 and speaker turns. Assets without a transcription are skipped.
+
+`knowledge_store_item_tags` holds the tags on the video items of your knowledge stores. Each row is
+one tag with its start and end time and its custom metadata. It makes one request per knowledge store
+and one per video item, syncs by full refresh, and is disabled by default.
 
 ## Configuration
 

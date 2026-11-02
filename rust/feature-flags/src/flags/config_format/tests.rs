@@ -78,20 +78,48 @@ fn non_v1_cache_documents_remain_opaque_and_keep_healthy_siblings() {
 
 #[test]
 fn invalid_v1_filter_documents_keep_ingress_errors() {
-    for filters in [
-        Value::Null,
-        json!(false),
-        json!(1),
-        json!("filters"),
-        json!([]),
-        json!([2]),
-        json!([1]),
-        json!({"groups": null}),
-        json!({"groups": [{"properties": [{"key": "missing-type"}]}]}),
+    use UndecodableDocument::{MalformedV1Groups, NotAnObject, UnreadableV1Object};
+    for (filters, document) in [
+        (Value::Null, NotAnObject),
+        (json!(false), NotAnObject),
+        (json!(1), NotAnObject),
+        (json!("filters"), NotAnObject),
+        (json!([]), NotAnObject),
+        (json!([2]), NotAnObject),
+        (json!([1]), NotAnObject),
+        (json!({"groups": null}), UnreadableV1Object),
+        (json!({"groups": ""}), UnreadableV1Object),
+        (json!({"groups": 0}), UnreadableV1Object),
+        (json!({"groups": {}}), UnreadableV1Object),
+        (
+            json!({"groups": [{"properties": false}]}),
+            UnreadableV1Object,
+        ),
+        (
+            json!({"groups": [{"properties": [{"key": "missing-type"}]}]}),
+            UnreadableV1Object,
+        ),
+        (json!({"groups": "not a list"}), MalformedV1Groups),
+        (json!({"groups": {"key": "value"}}), MalformedV1Groups),
+        (json!({"groups": [1]}), MalformedV1Groups),
+        (json!({"groups": [{"properties": "x"}]}), MalformedV1Groups),
+        (json!({"groups": [{"properties": [[]]}]}), MalformedV1Groups),
     ] {
         assert!(serde_json::from_value::<FeatureFlag>(flag(filters.clone())).is_err());
-        assert!(decode_filters(filters).is_err());
+        assert_eq!(
+            decode_filters(filters.clone()).unwrap_err().document,
+            document,
+            "{filters}"
+        );
     }
+    // A number serde cannot represent hides the malformed `groups` from the classifier.
+    let unrepresentable = format!(r#"{{"groups": "not a list", "x": 1{}}}"#, "0".repeat(400));
+    assert_eq!(
+        decode_raw_filters(RawValue::from_string(unrepresentable).unwrap())
+            .unwrap_err()
+            .document,
+        UnreadableV1Object
+    );
     let mut missing = flag(json!({}));
     missing.as_object_mut().unwrap().remove("filters");
     assert!(serde_json::from_value::<FeatureFlag>(missing).is_err());

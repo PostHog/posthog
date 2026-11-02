@@ -74,7 +74,7 @@ API keys can't be retrieved after creation, so store the key somewhere safe when
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

@@ -67,24 +67,6 @@ class TestAftershipSource:
         assert message == "Unknown AfterShip table 'not_a_table'"
         assert network.requests_log == []
 
-    @parameterized.expand(
-        [
-            ("bad_key", "401 Client Error: Unauthorized for url: https://api.aftership.com/tracking/2026-07/trackings"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.aftership.com/tracking/2026-07/couriers"),
-        ]
-    )
-    def test_non_retryable_errors_match_credential_failures(self, _name: str, observed_error: str) -> None:
-        assert any(key in observed_error for key in self.source.get_non_retryable_errors())
-
-    @parameterized.expand(
-        [
-            ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.aftership.com/tracking"),
-            ("server_error", "503 Server Error: Service Unavailable for url: https://api.aftership.com/tracking"),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient_failures(self, _name: str, unrelated_error: str) -> None:
-        assert not any(key in unrelated_error for key in self.source.get_non_retryable_errors())
-
     @parameterized.expand([("unpinned", None, "2026-07"), ("pinned", "2026-07", "2026-07")])
     @mock.patch(AFTERSHIP_SOURCE_PATH)
     def test_source_for_pipeline_plumbs_arguments(

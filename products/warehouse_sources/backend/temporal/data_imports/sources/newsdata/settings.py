@@ -70,6 +70,16 @@ NEWSDATA_ENDPOINTS: dict[str, NewsDataEndpointConfig] = {
         sort_mode="desc",
         incremental_fields=_pub_date_incremental_fields(),
     ),
+    # Stock-market and financial news (labelled beta by the vendor). Same shape as crypto.
+    "market": NewsDataEndpointConfig(
+        name="market",
+        path="/market",
+        partition_key="pubDate",
+        supports_date_filter=True,
+        default_lookback_days=30,
+        sort_mode="desc",
+        incremental_fields=_pub_date_incremental_fields(),
+    ),
     # Catalog of available news sources. Single-response, no pagination or date filter.
     "sources": NewsDataEndpointConfig(
         name="sources",

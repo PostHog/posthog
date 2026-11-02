@@ -5,10 +5,10 @@ description: >
   PostHog stack, for a Loom, a Slack demo, or a PR. Use when asked to record a video, demo,
   walkthrough, or Loom of a change end to end, including flows that leave the app, such as an API
   call shown as a terminal card or an email arriving in the local inbox. The recorder drives the
-  real app with Playwright, adds RoundHog captions, a cursor, hedgehog stickers, and an optional
-  ElevenLabs voiceover and music bed, frames the video with title and end cards that carry the logo and a hedgehog
-  from @posthog/brand, and cuts loading time out. For a short animated WebP of one interaction in a
-  PR description, use the reel mode of qa-frontend.
+  real app, zooms in on the beats the storyboard marks, adds RoundHog
+  captions, a pointer, hedgehog stickers, and an optional ElevenLabs voiceover and music bed, and
+  frames the video with title and end cards that carry the logo and a hedgehog from @posthog/brand.
+  For a short animated WebP of one interaction in a PR description, use the reel mode of qa-frontend.
 ---
 
 # Recording demo videos
@@ -17,12 +17,14 @@ A demo video shows a feature working, from the first click to the proof that it 
 The recorder drives the real app on the local stack, so what the viewer sees is what the code does.
 It writes a short MP4, usually under a minute, a contact sheet of frames to review, and a log.
 
-The output looks like this: a title card with the logo and a hedgehog, the app with a caption bar and a cursor for each step, terminal cards for API calls, and an end card.
-Waits for page loads and data are cut, so the video moves at reading speed.
+The output looks like this: a title card with the logo and a hedgehog, the app with a caption bar and a pointer that glides to each click, terminal cards for API calls, and an end card.
+Page loads stay out of the video, so it moves at reading speed.
+A step can also zoom in on the button it clicks or on the detail it proves.
 A voiceover can read the captions, a music bed can sit under it, and a step can pop in a hedgehog sticker with a short sound.
 
 Use [qa-frontend](../qa-frontend/SKILL.md) instead for a reel: a short animated WebP of one interaction, made from stills, for a PR description.
 For a narrated or musical promo video, see [hogreel](references/branding.md#promo-videos).
+For a raw take with no captions or narration, frame-perfect at 60 fps, PostHog staff can use `recording-web-demos` from the team skills store (`skill-get` in the PostHog MCP). It steps the page clock frame by frame, so it never judders.
 
 ## Workflow
 
@@ -78,6 +80,7 @@ A demo that drags loses the viewer. Keep it short, and keep it moving.
 - Keep captions under ten words. A long caption holds its step longer, and a long voiceover line holds it longer still.
 - Leave `hold` unset. The defaults hold a caption for about a quarter of a second per word, at least one and a half seconds. With a voiceover, a step waits for its line to finish.
 - Set `hold` only to give a sticker time to land or to make a navigation step shorter. Keep it at two seconds or less.
+- Zoom on the two to five beats that matter: the key click, and the detail that proves it worked. A zoom on every step makes the video seasick.
 
 For a voiceover or music, add `voiceover` or `music` to the storyboard.
 They need an ElevenLabs API key in `ELEVENLABS_API_KEY`. Do not ask the developer to paste the key into the chat.
@@ -95,7 +98,7 @@ uv run python .agents/skills/recording-demo-videos/scripts/record_demo.py path/t
 
 The script logs in, loads every page once to warm the dev server, then records.
 It writes `<output>.mp4`, `<output>.sheet.png` and `<output>.log.json` next to the storyboard.
-When a step fails, it writes `<output>.error.png` and `<output>.failed.webm` instead and exits non-zero. The log names the step.
+When a step fails, it writes `<output>.error.png` and exits non-zero. The log names the step.
 
 ### 5. Review, then record again
 

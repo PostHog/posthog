@@ -118,7 +118,7 @@ class AwsBatchSource(ResumableSource[AwsBatchSourceConfig, AwsBatchResumeConfig]
                 "The job children table includes the children of array jobs and the nodes of multi-node parallel jobs."
             ),
             iconPath="/static/services/aws_batch.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["aws", "batch", "jobs", "compute"],
             fields=cast(
                 list[FieldType],

@@ -10,23 +10,16 @@ import {
   TASK_SUMMARY_TOOL_NAME,
 } from "./task-summary";
 
-export type SlackArtifactDelivery = "none" | "message" | "canvas_file";
-
 export interface CloudTaskPromptOptions {
   apiUrl: string;
   baseBranch?: string;
   createPr?: boolean;
-  isAutomatedOrigin: boolean;
-  mobileClient?: boolean;
-  isSlack: boolean;
+  identityInstructions?: string;
+  deliveryInstructions?: string;
   projectId: number;
   hasGithubToken: boolean;
   repositoryAttached: boolean;
   shouldAutoPublish: boolean;
-  slackArtifactDelivery: SlackArtifactDelivery | null;
-  slackChartDelivery: boolean;
-  // The Slack thread draws the agent's task list as a live checklist.
-  slackProgressChecklist: boolean;
   storeSkillsInstalledCount: number;
   taskId: string;
   taskRepositories: string[];
@@ -58,66 +51,6 @@ export class CloudTaskPrompt {
     );
   }
 
-  /**
-   * How this run may hand a deliverable to the Slack thread it is answering in.
-   *
-   * The offer has to match what delivery will actually accept: naming an adapter the
-   * workspace cannot use gets the request rejected server-side after the agent has already
-   * promised the user a canvas or a spreadsheet. The backend resolves that capability from
-   * the workspace's feature flags and Slack scopes when the task starts and hands it to us
-   * on the run state, so the wording lives here and the gating stays there.
-   */
-  private buildSlackDeliveryInstructions(): string {
-    if (this.options.slackArtifactDelivery === null) {
-      return "";
-    }
-
-    if (this.options.slackArtifactDelivery === "none") {
-      return `
-## Delivering to Slack
-- You do not have artifact delivery in this workspace: you cannot create or share artifacts (files, canvases, documents) from this run, so do not attempt to. Deliver results as plain text in your reply.
-- Do not attach, upload, link to, or expose run artifacts or local working files, including /tmp/workspace paths.`;
-    }
-
-    const endpoint = `$POSTHOG_API_URL/api/projects/$POSTHOG_PROJECT_ID/tasks/$POSTHOG_TASK_ID/runs/$POSTHOG_TASK_RUN_ID/living_artifacts/`;
-    const preamble = `
-## Delivering to Slack
-- Local sandbox paths such as /tmp/workspace/... are not visible to Slack users.
-- Do not say a file, report, PDF, spreadsheet, document, or other artifact is attached, uploaded, or shared unless a tool explicitly confirms that delivery.
-- Run artifacts that are not your uploaded outputs (plans, context, tree snapshots, user uploads) are internal: never deliver them to Slack or mention them in your reply.`;
-
-    // Charts attach to both modes: they post as an image block referencing a PostHog-hosted
-    // url, so they work wherever the workspace can post at all.
-    const chartBullets = this.options.slackChartDelivery
-      ? `
-- When an analytics answer is naturally visual (a trend over time, funnel, breakdown comparison, retention curve), deliver a chart image by default alongside the summary. Do not wait for the user to say "chart". Skip the image only when the result is a single number, a short list, or the user asked for raw data.
-- To show a chart in Slack (a saved insight or an ad-hoc analytics query result), make a single call: POST to \`${endpoint}chart/\` with \`$POSTHOG_PERSONAL_API_KEY\` and body \`{"name": "<chart title>", "query": <query JSON, e.g. {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", ...}}>}\`, or \`{"name": "<chart title>", "insight_id": <numeric insight id>}\` for a saved insight. It renders the chart server-side and registers it for Slack delivery in one step, blocking until done (typically a few seconds).
-- The chart renders directly under your answer text with its name as the title, so do not restate the title or announce the chart ("Here's a chart of…"). Spend your answer text on the takeaway instead: the trend, inflection points, spikes, or drops a reader should notice, with numbers where they matter. Each chart is delivered with an "Open in PostHog" button, so do not paste the response \`url\` into your answer unless the user explicitly asks for a link. Do not download, view, or re-upload the image yourself.
-- Report a chart failure rather than retrying blindly: a 400 carries the reason in \`error\`, or in \`detail\` when the request body itself was rejected, and a 429 means the project's chart render limit is saturated, so answer without the chart.
-- SQL results cannot be charted yet, because the chart endpoint rejects SQL queries. Chart with an insight query (e.g. TrendsQuery) when the question can be expressed as one; otherwise summarize the SQL result in your answer text.`
-      : "";
-
-    if (this.options.slackArtifactDelivery === "message") {
-      const chartException = this.options.slackChartDelivery
-        ? " Chart images are the one exception: deliver them through the dedicated chart endpoint below, never through the generic living-artifacts endpoint."
-        : "";
-      const unsupportedDeliverable = this.options.slackChartDelivery
-        ? "- If a deliverable cannot be expressed as a Slack message or a chart image (for example .xlsx/.pdf/.docx), say that plainly and summarize the result in Slack instead."
-        : "- If a deliverable cannot be expressed as a Slack message (for example .xlsx/.pdf/.docx), say that plainly and summarize the result in Slack instead.";
-      return `${preamble}
-- You do not have canvas or file delivery in this workspace: do not use the \`slack_canvas\` or \`slack_file\` adapters, and do not promise a canvas, uploaded spreadsheet, or downloadable file.${chartException}
-- For Slack deliverables, create a living artifact before claiming delivery. POST to \`${endpoint}\` with \`$POSTHOG_PERSONAL_API_KEY\` using adapter \`slack_message\`. To update a prior deliverable, GET the returned artifact id or POST new \`content\` to \`${endpoint}<artifact_id>/edit/\`.${chartBullets}
-${unsupportedDeliverable}`;
-    }
-
-    return `${preamble}
-- For Slack deliverables, create a living artifact before claiming delivery. POST to \`${endpoint}\` with \`$POSTHOG_PERSONAL_API_KEY\`; choose adapter \`slack_canvas\`, \`slack_message\`, \`slack_file\`, or \`document_connector\`. Use \`adapter=slack_file\` with \`content_base64\` for binary deliverables such as .xlsx/.pdf/.docx, or \`source_artifact_id\` / \`source_storage_path\` for a file you already uploaded as a \`type=output\` run artifact.
-- To update a prior deliverable, GET the returned artifact id or POST new \`content\`, \`content_base64\`, or source artifact fields to \`${endpoint}<artifact_id>/edit/\`.${chartBullets}
-- Do not paste living-artifact Slack file links or permalinks into your final Slack answer unless the user explicitly asks for the URL. The Slack relay attaches pending files and canvas cards to your final answer automatically after you finish, so mention the artifact by name only if useful.
-- A pending delivery status only means the artifact waits for your final answer. Do not check it again, and do not tell the user that a link or file has not arrived.
-- If you created a local file but no upload or delivery tool is available, say that plainly and summarize the result in Slack instead.`;
-  }
-
   private buildGithubAccessInstructions(hasGithubToken: boolean): string {
     if (hasGithubToken) {
       return `
@@ -128,11 +61,14 @@ You have GitHub access in this session.`;
     const settingsUrl = `${this.options.apiUrl.replace(/\/$/, "")}/project/${this.options.projectId}/settings/user-personal-integrations`;
     return `
 ## GitHub access
-You do not have GitHub access in this session.
+This session has no authenticated GitHub access.
 - You can read repository content that is already in the workspace.
 - You can clone an exact public repository. Do not call \`list_repos\` without GitHub access.
+- Read public or already cloned repository content without asking the user to connect GitHub.
 - Codebase analysis and code review require readable repository content.
-- Code changes also require publishing access.
+- Publishing changes requires authenticated GitHub access.
+
+Only when the requested work requires unavailable private repository or publishing access:
 - If the required access is unavailable, do not replace the requested code work with generic guidance or PostHog data analysis.
 - Tell the user to connect GitHub at ${settingsUrl}.
 - The connection applies to a new task, not this task.
@@ -147,12 +83,10 @@ You do not have GitHub access in this session.
   // parallel sessions of one ReviewHog review, then send the same prefix, and the provider serves
   // it from its prompt cache. A per-task value breaks the cache for every token after it.
   buildCloudSystemPrompt(
-    prUrl?: string | null,
-    slackThreadUrl?: string | null,
-    inboxReportUrl?: string | null,
+    prUrl: string | null | undefined,
+    prFooter: string,
   ): string {
     const shouldAutoCreatePr = this.options.shouldAutoPublish;
-    const isSlack = this.options.isSlack;
     // Every instruction in this section runs through `gh`, so a sandbox holding no
     // GitHub token cannot act on any of it. An empty token is an explicit logout.
     const hasGithubToken = this.options.hasGithubToken;
@@ -165,44 +99,7 @@ To \`@\`-mention them in a body or a comment, read their handle with \`gh api us
 If the command fails, or returns a name ending in \`[bot]\`, you are acting as the PostHog app rather than as a person: ask them for their GitHub login instead of assigning or mentioning anyone.
 `
       : "";
-    const slackIdentityInstructions = isSlack
-      ? `
-# Identity
-You are the PostHog Slack app, PostHog's agent for helping users with their product data and coding tasks from Slack. When introducing yourself or referring to yourself in messages to the user, identify as "PostHog Slack app". Do NOT refer to yourself as Claude, an Anthropic assistant, or any underlying model name.
-
-# Response Style
-You are replying in a Slack thread. Slack readers want short, skimmable answers — be concise by default.
-- Answer simple questions in a single sentence. Keep everything else brief — a few sentences at most.
-- Lead with the answer or the outcome. Skip preamble, restating the question, and sign-offs.
-- Prefer plain prose. Treat bullet lists as the exception, not the norm, and avoid headers and tables unless they genuinely make a complex answer clearer.
-- Do not narrate your thinking or list every step you took; report what matters and the result.
-- This is a default, not a hard rule. If the user (or their saved memory) asks for more depth or a specific format, follow that instead.
-
-# PostHog products first
-PostHog is a product suite, not just analytics — session replay, feature flags, experiments, surveys, error tracking, logs, data warehouse, CDP, messaging, and customer support all ship as PostHog products.
-- When someone asks how to set up, enable, configure, or use a capability, assume they mean PostHog's version of it and answer about that.
-- Search our docs with the \`docs-search\` tool before you answer, and ground the answer in what it returns rather than in what you remember. The product changes faster than your training data.
-- Never send the user to a third-party product for something PostHog does. If you are unsure whether we cover it, search the docs before concluding we don't — and if we genuinely don't, say so plainly instead of recommending a competitor. Pointing at a third party we integrate with, as a source or destination, is fine.
-- When a request could mean either a PostHog feature or something in the user's own codebase, ask which they mean instead of guessing.
-
-# Mentioning users
-To ping a Slack user, reuse a \`<@U…|displayname>\` token that already appears in the message context — copy it verbatim, including the \`U…\` ID. Do NOT construct a mention token from a name, and do NOT substitute the display name (or any other string) for the \`U…\` ID — \`<@Jane|Jane Doe>\` is not a valid mention; only the form with the real ID like \`<@U01ABCDEF23|Jane Doe>\` is. If the person you want to refer to has no \`<@U…|displayname>\` token anywhere in the thread context, write their name as plain text instead of inventing one. These \`<@U…>\` tokens are Slack-only: never carry one — or a name or handle derived from it — into a GitHub PR, commit message, or review request as an \`@\`-mention. A Slack display name or handle is NOT a GitHub username; see the pull-request instructions below.
-
-# Suggesting code changes
-You can also open pull requests directly from this Slack thread. When the user's question describes a problem with a plausible code-side fix — a bug visible in errors or logs, missing or broken instrumentation, a broken funnel step traceable to UI code, a stale config that lives in a repo — end your reply with a one-sentence offer to open a PR for the fix and ask if they want you to proceed. Skip the offer for pure data lookups with no actionable code change (e.g. "what was DAU yesterday?"), and skip it when the fix would clearly live outside any repo you can reach.
-`
-      : "";
-    const slackProgressInstructions =
-      isSlack && this.options.slackProgressChecklist
-        ? `
-# Progress checklist
-The Slack thread shows your task list as a live checklist, and it is the only progress the user sees while you work. Before your first tool call, create the task list with your task tools (TaskCreate and TaskUpdate, or update_plan): 2 to 5 tasks, each one outcome the user cares about. Mark a task in progress when you start it and completed when you finish it. Add a task when the work grows.
-- Write each task in plain words for someone who does not read code, for example "Find the signup event" or "Count weekly signups".
-- Do not put tool names, file paths, SQL, or IDs in a task.
-- Skip the list only when you answer without any tool call.
-`
-        : "";
-    const identityInstructions = `${slackIdentityInstructions}${slackProgressInstructions}${githubIdentityInstructions}`;
+    const identityInstructions = `${this.options.identityInstructions ?? ""}${githubIdentityInstructions}`;
     const signedCommitInstructions = `
 ## Committing (signed commits required)
 Commits MUST be signed. \`git commit\` and \`git push\` are blocked in this environment.
@@ -291,7 +188,7 @@ Optimize for the fewest shell round trips.
 When you create a non-code file the user should be able to download (such as a report, chart, image, archive, or data file), call the \`upload_artifact\` tool with its path before your final reply. In your final reply, link to the download URL returned by the tool—never link to the file's local workspace path. Files left in the workspace don't reach the user. Don't upload source code or repository changes—those belong in a commit or PR.`;
 
     // Closes out every branch below, so a new section is added once rather than five times.
-    const commonInstructions = `${signedCommitInstructions}${stackInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${this.buildSlackDeliveryInstructions()}${this.buildGithubAccessInstructions(hasGithubToken)}${buildStoreSkillsInstructions(this.options.storeSkillsInstalledCount)}
+    const commonInstructions = `${signedCommitInstructions}${stackInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${this.options.deliveryInstructions ?? ""}${this.buildGithubAccessInstructions(hasGithubToken)}${buildStoreSkillsInstructions(this.options.storeSkillsInstalledCount)}
 ${buildTaskSummaryInstructions()}`;
 
     // The shared block above is shaped for a run that ends with work landed. A
@@ -304,19 +201,6 @@ The answer is the work of this run, so the run still needs a summary. Call the \
     const whyContextInstruction = `   - Add a brief **Why** to the body — one or two sentences capturing the reason the user asked for this change (the motivation, not a restatement of the diff). Keep it short.`;
     const publicRepoSafetyInstruction = `   - **Public-repo safety.** Treat the target repository as public-readable unless you have verified otherwise. The PR title, description, and commit messages must not contain private operational scale (exact event counts, internal row volumes, customer-usage percentages), customer names / emails / companies, references to internal tickets or incidents, the contents of Slack threads (do not quote or paraphrase what was said), or unreleased roadmap details. Linking to the originating Slack thread is fine and encouraged — Slack links are auth-gated and useful as context — as are channel references like "raised in #team-foo". Describe findings qualitatively ("present on nearly all X events, absent from Y") rather than with quantitative figures pulled from analytics queries — the reasoning that uses those numbers can stay in the thread; the PR copy cannot.`;
     const prMentionSafetyInstruction = `   - **Never guess a GitHub identity.** Do NOT \`@\`-mention, tag, assign, request review from, or attribute the PR to a person (in the title, description, commit message, or reviewers) using a name or handle taken from Slack or this thread. A Slack display name or handle is NOT a GitHub username. Finding a similar-looking handle in the repo's git history, CODEOWNERS, or existing PRs/issues does NOT confirm it belongs to this person: repository presence proves the handle exists, not that it is the person you mean, so treating it as a match still \`@\`-tags an unrelated account (e.g. Slack "Ross" is not necessarily GitHub \`@ross\`, even if some \`@ross\` has committed to the repo). Only \`@\`-mention a GitHub \`@handle\` the user gave you explicitly in this thread, or one you read from \`gh api user --jq .login\`, which authenticates as the person you are working for. Otherwise refer to people by plain-text name, or omit the mention entirely.`;
-    // Slack- and inbox-originated PRs are attributed to PostHog, not the
-    // PostHog Desktop app — they come from the Slack app / Self-driving
-    // inbox, which users know as "PostHog".
-    const createdWith = this.options.mobileClient
-      ? "Created with [PostHog Mobile](https://posthog.com?ref=pr)"
-      : this.options.isAutomatedOrigin
-        ? "Created with [PostHog](https://posthog.com?ref=pr)"
-        : "Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)";
-    const prFooter = slackThreadUrl
-      ? `*${createdWith} from a [Slack thread](${slackThreadUrl})*`
-      : inboxReportUrl
-        ? `*${createdWith} from an [inbox report](${inboxReportUrl})*`
-        : `*${createdWith}*`;
     const repositoryWorkspaceInstructions =
       this.options.taskRepositories.length > 1
         ? `The task workspace contains these repositories:

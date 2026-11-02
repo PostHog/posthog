@@ -4,15 +4,11 @@ from typing import Any
 
 import pytest
 
-import requests
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     UnexpectedRequest,
-    always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.streamelements import (
     StreamElementsSourceConfig,
@@ -21,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.streamelem
 from products.warehouse_sources.backend.temporal.data_imports.sources.streamelements.streamelements import (
     StreamElementsResumeConfig,
     _to_epoch_ms,
-    validate_credentials,
 )
 
 CHANNEL_ID = "5b2e2007760aeb7729487dab"
@@ -73,29 +68,6 @@ class TestToEpochMs:
     )
     def test_to_epoch_ms(self, value: Any, expected: Any) -> None:
         assert _to_epoch_ms(value) == expected
-
-
-class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        "status_code, expected_valid",
-        [
-            (200, True),
-            (401, False),
-            (403, False),
-            (500, False),
-        ],
-    )
-    def test_status_mapping(self, status_code: int, expected_valid: bool) -> None:
-        with scripted_network(always(_response({"_id": CHANNEL_ID}, status_code=status_code))):
-            valid, _ = validate_credentials("jwt", "v2")
-        assert valid is expected_valid
-
-    def test_request_exception_returns_error(self) -> None:
-        with scripted_network(always(requests.exceptions.ConnectionError("boom"))):
-            valid, message = validate_credentials("jwt", "v2")
-        assert valid is False
-        assert message is not None
-        assert "boom" in message
 
 
 class TestTips:

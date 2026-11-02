@@ -57,13 +57,13 @@ class PerigonSource(ResumableSource[PerigonSourceConfig, PerigonResumeConfig]):
             name=ExternalDataSourceType.PERIGON,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Perigon",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["news", "media", "goperigon"],
-            caption="""Enter your Perigon API key to sync news articles, story clusters, journalists, sources, people, companies, and topics into the PostHog Data warehouse.
+            caption="""Enter your Perigon API key to sync news articles, story clusters and their history, journalists, sources, source groups, people, companies, topics, and Wikipedia pages into the PostHog Data warehouse.
 
 You can find your API key on your [Perigon account dashboard](https://www.perigon.io/).
 
-Datasets available to sync depend on your Perigon plan. Perigon caps each search to 10,000 results, so incremental syncs on articles and stories catch up across runs.""",
+Datasets available to sync depend on your Perigon plan. Perigon caps each search to 10,000 results, so incremental syncs on articles, stories, and Wikipedia pages catch up across runs.""",
             iconPath="/static/services/perigon.png",
             docsUrl="https://posthog.com/docs/cdp/sources/perigon",
             fields=cast(
@@ -106,8 +106,8 @@ Datasets available to sync depend on your Perigon plan. Perigon caps each search
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Only articles and stories have a documented server-side timestamp filter; the
-        # reference datasets are full refresh.
+        # Only articles, stories, story history, and Wikipedia pages have a documented
+        # server-side timestamp filter; the other datasets are full refresh.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
@@ -117,8 +117,8 @@ Datasets available to sync depend on your Perigon plan. Perigon caps each search
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        endpoint = PERIGON_ENDPOINTS.get(schema_name) if schema_name else None
-        ok, status = validate_perigon_credentials(config.api_key, path=endpoint.path if endpoint else None)
+        endpoint = schema_name if schema_name in PERIGON_ENDPOINTS else None
+        ok, status = validate_perigon_credentials(config.api_key, endpoint=endpoint)
         if ok:
             return True, None
         if status == 403:

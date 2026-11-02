@@ -1,7 +1,10 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -36,7 +39,20 @@ function RefreshButton({ extraLoading = false }: { extraLoading?: boolean }): JS
     const logic = engineeringAnalyticsLogic()
     const { anyLoading } = useValues(logic)
     const { refresh } = useActions(logic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const loading = anyLoading || extraLoading
+    if (todayRailNav) {
+        return (
+            <Button
+                variant="outline"
+                onClick={refresh}
+                loading={loading}
+                disabledReason={loading ? 'Loading…' : undefined}
+            >
+                Refresh
+            </Button>
+        )
+    }
     return (
         <LemonButton
             type="secondary"
@@ -83,6 +99,7 @@ function EngineeringAnalyticsTabs(): JSX.Element {
 export function EngineeringAnalyticsScene(): JSX.Element {
     const { activeView } = useValues(engineeringAnalyticsSceneLogic)
     const { scopeRepo } = useValues(engineeringAnalyticsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     return (
         <BindLogic logic={engineeringAnalyticsLogic} props={{}}>
@@ -91,20 +108,37 @@ export function EngineeringAnalyticsScene(): JSX.Element {
                     repo={scopeRepo}
                     description={viewDescription(activeView, scopeRepo)}
                     actions={
-                        <>
-                            {scopeRepo && (
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    to={`https://github.com/${scopeRepo}`}
-                                    targetBlank
-                                    data-attr="engineering-analytics-view-on-github"
-                                >
-                                    View on GitHub
-                                </LemonButton>
-                            )}
-                            {activeView === 'deploys' ? <DeploysRefreshButton /> : <RefreshButton />}
-                        </>
+                        todayRailNav ? (
+                            <div className="flex flex-wrap items-center gap-2">
+                                {scopeRepo && (
+                                    <Button
+                                        variant="outline"
+                                        render={
+                                            <LinkPrimitive to={`https://github.com/${scopeRepo}`} target="_blank" />
+                                        }
+                                        data-attr="engineering-analytics-view-on-github"
+                                    >
+                                        View on GitHub
+                                    </Button>
+                                )}
+                                {activeView === 'deploys' ? <DeploysRefreshButton /> : <RefreshButton />}
+                            </div>
+                        ) : (
+                            <>
+                                {scopeRepo && (
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        to={`https://github.com/${scopeRepo}`}
+                                        targetBlank
+                                        data-attr="engineering-analytics-view-on-github"
+                                    >
+                                        View on GitHub
+                                    </LemonButton>
+                                )}
+                                {activeView === 'deploys' ? <DeploysRefreshButton /> : <RefreshButton />}
+                            </>
+                        )
                     }
                 />
                 <LemonBanner type="info" dismissKey="engineering-analytics-alpha">

@@ -155,5 +155,5 @@ class KandjiSource(SimpleSource[KandjiSourceConfig]):
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

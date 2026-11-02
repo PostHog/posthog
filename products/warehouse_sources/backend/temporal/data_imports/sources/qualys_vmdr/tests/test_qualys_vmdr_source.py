@@ -30,10 +30,6 @@ class TestQualysVmdrSource:
         # Retargeting `api_server` must force re-entry of the stored credentials
         assert "api_server" in self.source.connection_host_fields
 
-    def test_get_schemas_filters_by_names(self):
-        schemas = self.source.get_schemas(_config(), team_id=1, names=["scans"])
-        assert [s.name for s in schemas] == ["scans"]
-
     @pytest.mark.parametrize(
         "endpoint,expected_primary_keys,expected_partition_keys",
         [

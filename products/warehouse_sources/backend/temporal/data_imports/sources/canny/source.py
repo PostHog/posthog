@@ -55,7 +55,7 @@ class CannySource(ResumableSource[CannySourceConfig, CannyResumeConfig]):
             name=ExternalDataSourceType.CANNY,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Canny",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Canny API key to sync your Canny feedback, posts, and roadmap data into the PostHog Data warehouse.
 
 Find your secret API key under **Settings → API** in your Canny dashboard.""",

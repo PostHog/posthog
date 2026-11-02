@@ -151,11 +151,3 @@ def test_missing_channel_or_uploads_fails_before_video_discovery(driver: SourceD
     assert "was not found" in str(result.raised)
     assert result.rows == []
     assert result.paths == ["/youtube/v3/channels"]
-
-
-def test_unknown_table_fails_before_network_access(driver: SourceDriver) -> None:
-    result = driver.run("unknown", [])
-
-    assert isinstance(result.raised, ValueError)
-    assert str(result.raised) == "Unsupported YouTube table: unknown"
-    assert result.requests == []

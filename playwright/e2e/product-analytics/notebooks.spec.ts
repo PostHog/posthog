@@ -111,11 +111,11 @@ test.describe('Notebooks', () => {
 
             const step2 = insight.funnels.stepLegend(1)
             await expect(step2).toContainText('10')
-            await expect(step2).toContainText('50')
+            await expect(insight.funnels.stepValueLabel(1)).toContainText('50')
 
             const step3 = insight.funnels.stepLegend(2)
             await expect(step3).toContainText('5')
-            await expect(step3).toContainText('25')
+            await expect(insight.funnels.stepValueLabel(2)).toContainText('25')
         })
     })
 

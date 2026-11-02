@@ -63,7 +63,7 @@ class UpstashSource(SimpleSource[UpstashSourceConfig]):
             name=ExternalDataSourceType.UPSTASH,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Upstash",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Upstash account email and a management API key to pull your Upstash Redis databases, usage stats, teams, and vector indexes into the PostHog Data warehouse.
 
 Create a management API key in the [Upstash console](https://console.upstash.com/account/api) under **Account > Management API**. The Developer API is only available to native Upstash accounts (not Vercel or Fly.io marketplace accounts).""",

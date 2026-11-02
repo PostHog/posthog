@@ -1,6 +1,20 @@
 {
     "name": "PostgreSQL",
     "description": "Transactions, cache hits, rows, size and locks of PostgreSQL databases from the postgres exporter.",
+    "variables": [
+        {
+            "name": "instance",
+            "label": "Instance",
+            "source": "sql",
+            "query": "SELECT DISTINCT attribute_value FROM posthog.metric_attributes WHERE attribute_key = 'instance' AND time_bucket >= toStartOfHour($__from) AND time_bucket < $__to",
+            "multi": false,
+            "includeAll": true,
+            "current": {
+                "values": [],
+                "all": true
+            }
+        }
+    ],
     "panels": [
         {
             "key": "connections",
@@ -11,7 +25,14 @@
                     {
                         "name": "a",
                         "metricName": "pg_stat_database_numbackends",
-                        "aggregation": "sum"
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -35,12 +56,26 @@
                     {
                         "name": "a",
                         "metricName": "pg_stat_database_xact_commit",
-                        "aggregation": "rate"
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     },
                     {
                         "name": "b",
                         "metricName": "pg_stat_database_xact_rollback",
-                        "aggregation": "rate"
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -66,12 +101,26 @@
                     {
                         "name": "a",
                         "metricName": "pg_stat_database_blks_hit",
-                        "aggregation": "rate"
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     },
                     {
                         "name": "b",
                         "metricName": "pg_stat_database_blks_read",
-                        "aggregation": "rate"
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -111,7 +160,14 @@
                     {
                         "name": "a",
                         "metricName": "pg_stat_database_deadlocks",
-                        "aggregation": "increase"
+                        "aggregation": "increase",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -135,12 +191,26 @@
                     {
                         "name": "commits",
                         "metricName": "pg_stat_database_xact_commit",
-                        "aggregation": "rate"
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     },
                     {
                         "name": "rollbacks",
                         "metricName": "pg_stat_database_xact_rollback",
-                        "aggregation": "rate"
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -164,22 +234,50 @@
                     {
                         "name": "fetched",
                         "metricName": "pg_stat_database_tup_fetched",
-                        "aggregation": "rate"
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     },
                     {
                         "name": "inserted",
                         "metricName": "pg_stat_database_tup_inserted",
-                        "aggregation": "rate"
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     },
                     {
                         "name": "updated",
                         "metricName": "pg_stat_database_tup_updated",
-                        "aggregation": "rate"
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     },
                     {
                         "name": "deleted",
                         "metricName": "pg_stat_database_tup_deleted",
-                        "aggregation": "rate"
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -208,6 +306,13 @@
                             {
                                 "key": "datname"
                             }
+                        ],
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
                         ]
                     }
                 ],
@@ -235,6 +340,13 @@
                         "groupBy": [
                             {
                                 "key": "datname"
+                            }
+                        ],
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
                             }
                         ]
                     }
@@ -265,6 +377,13 @@
                             {
                                 "key": "mode"
                             }
+                        ],
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
                         ]
                     }
                 ],
@@ -292,6 +411,13 @@
                         "groupBy": [
                             {
                                 "key": "datname"
+                            }
+                        ],
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
                             }
                         ]
                     }

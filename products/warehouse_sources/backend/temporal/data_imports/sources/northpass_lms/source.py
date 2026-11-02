@@ -54,7 +54,7 @@ class NorthpassLMSSource(ResumableSource[NorthpassLMSSourceConfig, NorthpassResu
             name=ExternalDataSourceType.NORTHPASSLMS,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Northpass LMS",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Northpass API key to sync your Northpass (Gainsight Customer Education) learning data into the PostHog Data warehouse.
 
 You can create an API key in your Northpass admin panel under **Apps → API Access**.""",

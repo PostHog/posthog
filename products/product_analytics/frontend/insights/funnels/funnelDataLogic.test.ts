@@ -1117,6 +1117,39 @@ describe('funnelDataLogic', () => {
                 })
             })
 
+            it('sums step totals over the selected breakdown values when the baseline is hidden', async () => {
+                const insight: Partial<InsightModel> = {
+                    result: funnelResultWithBreakdown.result,
+                }
+                const query: FunnelsQuery = {
+                    kind: NodeKind.FunnelsQuery,
+                    series: [],
+                    funnelsFilter: {
+                        hiddenLegendBreakdowns: ['Baseline', 'Firefox'],
+                    },
+                }
+
+                await expectLogic(logic, () => {
+                    logic.actions.updateQuerySource(query)
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
+                }).toMatchValues({
+                    hasPartialBreakdownSelection: true,
+                    visibleStepsWithConversionMetrics: [
+                        expect.objectContaining({ count: 148 }),
+                        expect.objectContaining({
+                            count: 72,
+                            droppedOffFromPrevious: 76,
+                            conversionRates: expect.objectContaining({ fromPrevious: 72 / 148, total: 72 / 148 }),
+                            nested_breakdown: [
+                                expect.objectContaining({ breakdown_value: ['Chrome'], count: 66 }),
+                                expect.objectContaining({ breakdown_value: ['Safari'], count: 6 }),
+                            ],
+                        }),
+                    ],
+                    conversionMetrics: expect.objectContaining({ totalRate: 72 / 148 }),
+                })
+            })
+
             it('with multi breakdown', async () => {
                 const insight: Partial<InsightModel> = {
                     result: funnelResultWithMultiBreakdown.result,

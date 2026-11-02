@@ -3,6 +3,8 @@ import { getDashboardWidgetCatalogEntry } from '../../widget_types/catalog'
 import { activityEventsSampleEvents } from '../../widgets/activity/activityEventsSampleData'
 import type { ConversationsWidgetTicket } from '../../widgets/conversations/conversationsWidgetUtils'
 import { logsWidgetSampleLogLines } from '../../widgets/logs/logsWidgetSampleData'
+import { metricsTableWidgetSampleResult } from '../../widgets/metrics/metricsTableWidgetSampleData'
+import { METRICS_WIDGET_SAMPLE_RESPONSE, metricsWidgetSampleQuery } from '../../widgets/metrics/metricsWidgetSampleData'
 
 export type WidgetOverviewDemoState = {
     title?: string
@@ -536,6 +538,15 @@ export function getWidgetOverviewDemoState(catalogKey: DashboardWidgetCatalogKey
                     totalCountCapped: true,
                 },
             }
+        case 'metrics_table':
+            return {
+                title: defaultTitle,
+                description: catalogEntry.description,
+                showDescription: true,
+                config: { ...defaultConfig, groupBy: 'http.route' },
+                loading: false,
+                result: metricsTableWidgetSampleResult,
+            }
         case 'conversations_recent_tickets':
             return {
                 title: defaultTitle,
@@ -548,6 +559,15 @@ export function getWidgetOverviewDemoState(catalogKey: DashboardWidgetCatalogKey
                     hasMore: true,
                     totalCount: 12,
                 },
+            }
+        case 'metrics':
+            return {
+                title: 'http_server_requests',
+                description: catalogEntry.description,
+                showDescription: true,
+                config: { query: metricsWidgetSampleQuery('time_series') },
+                loading: false,
+                result: METRICS_WIDGET_SAMPLE_RESPONSE,
             }
         default: {
             const exhaustiveCheck: never = catalogKey

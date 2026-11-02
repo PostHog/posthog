@@ -53,7 +53,7 @@ class MistralAISource(ResumableSource[MistralAISourceConfig, MistralAIResumeConf
             name=ExternalDataSourceType.MISTRALAI,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Mistral AI",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Mistral AI API key to sync your Mistral AI platform data into the PostHog Data warehouse.
 
 You can create an API key in [La Plateforme](https://console.mistral.ai/api-keys).""",

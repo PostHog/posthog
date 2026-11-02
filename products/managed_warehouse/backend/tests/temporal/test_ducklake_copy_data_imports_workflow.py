@@ -101,8 +101,28 @@ async def test_data_imports_ducklake_copy_inputs_round_trip_serialization():
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-@pytest.mark.parametrize("flag_enabled", [True, False])
-async def test_ducklake_copy_data_imports_gate_respects_feature_flag(monkeypatch, ateam, flag_enabled):
+@pytest.mark.parametrize(
+    "flag_enabled,bootstrap,optin,active,expected",
+    [
+        (True, False, False, True, True),
+        (False, False, False, True, False),
+        (False, True, False, True, False),
+        (False, True, True, True, True),
+        (True, True, True, False, False),
+    ],
+)
+async def test_ducklake_copy_data_imports_gate_respects_feature_flag(
+    monkeypatch, ateam, flag_enabled, bootstrap, optin, active, expected
+):
+    from products.managed_warehouse.backend.models import ManagedWarehouseSourceLifecycle
+
+    if optin:
+        await ManagedWarehouseSourceLifecycle.objects.acreate(
+            organization_id=ateam.organization_id,
+            internal_only=True,
+            background_loading_enabled=True,
+            desired_active=active,
+        )
     captured = {}
 
     def fake_feature_enabled(
@@ -127,9 +147,14 @@ async def test_ducklake_copy_data_imports_gate_respects_feature_flag(monkeypatch
         fake_feature_enabled,
     )
 
-    result = await ducklake_copy_data_imports_gate_activity(DuckLakeCopyWorkflowGateInputs(team_id=ateam.id))
+    result = await ducklake_copy_data_imports_gate_activity(
+        DuckLakeCopyWorkflowGateInputs(team_id=ateam.id, internal_bootstrap=bootstrap)
+    )
 
-    assert result is flag_enabled
+    assert result is expected
+    if bootstrap:
+        assert captured == {}
+        return
     assert captured["key"] == "ducklake-data-imports-copy-workflow"
     assert captured["distinct_id"] == str(ateam.uuid)
     assert captured["groups"] == {"organization": str(ateam.organization_id), "project": str(ateam.id)}

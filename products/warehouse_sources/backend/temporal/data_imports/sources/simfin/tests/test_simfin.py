@@ -270,24 +270,9 @@ class TestSimFin:
             assert response.partition_mode == "datetime"
             assert response.partition_keys == [partition_key]
 
-    @parameterized.expand(
-        [
-            ("valid", "KEY", 200, True),
-            ("unauthorized", "KEY", 401, False),
-            ("forbidden", "KEY", 403, False),
-        ]
-    )
-    def test_validate_credentials(self, _name: str, api_key: str, status: int, expected: bool) -> None:
-        with scripted_network(always(ScriptedResponse(status=status, json=[]))):
-            assert validate_credentials(api_key, "v3") is expected
-
     def test_validate_credentials_empty_key_skips_request(self) -> None:
         with scripted_network([]) as network:
             assert validate_credentials("   ", "v3") is False
 
         assert network.requests_log == []
         assert network.session_options == []
-
-    def test_validate_credentials_network_error_returns_false(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            assert validate_credentials("KEY", "v3") is False

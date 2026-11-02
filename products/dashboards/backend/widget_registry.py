@@ -12,6 +12,7 @@ from products.dashboards.backend.widget_specs.configs import (
     ERROR_TRACKING_LIST_WIDGET_TYPE,
     EXPERIMENT_RESULTS_WIDGET_TYPE,
     EXPERIMENTS_LIST_WIDGET_TYPE,
+    METRICS_TABLE_WIDGET_TYPE,
     SESSION_REPLAY_LIST_WIDGET_TYPE,
     SURVEY_RESULTS_WIDGET_TYPE,
 )
@@ -23,6 +24,7 @@ from products.dashboards.backend.widget_specs.registry import (
     count_active_widget_filters,
     extract_widget_filters,
     get_widget_registry_entry,
+    get_widget_spec,
     validate_widget_config,
 )
 
@@ -38,6 +40,7 @@ __all__ = [
     "ERROR_TRACKING_LIST_WIDGET_TYPE",
     "EXPERIMENT_RESULTS_WIDGET_TYPE",
     "EXPERIMENTS_LIST_WIDGET_TYPE",
+    "METRICS_TABLE_WIDGET_TYPE",
     "SESSION_REPLAY_LIST_WIDGET_TYPE",
     "SURVEY_RESULTS_WIDGET_TYPE",
     "EXPECTED_WIDGET_TYPES",
@@ -48,5 +51,6 @@ __all__ = [
     "count_active_widget_filters",
     "extract_widget_filters",
     "get_widget_registry_entry",
+    "get_widget_spec",
     "validate_widget_config",
 ]

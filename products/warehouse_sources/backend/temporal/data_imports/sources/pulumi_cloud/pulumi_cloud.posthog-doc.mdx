@@ -13,20 +13,17 @@ sidebar: Docs
 showTitle: true
 availability: { free: full, selfServe: full, enterprise: full }
 sourceId: PulumiCloud
-beta: true
 
 ---
 
 import SourceSetupIntro from '../_snippets/source-setup-intro.mdx'
 import SyncModes from '../_snippets/sync-modes.mdx'
 import TroubleshootingLink from '../_snippets/dw-troubleshooting-link.mdx'
-import AlphaRelease from '../_snippets/alpha-release.mdx'
-
-<AlphaRelease />
 
 [Pulumi Cloud](https://www.pulumi.com/product/pulumi-cloud/) is the managed control plane for Pulumi
-infrastructure as code. This connector pulls your stacks, their full update history, Pulumi Deployments
-runs, the Insights resource index, and organization audit logs into the PostHog Data warehouse, so you
+infrastructure as code. This connector pulls your stacks and their tags, their full update history, Pulumi
+Deployments runs, the Insights resource index, policy issues, organization members, daily resources under
+management, and organization audit logs into the PostHog Data warehouse, so you
 can measure deployment frequency, change-failure rate, and lead time for infrastructure changes alongside
 your product data.
 

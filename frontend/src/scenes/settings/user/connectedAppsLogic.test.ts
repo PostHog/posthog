@@ -17,6 +17,7 @@ const APP_A: ConnectedAppApi = {
     is_verified: true,
     is_first_party: false,
     requires_access_confirmation: false,
+    is_self_registered: false,
 }
 
 const APP_B: ConnectedAppApi = {
@@ -28,6 +29,7 @@ const APP_B: ConnectedAppApi = {
     is_verified: false,
     is_first_party: false,
     requires_access_confirmation: false,
+    is_self_registered: false,
 }
 
 async function waitForInFlightRevoke(getResolve: () => (() => void) | undefined): Promise<() => void> {

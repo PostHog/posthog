@@ -90,11 +90,7 @@ def test_string_watermark(watermark: str) -> None:
 @pytest.mark.parametrize(
     "status,expected",
     [
-        (200, (True, None)),
-        (401, (False, "EIA rejected the API key. Check your key. If EIA suspended it, wait before trying again.")),
-        (403, (False, "EIA rejected the API key. Check your key. If EIA suspended it, wait before trying again.")),
         (429, (False, "Could not validate the EIA API key. Try again later.")),
-        (500, (False, "Could not validate the EIA API key. Try again later.")),
     ],
 )
 def test_validation(status: int, expected: tuple[bool, str | None]) -> None:

@@ -74,9 +74,11 @@ const trackCostOutcome = (totalCost: number): void => {
 }
 
 // Every token count each cost calculator reads, split by the side it prices.
-// Presence is what matters, not value: `0` is a usage report that says the
+// For independently priced pools, presence matters: `0` is a usage report that says the
 // model consumed nothing, while an absent property means the provider never
-// reported usage at all. The sides gate independently, because an interrupted
+// reported usage at all. Positive cached modality breakdowns need independently
+// priced parent pools; those counts are also in the input list.
+// The sides gate independently, because an interrupted
 // stream often reports one side only — Anthropic sends input tokens on
 // message_start and the output count in the final delta.
 //
@@ -97,6 +99,7 @@ const INPUT_TOKEN_COUNT_PROPERTIES = [
     '$ai_audio_input_tokens',
     '$ai_image_input_tokens',
     '$ai_cache_read_audio_tokens',
+    '$ai_cache_read_image_tokens',
 ] as const
 
 const OUTPUT_TOKEN_COUNT_PROPERTIES = [
@@ -107,8 +110,13 @@ const OUTPUT_TOKEN_COUNT_PROPERTIES = [
     '$ai_image_output_tokens',
 ] as const
 
-const hasAnyTokenCount = (properties: Properties, keys: readonly string[]): boolean => {
-    return keys.some((key) => finiteNumberOrUndefined(properties[key]) !== undefined)
+const hasAnyPricedTokenCount = (properties: Properties, keys: readonly string[]): boolean => {
+    return keys.some((key) => {
+        const value = finiteNumberOrUndefined(properties[key])
+        // A cached subset alone has no priced pool; zero still reports known usage.
+        const isCachedModality = key === '$ai_cache_read_audio_tokens' || key === '$ai_cache_read_image_tokens'
+        return value !== undefined && (!isCachedModality || value === 0)
+    })
 }
 
 const setCostsOnEvent = (event: EventWithProperties, cost: ResolvedModelCost): void => {
@@ -125,8 +133,8 @@ const setCostsOnEvent = (event: EventWithProperties, cost: ResolvedModelCost): v
     // output, so they have to be caught here.
     const hasClientCost = PRECALCULATED_COST_PROPERTIES.some((key) => typeof event.properties[key] === 'number')
 
-    const hasInputTokenCount = hasAnyTokenCount(event.properties, INPUT_TOKEN_COUNT_PROPERTIES)
-    const hasOutputTokenCount = hasAnyTokenCount(event.properties, OUTPUT_TOKEN_COUNT_PROPERTIES)
+    const hasInputTokenCount = hasAnyPricedTokenCount(event.properties, INPUT_TOKEN_COUNT_PROPERTIES)
+    const hasOutputTokenCount = hasAnyPricedTokenCount(event.properties, OUTPUT_TOKEN_COUNT_PROPERTIES)
 
     // A token rate multiplied by no usage is 0, which reads as "this call was
     // free" rather than "we never learned what this call used". The two are

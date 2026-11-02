@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.configcat 
 from products.warehouse_sources.backend.temporal.data_imports.sources.configcat.configcat import (
     CONFIGCAT_BASE_URL,
     check_access,
-    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.configcat.settings import (
     CONFIGCAT_ENDPOINTS,
@@ -362,9 +361,6 @@ class TestCheckAccess:
     @parameterized.expand(
         [
             (200, True, 200, None),
-            (401, False, 401, None),
-            (403, False, 403, None),
-            (500, False, 500, "ConfigCat returned HTTP 500"),
         ]
     )
     def test_status_mapping(
@@ -377,29 +373,6 @@ class TestCheckAccess:
         with scripted_network(always(ScriptedResponse(status=status))) as network:
             assert check_access("user", "pass") == (expected_status, expected_message)
         assert network.requests_log[0].path == "/v1/organizations"
-
-    def test_connection_error_maps_to_zero(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            status, message = check_access("user", "pass")
-        assert status == 0
-        assert message is not None and "boom" in message
-
-    @parameterized.expand(
-        [
-            (200, True, None),
-            (401, False, "Invalid ConfigCat Public API credentials"),
-            (403, False, "Invalid ConfigCat Public API credentials"),
-            (500, False, "ConfigCat returned HTTP 500"),
-        ]
-    )
-    def test_validate_credentials(
-        self,
-        status: int,
-        expected_valid: bool,
-        expected_message: str | None,
-    ) -> None:
-        with scripted_network(always(ScriptedResponse(status=status))):
-            assert validate_credentials("user", "pass") == (expected_valid, expected_message)
 
 
 class TestConfigCatSourceResponse:

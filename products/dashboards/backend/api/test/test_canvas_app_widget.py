@@ -140,18 +140,9 @@ class TestCanvasAppWidgetRunner(CanvasAppWidgetBaseTest):
 
 
 class TestCanvasAppWidgetApi(CanvasAppWidgetBaseTest):
-    _FLAG_PATCH_TARGETS = (
-        "products.dashboards.backend.api.dashboard.dashboard_widgets_enabled",
-        "products.dashboards.backend.widget_create.dashboard_widgets_enabled",
-    )
-
     def setUp(self) -> None:
         super().setUp()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
-        for target in self._FLAG_PATCH_TARGETS:
-            patcher = patch(target, return_value=True)
-            patcher.start()
-            self.addCleanup(patcher.stop)
 
     @patch("products.dashboards.backend.widget_create.widget_flag_enabled", return_value=False)
     def test_adding_a_canvas_app_tile_requires_the_small_software_apps_flag(self, flag_enabled) -> None:

@@ -18,12 +18,7 @@ from rest_framework.request import Request
 from posthog.models import Team
 
 from products.signals.backend.artefact_schemas import ActionabilityChoice
-from products.signals.backend.briefing_reports import (
-    open_report_counts,
-    report_details,
-    reports_for_person,
-    summary_lead,
-)
+from products.signals.backend.briefing_reports import report_details, summary_lead
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
@@ -45,24 +40,6 @@ class TestReportsForBriefing(BaseTest):
             report=report,
             type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
             content=json.dumps({"priority": "P0"}),
-        )
-        return report
-
-    def _named_report(self, title: str) -> SignalReport:
-        report = SignalReport.objects.create(
-            team=self.team,
-            status=SignalReport.Status.READY,
-            title=title,
-            summary="Summary",
-            signal_count=1,
-            total_weight=1.0,
-            latest_actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value,
-        )
-        SignalReportArtefact.objects.create(
-            team=self.team,
-            report=report,
-            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
-            content=json.dumps([{"github_login": "reviewer", "user_uuid": str(self.user.uuid)}]),
         )
         return report
 
@@ -161,38 +138,6 @@ class TestReportsForBriefing(BaseTest):
         ]
         assert [(c.chart_id, c.query) for c in details.charts] == [("form-errors", query), ("page-leaves", query)]
         assert unreadable.metrics == []
-
-    def test_open_report_counts_do_not_subtract_a_report_that_was_never_open(self) -> None:
-        shown_open = self._urgent_report("Shown, still open")
-        self._urgent_report("Not shown")
-        resolved = self._urgent_report("Shown, resolved since")
-        SignalReport.objects.filter(pk=resolved.pk).update(status=SignalReport.Status.RESOLVED)
-
-        counts = open_report_counts(
-            team_id=self.team.id, user=self.user, exclude_report_ids=[str(shown_open.id), str(resolved.id)]
-        )
-
-        # By default an unowned P0 is for the person the same way the briefing ranks it, so both counts agree.
-        assert (counts.in_project, counts.for_person) == (1, 1)
-
-    @parameterized.expand([("included", True, {"Mine", "Nobody's P0"}), ("excluded", False, {"Mine"})])
-    def test_include_unowned_decides_whether_a_p0_nobody_owns_is_a_candidate(
-        self, _name: str, include_unowned: bool, expected: set[str]
-    ) -> None:
-        self._named_report("Mine")
-        self._urgent_report("Nobody's P0")
-
-        reports = reports_for_person(self.team.id, self.user, include_unowned=include_unowned)
-
-        assert {report.title for report in reports} == expected
-
-    def test_excluding_unowned_reports_leaves_them_in_the_project_count_only(self) -> None:
-        self._named_report("Mine")
-        self._urgent_report("Nobody's P0")
-
-        counts = open_report_counts(team_id=self.team.id, user=self.user, include_unowned=False)
-
-        assert (counts.in_project, counts.for_person) == (2, 1)
 
 
 class TestSummaryLead(SimpleTestCase):

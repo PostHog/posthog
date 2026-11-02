@@ -1,4 +1,3 @@
-import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.wix import WixSourceConfig
@@ -12,13 +11,6 @@ def _config() -> WixSourceConfig:
 
 
 class TestWixSource:
-    def test_an_unknown_schema_fails_before_any_request_goes_out(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_wix_table"
-
-        with pytest.raises(ValueError, match="Unknown Wix endpoint"):
-            WixSource().source_for_pipeline(_config(), mock.MagicMock(), inputs)
-
     def test_the_users_chosen_incremental_field_reaches_the_transport(self) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "orders"

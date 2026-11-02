@@ -9,18 +9,20 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 
-import { HealthCheckResult, PluginsServerConfig } from '../../types'
+import { HealthCheckResult, PluginsServerConfig, Team } from '../../types'
 import { HogFlow } from '../schema/hogflow'
+import { PRODUCER_VERSION_FORMAT } from '../services/cohort-membership/sweeper.service'
+import {
+    COHORT_MEMBERSHIP_CHANGED_EVENT,
+    COHORT_MEMBERSHIP_VERSION_PROPERTY,
+} from '../services/cohorts/cohort-membership-repository'
 import { HogFlowInvocationPipeline } from '../services/hog-flow-invocation-pipeline.service'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, HogFunctionInvocationGlobals } from '../types'
 import { convertBatchHogFlowRequestToHogFunctionInvocationGlobals } from '../utils'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { CohortMembershipChange, CohortMembershipChangeSchema } from './cdp-cohort-membership.consumer'
-import { counterParseError } from './metrics'
-
-// pinned: stored as the event of every cohort-triggered run, which workflow steps and logs read
-export const COHORT_MEMBERSHIP_CHANGED_EVENT = '$cohort_membership_changed'
+import { assertTeamId, skipIfMalformed } from './message-parsing'
 
 export const counterCohortMembershipTriggerSkipped = new Counter({
     name: 'cdp_cohort_membership_trigger_skipped',
@@ -36,6 +38,35 @@ export function isMatchingCohortTrigger(flow: HogFlow, globals: HogFunctionInvoc
         trigger.cohort_id === globals.event.properties.cohort_id &&
         trigger.transition === globals.event.properties.status
     )
+}
+
+/**
+ * A join or a leave as a `$cohort_membership_changed` event for the person. The change carries no
+ * distinct_id and no person properties, so the event has neither.
+ */
+export function convertCohortMembershipChangeToGlobals(
+    change: CohortMembershipChange,
+    team: Team,
+    siteUrl: string
+): HogFunctionInvocationGlobals {
+    const globals = convertBatchHogFlowRequestToHogFunctionInvocationGlobals({
+        team,
+        personId: change.person_id,
+        siteUrl,
+    })
+    globals.event = {
+        ...globals.event,
+        event: COHORT_MEMBERSHIP_CHANGED_EVENT,
+        properties: {
+            cohort_id: change.cohort_id,
+            status: change.status,
+            // An off-format stamp can't be bound into the `::timestamp` comparison.
+            ...(change.last_updated && PRODUCER_VERSION_FORMAT.test(change.last_updated)
+                ? { [COHORT_MEMBERSHIP_VERSION_PROPERTY]: change.last_updated }
+                : {}),
+        },
+    }
+    return globals
 }
 
 /**
@@ -157,12 +188,10 @@ export class CdpCohortMembershipTriggerConsumer extends CdpConsumerBase {
     public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
         const changes: CohortMembershipChange[] = []
         for (const message of messages) {
-            let change: CohortMembershipChange
-            try {
-                change = CohortMembershipChangeSchema.parse(parseJSON(message.value!.toString()))
-            } catch (e) {
-                logger.error('Error parsing cohort membership change', e)
-                counterParseError.labels({ error: e.message }).inc()
+            const change = skipIfMalformed('Error parsing cohort membership change', () =>
+                assertTeamId(CohortMembershipChangeSchema.parse(parseJSON(message.value!.toString())))
+            )
+            if (!change) {
                 continue
             }
 
@@ -198,17 +227,7 @@ export class CdpCohortMembershipTriggerConsumer extends CdpConsumerBase {
                     return
                 }
 
-                const globals = convertBatchHogFlowRequestToHogFunctionInvocationGlobals({
-                    team,
-                    personId: change.person_id,
-                    siteUrl: this.config.SITE_URL,
-                })
-                globals.event = {
-                    ...globals.event,
-                    event: COHORT_MEMBERSHIP_CHANGED_EVENT,
-                    properties: { cohort_id: change.cohort_id, status: change.status },
-                }
-                events.push(globals)
+                events.push(convertCohortMembershipChangeToGlobals(change, team, this.config.SITE_URL))
             })
         )
 

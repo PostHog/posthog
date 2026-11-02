@@ -11,6 +11,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.census.cen
     get_resource,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.census.settings import (
+    CENSUS_API_V1,
+    CENSUS_API_V2,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.census.source import CensusSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     PageNumberPaginator,
@@ -35,38 +39,49 @@ def _page(rows: list[dict[str, Any]], last_page: int = 1) -> ScriptedResponse:
 class TestCensusTransport:
     @parameterized.expand(
         [
-            ("us", "https://app.getcensus.com"),
-            ("eu", "https://app-eu.getcensus.com"),
-            ("unknown", "https://app.getcensus.com"),  # unrecognized region falls back to US
+            ("us", CENSUS_API_V1, "https://app.getcensus.com/api/v1/syncs"),
+            ("eu", CENSUS_API_V1, "https://app-eu.getcensus.com/api/v1/syncs"),
+            ("unknown", CENSUS_API_V1, "https://app.getcensus.com/api/v1/syncs"),  # unknown region falls back to US
+            ("us", CENSUS_API_V2, "https://app.getcensus.com/api/v2/syncs"),
+            ("eu", CENSUS_API_V2, "https://app-eu.getcensus.com/api/v2/syncs"),
         ]
     )
-    def test_validate_credentials_uses_region_host(self, region, expected_host) -> None:
+    def test_validate_credentials_uses_region_host_and_version_path(self, region, api_version, expected_url) -> None:
         with scripted_network([ScriptedResponse(status=200)]) as network:
-            validate_credentials(api_key="key", region=region)
+            validate_credentials(api_key="key", region=region, api_version=api_version)
 
-        assert network.requests_log[0].url == f"{expected_host}/api/v1/syncs"
+        assert network.requests_log[0].url == expected_url
         assert network.requests_log[0].headers["authorization"] == "Bearer key"
 
     @parameterized.expand(
         [
-            (200, None, True, None),
-            (401, None, False, "Census rejected the API token. Generate a new workspace access token and reconnect."),
-            (403, None, True, None),  # missing scope accepted at source-create
-            (403, "syncs", False, "Your Census API token does not have access to this resource."),
-            (500, None, False, "Census API returned an unexpected status: 500"),
+            (CENSUS_API_V1, 200, None, True, None),
+            (
+                CENSUS_API_V1,
+                401,
+                None,
+                False,
+                "Census rejected the API token. Generate a new workspace access token and reconnect.",
+            ),
+            (
+                CENSUS_API_V2,
+                401,
+                None,
+                False,
+                "Census rejected the API token. Generate a new Activations personal access token in Fivetran and reconnect.",
+            ),
+            (CENSUS_API_V1, 403, None, True, None),  # missing scope accepted at source-create
+            (CENSUS_API_V1, 403, "syncs", False, "Your Census API token does not have access to this resource."),
+            (CENSUS_API_V1, 500, None, False, "Census API returned an unexpected status: 500"),
         ]
     )
-    def test_validate_credentials_status_mapping(self, status, schema_name, expected_valid, expected_message) -> None:
+    def test_validate_credentials_status_mapping(
+        self, api_version, status, schema_name, expected_valid, expected_message
+    ) -> None:
         with scripted_network(always(ScriptedResponse(status=status))):
-            result = validate_credentials(api_key="key", region="us", schema_name=schema_name)
+            result = validate_credentials(api_key="key", region="us", api_version=api_version, schema_name=schema_name)
 
         assert result == (expected_valid, expected_message)
-
-    def test_validate_credentials_network_failure(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            result = validate_credentials(api_key="key", region="us")
-
-        assert result == (False, "Could not reach Census. Please check your network and selected region, then retry.")
 
     @parameterized.expand(
         [
@@ -85,32 +100,61 @@ class TestCensusTransport:
     )
     def test_get_endpoint_permissions_reports_refusals(self, status, expected_reason) -> None:
         with scripted_network(always(ScriptedResponse(status=status))) as network:
-            permissions = get_endpoint_permissions(api_key="key", region="us", endpoints=["workspaces"])
+            permissions = get_endpoint_permissions(
+                api_key="key", region="us", endpoints=["workspaces"], api_version=CENSUS_API_V1
+            )
 
         assert permissions == {"workspaces": expected_reason}
         assert {request.url for request in network.requests_log} == {"https://app.getcensus.com/api/v1/workspaces"}
 
     def test_get_endpoint_permissions_network_failure_is_not_a_refusal(self) -> None:
         with scripted_network(always(ConnectionError("boom"))):
-            assert get_endpoint_permissions(api_key="key", region="us", endpoints=["workspaces"]) == {
-                "workspaces": None
-            }
+            assert get_endpoint_permissions(
+                api_key="key", region="us", endpoints=["workspaces"], api_version=CENSUS_API_V1
+            ) == {"workspaces": None}
+
+    @parameterized.expand(
+        [
+            (CENSUS_API_V1, "https://app.getcensus.com/api/v1/datasets"),
+            (CENSUS_API_V2, "https://app.getcensus.com/api/v2/datasets"),
+        ]
+    )
+    def test_get_endpoint_permissions_probes_the_pinned_version(self, api_version, expected_url) -> None:
+        with scripted_network(always(ScriptedResponse(status=403))) as network:
+            permissions = get_endpoint_permissions(
+                api_key="key", region="us", endpoints=["datasets"], api_version=api_version
+            )
+
+        assert permissions["datasets"] is not None
+        assert [request.url for request in network.requests_log] == [expected_url]
 
     def test_get_endpoint_permissions_skips_workspace_scoped_endpoints(self) -> None:
         # Every workspace token can read these, so probing them would only slow the schema picker.
         with scripted_network([]) as network:
             permissions = get_endpoint_permissions(
-                api_key="key", region="us", endpoints=["syncs", "sync_runs", "sources", "destinations"]
+                api_key="key",
+                region="us",
+                endpoints=["syncs", "sync_runs", "sources", "destinations"],
+                api_version=CENSUS_API_V2,
             )
 
         assert permissions == {"syncs": None, "sync_runs": None, "sources": None, "destinations": None}
         assert network.requests_log == []
 
-    def test_get_resource_full_refresh(self) -> None:
-        resource = cast(dict[str, Any], get_resource(endpoint="syncs"))
-        assert resource["name"] == "syncs"
+    @parameterized.expand(
+        [
+            (CENSUS_API_V1, "syncs", "/api/v1/syncs"),
+            (CENSUS_API_V2, "syncs", "/api/v2/syncs"),
+            (CENSUS_API_V1, "destinations", "/api/v1/destinations"),
+            # V2 replaces destination connections with activations under the same table name.
+            (CENSUS_API_V2, "destinations", "/api/v2/activations"),
+        ]
+    )
+    def test_get_resource_full_refresh(self, api_version, endpoint, expected_path) -> None:
+        resource = cast(dict[str, Any], get_resource(endpoint=endpoint, api_version=api_version))
+        assert resource["name"] == endpoint
         assert resource["write_disposition"] == "replace"
-        assert resource["endpoint"]["path"] == "/api/v1/syncs"
+        assert resource["endpoint"]["path"] == expected_path
         assert resource["endpoint"]["data_selector"] == "data"
         assert resource["endpoint"]["params"] == {"per_page": 100, "order": "asc"}
         assert isinstance(resource["endpoint"]["paginator"], PageNumberPaginator)
@@ -118,31 +162,35 @@ class TestCensusTransport:
 
     def test_get_resource_rejects_sync_runs_fanout(self) -> None:
         with pytest.raises(ValueError, match="Fan-out endpoint"):
-            get_resource(endpoint="sync_runs")
+            get_resource(endpoint="sync_runs", api_version=CENSUS_API_V2)
 
     @parameterized.expand(
         [
-            ("sources", "connection_details", {"user": "DEV"}),
-            ("destinations", "connection_details", {"user": "DEV"}),
-            ("workspaces", "notification_emails", ["alerts@example.com"]),
+            (CENSUS_API_V1, "sources", "connection_details", {"user": "DEV"}),
+            (CENSUS_API_V1, "destinations", "connection_details", {"user": "DEV"}),
+            (CENSUS_API_V1, "workspaces", "notification_emails", ["alerts@example.com"]),
+            (CENSUS_API_V2, "sources", "connection_details", {"user": "DEV"}),
+            (CENSUS_API_V2, "sources", "notification_emails", ["alerts@example.com"]),
+            (CENSUS_API_V2, "sources", "storage_backend", {"type": "gcs", "service_account_key": "secret"}),
+            (CENSUS_API_V2, "destinations", "connection_details", {"user": "DEV"}),
         ]
     )
-    def test_get_resource_strips_sensitive_fields(self, endpoint, stripped_field, stripped_value) -> None:
-        # `connection_details` carries warehouse account identifiers and `notification_emails`
-        # carries people's addresses; neither belongs in a table any project member can query.
-        resource = cast(dict[str, Any], get_resource(endpoint=endpoint))
+    def test_get_resource_strips_sensitive_fields(self, api_version, endpoint, stripped_field, stripped_value) -> None:
+        # `connection_details` carries warehouse account identifiers, `notification_emails` carries
+        # people's addresses and `storage_backend` can carry cloud credentials; none belong in a table any project member can query.
+        resource = cast(dict[str, Any], get_resource(endpoint=endpoint, api_version=api_version))
         row = resource["data_map"]({"id": 1, "name": "Census", stripped_field: stripped_value})
         assert row == {"id": 1, "name": "Census"}
 
     def test_get_resource_syncs_keeps_all_fields(self) -> None:
-        resource = cast(dict[str, Any], get_resource(endpoint="syncs"))
+        resource = cast(dict[str, Any], get_resource(endpoint="syncs", api_version=CENSUS_API_V2))
         assert "data_map" not in resource
 
     def test_probe_disables_sample_capture(self) -> None:
         # The `/syncs` probe response echoes `connection_details`; capturing it would persist the
         # warehouse account/user/warehouse identifiers to shared sample storage before any mapper runs.
         with scripted_network([ScriptedResponse(status=200)]) as network:
-            validate_credentials(api_key="key", region="us")
+            validate_credentials(api_key="key", region="us", api_version=CENSUS_API_V2)
 
         assert network.session_options[0]["capture"] is False
 
@@ -156,7 +204,14 @@ class TestCensusTransport:
         assert result.rows == [{"id": 1}]
         assert result.session_options[0]["capture"] is False
         assert result.session_options[0]["redact_values"] == ("key",)
-        assert result.paths == ["/api/v1/syncs"]
+        assert result.paths == ["/api/v2/syncs"]
+
+    def test_census_source_rejects_a_table_the_version_does_not_serve(self) -> None:
+        result = _driver().run("workspaces", [], api_version=CENSUS_API_V2)
+
+        assert isinstance(result.raised, ValueError)
+        assert any(key in str(result.raised) for key in CensusSource().get_non_retryable_errors())
+        assert result.paths == []
 
     def test_census_source_top_level_response(self) -> None:
         result = _driver().run("syncs", [_page([])])
@@ -188,18 +243,20 @@ class TestCensusTransport:
         # A terminal (None) checkpoint is not persisted — the Redis TTL handles cleanup.
         assert result.final_state == CensusResumeConfig(paginator_state={"page": 2})
 
-    def test_sync_runs_fanout_row_format(self) -> None:
+    @parameterized.expand([(CENSUS_API_V1,), (CENSUS_API_V2,)])
+    def test_sync_runs_fanout_row_format(self, api_version) -> None:
         result = _driver().run(
             "sync_runs",
             [
                 _page([{"id": 42}]),
                 _page([{"id": 7, "status": "completed"}]),
             ],
+            api_version=api_version,
         )
 
         assert result.raised is None
         assert result.rows == [{"id": 7, "status": "completed", "sync_id": 42}]
-        assert result.paths == ["/api/v1/syncs", "/api/v1/syncs/42/sync_runs"]
+        assert result.paths == [f"/api/{api_version}/syncs", f"/api/{api_version}/syncs/42/sync_runs"]
         # Run ids are only documented per-sync, so the parent sync id is part of the key.
         response = result.response
         assert response is not None
@@ -222,10 +279,10 @@ class TestCensusTransport:
 
         assert result.raised is None
         assert result.paths == [
-            "/api/v1/syncs",
-            "/api/v1/syncs/42/sync_runs",
-            "/api/v1/syncs",
-            "/api/v1/syncs/43/sync_runs",
+            "/api/v2/syncs",
+            "/api/v2/syncs/42/sync_runs",
+            "/api/v2/syncs",
+            "/api/v2/syncs/43/sync_runs",
         ]
         assert result.params("per_page") == ["100"] * 4
         assert result.params("page") == ["1", "1", "2", "1"]

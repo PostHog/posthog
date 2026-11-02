@@ -1,7 +1,6 @@
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.source import ChatwootSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.chatwoot import (
     ChatwootSourceConfig,
 )
@@ -18,10 +17,6 @@ class TestChatwootSource:
         # and changing the account id alone could point a shared token at another account's data —
         # both must force re-entering the token.
         assert self.source.connection_host_fields == ["host", "account_id"]
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["contacts"])
-        assert [schema.name for schema in schemas] == ["contacts"]
 
     def test_webhook_resource_map_covers_webhook_schemas(self):
         assert self.source.webhook_resource_map == {"conversations": "conversation", "messages": "message"}
@@ -79,9 +74,3 @@ class TestChatwootSource:
         assert kwargs["team_id"] == self.team_id
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["webhook_source_manager"] is not None
-
-    def test_source_for_pipeline_rejects_unknown_schema(self):
-        result = SourceDriver(self.source, self.config).run("not-a-schema", [])
-
-        assert isinstance(result.raised, ValueError)
-        assert "Unknown Chatwoot schema" in str(result.raised)

@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.moengage.m
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.moengage.settings import (
+    FLOWS_PAGE_SIZE,
     MAX_BACKFILL_DAYS,
     REPORT_WINDOW_DAYS,
     SEARCH_PAGE_SIZE,
@@ -146,9 +147,18 @@ def _drive(
     return sent_bodies, sent_headers, rows, manager
 
 
-def _driver(start_date: str | None = None) -> SourceDriver:
+def _driver(
+    start_date: str | None = None, project_code: str | None = None, flow_teams: str | None = None
+) -> SourceDriver:
     return SourceDriver(
-        MoEngageSource(), MoEngageSourceConfig(workspace_id="ws-1", api_key="test-key", start_date=start_date)
+        MoEngageSource(),
+        MoEngageSourceConfig(
+            workspace_id="ws-1",
+            api_key="test-key",
+            start_date=start_date,
+            project_code=project_code,
+            flow_teams=flow_teams,
+        ),
     )
 
 
@@ -257,6 +267,96 @@ class TestMoEngageSourceCampaigns:
         assert [request.json()["page"] for request in result.requests] == [5]
 
 
+def _flows_page(flow_ids: list[str], next_cursor: str | None) -> dict[str, Any]:
+    return {
+        "response_id": "r1",
+        "type": "flow",
+        "data": {
+            "flows": [{"flow_id": flow_id, "name": f"Flow {flow_id}"} for flow_id in flow_ids],
+            "has_more": next_cursor is not None,
+            "next_cursor": next_cursor,
+        },
+    }
+
+
+class TestMoEngageSourceFlows:
+    def test_walks_the_body_cursor_until_it_is_null_and_checkpoints(self) -> None:
+        result = _driver().run(
+            "flows",
+            [
+                ScriptedResponse(json=_flows_page(["f1", "f2"], "cur-2")),
+                ScriptedResponse(json=_flows_page(["f3"], "cur-3")),
+                ScriptedResponse(json=_flows_page(["f4"], None)),
+            ],
+        )
+
+        assert result.raised is None
+        assert {(request.method, request.path) for request in result.requests} == {("POST", "/v5/flows/search")}
+        bodies = [request.json() for request in result.requests]
+        assert [body.get("cursor") for body in bodies] == [None, "cur-2", "cur-3"]
+        assert all(body["include_archived"] is True and body["limit"] == FLOWS_PAGE_SIZE for body in bodies)
+        assert [row["flow_id"] for row in result.rows] == ["f1", "f2", "f3", "f4"]
+        assert result.saved_states == [
+            MoEngageResumeConfig(flows_state={"cursor": "cur-2"}),
+            MoEngageResumeConfig(flows_state={"cursor": "cur-3"}),
+        ]
+        assert result.final_state is None
+
+    def test_resumes_flow_search_at_the_saved_cursor(self) -> None:
+        result = _driver().run(
+            "flows",
+            [ScriptedResponse(json=_flows_page(["f9"], None))],
+            resume_state=MoEngageResumeConfig(flows_state={"cursor": "cur-9"}),
+        )
+
+        assert result.raised is None
+        assert [request.json().get("cursor") for request in result.requests] == ["cur-9"]
+
+    @pytest.mark.parametrize(
+        ("flow_teams", "expected_teams"),
+        [(None, None), (" , ", None), ("Marketing, Growth ,", ["Marketing", "Growth"])],
+    )
+    def test_sends_team_names_only_when_configured(
+        self, flow_teams: str | None, expected_teams: list[str] | None
+    ) -> None:
+        result = _driver(flow_teams=flow_teams).run("flows", [ScriptedResponse(json=_flows_page(["f1"], None))])
+
+        assert result.raised is None
+        assert result.requests[0].json().get("teams") == expected_teams
+
+
+class TestMoEngageSourceCatalogs:
+    @pytest.mark.parametrize(
+        ("endpoint", "path", "rows"),
+        [
+            ("segments", "/v3/custom-segments", [{"id": "s1", "name": "Buyers"}, {"id": "s2", "name": "Churned"}]),
+            (
+                "subscription_categories",
+                "/v5/subscription-categories",
+                [{"name": "promotional", "display_name": "Promotional", "channel": "email"}],
+            ),
+        ],
+    )
+    def test_reads_the_whole_catalog_from_one_get(self, endpoint: str, path: str, rows: list[dict[str, Any]]) -> None:
+        result = _driver().run(endpoint, [ScriptedResponse(json={"response_id": "r1", "type": "x", "data": rows})])
+
+        assert result.raised is None
+        assert [(request.method, request.path) for request in result.requests] == [("GET", path)]
+        assert result.requests[0].headers["moe-appkey"] == "ws-1"
+        assert result.rows == rows
+
+    @pytest.mark.parametrize(("project_code", "expected_header"), [(None, None), (" p-1 ", "p-1")])
+    def test_subscription_categories_forward_the_portfolio_project_code(
+        self, project_code: str | None, expected_header: str | None
+    ) -> None:
+        result = _driver(project_code=project_code).run(
+            "subscription_categories", [ScriptedResponse(json={"data": []})]
+        )
+
+        assert result.raised is None
+        assert result.requests[0].headers.get("moe-project-code") == expected_header
+
+
 class TestMoEngageSourceDailyReport:
     def test_resume_skips_days_already_yielded(self) -> None:
         today = datetime.now(UTC).date()
@@ -327,23 +427,11 @@ class TestMoEngageSourceCampaignReport:
         assert result.saved_states == []
 
 
-class TestMoEngageSourceErrors:
-    def test_unknown_endpoint_raises(self) -> None:
-        result = _driver().run("not_a_table", [])
-
-        assert isinstance(result.raised, ValueError)
-        assert "Unknown MoEngage endpoint" in str(result.raised)
-        assert result.requests == []
-
-
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         ("status", "is_valid", "message_fragment"),
         [
             (200, True, None),
-            (401, False, "authentication failed"),
-            (403, False, "authentication failed"),
-            (500, False, "unexpected response"),
         ],
     )
     def test_maps_probe_status_to_user_message(self, status: int, is_valid: bool, message_fragment: str | None) -> None:

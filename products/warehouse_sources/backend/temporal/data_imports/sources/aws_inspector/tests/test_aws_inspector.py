@@ -12,7 +12,6 @@ from botocore.validate import validate_parameters
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_inspector.aws_inspector import (
     AwsInspectorClient,
-    AwsInspectorError,
     AwsInspectorResumeConfig,
     aws_inspector_source,
     error_for_response,
@@ -365,11 +364,15 @@ def test_credential_errors(
 @pytest.mark.parametrize(
     "status,code", [(429, "ThrottlingException"), (500, "InternalServerException"), (503, "HTTP 503")]
 )
-def test_transient_errors_propagate(config: AwsInspectorSourceConfig, status: int, code: str) -> None:
+def test_transient_errors_report_an_unreachable_vendor(
+    config: AwsInspectorSourceConfig, status: int, code: str
+) -> None:
     script = [ScriptedResponse(json={"__type": code}, status=status) for _ in range(4)]
     with scripted_network(script):
-        with pytest.raises(AwsInspectorError, match=code):
-            validate_credentials(config)
+        assert validate_credentials(config) == (
+            False,
+            "Couldn't reach AWS Inspector to check your credentials. Try again in a few minutes.",
+        )
     assert not any(
         pattern in f"AWS Inspector request failed: {code}"
         for pattern in AwsInspectorSource().get_non_retryable_errors()
@@ -499,8 +502,10 @@ def test_malformed_response(config: AwsInspectorSourceConfig, http: MagicMock, s
             validate_credentials(config)
     else:
         http.post.return_value._content = b"not JSON"
-        with pytest.raises(AwsInspectorError, match="HTTP 503"):
-            validate_credentials(config)
+        assert validate_credentials(config) == (
+            False,
+            "Couldn't reach AWS Inspector to check your credentials. Try again in a few minutes.",
+        )
     http.close.assert_called_once()
 
 

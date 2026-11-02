@@ -56,7 +56,7 @@ class SpaceliftSource(ResumableSource[SpaceliftSourceConfig, SpaceliftResumeConf
             name=ExternalDataSourceType.SPACELIFT,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Spacelift",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Spacelift API key to pull your infrastructure-as-code stacks, runs, policies, and managed resources into the PostHog Data warehouse.
 
 Create an API key under **Organization settings** → **API keys** in your Spacelift account. Grant it at least read access to the spaces you want to sync.
@@ -121,6 +121,11 @@ Your account name is the subdomain you use to access Spacelift (e.g. `my-company
             return (
                 "All runs across every stack and module. Incremental syncs re-pull the last "
                 f"{RUNS_INCREMENTAL_LOOKBACK_SECONDS // 86400} days so state changes on recent runs are captured"
+            )
+        if endpoint == "run_changes":
+            return (
+                "Per-resource changes of each run. Incremental syncs re-pull the runs of the last "
+                f"{RUNS_INCREMENTAL_LOOKBACK_SECONDS // 86400} days so changes from runs that finish later are captured"
             )
         if endpoint == "managed_entities":
             return "Terraform/OpenTofu resources managed across your stacks, including drift status"

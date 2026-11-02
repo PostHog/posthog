@@ -3,6 +3,7 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import close_db_connections
 
+from products.slack_app.backend.services.workspace_integrations import require_workspace_integration
 from products.slack_app.backend.temporal.helpers import block_if_team_over_quota
 from products.slack_app.backend.temporal.types import PostHogCodeSlackMentionWorkflowInputs
 
@@ -24,21 +25,17 @@ def enforce_posthog_code_billing_quota_activity(
     Slack roundtrips, thread fetches, or billable LLM calls (the classifier,
     notably) for an over-quota team.
     """
-    from posthog.models.integration import Integration, SlackIntegration
+    from posthog.models.integration import SlackIntegration
 
-    integration = Integration.objects.select_related("team").get(
-        id=inputs.integration_id,
-        kind="slack",
-        integration_id=inputs.slack_team_id,
-    )
+    integration = require_workspace_integration(inputs.integration_id, inputs.slack_team_id)
     slack = SlackIntegration(integration)
-    # An untagged reply has asked PostHog for nothing yet, because both the classifier
-    # and the confirmation prompt run after this gate. The denial goes into the thread
-    # where everyone in the channel reads it, so an over-quota team would collect one
-    # under every reply people write in a thread PostHog owns, chitchat included. Stop
-    # the run without the message and keep the message for a mention or a confirmed
-    # reply, which are the turns that asked for work.
-    unrequested = inputs.untagged_followup and not inputs.untagged_followup_confirmed
+    # An untagged reply or an untagged channel question has asked PostHog for nothing
+    # yet, because both the classifier and the confirmation prompt run after this gate.
+    # The denial goes into the thread where everyone in the channel reads it, so an
+    # over-quota team would collect one under every reply people write in a thread
+    # PostHog owns, chitchat included. Stop the run without the message and keep the
+    # message for a mention or a confirmed reply, which are the turns that asked for work.
+    unrequested = (inputs.untagged_followup or inputs.untagged_question) and not inputs.untagged_confirmed
     blocked = block_if_team_over_quota(
         integration=integration,
         slack=slack,
@@ -50,7 +47,7 @@ def enforce_posthog_code_billing_quota_activity(
     )
     if blocked and unrequested:
         logger.info(
-            "slack_app_untagged_followup_dropped_over_quota",
+            "slack_app_unaddressed_message_dropped_over_quota",
             team_id=integration.team_id,
             channel=channel,
             thread_ts=thread_ts,

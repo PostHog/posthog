@@ -68,7 +68,7 @@ Register an app in [Microsoft Entra ID](https://learn.microsoft.com/en-us/dynami
 Every table except companies is synced for all companies in the environment, with the company ID kept on each row.""",
             iconPath="/static/services/dynamics_365_business_central.png",
             docsUrl="https://posthog.com/docs/cdp/sources/dynamics-365-business-central",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["business central", "dynamics 365", "erp", "microsoft", "bc"],
             fields=cast(
                 list[FieldType],

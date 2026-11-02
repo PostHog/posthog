@@ -76,7 +76,7 @@ Supported tables:
 """,
             iconPath="/static/services/jotform.png",
             docsUrl="https://posthog.com/docs/cdp/sources/jotform",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

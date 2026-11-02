@@ -49,10 +49,35 @@ If Redis is unavailable, SQL editor queries and managed warehouse schema discove
 
 ## Hosted Trino opt-in
 
+Selecting **PostHog (Trino)** loads the warehouse catalog into a schema/table tree, including columns on expansion. The catalog is discovered with the same user credential and access checks as native Trino queries. It does not include the default PostHog catalog or saved-query folders. Switching back to **PostHog (ClickHouse)** restores the default catalog. Discovery failures show a retry action instead of falling back to PostHog tables.
+
 The same `managed-warehouse-trino-query` organization feature flag adds **PostHog (Trino)** directly below **PostHog (ClickHouse)** in the SQL editor connection selector. The default PostHog target remains unchanged. The backend checks the same flag before execution and cache reads; selecting the target in a URL does not grant access.
 
 While this flag is enabled, the selector hides **PostHog (Managed warehouse)** from the menu so the built-in choices are ClickHouse and Trino. Existing queries that select the managed connection retain their connection ID, label and execution behavior. The managed option returns when the flag is disabled. Ordinary external connections remain visible.
 
-Hosted Trino runs the current HogQL query through the Django-backed Trino compiler, preserving project scoping and the requesting user's table permissions. It resolves logical table names to the project's managed warehouse tables without requiring a stored model translation. Data must already exist in the Trino target; unsupported expressions and missing tables produce query errors. The target accepts HogQL only and cannot be combined with an external connection or raw SQL mode.
+Hosted Trino runs the current HogQL query through the Django-backed Trino compiler, preserving project scoping and the requesting user's table permissions. It resolves logical table names to the project's managed warehouse tables without requiring a stored model translation. Data must already exist in the Trino target; unsupported expressions and missing tables produce query errors. The target cannot be combined with an external connection. Selecting **PostHog (Trino)** enables **Send raw query** by default for all users with project access using a browser session. This passes a single read-only Trino SELECT statement directly to the warehouse. Users can turn the setting off to use HogQL. Existing saved queries and URLs retain their selected mode. Raw SQL uses the organization's warehouse grant and does not enforce HogQL table permissions. Token-authenticated requests must use HogQL, which enforces table permissions. Asynchronous raw results recheck the browser session and current project access before returning data. Raw mode uses physical catalog, schema, and table names and skips HogQL compilation, logical table mapping, filters, variables, and automatic pagination. The editor uses SQL syntax for raw queries. The existing row cap, deadline, and cancellation still apply. The raw mode selection persists in saved queries and editor URLs.
 
-Each connection uses a short-lived hosted Trino service credential with a project/user principal. It does not read external-source passwords. Interactive queries retain a deadline and bounded result size, and asynchronous cancellation uses the existing direct-query cancellation token. Queries without an explicit limit use the existing SQL editor pagination and report whether more rows exist. SQL alerts use the same completeness probe as the default target. HTTP polling and prepared statements share the query deadline, and cursor cleanup makes one bounded cancellation attempt. Choosing another target preserves the query text, filters, and variables; the selection is saved with the query and editor URL.
+Each connection uses a short-lived hosted Trino service credential with a project/user principal. It does not read external-source passwords. Interactive queries retain a deadline and bounded result size, and asynchronous cancellation uses the existing direct-query cancellation token. HogQL queries without an explicit limit use the existing SQL editor pagination and report whether more rows exist. SQL alerts in HogQL mode use the same completeness probe as the default target. HTTP polling and prepared statements share the query deadline, and cursor cleanup makes one bounded cancellation attempt. Choosing another target preserves the query text, filters, and variables; the selection is saved with the query and editor URL.
+
+## Internal warehouse testing
+
+Staff can select **Internal testing** at `/admin/managed_warehouse/duckgresserver/provision/` to provision and load a warehouse without enabling either customer feature flag.
+The organization lifecycle records this mode before the provisioning call, so customer provisioning, status, hosted Trino queries, and managed SQL-editor source creation stay blocked throughout setup.
+Keep `managed-warehouse-trino-query` off while staging the warehouse.
+Enabling that organization flag promotes the existing warehouse on the next Data ops, hosted Trino query, or SQL-editor connection check.
+Promotion preserves the warehouse, credentials, loaded data, and lifecycle generation; it does not call the provision API.
+The ready warehouse status read schedules the normal SQL-editor connection and catalog discovery for onboarded teams.
+Background loading remains enabled independently of customer access, including work queued before promotion.
+The legacy `data-warehouse-scene` flag does not promote an internal warehouse.
+Existing customer warehouses must be deprovisioned before switching modes.
+
+The provisioning team and any teams added through **Enable backfill for a team** use the existing events and persons backfill sensors.
+A generation-fenced Celery task waits for Trino readiness and the team's backfill membership, then starts the existing Temporal workflows for imported tables and materialized views.
+It registers the current prepared Parquet snapshots, copies Delta imports that have no prepared snapshot, and copies existing materialized view outputs.
+It does not rerun customer imports or change their materialization schedules.
+Future completed imports continue to register while the internal warehouse is active.
+Loading dispatch retries transient failures and readiness waits with backoff; failed child workflows remain visible in Temporal.
+Deprovisioning or replacing the warehouse makes old queued dispatch tasks no-ops.
+
+Infrastructure readiness and loading completion are separate: inspect the Dagster events/persons backfills and Temporal copy/registration workflows before treating the warehouse as fully loaded.
+Promotion is a transition to the normal customer lifecycle. Turning the Trino flag off afterward restores the existing customer flag behavior; it does not restore internal testing mode.

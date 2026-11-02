@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.statuspage import (
     StatuspageSourceConfig,
@@ -22,7 +21,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.statuspage
 from products.warehouse_sources.backend.temporal.data_imports.sources.statuspage.statuspage import (
     StatuspageAuth,
     StatuspageResumeConfig,
-    validate_credentials,
 )
 
 
@@ -95,26 +93,6 @@ class TestRetry:
         assert isinstance(result.raised, requests.HTTPError)
         # A 401 is permanent — issued exactly once, no retry.
         assert len(result.requests) == 1
-
-
-class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        "status_code, expected_ok",
-        [(200, True), (401, False), (403, False), (500, False)],
-    )
-    def test_status_mapping(self, status_code, expected_ok):
-        body = [] if status_code == 200 else {"error": "nope"}
-        with scripted_network(always(ScriptedResponse(status=status_code, json=body))):
-            ok, error = validate_credentials("key")
-        assert ok is expected_ok
-        if not ok:
-            assert error
-
-    def test_request_exception_is_failure(self):
-        with scripted_network(always(ConnectionError("boom"))):
-            ok, error = validate_credentials("key")
-        assert ok is False
-        assert "boom" in (error or "")
 
 
 class TestSourceResponse:

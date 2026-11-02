@@ -16,6 +16,8 @@ from django.utils import timezone
 
 import structlog
 
+from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
+
 logger = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
@@ -49,7 +51,7 @@ def history_start_for_schema(
     # leave the source on its declared default rather than failing every sync's history resolution.
     config = None
     try:
-        config = source.parse_config(schema.source.job_inputs or {})
+        config = source.parse_config(SourceInputsStore.load(schema.source))
     except Exception:
         logger.warning("history_window.config_unreadable", source_type=schema.source.source_type)
 

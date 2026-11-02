@@ -6,14 +6,14 @@ from uuid import UUID
 from django.db import transaction
 
 import structlog
-from langchain_core.messages import HumanMessage, SystemMessage
-from posthoganalytics.ai.langchain.callbacks import CallbackHandler
-from pydantic import BaseModel
+from anthropic.types import ToolUseBlock
+from pydantic import BaseModel, ValidationError
 from temporalio import activity
 from temporalio.common import MetricMeter
 
 from posthog.api.embedding_worker import generate_embedding
 from posthog.dataclasses import frozen
+from posthog.llm.gateway_client import build_ai_gateway_anthropic_client, team_distinct_id
 from posthog.models.activity_logging.activity_log import Trigger
 from posthog.models.activity_logging.model_activity import ActivityTriggerContext
 from posthog.models.organization import OrganizationMembership
@@ -23,13 +23,11 @@ from posthog.models.user import User
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.utils import asyncify
 
-from products.business_knowledge.backend import learning_settings, llm_telemetry, logic
+from products.business_knowledge.backend import learning_settings, logic
 from products.business_knowledge.backend.constants import BK_EMBEDDING_MODEL, BK_QUERY_EMBEDDING_TIMEOUT
 from products.business_knowledge.backend.learning.contracts import EvidenceBundle, EvidenceRef
 from products.business_knowledge.backend.learning.providers import get_learning_provider
 from products.business_knowledge.backend.models import KnowledgeLearningRun, LearningRunResult, LearningRunStatus
-
-from ee.hogai.llm import MaxChatAnthropic
 
 from ..constants import (
     ANALYSIS_VERSION,
@@ -56,6 +54,9 @@ from ..schemas import (
 
 logger = structlog.get_logger(__name__)
 ModelOutput = TypeVar("ModelOutput", bound=BaseModel)
+_LEARNING_AI_PRODUCT = "business_knowledge"
+# All four stages share one attempt's start_to_close budget. Temporal retries the activity, so the SDK does not.
+_MODEL_TIMEOUT_SECONDS = 60
 
 
 _EXTRACTION_SYSTEM_PROMPT = """You extract reusable Business knowledge from public human support replies.
@@ -110,6 +111,16 @@ class LearningAnalysisError(RuntimeError):
         self.code = code
 
 
+class LearningOutputTruncated(LearningAnalysisError):
+    def __init__(self, stage: str) -> None:
+        super().__init__(f"{stage}_output_truncated")
+
+
+class LearningConflictingOutput(LearningAnalysisError):
+    def __init__(self, stage: str) -> None:
+        super().__init__(f"{stage}_conflicting_output")
+
+
 class _SupersessionUnavailable(Exception):
     """The conflicting source is not one this job may replace, so the candidate must not be published."""
 
@@ -145,47 +156,75 @@ def _resolve_learning_user(team: Team) -> User:
     return membership.user
 
 
-def _learning_generation_properties(*, stage: str, trace_id: str, team_id: int) -> dict[str, str | int]:
-    return {
-        "ai_product": "business_knowledge",
-        "ai_feature": f"support_learning_{stage}",
-        "learning_run_id": trace_id,
-        "team_id": team_id,
-    }
+def _provider_error_type(body: object) -> str | None:
+    if not isinstance(body, dict):
+        return None
+    error = body.get("error")
+    if not isinstance(error, dict):
+        return None
+    error_type = error.get("type")
+    if not isinstance(error_type, str) or not error_type:
+        return None
+    return error_type
 
 
-def _learning_trace_callback(team: Team, *, stage: str, trace_id: str) -> CallbackHandler | None:
-    return llm_telemetry.trace_callback(
-        team.id,
+def _validation_failures(error: ValidationError, output_model: type[BaseModel]) -> list[str]:
+    known_fields = output_model.model_fields.keys()
+    failures: list[str] = []
+    for detail in error.errors(include_url=False, include_context=False, include_input=False):
+        location = detail["loc"]
+        # An extra_forbidden location is a key that the model wrote, so only schema field names are logged.
+        field = str(location[0]) if location and location[0] in known_fields else "<other>"
+        failures.append(f"{field}:{detail['type']}")
+    return failures
+
+
+def _model_failure_fields(error: Exception, output_model: type[BaseModel]) -> dict[str, str | int | list[str]]:
+    fields: dict[str, str | int | list[str]] = {"error_type": type(error).__name__}
+    if error.__cause__ is not None:
+        fields["cause_type"] = type(error.__cause__).__name__
+    if isinstance(error, ValidationError):
+        fields["validation_failures"] = _validation_failures(error, output_model)
+    status_code = getattr(error, "status_code", None)
+    if isinstance(status_code, int):
+        fields["status_code"] = status_code
+    request_id = getattr(error, "request_id", None)
+    if isinstance(request_id, str) and request_id:
+        fields["request_id"] = request_id
+    provider_error_type = _provider_error_type(getattr(error, "body", None))
+    if provider_error_type is not None:
+        fields["provider_error_type"] = provider_error_type
+    return fields
+
+
+def _log_model_failure(team: Team, stage: str, trace_id: str, error: Exception, output_model: type[BaseModel]) -> None:
+    logger.error(  # noqa: TRY400 — exception() records the provider message, which can quote the support reply
+        "business_knowledge.learning.model_failed",
+        stage=stage,
+        team_id=team.id,
         trace_id=trace_id,
-        properties=_learning_generation_properties(stage=stage, trace_id=trace_id, team_id=team.id),
+        **_model_failure_fields(error, output_model),
     )
 
 
-def _build_model(
-    team: Team,
-    user: User,
-    *,
-    stage: str,
-    trace_id: str,
-    max_tokens: int = LEARNING_MAX_TOKENS,
-) -> MaxChatAnthropic:
-    return MaxChatAnthropic(
-        model=LEARNING_MODEL,
-        streaming=False,
-        user=user,
-        team=team,
-        max_tokens=max_tokens,
-        billable=False,
-        inject_context=False,
-        temperature=0,
-        posthog_properties=_learning_generation_properties(stage=stage, trace_id=trace_id, team_id=team.id),
-    )
+def _parse_tool_result(
+    content: object, output_model: type[ModelOutput], stage: str, *, first_call_wins: bool
+) -> ModelOutput:
+    tool_name = output_model.__name__
+    blocks = content if isinstance(content, list) else []
+    tool_results = [block for block in blocks if isinstance(block, ToolUseBlock) and block.name == tool_name]
+    if not tool_results:
+        raise LearningAnalysisError(f"invalid_{stage}_output")
+    if len(tool_results) > 1:
+        # The request disables parallel tool use. Several calls can still arrive.
+        logger.warning("business_knowledge.learning.multiple_tool_calls", stage=stage, count=len(tool_results))
+        if not first_call_wins and any(block.input != tool_results[0].input for block in tool_results[1:]):
+            raise LearningConflictingOutput(stage)
+    return output_model.model_validate(tool_results[0].input)
 
 
 def _invoke_structured_model(
     team: Team,
-    user: User,
     *,
     stage: str,
     trace_id: str,
@@ -193,45 +232,89 @@ def _invoke_structured_model(
     payload: dict[str, object],
     output_model: type[ModelOutput],
     max_tokens: int = LEARNING_MAX_TOKENS,
+    first_call_wins: bool = False,
 ) -> ModelOutput:
-    callback = _learning_trace_callback(team, stage=stage, trace_id=trace_id)
     try:
-        model = _build_model(team, user, stage=stage, trace_id=trace_id, max_tokens=max_tokens).with_structured_output(
-            output_model,
-            method="json_schema",
-            include_raw=False,
+        client = build_ai_gateway_anthropic_client(
+            ai_product=_LEARNING_AI_PRODUCT,
+            trace_id=trace_id,
+            distinct_id=team_distinct_id(team.id),
+            team_id=team.id,
+            properties={
+                "ai_feature": f"support_learning_{stage}",
+                "learning_run_id": trace_id,
+            },
         )
-        messages = [
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=json.dumps(payload, ensure_ascii=False)),
-        ]
-        if callback is None:
-            result = model.invoke(messages)
-        else:
-            result = model.invoke(messages, config={"callbacks": [callback]})
-    except Exception:
+    except ValueError:
+        raise LearningAnalysisError("ai_gateway_not_configured") from None
+    tool_name = output_model.__name__
+    try:
+        with client.with_options(timeout=_MODEL_TIMEOUT_SECONDS, max_retries=0) as bounded:
+            response = bounded.messages.create(
+                model=LEARNING_MODEL,
+                max_tokens=max_tokens,
+                temperature=0,
+                system=system_prompt,
+                messages=[{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
+                tools=[
+                    {
+                        "name": tool_name,
+                        "description": "Record the structured result.",
+                        "input_schema": output_model.model_json_schema(),
+                    }
+                ],
+                tool_choice={"type": "tool", "name": tool_name, "disable_parallel_tool_use": True},
+                extra_headers={"X-PostHog-Privacy-Mode": "true"},
+            )
+        try:
+            return _parse_tool_result(response.content, output_model, stage, first_call_wins=first_call_wins)
+        except LearningConflictingOutput:
+            raise
+        except (LearningAnalysisError, ValidationError) as error:
+            if response.stop_reason == "max_tokens":
+                logger.warning(
+                    "business_knowledge.learning.output_truncated",
+                    stage=stage,
+                    team_id=team.id,
+                    trace_id=trace_id,
+                    max_tokens=max_tokens,
+                )
+                raise LearningOutputTruncated(stage) from None
+            if isinstance(error, LearningAnalysisError):
+                content = response.content if isinstance(response.content, list) else []
+                logger.error(  # noqa: TRY400 — the error is re-raised, so Temporal records its traceback
+                    "business_knowledge.learning.invalid_output",
+                    stage=stage,
+                    team_id=team.id,
+                    trace_id=trace_id,
+                    stop_reason=response.stop_reason,
+                    block_types=[getattr(block, "type", type(block).__name__) for block in content],
+                )
+            raise
+    except LearningAnalysisError:
+        raise
+    except Exception as error:
+        _log_model_failure(team, stage, trace_id, error, output_model)
+        # The provider message can quote the support reply, and workflow history stores __cause__.
         raise LearningAnalysisError(f"{stage}_model_failed") from None
-    if not isinstance(result, output_model):
-        raise LearningAnalysisError(f"invalid_{stage}_output") from None
-    return result
 
 
-def _extract_candidate(team: Team, user: User, bundle: EvidenceBundle, trace_id: str) -> ExtractedKnowledge:
+def _extract_candidate(team: Team, bundle: EvidenceBundle, trace_id: str) -> ExtractedKnowledge:
     return _invoke_structured_model(
         team,
-        user,
         stage="extraction",
         trace_id=trace_id,
         system_prompt=_EXTRACTION_SYSTEM_PROMPT,
         payload={"public_human_replies": list(bundle.replies)},
         output_model=ExtractedKnowledge,
+        # Every later gate checks the candidate this stage returns, so any one of several candidates is safe to keep.
+        first_call_wins=True,
     )
 
 
-def _model_pii_verdict(team: Team, user: User, extracted: ExtractedKnowledge, trace_id: str) -> PiiVerdict:
+def _model_pii_verdict(team: Team, extracted: ExtractedKnowledge, trace_id: str) -> PiiVerdict:
     return _invoke_structured_model(
         team,
-        user,
         stage="pii",
         trace_id=trace_id,
         system_prompt=_PII_SYSTEM_PROMPT,
@@ -283,7 +366,6 @@ def _render_search_context(results: list[logic.KnowledgeSearchResult]) -> list[d
 
 def _promotion_decision(
     team: Team,
-    user: User,
     bundle: EvidenceBundle,
     extracted: ExtractedKnowledge,
     retrieved: list[dict[str, str | int]],
@@ -291,7 +373,6 @@ def _promotion_decision(
 ) -> PromotionDecision:
     return _invoke_structured_model(
         team,
-        user,
         stage="promotion",
         trace_id=trace_id,
         system_prompt=_PROMOTION_SYSTEM_PROMPT,
@@ -309,14 +390,12 @@ def _promotion_decision(
 
 def _confirm_contradiction(
     team: Team,
-    user: User,
     extracted: ExtractedKnowledge,
     conflicting: logic.KnowledgeSearchResult,
     trace_id: str,
 ) -> ContradictionVerdict:
     return _invoke_structured_model(
         team,
-        user,
         stage="contradiction",
         trace_id=trace_id,
         system_prompt=_CONTRADICTION_SYSTEM_PROMPT,
@@ -490,6 +569,7 @@ def _log_analysis_failure(run: KnowledgeLearningRun, error: Exception) -> None:
         provider=run.provider,
         evidence_key=run.evidence_key,
         error_type=type(error).__name__,
+        error_code=error.code if isinstance(error, LearningAnalysisError) else None,
     )
 
 
@@ -510,6 +590,7 @@ def _finish_without_knowledge(
         "low_confidence": "rejected_not_useful",
         "learned_cap_reached": "rejected_learned_cap",
         "stale_candidate": "rejected_stale_candidate",
+        "output_truncated": "rejected_output_truncated",
     }.get(rejection_code, "rejected_not_useful")
     _increment_counter(metric_outcome)
     logger.info(
@@ -661,15 +742,23 @@ def _analyze(run: KnowledgeLearningRun, input: AnalyzeLearningEvidenceInput) -> 
             rejection_code="ineligible",
         )
 
-    user = _resolve_learning_user(run.team)
+    _resolve_learning_user(run.team)
     trace_id = str(run.id)
-    extracted = _extract_candidate(run.team, user, bundle, trace_id)
+    try:
+        extracted = _extract_candidate(run.team, bundle, trace_id)
+    except LearningOutputTruncated:
+        # Sampling runs at temperature 0, so a retry truncates again. A reply this long is not concise knowledge.
+        return _finish_without_knowledge(run, rejection_code="output_truncated")
     rejection_code = _extraction_rejection(extracted)
     if rejection_code != "none":
         return _finish_without_knowledge(run, rejection_code=rejection_code)
 
     generated_text = f"{extracted.canonical_topic}\n{extracted.canonical_answer}"
-    if _model_pii_verdict(run.team, user, extracted, trace_id).verdict != "safe":
+    try:
+        pii_verdict = _model_pii_verdict(run.team, extracted, trace_id)
+    except LearningConflictingOutput:
+        return _finish_without_knowledge(run, rejection_code="pii")
+    if pii_verdict.verdict != "safe":
         return _finish_without_knowledge(run, rejection_code="pii")
 
     try:
@@ -677,10 +766,16 @@ def _analyze(run: KnowledgeLearningRun, input: AnalyzeLearningEvidenceInput) -> 
     except Exception:
         raise LearningAnalysisError("knowledge_search_failed") from None
     retrieved = _render_search_context(results)
-    decision = _promotion_decision(run.team, user, bundle, extracted, retrieved, trace_id)
+    try:
+        decision = _promotion_decision(run.team, bundle, extracted, retrieved, trace_id)
+    except LearningConflictingOutput:
+        return _finish_without_knowledge(run, rejection_code="low_confidence")
     conflicting = _conflicting_search_result(decision, results, len(retrieved))
     if conflicting is not None:
-        confirmation = _confirm_contradiction(run.team, user, extracted, conflicting, trace_id)
+        try:
+            confirmation = _confirm_contradiction(run.team, extracted, conflicting, trace_id)
+        except LearningConflictingOutput:
+            return _finish_without_knowledge(run, rejection_code="already_known")
         if _is_confirmed_contradiction(confirmation):
             if not conflicting.is_generated:
                 # Learning may retire what it wrote. A source a person wrote stays until a person changes it.

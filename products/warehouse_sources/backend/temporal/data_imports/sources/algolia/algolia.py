@@ -1,7 +1,7 @@
 import re
 import dataclasses
-from collections.abc import Iterable
-from datetime import date, datetime, timedelta
+from collections.abc import Callable, Iterable
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional, cast
 from urllib.parse import quote
 
@@ -13,6 +13,7 @@ from posthog.dataclasses import frozen
 from products.warehouse_sources.backend.temporal.data_imports.sources.algolia.settings import (
     ALGOLIA_ENDPOINTS,
     ANALYTICS_LOOKBACK_DAYS,
+    INGESTION_LOOKBACK_HOURS,
     AlgoliaApi,
     AlgoliaEndpointConfig,
     PaginationStyle,
@@ -56,6 +57,24 @@ ALGOLIA_ANALYTICS_HOSTS = {
     "de": "https://analytics.de.algolia.com",
 }
 
+# The Ingestion and Query Suggestions APIs name the European region `eu`. It is the same region as
+# the `de` analytics host.
+ALGOLIA_INGESTION_HOSTS = {
+    "us": "https://data.us.algolia.com",
+    "de": "https://data.eu.algolia.com",
+}
+
+ALGOLIA_QUERY_SUGGESTIONS_HOSTS = {
+    "us": "https://query-suggestions.us.algolia.com",
+    "de": "https://query-suggestions.eu.algolia.com",
+}
+
+_REGIONAL_HOSTS: dict[AlgoliaApi, dict[str, str]] = {
+    AlgoliaApi.ANALYTICS: ALGOLIA_ANALYTICS_HOSTS,
+    AlgoliaApi.INGESTION: ALGOLIA_INGESTION_HOSTS,
+    AlgoliaApi.QUERY_SUGGESTIONS: ALGOLIA_QUERY_SUGGESTIONS_HOSTS,
+}
+
 # Both 401 and 403 carry this exact message when the application ID / API key pair is wrong.
 # A genuine key that merely lacks the ACL for an endpoint returns a different 403 message
 # ("Method not allowed with this API key"), which lets us tell "bad credentials" apart from
@@ -90,16 +109,17 @@ def _base_url(application_id: str) -> str:
     return ALGOLIA_HOST_TEMPLATE.format(application_id=application_id)
 
 
-def _analytics_base_url(region: str) -> str:
+def _regional_base_url(api: AlgoliaApi, region: str) -> str:
     # An unknown region falls back to the US host rather than failing; the select field only ever
     # supplies a documented region.
-    return ALGOLIA_ANALYTICS_HOSTS.get(region, ALGOLIA_ANALYTICS_HOSTS["us"])
+    hosts = _REGIONAL_HOSTS[api]
+    return hosts.get(region, hosts["us"])
 
 
 def _base_url_for(config: AlgoliaEndpointConfig, application_id: str, region: str) -> str:
-    if config.api == AlgoliaApi.ANALYTICS:
-        return _analytics_base_url(region)
-    return _base_url(application_id)
+    if config.api == AlgoliaApi.SEARCH:
+        return _base_url(application_id)
+    return _regional_base_url(config.api, region)
 
 
 def _get_headers(application_id: str, api_key: str) -> dict[str, str]:
@@ -165,14 +185,16 @@ def _build_paginator(config: AlgoliaEndpointConfig) -> BasePaginator:
         # response signals end of index.
         return JSONResponseCursorPaginator(cursor_path="cursor", cursor_param="cursor", param_location="json")
     if config.pagination == PaginationStyle.OFFSET:
-        # Analytics / A-B endpoints page via `offset`/`limit` query params. `abtests` reports a
-        # `total`; the top-searches/hits tables don't, so a short final page ends the walk.
+        # Analytics / A-B endpoints and the API log page via `offset` and a limit query param.
+        # `abtests` reports a `total`; the other tables don't, so a short final page ends the walk.
         return OffsetPaginator(
             limit=config.page_size,
             offset_param="offset",
-            limit_param="limit",
+            limit_param=config.limit_param,
             param_location="query",
         )
+    if config.pagination == PaginationStyle.INGESTION_PAGE:
+        return PageNumberPaginator(base_page=1, page_param="page", total_path="pagination.nbPages")
     # Search endpoints (synonyms/rules) page via a 0-based `page` in the POST body; the indices
     # listing pages via `page` in the query string.
     return AlgoliaPageNumberPaginator(
@@ -183,12 +205,14 @@ def _build_paginator(config: AlgoliaEndpointConfig) -> BasePaginator:
     )
 
 
-def _analytics_params(config: AlgoliaEndpointConfig, index_name: str | None) -> dict[str, Any]:
-    params: dict[str, Any] = {}
+def _query_params(config: AlgoliaEndpointConfig, index_name: str | None) -> dict[str, Any]:
+    params: dict[str, Any] = dict(config.params)
     if config.requires_index and index_name:
         params["index"] = index_name
     if config.click_analytics:
         params["clickAnalytics"] = "true"
+    if config.pagination == PaginationStyle.INGESTION_PAGE:
+        params["itemsPerPage"] = config.page_size
     return params
 
 
@@ -211,6 +235,46 @@ def _to_start_date(value: Any) -> str | None:
             return None
         day = parsed.date()
     return (day - timedelta(days=ANALYTICS_LOOKBACK_DAYS)).isoformat()
+
+
+def _to_start_datetime(value: Any) -> str | None:
+    """Format an incremental watermark as an Ingestion API `startDate`, floored by the lookback window.
+
+    None drops the param, so Algolia applies its default window of the last seven days.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        moment = value
+    elif isinstance(value, date):
+        moment = datetime(value.year, value.month, value.day)
+    else:
+        parsed = parse_datetime_value(value)
+        if parsed is None:
+            return None
+        moment = parsed
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    moment = moment.astimezone(UTC) - timedelta(hours=INGESTION_LOOKBACK_HOURS)
+    return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+_START_VALUE_CONVERTERS: dict[AlgoliaApi, Callable[[Any], str | None]] = {
+    AlgoliaApi.ANALYTICS: _to_start_date,
+    AlgoliaApi.INGESTION: _to_start_datetime,
+}
+
+
+# Each fan-out parent row is mapped before its values are bound into the child path with
+# `str.format`, which escapes nothing.
+_PARENT_PATH_VALUES: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
+    # A facet attribute name is a record attribute path.
+    "top_filter_values": lambda row: {**row, "attribute": quote(str(row.get("attribute", "")), safe="")},
+    # An RFC 3339 offset such as `+02:00` would decode to a space in a query string.
+    "ingestion_run_events": lambda row: {**row, "startDate": quote(str(row.get("createdAt", "")), safe=":")},
+    # The raw `indexName` stays on the row so that the child rows copy it unchanged.
+    "query_suggestions_logs": lambda row: {**row, "indexNamePath": quote(str(row.get("indexName", "")), safe="")},
+}
 
 
 def _client_config(
@@ -242,11 +306,21 @@ def _fanout_items(
     job_id: str,
     manager: ResumableSourceManager[AlgoliaResumeConfig],
     region: str,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+    incremental_field: str | None,
 ) -> Iterable[Any]:
     parent_config = ALGOLIA_ENDPOINTS[fanout_config.parent_name]
     # The index is required on both requests but only known at run time, so it is bound here
     # rather than in the static endpoint catalog.
-    fanout = dataclasses.replace(fanout_config, parent_params=_analytics_params(parent_config, index_name))
+    parent_params = _query_params(parent_config, index_name)
+    use_incremental = should_use_incremental_field and bool(config.incremental_fields)
+    if use_incremental and parent_config.start_param:
+        # The child requests have no filter of their own, so the watermark bounds the parent listing.
+        start_value = _START_VALUE_CONVERTERS[parent_config.api](db_incremental_field_last_value)
+        if start_value is not None:
+            parent_params[parent_config.start_param] = start_value
+    fanout = dataclasses.replace(fanout_config, parent_params=parent_params)
 
     resume = manager.load_state() if manager.can_resume() else None
 
@@ -263,9 +337,10 @@ def _fanout_items(
         team_id=team_id,
         job_id=job_id,
         db_incremental_field_last_value=None,
-        # A facet attribute name is a record attribute path, so percent-encode it before the
-        # builder binds it into the path with `str.format`, which escapes nothing.
-        parent_data_map=lambda row: {**row, "attribute": quote(str(row.get("attribute", "")), safe="")},
+        should_use_incremental_field=use_incremental,
+        incremental_field=incremental_field,
+        incremental_config_factory=lambda _field: None,
+        parent_data_map=_PARENT_PATH_VALUES[config.name],
         parent_endpoint_extra={
             "data_selector": parent_config.data_selector,
             "paginator": _build_paginator(parent_config),
@@ -274,7 +349,7 @@ def _fanout_items(
             "data_selector": config.data_selector,
             "paginator": _build_paginator(config),
         },
-        child_params_extra=_analytics_params(config, index_name),
+        child_params_extra=_query_params(config, index_name),
         # The paginators supply `limit` themselves; adding a page-size param would duplicate it.
         page_size_param=None,
         resume_hook=save_checkpoint,
@@ -294,15 +369,15 @@ def _endpoint_config(
         "data_selector": config.data_selector,
         "paginator": _build_paginator(config),
     }
-    if config.api == AlgoliaApi.ANALYTICS:
-        # The paginator supplies `offset`/`limit`; the index (when the endpoint is index-scoped)
-        # and the click-analytics toggle travel as static query params alongside it.
-        endpoint_config["params"] = _analytics_params(config, index_name)
+    if config.api != AlgoliaApi.SEARCH or config.pagination == PaginationStyle.OFFSET:
+        # The paginator supplies its page params; the index (when the endpoint is index-scoped),
+        # the click-analytics toggle and the static params travel as query params alongside them.
+        endpoint_config["params"] = _query_params(config, index_name)
         if should_use_incremental_field and config.start_param:
             incremental: IncrementalConfig = {
                 "start_param": config.start_param,
                 "cursor_path": incremental_field or config.default_incremental_field or "date",
-                "convert": _to_start_date,
+                "convert": _START_VALUE_CONVERTERS[config.api],
             }
             endpoint_config["incremental"] = incremental
     elif config.method == "POST":
@@ -328,7 +403,7 @@ def _resume_state(
         return {"cursor": resume.cursor}
     if config.pagination == PaginationStyle.OFFSET and resume.offset is not None:
         return {"offset": resume.offset}
-    if config.pagination == PaginationStyle.PAGE and resume.page is not None:
+    if config.pagination in (PaginationStyle.PAGE, PaginationStyle.INGESTION_PAGE) and resume.page is not None:
         return {"page": resume.page}
     return None
 
@@ -369,7 +444,18 @@ def algolia_source(
 
     if config.fanout is not None:
         items: Iterable[Any] = _fanout_items(
-            config, config.fanout, application_id, api_key, index_name, team_id, job_id, manager, region
+            config,
+            config.fanout,
+            application_id,
+            api_key,
+            index_name,
+            team_id,
+            job_id,
+            manager,
+            region,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+            incremental_field,
         )
     else:
         rest_config: RESTAPIConfig = {
@@ -401,7 +487,7 @@ def algolia_source(
         partition_size=1,
         # The time-series endpoints return their whole window in one response, so the watermark
         # is the max `date` of a single batch regardless of the order Algolia lists the days in.
-        sort_mode="asc",
+        sort_mode=config.sort_mode,
     )
 
 

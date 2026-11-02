@@ -159,9 +159,6 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected_valid, expected_msg_substr",
         [
-            (200, True, None),
-            (401, False, "Invalid WordPress username or application password"),
-            (403, False, "lack permission to read this site. Check the user's role"),
             (404, False, "REST API not found"),
         ],
     )

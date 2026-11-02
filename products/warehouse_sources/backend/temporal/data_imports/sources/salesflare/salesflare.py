@@ -8,7 +8,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     OffsetPaginator,
+    SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.salesflare.settings import SALESFLARE_ENDPOINTS
@@ -42,6 +44,17 @@ def salesflare_source(
 ) -> SourceResponse:
     config = SALESFLARE_ENDPOINTS[endpoint]
 
+    endpoint_config: Endpoint = {
+        "path": config.path,
+        # Salesflare list endpoints return a bare JSON array. A 200 body that isn't a list
+        # is treated as a transient malformed payload and retried (as the old source did).
+        "data_selector_malformed_retryable": True,
+    }
+    if config.paginated:
+        endpoint_config["params"] = {"limit": PAGE_SIZE}
+    else:
+        endpoint_config["paginator"] = SinglePagePaginator()
+
     rest_config: RESTAPIConfig = {
         "client": {
             "base_url": SALESFLARE_BASE_URL,
@@ -57,13 +70,7 @@ def salesflare_source(
         "resources": [
             {
                 "name": endpoint,
-                "endpoint": {
-                    "path": config.path,
-                    "params": {"limit": PAGE_SIZE},
-                    # Salesflare list endpoints return a bare JSON array. A 200 body that isn't a list
-                    # is treated as a transient malformed payload and retried (as the old source did).
-                    "data_selector_malformed_retryable": True,
-                },
+                "endpoint": endpoint_config,
             }
         ],
     }

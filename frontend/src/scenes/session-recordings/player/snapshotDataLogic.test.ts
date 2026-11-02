@@ -4,8 +4,6 @@ import { EventType, IncrementalSource, NodeType, mutationData } from 'posthog-js
 import { chunkMutationSnapshot, MUTATION_CHUNK_SIZE } from '@posthog/replay-shared'
 
 import { ApiError, RecordingDeletedError } from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { encodedWebSnapshotData } from 'scenes/session-recordings/player/__mocks__/encoded-snapshot-data'
 import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 
@@ -39,33 +37,6 @@ describe('snapshotDataLogic', () => {
             blobV2PollingDisabled: true,
         })
         logic.mount()
-    })
-
-    describe('follow live flag gate', () => {
-        it.each([
-            { flagOn: false, polls: false },
-            { flagOn: true, polls: true },
-        ])(
-            'with the flag on: $flagOn, a live request polls before all sources load: $polls',
-            async ({ flagOn, polls }) => {
-                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REPLAY_FOLLOW_LIVE]: flagOn })
-                const pollingLogic = snapshotDataLogic({
-                    sessionRecordingId: 'live-gate',
-                    blobV2PollingDisabled: false,
-                })
-                pollingLogic.mount()
-
-                const expectation = expectLogic(pollingLogic, () => pollingLogic.actions.setLivePolling(true))
-                if (polls) {
-                    await expectation.toDispatchActions(['startPolling'])
-                } else {
-                    await expectation.toNotHaveDispatchedActions(['startPolling'])
-                }
-                expect(pollingLogic.values.livePolling).toBe(flagOn)
-
-                pollingLogic.unmount()
-            }
-        )
     })
 
     describe('recording deleted selectors', () => {

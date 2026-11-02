@@ -8,14 +8,25 @@ import { Input } from './input'
 import { cn } from './lib/utils'
 import { Textarea } from './textarea'
 
-const InputGroup = React.forwardRef<HTMLDivElement, React.ComponentProps<'div'>>(({ className, ...props }, ref) => {
+const InputGroup = React.forwardRef<
+    HTMLDivElement,
+    React.ComponentProps<'div'> & {
+        /** `sm` matches a default-size Button, for a field that shares a row with buttons. */
+        size?: 'default' | 'sm'
+    }
+>(({ className, size = 'default', ...props }, ref) => {
     return (
         <div
             ref={ref}
             data-quill
             data-slot="input-group"
+            data-size={size}
             role="group"
-            className={cn('quill-input-group group/input-group flex items-center', className)}
+            className={cn(
+                'quill-input-group group/input-group flex items-center',
+                size === 'sm' && 'quill-input-group--size-sm',
+                className
+            )}
             {...props}
         />
     )
@@ -102,7 +113,7 @@ const InputGroupText = React.forwardRef<HTMLSpanElement, React.ComponentProps<'s
     return <span ref={ref} className={cn('quill-input-group__text flex items-end gap-2', className)} {...props} />
 })
 
-const InputGroupInput = React.forwardRef<HTMLInputElement, React.ComponentProps<'input'>>(
+const InputGroupInput = React.forwardRef<HTMLInputElement, Omit<React.ComponentProps<'input'>, 'size'>>(
     ({ className, ...props }, ref) => {
         return (
             <Input

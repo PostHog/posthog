@@ -495,6 +495,74 @@ class TestMonorepoPackageTagMatching(TestFetchSdkDataBase):
                 {"3.18.0"},
             ),
             (
+                "posthog-rs",
+                "PostHog/posthog-rs",
+                [
+                    _release("0.29.0", "2026-08-01T00:00:00Z"),
+                    _release("v0.5.1", "2025-08-30T00:00:00Z"),
+                ],
+                "0.29.0",
+                {"0.29.0", "0.5.1"},
+            ),
+            (
+                "posthog-rs-mcp",
+                "PostHog/posthog-rs",
+                [
+                    _release("0.29.0", "2026-08-01T00:00:00Z"),
+                    _release("v0.5.1", "2025-08-30T00:00:00Z"),
+                ],
+                "0.29.0",
+                {"0.29.0", "0.5.1"},
+            ),
+            (
+                "posthog-godot",
+                "PostHog/posthog-godot",
+                [_release("0.1.1", "2026-08-01T00:00:00Z")],
+                "0.1.1",
+                {"0.1.1"},
+            ),
+            (
+                "posthog-unreal",
+                "PostHog/posthog-unreal",
+                [_release("0.1.0", "2026-08-01T00:00:00Z")],
+                "0.1.0",
+                {"0.1.0"},
+            ),
+            (
+                "posthog-go-mcp",
+                "PostHog/posthog-go",
+                [
+                    _release("v1.38.0", "2026-08-01T00:00:00Z"),
+                    _release("1.2.0", "2025-08-30T00:00:00Z"),
+                ],
+                "1.38.0",
+                {"1.38.0", "1.2.0"},
+            ),
+            (
+                "posthog-ruby-mcp",
+                "PostHog/posthog-ruby",
+                [
+                    _release("posthog-rails-v4.0.0", "2026-08-01T00:00:00Z"),
+                    _release("posthog-ruby-v3.28.0", "2026-08-01T00:00:00Z"),
+                    _release("v3.6.1", "2025-08-30T00:00:00Z"),
+                    _release("3.3.3", "2025-05-30T00:00:00Z"),
+                ],
+                "3.28.0",
+                {"3.28.0", "3.6.1", "3.3.3"},
+            ),
+            (
+                "js",
+                "PostHog/posthog-js",
+                [
+                    _release("posthog-js-lite@4.13.1", "2026-08-01T00:00:00Z"),
+                    _release("posthog-web-v4.1.0", "2025-08-30T00:00:00Z"),
+                    _release("posthog-js@1.400.0", "2026-08-01T00:00:00Z"),
+                    _release("posthog-node@5.0.0", "2026-08-01T00:00:00Z"),
+                ],
+                "4.13.1",
+                {"4.13.1", "4.1.0"},
+            ),
+            (
                 "posthog-aspnetcore",
                 "PostHog/posthog-dotnet",
                 [
@@ -520,7 +588,7 @@ class TestMonorepoPackageTagMatching(TestFetchSdkDataBase):
             page.json.return_value = releases
             empty_page = MagicMock(ok=True)
             empty_page.json.return_value = []
-            mock_get.side_effect = [page, empty_page, empty_page]
+            mock_get.side_effect = [page, empty_page, page, empty_page]
 
             result = fetch_github_data_for_sdk(sdk_type)
 
@@ -564,6 +632,19 @@ class TestLatestVersionSelection(TestFetchSdkDataBase):
 
 
 class TestFetchReleasesFailureHandling(TestFetchSdkDataBase):
+    @patch("posthog.egress.transport.transport.requests.request")
+    def test_js_lite_archive_failure_returns_no_data(self, mock_get: MagicMock) -> None:
+        current_page = MagicMock(ok=True)
+        current_page.json.return_value = [_release("posthog-js-lite@4.13.1", "2026-08-01T00:00:00Z")]
+        empty_page = MagicMock(ok=True)
+        empty_page.json.return_value = []
+        failed_page = MagicMock(ok=False, status_code=403)
+        mock_get.side_effect = [current_page, empty_page, failed_page]
+
+        result = fetch_github_data_for_sdk("js")
+
+        assert result == {}
+
     @patch("posthog.egress.transport.transport.requests.request")
     def test_mid_pagination_failure_returns_no_data(self, mock_get):
         # A partial page set can miss versions and produce a wrong "latest"; the fetch must

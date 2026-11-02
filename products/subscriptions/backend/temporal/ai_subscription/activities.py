@@ -13,16 +13,17 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
 from posthog.models import OrganizationMembership
+from posthog.models.utils import strip_null_bytes
 from posthog.ph_client import ph_scoped_capture
 from posthog.sync import database_sync_to_async
 
-from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.subscriptions.backend.facade.contracts import PromptRejectedError
 from products.subscriptions.backend.logic import _capture_delivery_failed_event
 from products.subscriptions.backend.logic.auto_disable import (
     AI_CONSENT_REVOKED_DISABLE_REASON,
     AI_PROMPT_INVALID_DISABLE_REASON,
 )
+from products.subscriptions.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.subscriptions.backend.temporal.ai_subscription.delivery import (
     build_ai_subscription_report,
     build_ai_teams_card,
@@ -36,7 +37,6 @@ from products.subscriptions.backend.temporal.delivery_common import (
     auto_disable_and_return,
     deliver_email,
     deliver_slack,
-    strip_null_bytes,
 )
 from products.subscriptions.backend.temporal.delivery_webhook import deliver_teams_webhook
 from products.subscriptions.backend.temporal.types import (

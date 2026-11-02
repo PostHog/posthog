@@ -13,6 +13,7 @@ import type {
     AddDashboardWidgetsBatchResponseApi,
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
+    CopyDashboardGroupRequestApi,
     CopyDashboardTemplateApi,
     CopyDashboardTileRequestApi,
     CreateTextTileRequestApi,
@@ -23,8 +24,8 @@ import type {
     DashboardTemplateApi,
     DashboardTemplatesListParams,
     DashboardTileApi,
-    DashboardWriteOpenApiApi,
     DashboardsBulkUpdateTagsCreateParams,
+    DashboardsCopyGroupCreateParams,
     DashboardsCopyTileCreateParams,
     DashboardsCreateFromTemplateJsonCreateParams,
     DashboardsCreateParams,
@@ -48,12 +49,10 @@ import type {
     DashboardsWidgetCatalogRetrieveParams,
     DashboardsWidgetsBatchCreateParams,
     DataColorThemeApi,
-    DataColorThemesListParams,
     DeleteTileRequestApi,
     MoveTileRequestApi,
     PaginatedDashboardBasicListApi,
     PaginatedDashboardTemplateListApi,
-    PaginatedDataColorThemeListApi,
     PatchedDashboardTemplateApi,
     PatchedDataColorThemeApi,
     PatchedMoveTileRequestApi,
@@ -274,7 +273,7 @@ export const getDashboardsCreateUrl = (projectId: string, params?: DashboardsCre
 
 export const dashboardsCreate = async (
     projectId: string,
-    dashboardWriteOpenApiApi?: NonReadonly<DashboardWriteOpenApiApi>,
+    dashboardApi?: NonReadonly<DashboardApi>,
     params?: DashboardsCreateParams,
     options?: RequestInit
 ): Promise<DashboardApi> => {
@@ -282,7 +281,7 @@ export const dashboardsCreate = async (
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dashboardWriteOpenApiApi),
+        body: JSON.stringify(dashboardApi),
     })
 }
 
@@ -333,7 +332,7 @@ export const getDashboardsUpdateUrl = (projectId: string, id: number, params?: D
 export const dashboardsUpdate = async (
     projectId: string,
     id: number,
-    dashboardWriteOpenApiApi?: NonReadonly<DashboardWriteOpenApiApi>,
+    dashboardApi?: NonReadonly<DashboardApi>,
     params?: DashboardsUpdateParams,
     options?: RequestInit
 ): Promise<DashboardApi> => {
@@ -341,7 +340,7 @@ export const dashboardsUpdate = async (
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dashboardWriteOpenApiApi),
+        body: JSON.stringify(dashboardApi),
     })
 }
 
@@ -408,6 +407,44 @@ export const dashboardsDestroy = async (
     return apiMutator<unknown>(getDashboardsDestroyUrl(projectId, id, params), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getDashboardsCopyGroupCreateUrl = (
+    projectId: string,
+    id: number,
+    params?: DashboardsCopyGroupCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/copy_group/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/copy_group/`
+}
+
+/**
+ * Copy a group of tiles and its settings to another dashboard.
+ */
+export const dashboardsCopyGroupCreate = async (
+    projectId: string,
+    id: number,
+    copyDashboardGroupRequestApi: CopyDashboardGroupRequestApi,
+    params?: DashboardsCopyGroupCreateParams,
+    options?: RequestInit
+): Promise<DashboardApi> => {
+    return apiMutator<DashboardApi>(getDashboardsCopyGroupCreateUrl(projectId, id, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(copyDashboardGroupRequestApi),
     })
 }
 
@@ -1069,28 +1106,12 @@ export const dashboardsWidgetCatalogRetrieve = async (
     })
 }
 
-export const getDataColorThemesListUrl = (projectId: string, params?: DataColorThemesListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/data_color_themes/?${stringifiedParams}`
-        : `/api/projects/${projectId}/data_color_themes/`
+export const getDataColorThemesListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_color_themes/`
 }
 
-export const dataColorThemesList = async (
-    projectId: string,
-    params?: DataColorThemesListParams,
-    options?: RequestInit
-): Promise<PaginatedDataColorThemeListApi> => {
-    return apiMutator<PaginatedDataColorThemeListApi>(getDataColorThemesListUrl(projectId, params), {
+export const dataColorThemesList = async (projectId: string, options?: RequestInit): Promise<DataColorThemeApi[]> => {
+    return apiMutator<DataColorThemeApi[]>(getDataColorThemesListUrl(projectId), {
         ...options,
         method: 'GET',
     })

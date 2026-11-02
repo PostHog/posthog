@@ -26,6 +26,10 @@ def _safe_value(value: Any) -> str:
     return sanitize_user_text(str(value), GENERIC_VALUE_MAX_LEN)
 
 
+def uses_generic_results_summary(query_kind: str) -> bool:
+    return query_kind not in _TREND_SUMMARY_KINDS and query_kind not in _SUMMARIZERS
+
+
 def build_results_summary(
     query_kind: str,
     results: list[Any] | None,
@@ -300,7 +304,7 @@ def _sanitize_value_format(value_format: dict[str, Any] | None) -> dict[str, Any
 def _fmt_value(value: float | int | None, value_format: dict[str, Any] | None) -> str:
     """Render a metric value the way the insight's Y-axis does, so summary numbers match
     the chart the user sees (a duration insight reads "4d 4h", not "360000"). Mirrors
-    frontend/src/scenes/insights/aggregationAxisFormat.ts. Falls back to plain numeric
+    frontend/src/lib/insights/aggregationAxisFormat.ts. Falls back to plain numeric
     formatting when no axis format is configured.
     """
     if not value_format:

@@ -15,6 +15,8 @@ class GlueEndpoint:
     page_size: int = 100
     timestamp_columns: tuple[str, ...] = ()
     names_only: bool = False
+    paginated: bool = True
+    missing_is_empty: bool = False
 
 
 ENDPOINTS: dict[str, GlueEndpoint] = {
@@ -83,7 +85,39 @@ ENDPOINTS: dict[str, GlueEndpoint] = {
         primary_keys=("region", "result_id"),
         timestamp_columns=("started_on",),
     ),
+    "data_quality_results_v2": GlueEndpoint(
+        operation="ListDataQualityResultsV2",
+        result_key="Results",
+        primary_keys=("region", "result_id"),
+        timestamp_columns=("result_published_on",),
+    ),
+    "column_statistics": GlueEndpoint(
+        operation="GetColumnStatisticsForTable",
+        result_key="ColumnStatisticsList",
+        primary_keys=("region", "database_name", "table_name", "column_name"),
+        parent="tables",
+        timestamp_columns=("analyzed_time",),
+        paginated=False,
+    ),
+    "table_optimizer_runs": GlueEndpoint(
+        operation="ListTableOptimizerRuns",
+        result_key="TableOptimizerRuns",
+        primary_keys=("region", "database_name", "table_name", "type", "start_timestamp"),
+        parent="tables",
+        timestamp_columns=("start_timestamp", "end_timestamp"),
+        missing_is_empty=True,
+    ),
+    "sessions": GlueEndpoint(
+        operation="ListSessions",
+        result_key="Sessions",
+        primary_keys=("region", "id"),
+        timestamp_columns=("created_on", "completed_on"),
+    ),
 }
+
+# GetColumnStatisticsForTable accepts at most 100 column names per request.
+COLUMN_STATISTICS_BATCH_SIZE = 100
+TABLE_OPTIMIZER_TYPES = ("compaction", "retention", "orphan_file_deletion")
 
 # ListWorkflows returns only names, so it feeds workflow_runs without being a table of its own.
 PARENT_ENDPOINTS: dict[str, GlueEndpoint] = {
@@ -107,6 +141,10 @@ ENDPOINT_DESCRIPTIONS = {
     "table_versions": "Schema and metadata history for each catalog table.",
     "workflow_runs": "Workflow run history, status, timing, and action statistics.",
     "data_quality_results": "Data quality evaluation runs, with the evaluated table and the job run.",
+    "data_quality_results_v2": "Data quality results published from any supported engine, with the evaluated table and run context.",
+    "column_statistics": "Column statistics for each catalog table, such as null counts, distinct values, and value ranges.",
+    "table_optimizer_runs": "Compaction, snapshot retention, and orphan file deletion runs for each Iceberg table.",
+    "sessions": "Interactive sessions, with status, duration, and compute use.",
 }
 
 ERROR_MESSAGES = {

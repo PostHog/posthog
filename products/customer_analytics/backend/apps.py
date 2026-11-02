@@ -73,6 +73,7 @@ class CustomerAnalyticsConfig(AppConfig):
             register_person_property_projection,
             register_person_property_sync_recorder,
             register_person_property_sync_sources,
+            register_saved_query_property_sources,
         )
 
         def _projection_resolver(team_id: int, schema_id) -> list[PersonPropertySourceProjection] | None:
@@ -94,6 +95,14 @@ class CustomerAnalyticsConfig(AppConfig):
 
             record_sync_run(record)
 
+        def _saved_query_sources_resolver(team_id: int, saved_query_ids) -> set[str]:
+            from products.customer_analytics.backend.logic.person_property_projection import (  # noqa: PLC0415
+                saved_queries_with_property_sources,
+            )
+
+            return saved_queries_with_property_sources(team_id, saved_query_ids)
+
         register_person_property_projection(_projection_resolver)
         register_person_property_sync_sources(_sync_sources_resolver)
         register_person_property_sync_recorder(_run_recorder)
+        register_saved_query_property_sources(_saved_query_sources_resolver)

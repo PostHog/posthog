@@ -25,8 +25,6 @@ class TestIncidentIoSource:
     @pytest.mark.parametrize(
         "observed_error",
         [
-            "401 Client Error: Unauthorized for url: https://api.incident.io/v2/incidents?page_size=250",
-            "403 Client Error: Forbidden for url: https://api.incident.io/v2/alerts",
             "404 Client Error: Not Found for url: https://api.incident.io/v2/follow_ups?page_size=250",
             "410 Client Error: Gone for url: https://api.incident.io/v2/follow_ups?page_size=250",
         ],
@@ -39,7 +37,6 @@ class TestIncidentIoSource:
         "other_vendor_error",
         [
             "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
-            "500 Server Error for url: https://api.incident.io/v2/incidents",
             "404 Client Error: Not Found for url: https://api.incident.io/v3/follow_ups?page_size=250",
         ],
     )

@@ -1,3 +1,5 @@
+from typing import Any
+
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
@@ -12,7 +14,15 @@ class BuildEndpoint:
     models: tuple[str, ...] = ()
 
 
-ENDPOINTS: dict[str, BuildEndpoint] = {
+@frozen
+class BuildChildEndpoint:
+    """A per-build endpoint, fetched once for each build the `builds` listing returns."""
+
+    path: str
+    params: dict[str, Any]
+
+
+ENDPOINTS: dict[str, BuildEndpoint | BuildChildEndpoint] = {
     "builds": BuildEndpoint(),
     "gradle_builds": BuildEndpoint(
         build_tool="gradle",
@@ -22,20 +32,25 @@ ENDPOINTS: dict[str, BuildEndpoint] = {
         build_tool="maven",
         models=("maven-attributes", "maven-build-cache-performance", "maven-test-performance"),
     ),
+    "build_tests": BuildChildEndpoint(path="tests/build/{id}", params={}),
+    # Failures is a beta API. maxFailures caps the build and test failure lists separately.
+    "build_failures": BuildChildEndpoint(path="failures/builds/{id}", params={"maxFailures": 1000}),
 }
 
-PRIMARY_KEYS = ["id"]
-INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
-    name: [
-        {
-            "label": "availableAt",
-            "type": IncrementalFieldType.Integer,
-            "field": "availableAt",
-            "field_type": IncrementalFieldType.Integer,
-        }
-    ]
-    for name in ENDPOINTS
-}
+AVAILABLE_AT_FIELDS: list[IncrementalField] = [
+    {
+        "label": "availableAt",
+        "type": IncrementalFieldType.Integer,
+        "field": "availableAt",
+        "field_type": IncrementalFieldType.Integer,
+    }
+]
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = dict.fromkeys(ENDPOINTS, AVAILABLE_AT_FIELDS)
+
+# A child response carries no build identifier, so the parent build's id becomes the key.
+BUILD_ID_FIELD = "buildId"
+# Develocity answers this problem type when a build's tool does not produce the requested data.
+MODEL_NOT_APPLICABLE = "urn:gradle:enterprise:api:problems:build-model-not-applicable"
 
 INVALID_URL = "Enter an HTTPS Develocity instance URL without a path, query, or embedded credentials."
 INVALID_KEY = "Your Develocity access key is invalid or expired. Generate a new key in My settings > Access keys."

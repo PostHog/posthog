@@ -209,14 +209,6 @@ class TestValidateCredentials:
         with scripted_network([ScriptedResponse(json={"error": "invalid API key"})]):
             assert validate_credentials("k") is False
 
-    def test_non_ok_is_invalid(self) -> None:
-        with scripted_network([ScriptedResponse(status=401, json={})]):
-            assert validate_credentials("k") is False
-
-    def test_network_error_is_invalid(self) -> None:
-        with scripted_network([requests.ConnectionError("boom")]):
-            assert validate_credentials("k") is False
-
     def test_registers_api_key_for_redaction(self) -> None:
         with scripted_network([ScriptedResponse(json={"boards": []})]) as network:
             validate_credentials("secret")

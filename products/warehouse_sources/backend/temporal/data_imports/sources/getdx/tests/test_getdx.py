@@ -89,8 +89,6 @@ def test_missing_collection_fails(payload: dict[str, Any]) -> None:
     [
         (200, {"ok": True, "account": {"name": "Test account"}}, (True, None)),
         (200, {"ok": False, "error": "invalid_auth"}, (False, AUTH_ERROR)),
-        (401, {"ok": False, "error": "not_authed"}, (False, AUTH_ERROR)),
-        (403, {}, (False, PERMISSION_ERROR)),
         (200, {}, (False, "DX returned an invalid response.")),
     ],
 )

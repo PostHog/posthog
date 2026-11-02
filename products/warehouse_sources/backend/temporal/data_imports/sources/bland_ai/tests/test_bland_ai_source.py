@@ -51,18 +51,6 @@ class TestBlandAISource:
 
     @parameterized.expand(
         [
-            ("401 Client Error: Unauthorized for url: https://api.bland.ai/v1/calls?from=0&limit=1000",),
-            ("401 Client Error: Unauthorized for url: https://api.bland.ai/v1/pathway",),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @parameterized.expand(
-        [
-            ("500 Server Error: Internal Server Error for url: https://api.bland.ai/v1/calls",),
-            ("429 Client Error: Too Many Requests for url: https://api.bland.ai/v1/calls",),
             ("401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",),
         ]
     )

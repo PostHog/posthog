@@ -56,7 +56,7 @@ class BluetallySource(ResumableSource[BluetallySourceConfig, BluetallyResumeConf
             name=ExternalDataSourceType.BLUETALLY,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="BlueTally",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your BlueTally API key to sync your IT asset management data into the PostHog Data warehouse.
 
 Create an API key in BlueTally under **Settings → API Keys**, then paste it here.

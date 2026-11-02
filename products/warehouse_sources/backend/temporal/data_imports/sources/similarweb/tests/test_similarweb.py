@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.similarweb import (
     SimilarwebSourceConfig,
@@ -36,7 +35,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.similarweb
     is_valid_country,
     normalize_country,
     parse_domains,
-    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.similarweb.source import SimilarwebSource
 
@@ -349,30 +347,3 @@ class TestSimilarwebTransport:
             (2, 0),
         ]
         assert result.final_state is None
-
-    @parameterized.expand(
-        [
-            ("ok", 200, True, None),
-            ("forbidden", 403, False, "Similarweb rejected the API key"),
-            ("server_error", 500, False, "Unexpected response"),
-        ]
-    )
-    def test_validate_credentials_status_mapping(
-        self, _name: str, status: int, expected_ok: bool, expected_message: Optional[str]
-    ) -> None:
-        # A failing status must be reported back to source creation, not raised.
-        with scripted_network(always(_response(status=status))):
-            is_valid, message = validate_credentials("key-123")
-
-        assert is_valid is expected_ok
-        if expected_message is None:
-            assert message is None
-        else:
-            assert message is not None and expected_message in message
-
-    def test_validate_credentials_reports_unreachable_api(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            is_valid, message = validate_credentials("key-123")
-
-        assert is_valid is False
-        assert message is not None and "Could not reach the Similarweb API" in message

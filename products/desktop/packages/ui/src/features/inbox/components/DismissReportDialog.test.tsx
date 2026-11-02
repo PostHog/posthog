@@ -39,7 +39,12 @@ describe("DismissReportDialog", () => {
     ).toContainElement(screen.getByRole("radio", { name: "Already fixed" }));
     expect(
       screen.getByRole("group", { name: "Don't surface again" }),
-    ).toContainElement(screen.getByRole("radio", { name: "Something else…" }));
+    ).toContainElement(screen.getByRole("radio", { name: "Wrong assignee" }));
+    expect(
+      screen.getByRole("group", { name: "Don't surface again" }),
+    ).toContainElement(
+      screen.getByRole("radio", { name: "Not relevant to this project" }),
+    );
 
     await user.click(screen.getByRole("radio", { name: "Already fixed" }));
     expect(description).toHaveTextContent(/dismisses the report for everyone/);

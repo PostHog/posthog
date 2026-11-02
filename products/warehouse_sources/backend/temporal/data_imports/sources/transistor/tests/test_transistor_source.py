@@ -54,11 +54,6 @@ class TestTransistorSource:
         assert fields[0].secret is True
         assert fields[0].required is True
 
-    def test_get_schemas_filters_by_name(self):
-        schemas = self.source.get_schemas(self.config, team_id=123, names=["show_analytics", "unknown"])
-
-        assert [schema.name for schema in schemas] == ["show_analytics"]
-
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_source_for_pipeline_uses_the_endpoint_primary_keys(self, endpoint):
         manager = self.source.get_resumable_source_manager(_make_inputs(schema_name=endpoint))

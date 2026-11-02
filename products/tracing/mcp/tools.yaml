@@ -68,6 +68,18 @@ tools:
             include:
                 - results
                 - count
+    apm-service-health:
+        operation: tracing_spans_service_health_create
+        enabled: true
+        scopes:
+            - tracing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Service health against a baseline
+        description_file: ./prompts/apm-service-health.md
+        feature_flag: tracing
     apm-services-list:
         operation: tracing_spans_service_names_retrieve
         enabled: true
@@ -81,6 +93,9 @@ tools:
         description: >
             List distinct service names that have emitted trace spans. Use to discover available services before
             filtering spans by service name.
+        param_overrides:
+            dateRange:
+                cast: object-json-string
         feature_flag: tracing
         response:
             include:
@@ -118,6 +133,7 @@ tools:
         response:
             include:
                 - count
+                - traceCount
     apm-spans-duration-histogram:
         operation: tracing_spans_duration_histogram_create
         enabled: true
@@ -216,6 +232,7 @@ tools:
         description_file: ./prompts/query-apm-spans.md
         ui_app: trace-span-list
         feature_flag: tracing
+        reads_ingested_data: events
         response:
             include:
                 - results

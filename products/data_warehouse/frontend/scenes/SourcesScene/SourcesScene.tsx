@@ -1,8 +1,11 @@
-import { IconPlusSmall } from '@posthog/icons'
+import { IconPlus, IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -23,6 +26,7 @@ export const scene: SceneExport = {
 }
 
 export function SourcesScene(): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const action = (
         <Shortcut
             name="NewPipelineSource"
@@ -31,16 +35,28 @@ export function SourcesScene(): JSX.Element {
             interaction="click"
             scope={Scene.Sources}
         >
-            <LemonButton
-                type="primary"
-                to={urls.dataPipelinesNew('source')}
-                icon={<IconPlusSmall />}
-                size="small"
-                tooltip="New source"
-                data-attr="new-source"
-            >
-                New source
-            </LemonButton>
+            {todayRailNav ? (
+                <Button
+                    variant="primary"
+                    render={<LinkPrimitive to={urls.dataPipelinesNew('source')} />}
+                    tooltip="New source"
+                    data-attr="new-source"
+                >
+                    <IconPlus />
+                    New source
+                </Button>
+            ) : (
+                <LemonButton
+                    type="primary"
+                    to={urls.dataPipelinesNew('source')}
+                    icon={<IconPlusSmall />}
+                    size="small"
+                    tooltip="New source"
+                    data-attr="new-source"
+                >
+                    New source
+                </LemonButton>
+            )}
         </Shortcut>
     )
 

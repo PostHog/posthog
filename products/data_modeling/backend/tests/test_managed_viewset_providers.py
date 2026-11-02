@@ -27,7 +27,6 @@ from products.data_modeling.backend.facade.managed_viewset_hooks import (
 )
 from products.data_modeling.backend.facade.models import (
     DAG,
-    REVENUE_ANALYTICS_DAG_NAME,
     DataWarehouseManagedViewSet,
     DataWarehouseSavedQuery,
     Node,
@@ -96,9 +95,9 @@ class TestManagedViewSetProviders(BaseTest):
         self.assertFalse(view.is_materialized)
         self.assertIsNone(view.sync_frequency_interval)
         # A non-materialized view is computed at query time — it must never be scheduled for
-        # materialization, nor get a managed (revenue-analytics) DAG.
+        # materialization.
         mock_schedule.assert_not_called()
-        self.assertFalse(DAG.objects.filter(team=self.team, name=REVENUE_ANALYTICS_DAG_NAME).exists())
+        self.assertEqual(DAG.objects.filter(team=self.team).count(), 1)
         self.assertEqual(
             list(Node.objects.filter(saved_query=view).values_list("dag", "type")),
             [(DAG.get_or_create_default(self.team).id, NodeType.VIEW)],
@@ -181,7 +180,6 @@ class TestManagedViewSetProviders(BaseTest):
         with (
             patch.dict(_expected_views_providers, clear=True),
             patch(GET_V2_DAG_IDS, return_value=set()),
-            patch(f"{RECONCILE}.sync_connect"),
             patch(f"{RECONCILE}.async_connect", new=AsyncMock(return_value=_no_schedules())),
             patch(f"{RECONCILE}.a_create_schedule", new=AsyncMock()) as create,
             patch(f"{NODE_MAT}.sync_connect"),

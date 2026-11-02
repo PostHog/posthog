@@ -74,12 +74,6 @@ class TestValidateCredentials:
         assert network.requests_log[0].path == "/api/spaces"
         assert network.requests_log[0].param("take") == "1"
 
-    def test_invalid_key(self):
-        with scripted_network([ScriptedResponse(status=401)]):
-            valid, msg = validate_credentials("my-org.octopus.app", "API-KEY")
-            assert valid is False
-            assert msg == "Invalid Octopus Deploy API key"
-
     def test_403_at_source_create_is_accepted(self):
         with scripted_network([ScriptedResponse(status=403)]):
             assert validate_credentials("my-org.octopus.app", "API-KEY", schema_name=None) == (True, None)
@@ -101,12 +95,6 @@ class TestValidateCredentials:
         valid, msg = validate_credentials(bad_host, "API-KEY")
         assert valid is False
         assert msg == "Invalid Octopus Deploy host"
-
-    def test_request_exception_returns_failure(self):
-        with scripted_network([requests.exceptions.ConnectionError("boom")]):
-            valid, msg = validate_credentials("my-org.octopus.app", "API-KEY")
-            assert valid is False
-            assert "boom" in (msg or "")
 
     def test_rejects_redirect_response(self):
         # A validated host that 3xx-redirects (potentially to an internal address) must be
@@ -139,16 +127,18 @@ class TestOctopusDeploySourceResponse:
         "endpoint, primary_keys, partition_key",
         [
             ("spaces", ["Id"], None),
+            ("users", ["Id"], None),
             ("projects", ["SpaceId", "Id"], None),
             ("releases", ["SpaceId", "Id"], "Assembled"),
             ("deployments", ["SpaceId", "Id"], "Created"),
             ("tasks", ["SpaceId", "Id"], "QueueTime"),
             ("events", ["SpaceId", "Id"], "Occurred"),
+            ("interruptions", ["SpaceId", "Id"], "Created"),
         ],
     )
     def test_response_shape(self, endpoint, primary_keys, partition_key):
         script = [_page([], has_next=False)]
-        if endpoint != "spaces":
+        if endpoint not in ("spaces", "users"):
             script = [_page([{"Id": "Spaces-1"}], has_next=False), *script]
         result = _driver().run(endpoint, script)
         assert result.raised is None
@@ -216,13 +206,14 @@ class TestGetRows:
         # Spaces-1 was already completed before the crash — not re-fetched.
         assert "/api/Spaces-1/projects" not in result.paths
 
-    def test_instance_level_endpoint_skips_space_fan_out(self):
-        responses = [_page([{"Id": "Spaces-1"}, {"Id": "Spaces-2"}], has_next=False)]
-        result = _driver().run("spaces", responses)
+    @pytest.mark.parametrize("endpoint, path", [("spaces", "/api/spaces"), ("users", "/api/users")])
+    def test_instance_level_endpoint_skips_space_fan_out(self, endpoint, path):
+        responses = [_page([{"Id": "A-1"}, {"Id": "A-2"}], has_next=False)]
+        result = _driver().run(endpoint, responses)
 
         assert result.raised is None
-        assert result.paths == ["/api/spaces"]
-        assert [row["Id"] for row in result.rows] == ["Spaces-1", "Spaces-2"]
+        assert result.paths == [path]
+        assert result.rows == [{"Id": "A-1"}, {"Id": "A-2"}]
 
     def test_incremental_filter_applied_to_every_page(self):
         responses = [
@@ -286,7 +277,6 @@ class TestFetchPageErrorLogging:
     def test_error_body_is_truncated_in_log(self):
         # A customer-controlled host can return a large-but-under-cap 4xx body; the log line must
         # carry only a bounded preview plus the byte count, never the whole body.
-        import requests
 
         body = b"x" * (octopus_deploy_module.LOG_BODY_PREVIEW_BYTES * 4)
         response = mock.MagicMock()

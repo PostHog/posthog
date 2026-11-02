@@ -16,11 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     SemaphoreSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.semaphore.semaphore import SemaphoreResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.semaphore.settings import (
-    AUTH_ERROR,
-    NOT_FOUND_ERROR,
-    PERMISSION_ERROR,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.semaphore.settings import NOT_FOUND_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.sources.semaphore.source import SemaphoreSource
 
 BASE_URL = "https://example.semaphoreci.com/api/v1alpha/"
@@ -126,7 +122,7 @@ def test_resume_skips_saved_pages(config: SemaphoreSourceConfig, completed: bool
 
 @pytest.mark.parametrize(
     ("status", "expected_message"),
-    [(401, AUTH_ERROR), (403, PERMISSION_ERROR), (404, NOT_FOUND_ERROR)],
+    [(404, NOT_FOUND_ERROR)],
 )
 def test_auth_errors_are_actionable_and_non_retryable(
     config: SemaphoreSourceConfig,

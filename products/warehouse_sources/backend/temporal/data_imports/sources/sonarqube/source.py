@@ -59,7 +59,7 @@ class SonarqubeSource(ResumableSource[SonarqubeSourceConfig, SonarqubeResumeConf
             name=ExternalDataSourceType.SONARQUBE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Sonar (SonarSource) - SonarQube Server",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Connect your self-hosted SonarQube Server to pull code-quality data into the PostHog Data warehouse.
 
 Using SonarQube Cloud (sonarcloud.io or sonarqube.us)? Connect it with the Sonar Cloud source instead.

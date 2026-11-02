@@ -135,12 +135,14 @@ class ScoutTrialStore:
     ) -> _Result:
         invalid_reason: str | None = None
         with transaction.atomic():
-            locked = (
+            runs = (
                 SignalScoutRun.objects.for_team(self.run.team_id)
                 .select_related("task_run")
-                .select_for_update(of=("self", "task_run"))
-                .get(pk=self.run.pk, task_run_id=self.run.task_run_id)
+                .filter(pk=self.run.pk, task_run_id=self.run.task_run_id)
             )
+            # Gateway accounting locks the task run before updating scout totals; match its order to avoid deadlocks.
+            runs.select_for_update(of=("task_run",)).get()
+            locked = runs.select_for_update(of=("self",)).get()
             if not is_scout_trial(locked) or locked.task_run.team_id != self.run.team_id:
                 raise ScoutTrialStateError("The scout run has no private state.")
             if not allow_terminal and locked.task_run.status != "in_progress":
@@ -196,6 +198,7 @@ class ScoutTrialStore:
         *,
         text: str | None = None,
         key: str | None = None,
+        skill_name: str | None = None,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
         limit: int = DEFAULT_SCRATCHPAD_SEARCH_LIMIT,
@@ -208,6 +211,8 @@ class ScoutTrialStore:
         result = []
         for entry in entries:
             if key and entry.key != key:
+                continue
+            if skill_name and entry.created_by_skill != skill_name:
                 continue
             if text and text.casefold() not in entry.key.casefold() and text.casefold() not in entry.content.casefold():
                 continue

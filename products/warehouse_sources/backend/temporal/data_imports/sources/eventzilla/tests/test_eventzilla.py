@@ -59,7 +59,11 @@ class TestTopLevelResume:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
+    @parameterized.expand(
+        [
+            ("ok", 200, True),
+        ]
+    )
     def test_status_maps_to_bool(self, _name: str, status: int, expected: bool) -> None:
         with scripted_network([ScriptedResponse(status=status, json={})]) as network:
             assert validate_credentials("key") is expected

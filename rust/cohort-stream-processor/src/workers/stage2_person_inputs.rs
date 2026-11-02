@@ -38,6 +38,14 @@ pub(super) const READ_CHUNK_KEYS: usize = 1024;
 
 const SECTION_OP: &str = "stage2_person_inputs";
 
+/// One recompute call's input: the leaves whose every composed cohort recomposes, and single
+/// composed cohorts admitted without their leaves.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct RecomposeGroup {
+    pub leaves: Vec<(LeafStateKey, Uuid)>,
+    pub cohorts: Vec<(CohortId, Uuid)>,
+}
+
 /// Recompute one seed group's composable cohorts, sharing each person's reads across their cohorts.
 ///
 /// Seed-only by construction: the reads run through [`StoreHandle::run_section`], which draws the
@@ -49,6 +57,9 @@ const SECTION_OP: &str = "stage2_person_inputs";
 /// `team_id` is the key `filters` sit under in the frozen catalog, so every cohort here composes
 /// from that team's keyspace.
 ///
+/// `group.leaves` recompose every composed cohort on each leaf; `group.cohorts` recompose only the
+/// named cohort, for a cohort whose row was missing. A cohort reached both ways evaluates once.
+///
 /// Changes and writes come back in `(cohort, person)` order, matching the cohort-ordered path.
 ///
 /// A read failure returns before any output exists, so the held run publishes nothing partial.
@@ -57,17 +68,24 @@ pub(crate) async fn recompute_stage2_by_person(
     handle: &StoreHandle,
     team_id: TeamId,
     filters: &TeamFilters,
-    affected_leaves: &[(LeafStateKey, Uuid)],
+    group: &RecomposeGroup,
     event_ms: i64,
     last_updated: &str,
 ) -> Result<Stage2Recompute, StoreError> {
     let mut affected: BTreeMap<Uuid, BTreeSet<CohortId>> = BTreeMap::new();
-    for &(leaf_state_key, person_id) in affected_leaves {
+    for &(leaf_state_key, person_id) in &group.leaves {
         if let Some(cohorts) = filters.by_lsk_to_composable_cohorts.get(&leaf_state_key) {
             affected
                 .entry(person_id)
                 .or_default()
                 .extend(cohorts.iter().copied());
+        }
+    }
+    // Only the cohorts no leaf reached are repairs; one a leaf reached recomposes for that reason.
+    let mut repairs: BTreeSet<(CohortId, Uuid)> = BTreeSet::new();
+    for &(cohort_id, person_id) in &group.cohorts {
+        if affected.entry(person_id).or_default().insert(cohort_id) {
+            repairs.insert((cohort_id, person_id));
         }
     }
 
@@ -120,7 +138,8 @@ pub(crate) async fn recompute_stage2_by_person(
                     new_bit,
                     inputs.prior_stage2(cohort_id),
                     scope.stage2_key(cohort_id),
-                ),
+                )
+                .rewriting_corrupt(),
             );
         }
     }
@@ -137,6 +156,9 @@ pub(crate) async fn recompute_stage2_by_person(
             event_ms,
             last_updated,
         );
+        if repairs.contains(&(cohort_id, person_id)) {
+            recompute.record_composed_repair(&diff);
+        }
     }
     Ok(recompute)
 }

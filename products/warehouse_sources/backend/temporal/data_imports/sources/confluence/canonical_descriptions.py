@@ -10,6 +10,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 
+# Columns of a direct content permission entry, shared by every content type's permissions endpoint.
+_PERMISSION_COLUMNS = {
+    "operation": "The operation the permission grants: read or update.",
+    "principalType": "Type of principal the permission applies to: user or group.",
+    "principalId": "ID of the principal. An Atlassian account ID for users, a group ID for groups.",
+    "createdAt": "Date and time the permission entry was created.",
+    "createdBy": "Atlassian account ID of the user who created the permission entry.",
+}
+
 # Fields shared by most Confluence v2 content objects; merged into each entry so we don't repeat them.
 _COMMON_COLUMNS = {
     "id": "Unique identifier for the object.",
@@ -132,5 +141,15 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "properties": "Inline comment properties, including the highlighted text it anchors to.",
             "version": "Version metadata for the comment.",
         },
+    },
+    "page_permissions": {
+        "description": "A direct read or update restriction on a Confluence page, granted to one user or group.",
+        "docs_url": "https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-content-permissions/",
+        "columns": {"pageId": "ID of the page the permission is on.", **_PERMISSION_COLUMNS},
+    },
+    "blogpost_permissions": {
+        "description": "A direct read or update restriction on a Confluence blog post, granted to one user or group.",
+        "docs_url": "https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-content-permissions/",
+        "columns": {"blogPostId": "ID of the blog post the permission is on.", **_PERMISSION_COLUMNS},
     },
 }

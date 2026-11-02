@@ -19,6 +19,7 @@ from products.slack_app.backend.services.model_router import (
 from products.slack_app.backend.services.run_preferences import (
     LiveRunModelChange,
     find_model_choice,
+    resolve_effective_runtime_adapter,
     resolve_live_run_override,
     resolve_run_preferences,
 )
@@ -33,6 +34,7 @@ __all__ = [
     "find_model_choice",
     "group_by_runtime",
     "model_router_options",
+    "resolve_effective_runtime_adapter",
     "resolve_live_run_override",
     "resolve_run_preferences",
 ]

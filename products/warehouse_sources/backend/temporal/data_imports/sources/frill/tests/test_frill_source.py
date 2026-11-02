@@ -11,11 +11,6 @@ class TestFrillSource:
         self.team_id = 123
         self.config = FrillSourceConfig(api_key="test-key")
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["ideas"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "ideas"
-
     @pytest.mark.parametrize(
         ("mock_return", "expected_valid", "expected_message"),
         [

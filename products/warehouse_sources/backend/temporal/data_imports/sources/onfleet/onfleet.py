@@ -1,11 +1,15 @@
 import dataclasses
+from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
 from requests import Request, Response
 from requests.auth import HTTPBasicAuth
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    default_request_timeout,
+    make_tracked_session,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
@@ -28,15 +32,20 @@ DEFAULT_FROM_MS = 0
 # Key carrying the `lastId` cursor in the `/tasks/all` response body and the query param used to
 # continue after it on the next page.
 _CURSOR_KEY = "lastId"
+# `/routePlans` returns at most this many rows per request (its max `limit`) and has no cursor.
+ROUTE_PLANS_LIMIT = 500
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class OnfleetResumeConfig:
-    # The `lastId` cursor returned by the previous page; the next request continues after it.
-    last_id: str
-    # The `from` epoch-ms lower bound in effect for this sync, re-sent on every page so the
-    # server-side window stays applied across the whole paginated walk.
-    from_ms: int
+    # `/tasks/all`: the `lastId` cursor returned by the previous page; the next request continues after it.
+    last_id: Optional[str] = None
+    # `/tasks/all`: the `from` epoch-ms lower bound in effect for this sync, re-sent on every page so
+    # the server-side window stays applied across the whole paginated walk.
+    # `/routePlans`: the epoch-ms start of the next created-time window.
+    from_ms: int = 0
+    # `/routePlans`: the width of the next created-time window, in milliseconds.
+    window_ms: Optional[int] = None
 
 
 def _to_epoch_ms(value: Any) -> Optional[int]:
@@ -133,7 +142,7 @@ def _paginated_source(
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
-        if resume is not None:
+        if resume is not None and resume.last_id is not None:
             initial_paginator_state = {"cursor": resume.last_id}
             # Re-apply the window the interrupted sync used so resumed pages stay on it.
             from_ms = resume.from_ms
@@ -202,6 +211,82 @@ def _single_batch_source(
     return rest_api_resource(rest_config, team_id, job_id, db_incremental_field_last_value)
 
 
+def _now_ms() -> int:
+    return int(datetime.now(UTC).timestamp() * 1000)
+
+
+def _created_before(row: dict[str, Any], end_ms: int) -> bool:
+    created_ms = _to_epoch_ms(row.get("timeCreated"))
+    return created_ms is None or created_ms < end_ms
+
+
+def _iter_route_plans(
+    api_key: str,
+    config: OnfleetEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[OnfleetResumeConfig],
+    from_ms: int,
+) -> Iterator[list[dict[str, Any]]]:
+    """Walk `/routePlans` in `createdTimeFrom`/`createdTimeTo` windows.
+
+    A window that returns a full page can be truncated, so it is halved and fetched again. A window
+    that returns less is complete, and the next window is twice as wide. The docs don't say whether
+    `createdTimeTo` is inclusive, so each window keeps only the rows created before its end, and the
+    next window starts at that end.
+    """
+    session = make_tracked_session(redact_values=(api_key,))
+    auth = HTTPBasicAuth(api_key, "")
+    until_ms = _now_ms()
+    window_start = from_ms
+    window_ms = max(until_ms - window_start, 1)
+
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.window_ms is not None:
+            window_start = resume.from_ms
+            window_ms = max(resume.window_ms, 1)
+
+    while True:
+        window_end = min(window_start + window_ms, until_ms)
+        is_last_window = window_end >= until_ms
+        response = session.get(
+            f"{ONFLEET_BASE_URL}{config.path}",
+            params={"createdTimeFrom": window_start, "createdTimeTo": window_end, "limit": ROUTE_PLANS_LIMIT},
+            auth=auth,
+            timeout=default_request_timeout(),
+        )
+        response.raise_for_status()
+        rows = response.json()
+        # A full refresh replaces the table, so a malformed response must fail the sync rather than
+        # silently drop rows.
+        if not isinstance(rows, list):
+            raise ValueError(f"Onfleet returned a non-list response for {config.path}")
+
+        if len(rows) >= ROUTE_PLANS_LIMIT:
+            if window_end - window_start > 1:
+                window_ms = max((window_end - window_start) // 2, 1)
+                resumable_source_manager.safe_point()
+                continue
+            # A 1 ms window can't be split further, so advancing past it would silently drop rows.
+            raise ValueError(
+                f"Onfleet returned {ROUTE_PLANS_LIMIT} or more route plans created between {window_start} and "
+                f"{window_end} (epoch ms), which can't be fetched completely"
+            )
+
+        if is_last_window:
+            if rows:
+                yield rows
+            return
+
+        rows = [row for row in rows if _created_before(row, window_end)]
+        window_ms = (window_end - window_start) * 2
+        window_start = window_end
+        resumable_source_manager.save_state(OnfleetResumeConfig(from_ms=window_start, window_ms=window_ms))
+        if rows:
+            yield rows
+        else:
+            resumable_source_manager.safe_point()
+
+
 def onfleet_source(
     api_key: str,
     endpoint: str,
@@ -212,6 +297,17 @@ def onfleet_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = ONFLEET_ENDPOINTS[endpoint]
+
+    if config.created_time_windowed:
+        from_ms = _to_epoch_ms(db_incremental_field_last_value) if should_use_incremental_field else None
+        windowed_from_ms = DEFAULT_FROM_MS if from_ms is None else from_ms
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: _iter_route_plans(api_key, config, resumable_source_manager, windowed_from_ms),
+            primary_keys=config.primary_keys,
+            # Windows are walked in ascending order, but rows inside a window are unordered.
+            sort_mode=None,
+        )
 
     if config.paginated:
         resource = _paginated_source(

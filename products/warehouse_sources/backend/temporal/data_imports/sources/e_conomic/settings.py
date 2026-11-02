@@ -139,6 +139,23 @@ E_CONOMIC_ENDPOINTS: dict[str, EConomicEndpointConfig] = {
         primary_keys=["vatZoneNumber"],
         sort="vatZoneNumber",
     ),
+    # The API accepts `sort` on these three lookups but ignores it, so no sort is sent. Each is a tiny
+    # single-page table.
+    "vat_types": EConomicEndpointConfig(
+        name="vat_types",
+        path="/vat-types",
+        primary_keys=["vatTypeNumber"],
+    ),
+    "vat_accounts": EConomicEndpointConfig(
+        name="vat_accounts",
+        path="/vat-accounts",
+        primary_keys=["vatCode"],
+    ),
+    "payment_types": EConomicEndpointConfig(
+        name="payment_types",
+        path="/payment-types",
+        primary_keys=["paymentTypeNumber"],
+    ),
     "employees": EConomicEndpointConfig(
         name="employees",
         path="/employees",
@@ -218,6 +235,64 @@ E_CONOMIC_ENDPOINTS: dict[str, EConomicEndpointConfig] = {
             parent_field_renames={"journalNumber": "journalNumber"},
             parent_params={"sort": "journalNumber"},
             child_params={"sort": "journalEntryNumber"},
+        ),
+    ),
+    # Unbooked vouchers, so full refresh like journal_entries. The API rejects every `sort` field here.
+    "journal_vouchers": EConomicEndpointConfig(
+        name="journal_vouchers",
+        path="/journals/{journalNumber}/vouchers",
+        # A voucher number is unique per journal and accounting year.
+        primary_keys=["journalNumber", "accountingYear", "voucherNumber"],
+        fanout=DependentEndpointConfig(
+            parent_name="journals",
+            resolve_param="journalNumber",
+            resolve_field="journalNumber",
+            include_from_parent=["journalNumber"],
+            parent_field_renames={"journalNumber": "journalNumber"},
+            parent_params={"sort": "journalNumber"},
+        ),
+    ),
+    # Balances change while a year is open, so totals are full refresh. The API ignores `sort` here.
+    "accounting_year_totals": EConomicEndpointConfig(
+        name="accounting_year_totals",
+        path="{totals_path}",
+        primary_keys=["accountingYear", "accountNumber"],
+        fanout=DependentEndpointConfig(
+            parent_name="accounting_years",
+            resolve_param="totals_path",
+            resolve_field="totals_path",
+            include_from_parent=["year"],
+            parent_field_renames={"year": "accountingYear"},
+            parent_params={"sort": "year"},
+        ),
+    ),
+    "accounting_period_totals": EConomicEndpointConfig(
+        name="accounting_period_totals",
+        path="{totals_path}",
+        primary_keys=["accountingYear", "periodNumber", "accountNumber"],
+        fanout=DependentEndpointConfig(
+            parent_name="accounting_year_periods",
+            resolve_param="totals_path",
+            resolve_field="totals_path",
+            include_from_parent=["periodNumber", "year"],
+            parent_field_renames={"periodNumber": "periodNumber", "year": "accountingYear"},
+        ),
+    ),
+}
+
+# Fan-out parents that are not tables themselves. `accounting_period_totals` reaches its totals through
+# two hops: accounting_years -> accounting_year_periods -> totals.
+E_CONOMIC_FANOUT_PARENTS: dict[str, EConomicEndpointConfig] = {
+    "accounting_year_periods": EConomicEndpointConfig(
+        name="accounting_year_periods",
+        path="{periods_path}",
+        primary_keys=["periodNumber"],
+        fanout=DependentEndpointConfig(
+            parent_name="accounting_years",
+            resolve_param="periods_path",
+            resolve_field="periods_path",
+            include_from_parent=[],
+            parent_params={"sort": "year"},
         ),
     ),
 }

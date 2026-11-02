@@ -112,14 +112,16 @@ class AwsStepFunctionsSource(ResumableSource[AwsStepFunctionsSourceConfig, AwsSt
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="AWS Step Functions",
             caption=(
-                "Sync state machines, executions, and execution history from one AWS region. "
-                "Grant `states:ListStateMachines`, `states:ListExecutions`, and `states:GetExecutionHistory` for the tables you select. "
-                "Executions and history cover Standard workflows only. History excludes input and output payloads. "
+                "Sync state machines, versions, aliases, activities, executions, execution history, and Distributed Map runs from one AWS region. "
+                "Grant `states:ListStateMachines`, `states:ListExecutions`, `states:GetExecutionHistory`, "
+                "`states:ListStateMachineVersions`, `states:ListStateMachineAliases`, `states:DescribeStateMachineAlias`, "
+                "`states:ListActivities`, `states:ListMapRuns`, and `states:DescribeMapRun` for the tables you select. "
+                "Executions, history, and Map runs cover Standard workflows only. History excludes input and output payloads. "
                 "All tables use full refresh because these APIs have no time filter."
             ),
             iconPath="/static/services/aws_step_functions.png",
             docsUrl="https://posthog.com/docs/cdp/sources/aws-step-functions",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

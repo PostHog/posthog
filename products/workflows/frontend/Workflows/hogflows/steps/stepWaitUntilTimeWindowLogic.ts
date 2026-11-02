@@ -354,22 +354,6 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   >
                   message_category_id?: string | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
-                  template_id: 'template-native-push'
-                  template_uuid?: string | undefined
-              }
-            | {
-                  inputs: Record<
-                      string,
-                      {
-                          bytecode?: any
-                          order?: number | undefined
-                          secret?: boolean | undefined
-                          templating?: 'hog' | 'liquid' | undefined
-                          value: any
-                      }
-                  >
-                  message_category_id?: string | undefined
-                  message_category_type?: 'marketing' | 'transactional' | undefined
                   template_id: 'template-twilio'
                   template_uuid?: string | undefined
               }
@@ -397,6 +381,23 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   >
                   message_category_id?: string | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
+                  sensitive?: boolean | undefined
+                  template_id: 'template-native-push'
+                  template_uuid?: string | undefined
+              }
+            | {
+                  inputs: Record<
+                      string,
+                      {
+                          bytecode?: any
+                          order?: number | undefined
+                          secret?: boolean | undefined
+                          templating?: 'hog' | 'liquid' | undefined
+                          value: any
+                      }
+                  >
+                  message_category_id?: string | undefined
+                  message_category_type?: 'marketing' | 'transactional' | undefined
                   template_id: 'template-email'
                   template_uuid?: string | undefined
                   tracking_enabled?: boolean | undefined
@@ -408,6 +409,7 @@ export interface stepWaitUntilTimeWindowLogicActions {
                             utm_source?: string | undefined
                         }
                       | undefined
+                  utm_params_from_default?: ('utm_campaign' | 'utm_content' | 'utm_medium' | 'utm_source')[] | undefined
                   utm_tags_enabled?: boolean | undefined
               }
         >
@@ -680,7 +682,7 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   >
                   message_category_id?: string | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
-                  template_id: 'template-native-push'
+                  template_id: 'template-twilio'
                   template_uuid?: string | undefined
               }
             | {
@@ -696,7 +698,8 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   >
                   message_category_id?: string | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
-                  template_id: 'template-twilio'
+                  sensitive?: boolean | undefined
+                  template_id: 'template-native-push'
                   template_uuid?: string | undefined
               }
             | {
@@ -723,6 +726,7 @@ export interface stepWaitUntilTimeWindowLogicActions {
                             utm_source?: string | undefined
                         }
                       | undefined
+                  utm_params_from_default?: ('utm_campaign' | 'utm_content' | 'utm_medium' | 'utm_source')[] | undefined
                   utm_tags_enabled?: boolean | undefined
               }
         >

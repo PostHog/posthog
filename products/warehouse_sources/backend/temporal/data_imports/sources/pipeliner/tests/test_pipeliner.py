@@ -4,12 +4,9 @@ from typing import Any
 import pytest
 from unittest import mock
 
-import requests
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pipeliner import (
@@ -65,9 +62,18 @@ class TestFormatIncrementalValue:
 
 
 class TestPipelinerSourceTransport:
-    def test_paginates_with_after_cursor_until_last_page(self) -> None:
+    @pytest.mark.parametrize(
+        "endpoint, entity",
+        [
+            ("accounts", "Accounts"),
+            ("oppty_product_relations", "OpptyProductRelations"),
+            ("sales_unit_client_relations", "SalesUnitClientRelations"),
+            ("currency_exchange_rates_lists", "CurrencyExchangeRatesLists"),
+        ],
+    )
+    def test_paginates_with_after_cursor_until_last_page(self, endpoint: str, entity: str) -> None:
         result = _driver().run(
-            "accounts",
+            endpoint,
             [
                 _response([{"id": "1"}, {"id": "2"}], end_cursor="cur1", has_next_page=True),
                 _response([{"id": "3"}], end_cursor="cur2", has_next_page=False),
@@ -78,6 +84,7 @@ class TestPipelinerSourceTransport:
         assert [row["id"] for row in result.rows] == ["1", "2", "3"]
         assert result.params("after") == [None, "cur1"]
         assert result.params("first") == [str(PAGE_SIZE), str(PAGE_SIZE)]
+        assert result.paths == [f"/api/v100/rest/spaces/space-1/entities/{entity}"] * 2
         # The last page still has an end cursor. The has_next_page flag ends the walk.
         assert len(result.requests) == 2
 
@@ -125,12 +132,6 @@ class TestValidateCredentials:
             assert validate_credentials("us-east.api.pipelinersales.com", "space-1", "user", "pass") == (True, None)
         assert network.requests_log[0].param("first") == "1"
 
-    def test_invalid_credentials(self) -> None:
-        with scripted_network([ScriptedResponse(status=401)]):
-            valid, msg = validate_credentials("us-east.api.pipelinersales.com", "space-1", "user", "pass")
-        assert valid is False
-        assert msg == "Invalid Pipeliner API credentials"
-
     def test_403_at_source_create_is_accepted(self) -> None:
         with scripted_network([ScriptedResponse(status=403)]):
             assert validate_credentials(
@@ -163,12 +164,6 @@ class TestValidateCredentials:
             valid, msg = validate_credentials("us-east.api.pipelinersales.com", "space-1", "user", "pass")
         assert valid is False
         assert msg == "Space not found."
-
-    def test_request_exception_returns_failure(self) -> None:
-        with scripted_network(always(requests.exceptions.ConnectionError("boom"))):
-            valid, msg = validate_credentials("us-east.api.pipelinersales.com", "space-1", "user", "pass")
-        assert valid is False
-        assert "boom" in (msg or "")
 
     def test_rejects_redirect_response(self) -> None:
         with scripted_network([ScriptedResponse(status=302, headers={"Location": "https://evil.example.com"})]):

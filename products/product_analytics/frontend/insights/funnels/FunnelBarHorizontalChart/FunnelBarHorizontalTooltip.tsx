@@ -16,6 +16,7 @@ interface FunnelBarHorizontalTooltipProps {
     breakdownFilter: BreakdownFilter | null | undefined
     groupTypeLabel: string
     showPersonsModal: boolean
+    isPartialBreakdownSelection: boolean
     resolvedDateRange?: Parameters<typeof funnelComparePeriodDateRange>[1]
     compareTo?: Parameters<typeof funnelComparePeriodDateRange>[2]
 }
@@ -28,6 +29,7 @@ export function FunnelBarHorizontalTooltip({
     breakdownFilter,
     groupTypeLabel,
     showPersonsModal,
+    isPartialBreakdownSelection,
     resolvedDateRange,
     compareTo,
 }: FunnelBarHorizontalTooltipProps): JSX.Element | null {
@@ -49,6 +51,7 @@ export function FunnelBarHorizontalTooltip({
         groupTypeLabel,
         breakdownFilter,
         aggregateConversionRate,
+        isPartialBreakdownSelection,
         comparePeriodDateRange,
     }
 

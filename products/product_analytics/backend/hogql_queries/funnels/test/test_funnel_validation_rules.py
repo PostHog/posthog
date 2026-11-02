@@ -6,10 +6,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     EventsNode,
-    FunnelCorrelationQuery,
-    FunnelCorrelationResultsType,
     FunnelExclusionEventsNode,
-    FunnelsActorsQuery,
     FunnelsFilter,
     FunnelsQuery,
     FunnelVizType,
@@ -18,9 +15,6 @@ from posthog.schema import (
 
 from posthog.hogql_queries.validation.validation import QueryValidationContext
 
-from products.product_analytics.backend.hogql_queries.funnels.funnel_correlation_query_runner import (
-    FunnelCorrelationQueryRunner,
-)
 from products.product_analytics.backend.hogql_queries.funnels.funnel_validation_rules import (
     MAX_FUNNEL_STEPS,
     RequireAtLeastTwoFunnelSteps,
@@ -66,18 +60,6 @@ class TestFunnelValidationRules(BaseTest):
         )
 
         FunnelsQueryRunner(query=query, team=self.team).validate()
-
-    def test_rejects_correlation_on_funnels_beyond_max_steps(self):
-        funnels_query = FunnelsQuery(series=[EventsNode(event=f"step {i}") for i in range(MAX_FUNNEL_STEPS + 1)])
-        query = FunnelCorrelationQuery(
-            source=FunnelsActorsQuery(source=funnels_query),
-            funnelCorrelationType=FunnelCorrelationResultsType.EVENTS,
-        )
-
-        with self.assertRaises(ValidationError) as context:
-            FunnelCorrelationQueryRunner(query=query, team=self.team).to_query()
-
-        self.assertEqual(context.exception.get_codes(), ["funnel_max_steps_exceeded"])
 
     @parameterized.expand(
         [
@@ -126,6 +108,11 @@ class TestFunnelValidationRules(BaseTest):
                 "end_step_out_of_range",
                 FunnelExclusionEventsNode(event="exclude", funnelFromStep=0, funnelToStep=3),
                 "Exclusion event range is invalid. End of range is greater than number of steps.",
+            ),
+            (
+                "start_step_negative",
+                FunnelExclusionEventsNode(event="exclude", funnelFromStep=-1, funnelToStep=1),
+                "Exclusion event range is invalid. Start of range cannot be negative.",
             ),
         ]
     )

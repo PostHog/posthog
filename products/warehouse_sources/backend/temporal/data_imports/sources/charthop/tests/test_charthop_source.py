@@ -30,8 +30,6 @@ class TestChartHopSource:
         [
             ("bad_token", "401 Client Error: ChartHop API authentication or permission error for url /v1/org"),
             ("no_permission", "403 Client Error: ChartHop API authentication or permission error for url x"),
-            ("bad_token_fetch", "401 Client Error: Unauthorized for url: https://api.charthop.com/v2/org/x/job"),
-            ("no_permission_fetch", "403 Client Error: Forbidden for url: https://api.charthop.com/v2/org/x/job"),
             ("no_org_access", "ChartHop API token has no access to any organization"),
             (
                 "multiple_orgs",

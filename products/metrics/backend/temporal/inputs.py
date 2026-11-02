@@ -46,6 +46,8 @@ class SuggestResult:
 class GenerateInputs:
     team_id: int
     request: GenerationRequestInputs
+    # Set when a reviewer generates an existing template again. The template is already set to generating.
+    template_id: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)

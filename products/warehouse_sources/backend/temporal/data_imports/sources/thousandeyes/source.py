@@ -62,7 +62,7 @@ class ThousandeyesSource(ResumableSource[ThousandeyesSourceConfig, ThousandeyesR
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Cisco ThousandEyes",
             iconPath="/static/services/thousandeyes.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="Create an API token in Manage > Account Settings > Users and Roles > Profile > User API Tokens. "
             "Alerts and initial HTTP results cover the last 30 days. Sync at least every 30 days to avoid gaps.",
             fields=cast(

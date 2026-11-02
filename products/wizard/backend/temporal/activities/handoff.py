@@ -35,6 +35,7 @@ def create_run_artifacts(input: PreparedGitRepositoryWorkspace) -> None:
                 workspace_path=input.root_path,
                 github_integration_id=input.github_integration_id,
                 repository=input.repository,
+                base_branch=input.base_branch,
             )
         )
     except cloud_worker.WizardWorkerExecutionError as error:

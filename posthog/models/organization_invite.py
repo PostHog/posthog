@@ -13,7 +13,7 @@ from rest_framework import exceptions
 from posthog.constants import INVITE_DAYS_VALIDITY
 from posthog.email import is_email_available
 from posthog.helpers.email_utils import EmailNormalizer, EmailValidationHelper
-from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.activity_logging.model_activity import ActingUserContext, ModelActivityMixin
 from posthog.models.onboarding_delegation import mark_delegators_accepted
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
@@ -191,13 +191,15 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
                     # If the team doesn't exist, it was probably deleted. We can still continue with the invite.
                     continue
 
-                AccessControl.objects.create(
-                    team=team,
-                    resource="project",
-                    resource_id=str(team.id),
-                    organization_member=parent_membership,
-                    access_level=item["level"],
-                )
+                # The inviter chose this access, so the audit row names them rather than the invitee.
+                with ActingUserContext(self.created_by):
+                    AccessControl.objects.create(
+                        team=team,
+                        resource="project",
+                        resource_id=str(team.id),
+                        organization_member=parent_membership,
+                        access_level=item["level"],
+                    )
 
             # Sibling-invite sweep: clean up any other pending invites for the same email in this
             # org so the invitee doesn't accumulate stale rows. Other DELEGATION invites have

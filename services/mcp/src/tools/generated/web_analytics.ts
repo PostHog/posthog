@@ -471,6 +471,14 @@ const SessionPropertyFilter = z.object({
 })
 
 const CohortPropertyFilter = z.object({
+    cohort_deleted: z.coerce
+        .boolean()
+        .describe('Set by the feature flag API when the cohort is deleted or does not exist.')
+        .optional(),
+    cohort_missing: z.coerce
+        .boolean()
+        .describe('Set by the feature flag API when the cohort does not exist, so it cannot be restored.')
+        .optional(),
     cohort_name: z.string().optional(),
     key: z.literal('id').default('id'),
     label: z.string().optional(),

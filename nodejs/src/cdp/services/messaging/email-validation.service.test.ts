@@ -1,6 +1,7 @@
 import { register } from 'prom-client'
 
 import { RedisV2 } from '~/common/redis/redis-v2'
+import { logger } from '~/common/utils/logger'
 
 import { CyclotronJobInvocationHogFunction } from '../../types'
 import { EmailValidationService, MAX_LOCAL_CACHE_DOMAINS } from './email-validation.service'
@@ -235,6 +236,39 @@ describe('EmailValidationService', () => {
             const reason = await withValkey.getSkipReason(emailInvocation('user@known-dead.example'), emailAction)
             expect(reason).toContain('no reachable mail servers')
             expect(mockResolveMx).not.toHaveBeenCalled()
+        })
+    })
+    describe('out-of-band domain detection', () => {
+        const originalCloudDeployment = process.env.CLOUD_DEPLOYMENT
+        let info: jest.SpyInstance
+
+        beforeEach(() => {
+            process.env.CLOUD_DEPLOYMENT = 'US'
+            info = jest.spyOn(logger, 'info').mockImplementation(() => undefined)
+        })
+
+        afterEach(() => {
+            info.mockRestore()
+            if (originalCloudDeployment === undefined) {
+                delete process.env.CLOUD_DEPLOYMENT
+            } else {
+                process.env.CLOUD_DEPLOYMENT = originalCloudDeployment
+            }
+        })
+
+        it('logs a listed recipient domain and still lets the send through', async () => {
+            const reason = await service.getSkipReason(emailInvocation('probe@abc.oast.me'), emailAction)
+
+            expect(info).toHaveBeenCalledWith(
+                'security.oob_domain_seen',
+                expect.objectContaining({
+                    host: 'abc.oast.me',
+                    domain: 'oast.me',
+                    guard: 'node_email_validation',
+                })
+            )
+            expect(mockResolveMx).toHaveBeenCalledWith('abc.oast.me')
+            expect(reason).toBeNull()
         })
     })
 })

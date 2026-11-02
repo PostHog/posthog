@@ -82,7 +82,11 @@ class AwsSecurityHubSource(ResumableSource[AwsSecurityHubSourceConfig, AwsSecuri
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(
-            ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only={"findings"}, descriptions=ENDPOINT_DESCRIPTIONS
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only={"findings", "finding_history", "findings_v2"},
+            descriptions=ENDPOINT_DESCRIPTIONS,
         )
 
     def validate_credentials(
@@ -127,15 +131,16 @@ class AwsSecurityHubSource(ResumableSource[AwsSecurityHubSourceConfig, AwsSecuri
             name=ExternalDataSourceType.AWSSECURITYHUB,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="AWS Security Hub",
-            caption="""Sync Security Hub CSPM findings, standards, controls, product integrations, member accounts, and custom insights from the configured AWS region.
+            caption="""Sync Security Hub CSPM findings, finding history, standards, controls, product integrations, member accounts, custom insights, insight results, and exposure remediations from the configured AWS region. You can also sync Security Hub findings and resources in the OCSF format.
 
-Grant `securityhub:GetFindings`, `securityhub:DescribeStandards`, `securityhub:GetEnabledStandards`, `securityhub:GetInsights`, `securityhub:DescribeStandardsControls`, `securityhub:ListSecurityControlDefinitions`, `securityhub:DescribeProducts`, and `securityhub:ListMembers` to the IAM user or role.
+Grant `securityhub:GetFindings`, `securityhub:GetFindingHistory`, `securityhub:DescribeStandards`, `securityhub:GetEnabledStandards`, `securityhub:GetInsights`, `securityhub:GetInsightResults`, `securityhub:DescribeStandardsControls`, `securityhub:ListSecurityControlDefinitions`, `securityhub:DescribeProducts`, `securityhub:ListMembers`, `securityhub:GetResourcesV2`, `securityhub:GetRemediationsV2`, and `securityhub:ListExposuresByRemediationV2` to the IAM user or role.
 Enter its access key ID and secret access key. Add a session token for temporary credentials.
 Enable Security Hub CSPM in the selected region.
-If you select an aggregation region, AWS can also return findings from linked regions.""",
+If you select an aggregation region, AWS can also return findings from linked regions.
+The remediation tables need Security Hub with exposure findings in the selected region.""",
             iconPath="/static/services/aws_security_hub.png",
             docsUrl="https://posthog.com/docs/cdp/sources/aws-security-hub",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

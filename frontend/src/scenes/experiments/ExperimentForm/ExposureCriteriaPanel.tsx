@@ -20,6 +20,7 @@ import {
     EXPOSURE_DEFAULT_EVENT,
     exposureEventLabel,
     getActivationConfig,
+    resolveFilterTestAccounts,
     resolvedExposureEvent,
 } from '../exposureContract'
 import { commonActionFilterProps } from '../Metrics/Selectors'
@@ -229,7 +230,7 @@ function ExposureCriteriaFields({
             {/* Test Account Filtering */}
             <div>
                 <TestAccountFilterSwitch
-                    checked={hasFilters && !!experiment.exposure_criteria?.filterTestAccounts}
+                    checked={hasFilters && resolveFilterTestAccounts(experiment.exposure_criteria)}
                     onChange={(checked: boolean) => {
                         onChange({ filterTestAccounts: checked })
                     }}
@@ -407,7 +408,7 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
                 {/* As tall as the small selects above, so the three labels are evenly spaced */}
                 <div className="flex min-h-[2.0625rem] items-center">
                     <TestAccountFilterSwitch
-                        checked={hasFilters && !!experiment.exposure_criteria?.filterTestAccounts}
+                        checked={hasFilters && resolveFilterTestAccounts(experiment.exposure_criteria)}
                         onChange={(checked: boolean) => {
                             onChange({ filterTestAccounts: checked })
                         }}

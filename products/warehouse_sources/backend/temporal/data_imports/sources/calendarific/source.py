@@ -103,6 +103,7 @@ class CalendarificSource(SimpleSource[CalendarificSourceConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="country",
+                        sync_setting=True,
                         label="Country code",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -112,6 +113,7 @@ class CalendarificSource(SimpleSource[CalendarificSourceConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="year",
+                        sync_setting=True,
                         label="Year",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -121,5 +123,5 @@ class CalendarificSource(SimpleSource[CalendarificSourceConfig]):
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

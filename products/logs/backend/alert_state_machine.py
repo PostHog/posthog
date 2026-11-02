@@ -175,3 +175,22 @@ def apply_outcome(
         )
 
     return ["state", "consecutive_failures"]
+
+
+def apply_enabled(alert: LogsAlertConfiguration, enabled: bool, *, now: datetime) -> list[str]:
+    """Turns an alert on or off with the transition and audit row the logs API writes for it.
+    Returns modified field names for `save(update_fields=...)`, none when `enabled` is unchanged."""
+    from products.logs.backend.models import LogsAlertEvent
+
+    if alert.enabled == enabled:
+        return []
+    snapshot = alert.to_snapshot()
+    if enabled:
+        update_fields = apply_outcome(alert, apply_enable(snapshot), kind=LogsAlertEvent.Kind.ENABLE)
+        if alert.first_enabled_at is None:
+            alert.first_enabled_at = now
+            update_fields.append("first_enabled_at")
+    else:
+        update_fields = apply_outcome(alert, apply_disable(snapshot), kind=LogsAlertEvent.Kind.DISABLE)
+    alert.enabled = enabled
+    return [*update_fields, "enabled"]

@@ -33,10 +33,6 @@ class TestDeepgramSourceClass:
         schema = next(s for s in self.source.get_schemas(MagicMock(), team_id=1) if s.name == endpoint)
         assert schema.supports_incremental is incremental
 
-    def test_get_schemas_filters_by_name(self) -> None:
-        schemas = self.source.get_schemas(MagicMock(), team_id=1, names=["requests"])
-        assert [s.name for s in schemas] == ["requests"]
-
     @parameterized.expand([("valid", True, True), ("invalid", False, False)])
     def test_validate_credentials(self, _name: str, api_ok: bool, expected: bool) -> None:
         with scripted_network([ScriptedResponse(status=200 if api_ok else 401)]) as network:

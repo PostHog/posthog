@@ -7,6 +7,7 @@ from posthog.dataclasses import frozen
 from products.warehouse_sources.backend.temporal.data_imports.sources.buildium.settings import (
     BASE_URL,
     CREDENTIAL_PROBE_PATHS,
+    CUSTOM_FIELD_ENTITY_TYPES,
     ENDPOINTS,
     EXCLUDED_COLUMNS,
     GL_ACCOUNT_BATCH_SIZE,
@@ -18,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.buildium.s
     ORDER_BY,
     PAGE_SIZE,
     PRIMARY_KEYS,
+    UNPAGINATED_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -89,6 +91,8 @@ def _list_resource(
     initial_offset: int | None = None,
 ) -> Resource:
     endpoint_config: Endpoint = {"path": path, "data_selector": "$", "params": params}
+    if endpoint in UNPAGINATED_ENDPOINTS:
+        endpoint_config["paginator"] = "single_page"
     resource_config: EndpointResource = {
         "name": endpoint,
         "endpoint": endpoint_config,
@@ -144,6 +148,16 @@ def _lease_transactions_resource(client: ClientConfig, team_id: int, job_id: str
     }
     resources = rest_api_resources(rest_config, team_id, job_id, None)
     return next(resource for resource in resources if resource.name == "lease_transactions")
+
+
+def _custom_field_definitions_resource(client: ClientConfig, entity_type: str, team_id: int, job_id: str) -> Resource:
+    path = ENDPOINTS["custom_field_definitions"].replace("{entityType}", entity_type)
+    return _list_resource(client, "custom_field_definitions", path, {}, team_id, job_id)
+
+
+def _iter_custom_field_definitions(client: ClientConfig, team_id: int, job_id: str) -> Iterator[list[dict[str, Any]]]:
+    for entity_type in CUSTOM_FIELD_ENTITY_TYPES:
+        yield from _custom_field_definitions_resource(client, entity_type, team_id, job_id)
 
 
 def _gl_account_ids(client: ClientConfig, team_id: int, job_id: str) -> list[int]:
@@ -216,7 +230,7 @@ def buildium_source(
 
     # Keep offset pagination stable when an object is updated during extraction. Ordering by the
     # mutable update timestamp can move an already-read object to a later page and skip another one.
-    params: dict[str, Any] = {"orderby": ORDER_BY.get(endpoint, "Id asc")}
+    params: dict[str, Any] = {} if endpoint in UNPAGINATED_ENDPOINTS else {"orderby": ORDER_BY.get(endpoint, "Id asc")}
     if updated_from is not None:
         params["lastupdatedfrom"] = updated_from
 
@@ -227,7 +241,12 @@ def buildium_source(
             )
 
     resource: Resource
-    if endpoint == "lease_transactions":
+    if endpoint == "custom_field_definitions":
+        template = _custom_field_definitions_resource(client, CUSTOM_FIELD_ENTITY_TYPES[0], team_id, job_id)
+        resource = Resource(
+            _iter_custom_field_definitions, name=endpoint, hints=template._hints, args=(client, team_id, job_id)
+        )
+    elif endpoint == "lease_transactions":
         # Fan-out resources cannot resume, so this table restarts from the first lease after a hand-off.
         resource = _lease_transactions_resource(client, team_id, job_id)
     elif endpoint == "general_ledger_transactions":
