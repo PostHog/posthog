@@ -147,6 +147,7 @@ class TestSignalSpend(BaseTest):
         driver = str(uuid4())
         signal = SignalSpendUpdate(team_id=self.team.id, signal_id=driver)
         record_llm_spend(token_cost_microusd=123, team_id=self.team.id, signal_id=driver, stage="actionability")
+        earliest_spend_at = SignalSpend.objects.for_team(self.team.id).get(signal_id=driver).created_at
         now = timezone.now()
         metadata = {"report_id": "moved-report", "deleted": True, "extra": {"example": 1}, "total_spend": 0}
         rows: dict[str, list] = {}
@@ -235,12 +236,31 @@ class TestSignalSpend(BaseTest):
             )
             assert query.call_args_list
             assert all(call.kwargs["ch_user"] == ClickHouseUser.SIGNALS for call in query.call_args_list)
+            assert all("timestamp >= now() - INTERVAL 3 MONTH" in call.kwargs["query"] for call in query.call_args_list)
+            assert all(
+                call.kwargs["placeholders"]["spend_timestamp_lower_bound"].value
+                == earliest_spend_at - timedelta(days=1)
+                for call in query.call_args_list
+            )
         with patch(
             "products.signals.backend.signal_metadata.execute_hogql_query",
             return_value=Mock(results=[(driver, "Example finding", json.dumps(metadata), now, now)]),
         ):
             signal_row = fetch_signals_for_report_sync(self.team, str(uuid4()))[0]
             assert signal_row["total_spend"] == metadata["total_spend"]
+
+    def test_clickhouse_spend_read_uses_only_ttl_bound_without_a_spend_row(self) -> None:
+        driver = str(uuid4())
+        now = timezone.now()
+        metadata = {"total_spend": 0, "spend_accounting_failed_stages": []}
+        with patch(
+            "products.signals.backend.spend_metadata.execute_hogql_query",
+            return_value=Mock(results=[(driver, ("Example finding", json.dumps(metadata), now, [0.5], now))]),
+        ) as query:
+            publish_signal_spend_metadata(SignalSpendUpdate(team_id=self.team.id, signal_id=driver))
+        assert query.call_args_list
+        assert all("timestamp >= now() - INTERVAL 3 MONTH" in call.kwargs["query"] for call in query.call_args_list)
+        assert all("spend_timestamp_lower_bound" not in call.kwargs["placeholders"] for call in query.call_args_list)
 
     @parameterized.expand([("web", None, False), ("pipeline", ClickHouseUser.SIGNALS, False), ("settled", None, True)])
     def test_triggering_signal_lookup_preserves_query_identity(
@@ -912,7 +932,9 @@ class TestSignalSpend(BaseTest):
                 )
             ) == [(None, Decimal(0), None), (None, Decimal(0), None)]
             assert signal_spend_summaries(team_id=self.team.id, signal_ids=[str(row.signal_id)]) == {
-                str(row.signal_id): SignalSpendSummary(total_spend=4.0123, failed_stages=[])
+                str(row.signal_id): SignalSpendSummary(
+                    total_spend=4.0123, failed_stages=[], earliest_created_at=row.created_at
+                )
             }
             with self.assertRaises(IntegrityError), transaction.atomic():
                 spend.objects.filter(id=legacy_signal.id).update(finalized_at=timezone.now())
