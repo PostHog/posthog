@@ -5,7 +5,7 @@ import html
 import asyncio
 from typing import Any
 
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationManager
 
 from products.posthog_ai.eval_harness.log_parser import LogParser, ToolCall
 from products.posthog_ai.eval_harness.scorers import (
@@ -67,8 +67,9 @@ def _missing_log(name: str) -> Score:
 
 def read_senders(team_id: int) -> dict[str, dict[str, Any]]:
     return {
-        integration.integration_id: integration.config
-        for integration in Integration.objects.filter(team_id=team_id, kind="email")
+        integration.integration_id: dict(integration.config)
+        for integration in IntegrationManager.email.credentials.list(team_id)
+        if integration.integration_id
     }
 
 
