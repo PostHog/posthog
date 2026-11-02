@@ -12,6 +12,7 @@ from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.integrations import IntegrationNotFound
 from posthog.models import Integration, User
+from posthog.paging import CursorPageRequest
 from posthog.temporal.common.client import sync_connect
 
 from products.batch_exports.backend.facade import api, contracts, testing
@@ -284,11 +285,12 @@ def test_runs_and_backfills_are_scoped_to_the_team_and_export(team, organization
             start=dt.datetime(2000, 1, 1, tzinfo=dt.UTC), end=dt.datetime.now(dt.UTC) + dt.timedelta(days=1)
         )
     )
-    page = contracts.ListPage(ordering=("-created_at",), bound=None, offset=0, limit=10)
+    page = CursorPageRequest(ordering=("-created_at",), bound=None, offset=0, limit=10)
 
-    assert [run.id for run in api.list_batch_export_runs(team.pk, export_id, filters=every_run, page=page)] == [run_id]
-    assert api.list_batch_export_runs(team_id, scoped_export_id, filters=every_run, page=page) == []
-    assert api.list_batch_export_backfills(team_id, scoped_export_id, page=page) == []
+    own_runs = api.list_batch_export_runs(team.pk, export_id, filters=every_run, page=page)
+    assert [run.id for run in own_runs.results] == [run_id]
+    assert api.list_batch_export_runs(team_id, scoped_export_id, filters=every_run, page=page).results == []
+    assert api.list_batch_export_backfills(team_id, scoped_export_id, page=page).results == []
     # A leaked run or backfill would get past the lookup and reach Temporal instead of raising.
     for read_run in (api.get_batch_export_run, api.retry_batch_export_run, api.cancel_batch_export_run):
         with pytest.raises(contracts.BatchExportRunNotFoundError):
