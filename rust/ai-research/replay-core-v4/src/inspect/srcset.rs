@@ -25,25 +25,27 @@ struct Candidate<'a> {
 /// when all are larger. The first candidate wins a tie. `None` for a malformed srcset, or one that mixes width and
 /// density descriptors.
 pub fn kept_candidate(srcset: &str) -> Option<(usize, &str)> {
-    let candidates = parse_candidates(srcset)?;
-    let kind = candidates.first()?.kind;
-    if candidates.iter().any(|candidate| candidate.kind != kind) {
-        return None;
-    }
-    let limit = match kind {
-        DescriptorKind::Width => MAX_SRCSET_WIDTH,
-        DescriptorKind::Density => MAX_SRCSET_DENSITY,
-    };
-    candidates
-        .into_iter()
-        .reduce(
-            |best, candidate| match (best.value <= limit, candidate.value <= limit) {
+    let mut first_kind = None;
+    let mut mixed = false;
+    let mut kept: Option<Candidate<'_>> = None;
+    for_each_candidate(srcset, |candidate| {
+        let kind = *first_kind.get_or_insert(candidate.kind);
+        mixed |= candidate.kind != kind;
+        let limit = match kind {
+            DescriptorKind::Width => MAX_SRCSET_WIDTH,
+            DescriptorKind::Density => MAX_SRCSET_DENSITY,
+        };
+        kept = Some(match kept.take() {
+            None => candidate,
+            Some(best) => match (best.value <= limit, candidate.value <= limit) {
                 (false, true) => candidate,
                 (true, true) if candidate.value > best.value => candidate,
                 (false, false) if candidate.value < best.value => candidate,
                 _ => best,
             },
-        )
+        });
+    })?;
+    kept.filter(|_| !mixed)
         .map(|candidate| (candidate.index, candidate.url))
 }
 
@@ -60,9 +62,10 @@ pub fn usable_candidate(srcset: &str) -> Option<(usize, &str)> {
     })
 }
 
-fn parse_candidates(srcset: &str) -> Option<Vec<Candidate<'_>>> {
+/// Streams the candidates, so that a message-sized srcset needs no list of them. `None` for a malformed srcset.
+fn for_each_candidate<'s>(srcset: &'s str, mut found: impl FnMut(Candidate<'s>)) -> Option<()> {
     let bytes = srcset.as_bytes();
-    let mut candidates = Vec::new();
+    let mut index = 0;
     let mut position = 0;
     while position < bytes.len() {
         while matches!(bytes.get(position), Some(byte) if byte.is_ascii_whitespace()) {
@@ -113,12 +116,13 @@ fn parse_candidates(srcset: &str) -> Option<Vec<Candidate<'_>>> {
         };
 
         let (kind, value) = parse_descriptor(descriptor)?;
-        candidates.push(Candidate {
-            index: candidates.len(),
+        found(Candidate {
+            index,
             url,
             kind,
             value,
         });
+        index += 1;
         if separated {
             let mut next = position;
             while matches!(bytes.get(next), Some(byte) if byte.is_ascii_whitespace()) {
@@ -129,7 +133,7 @@ fn parse_candidates(srcset: &str) -> Option<Vec<Candidate<'_>>> {
             }
         }
     }
-    (!candidates.is_empty()).then_some(candidates)
+    Some(())
 }
 
 fn parse_descriptor(descriptor: &str) -> Option<(DescriptorKind, f64)> {
