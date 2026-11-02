@@ -50,7 +50,10 @@ describe('message-parsing', () => {
                 parse: (m: Message) => ({
                     teamId: teamIdByOffset[m.offset],
                     toGlobals: (team: Team) =>
-                        ({ project: { id: team.id }, event: { uuid: String(m.offset) } }) as HogFunctionInvocationGlobals,
+                        ({
+                            project: { id: team.id },
+                            event: { uuid: String(m.offset) },
+                        }) as HogFunctionInvocationGlobals,
                 }),
                 loadTeam,
                 parkLookupError,
@@ -59,7 +62,7 @@ describe('message-parsing', () => {
         }
 
         it('loads a team once for the whole batch and still builds globals for each of its messages', async () => {
-            const loadTeam = jest.fn(async (teamId: number) => ({ id: teamId }) as Team)
+            const loadTeam = jest.fn((teamId: number) => Promise.resolve({ id: teamId } as Team))
 
             const globals = await parseBatch(
                 [message(0), message(1), message(2)],
@@ -73,7 +76,7 @@ describe('message-parsing', () => {
         // A loadTeam that counts skipped events has to keep counting one per message, so the
         // default must stay one call per message.
         it('calls loadTeam once per message unless the caller opts in', async () => {
-            const loadTeam = jest.fn(async (teamId: number) => ({ id: teamId }) as Team)
+            const loadTeam = jest.fn((teamId: number) => Promise.resolve({ id: teamId } as Team))
 
             await parseBatch([message(0), message(1), message(2)], options(loadTeam, { 0: 1, 1: 1, 2: 2 }))
 
@@ -82,12 +85,9 @@ describe('message-parsing', () => {
 
         it('parks every message of a team whose shared lookup failed, and keeps the rest of the batch', async () => {
             const parkLookupError = jest.fn().mockReturnValue(true)
-            const loadTeam = jest.fn(async (teamId: number) => {
-                if (teamId === 1) {
-                    throw new Error('lookup_failed')
-                }
-                return { id: teamId } as Team
-            })
+            const loadTeam = jest.fn((teamId: number) =>
+                teamId === 1 ? Promise.reject(new Error('lookup_failed')) : Promise.resolve({ id: teamId } as Team)
+            )
 
             const globals = await parseBatch(
                 [message(0), message(1), message(2)],
