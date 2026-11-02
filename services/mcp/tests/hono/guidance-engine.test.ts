@@ -273,6 +273,7 @@ describe('GuidanceEngine', () => {
             'SELECT event, count() FROM events GROUP BY event HAVING count() > 10',
             false,
         ],
+        ['sql-aggregate-to-typed-runner', 'SELECT count() FROM events e, persons p WHERE e.person_id = p.id', false],
         ['sql-aggregate-to-typed-runner', 'SELECT count() FROM system.insights', false],
         ['sql-aggregate-to-typed-runner', 'SELECT count() FROM posthog.ai_events', false],
         ['sql-aggregate-to-typed-runner', 'SELECT count() FROM events_archive', false],
@@ -280,6 +281,14 @@ describe('GuidanceEngine', () => {
         const rule = GUIDANCE_RULES.find((r) => r.id === ruleId)!
         const call: GuidanceCall = { toolName: 'execute-sql', args: { query }, isError: false }
         expect(triggerMatches(rule, call)).toBe(expected)
+    })
+
+    it.each([
+        ['a direct warehouse connection', { query: 'SELECT count() FROM events', connectionId: 'conn-1' }],
+        ['a query longer than the cap', { query: `SELECT count() FROM events /* ${'x'.repeat(5000)} */` }],
+    ])('the sql-aggregate-to-typed-runner rule skips %s', (_label, args) => {
+        const rule = GUIDANCE_RULES.find((r) => r.id === 'sql-aggregate-to-typed-runner')!
+        expect(triggerMatches(rule, { toolName: 'execute-sql', args, isError: false })).toBe(false)
     })
 
     it('ships every rule with a distinct id and flag', () => {

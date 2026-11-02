@@ -16,6 +16,10 @@ const guidanceRuleSchema = z.object({
         /** Dot path into the call arguments whose string value `argPattern` must match. */
         argPath: z.string().min(1).optional(),
         argPattern: z.instanceof(RegExp).optional(),
+        /** A longer `argPath` value never matches, so `argPattern` only runs on bounded input. */
+        argMaxLength: z.number().int().min(1).optional(),
+        /** Call arguments that rule the call out when they are set, such as a target outside the project. */
+        excludeArgs: z.array(z.string().min(1)).optional(),
         outcome: z.enum(['any', 'success', 'error']),
         presets: z.array(z.enum(scopePresets)).min(1),
     }),
@@ -48,17 +52,19 @@ const TYPED_RUNNER_TOOLS = [
 
 // SQL constructs that no typed runner can express. A query that uses one of them needs SQL, so
 // the typed-runner hint stays silent: per-actor rows, exact first or last timestamps, time
-// between events, array work, HAVING filters, joins, CTEs, window functions, unions,
-// subqueries and system tables. A first or last timestamp grouped by event is an event
-// inventory, which `read-data-schema` answers, so it still matches.
+// between events, array work, HAVING filters, joins (also comma joins), CTEs, window functions,
+// unions, subqueries and system tables. A first or last timestamp grouped by event is an event
+// inventory, which `read-data-schema` answers, so it still matches. The two look-ahead scans are
+// bounded, because an unbounded scan from every `GROUP BY` takes quadratic time on a crafted query.
 const SQL_ONLY_CONSTRUCTS = [
     String.raw`\b(JOIN|WITH|OVER|UNION|HAVING)\b`,
+    String.raw`\bFROM\s+events\b(?:\s+(?:AS\s+)?\w+)?\s*,`,
     String.raw`\bsystem\.`,
     String.raw`\(\s*SELECT\b`,
     String.raw`\barray\w*\s*\(`,
     String.raw`\b(groupArray|groupUniqArray|argMax|argMin|dateDiff|date_diff)\w*\s*\(`,
-    String.raw`\b(max|min)(If)?\s*\(\s*timestamp\b(?![\s\S]*\bGROUP\s+BY\s+event\b)`,
-    String.raw`\bGROUP\s+BY\b(?:(?!\b(ORDER|LIMIT)\b)[\s\S])*\b(person_id|distinct_id|session_id)\b`,
+    String.raw`\b(max|min)(If)?\s*\(\s*timestamp\b(?![\s\S]{0,1000}\bGROUP\s+BY\s+event\b)`,
+    String.raw`\bGROUP\s+BY\b(?:(?!\b(ORDER|LIMIT)\b)[\s\S]){0,300}?\b(person_id|distinct_id|session_id)\b`,
 ]
 const SIMPLE_EVENTS_AGGREGATE = new RegExp(
     String.raw`^(?![\s\S]*(${SQL_ONLY_CONSTRUCTS.join('|')}))(?=[\s\S]*\bFROM\s+events\b)(?=[\s\S]*\b(count|uniq)\w*\s*\()`,
@@ -123,6 +129,10 @@ const RULES: GuidanceRule[] = [
             tool: 'execute-sql',
             argPath: 'query',
             argPattern: SIMPLE_EVENTS_AGGREGATE,
+            // A simple aggregate is short; the cap keeps the pattern cheap on every execute-sql call.
+            argMaxLength: 4000,
+            // A direct warehouse connection has its own `events` table, which typed runners cannot query.
+            excludeArgs: ['connectionId'],
             outcome: 'success',
             presets: ['user'],
         },
