@@ -432,6 +432,24 @@ describe('scoutFleetLogic', () => {
         expect(logic.values.scoutEnabledFilter).toEqual('enabled')
     })
 
+    it('keeps a scout switched off from the roster under the enabled filter until the filter changes', async () => {
+        const otherScout = { ...BASE_CONFIG, id: 'other-scout', skill_name: 'signals-scout-zeta' }
+        mockSignalsScoutConfigUpdate.mockResolvedValueOnce({ ...BASE_CONFIG, enabled: false })
+        logic.actions.loadScoutConfigsSuccess([BASE_CONFIG, otherScout])
+        logic.actions.setScoutEnabledFilter('enabled')
+
+        logic.actions.setScoutEnabledFromRoster(BASE_CONFIG.id, false)
+        await expectLogic(logic).toDispatchActions(['updateScoutConfigFinished'])
+
+        // Dropping the row on the click moves the next scout under the cursor.
+        expect(rosterConfigIds()).toEqual([BASE_CONFIG.id, 'other-scout'])
+
+        logic.actions.setScoutEnabledFilter('disabled')
+        logic.actions.setScoutEnabledFilter('enabled')
+
+        expect(rosterConfigIds()).toEqual(['other-scout'])
+    })
+
     it('lists the whole roster A→Z and tags each row with its lifecycle group', () => {
         // The runs poll re-pins `rosterEvaluatedAt` to the wall clock when real time has moved a
         // scout out of the pause window, so the fixture dates only hold with the clock pinned too.

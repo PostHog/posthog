@@ -98,6 +98,14 @@ describe('ScoutWriteAccessSection', () => {
         fireEvent.click(screen.getByText('Save write access'))
         expect(onUpdate).toHaveBeenCalledWith('config-1', { write_scopes: ['dashboard:write'] })
     })
+    it('stages a toggle from a click on the scope name', () => {
+        const onUpdate = openSection([])
+
+        fireEvent.click(screen.getByText('Dashboards'))
+        fireEvent.click(screen.getByText('Save write access'))
+
+        expect(onUpdate).toHaveBeenCalledWith('config-1', { write_scopes: ['dashboard:write'] })
+    })
     it('shows write access read-only when a tool list sets it', () => {
         // The API rejects a `write_scopes` change on a scout with a tool list, so no save may be offered.
         const onUpdate = jest.fn()
