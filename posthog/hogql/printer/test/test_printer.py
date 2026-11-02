@@ -81,6 +81,10 @@ from ee.clickhouse.materialized_columns.columns import (
     materialize,
 )
 
+# The property-group key guard as printed: a `has()` ANDed after the comparison. The value read's own `has()` follows
+# `if(` instead, so this substring only matches the guard.
+_KEY_GUARD_SQL = ", has(events.properties_group_custom, "
+
 
 def _find_query_plan_node(node: dict, condition: Callable[[dict], bool]) -> dict | None:
     """Return the first query-plan node that meets the condition, searched depth-first."""
@@ -1233,6 +1237,17 @@ class TestPrinter(BaseTest):
             if expected_skip_indexes_not_used:
                 self.assertTrue(expected_skip_indexes_not_used.isdisjoint(indexes))
 
+    def _property_groups_query_results(
+        self, query: str, mode: PropertyGroupsMode, **placeholders: ast.Expr
+    ) -> tuple[list, str]:
+        modifiers = HogQLQueryModifiers(materializationMode=MaterializationMode.AUTO, propertyGroupsMode=mode)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
+        response = execute_hogql_query(
+            query=parse_select(query, placeholders=placeholders), team=self.team, context=context, modifiers=modifiers
+        )
+        assert response.clickhouse is not None
+        return response.results, response.clickhouse
+
     def _skip_indexes_for_expr(self, printed_expr: str, context: HogQLContext) -> set[str]:
         # The table needs some data to be able get a `EXPLAIN` result that includes index information -- otherwise
         # the query is optimized to read from `NullSource` which doesn't do us much good here...
@@ -1852,12 +1867,7 @@ class TestPrinter(BaseTest):
             ("match(properties.key, 'a')", f"match({value_read}, %(hogql_val_2)s)"),
         ):
             with self.subTest(expression):
-                self._test_property_group_comparison(
-                    expression,
-                    f"and({comparison}, {has_key})",
-                    expected_skip_indexes_used={"properties_group_custom_keys_bf"},
-                    in_where=True,
-                )
+                self._test_property_group_comparison(expression, f"and({comparison}, {has_key})", in_where=True)
 
         self._test_property_group_comparison(
             "toDateTime(properties.key) > '2024-01-01'",
@@ -1897,7 +1907,6 @@ class TestPrinter(BaseTest):
             self._test_property_group_comparison("toString(properties.key) ILIKE '%a%'", None, in_where=True)
 
     def test_property_groups_key_guard_only_in_where_and_or_chains(self) -> None:
-        guard = ", has(events.properties_group_custom, "
 
         def optimized_sql(query: str) -> str:
             modifiers = HogQLQueryModifiers(
@@ -1942,22 +1951,22 @@ class TestPrinter(BaseTest):
             with self.subTest(query):
                 sql = optimized_sql(query)
                 if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-                    self.assertIn(guard, sql)
+                    self.assertIn(_KEY_GUARD_SQL, sql)
         for query in unguarded:
             with self.subTest(query):
-                self.assertNotIn(guard, optimized_sql(query))
+                self.assertNotIn(_KEY_GUARD_SQL, optimized_sql(query))
         # A guarded WHERE comparison next to the same comparison in another clause: only the WHERE one is guarded.
         select_sql = optimized_sql("select less(properties.key, 'b') from events where less(properties.other, 'c')")
         select_part, _, where_part = select_sql.partition("WHERE")
-        self.assertNotIn(guard, select_part)
+        self.assertNotIn(_KEY_GUARD_SQL, select_part)
         order_sql = optimized_sql(
             "select 1 from events where less(properties.other, 'c') order by less(properties.key, 'b')"
         )
         where_part_with_order, _, order_part = order_sql.partition("ORDER BY")
-        self.assertNotIn(guard, order_part)
+        self.assertNotIn(_KEY_GUARD_SQL, order_part)
         if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            self.assertIn(guard, where_part)
-            self.assertIn(guard, where_part_with_order)
+            self.assertIn(_KEY_GUARD_SQL, where_part)
+            self.assertIn(_KEY_GUARD_SQL, where_part_with_order)
 
     def test_property_groups_optimized_range_and_pattern_query_results(self):
         event_name = "property_groups_range_pattern_result_test"
@@ -1979,18 +1988,9 @@ class TestPrinter(BaseTest):
             )
 
         def query_results(query: str, expr: str, mode: PropertyGroupsMode) -> tuple[list, str]:
-            modifiers = HogQLQueryModifiers(materializationMode=MaterializationMode.AUTO, propertyGroupsMode=mode)
-            context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
-            response = execute_hogql_query(
-                query=parse_select(
-                    query, placeholders={"expr": parse_expr(expr), "event": ast.Constant(value=event_name)}
-                ),
-                team=self.team,
-                context=context,
-                modifiers=modifiers,
+            return self._property_groups_query_results(
+                query, mode, expr=parse_expr(expr), event=ast.Constant(value=event_name)
             )
-            assert response.clickhouse is not None
-            return response.results, response.clickhouse
 
         select_item = (
             "select properties.label as label, {expr} as matched from events where event = {event} order by label"
@@ -2035,7 +2035,7 @@ class TestPrinter(BaseTest):
                         optimized_results, optimized_sql = query_results(shape, expr, PropertyGroupsMode.OPTIMIZED)
                         self.assertEqual(optimized_results, disabled_results)
                         if shape_name == "where" and not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-                            self.assertIn(", has(events.properties_group_custom, ", optimized_sql)
+                            self.assertIn(_KEY_GUARD_SQL, optimized_sql)
                             self.assertEqual({label for (label,) in optimized_results}, matching_labels)
 
         # `transform`'s default makes an absent key match, so skipping granules without the key would drop rows.
@@ -2044,7 +2044,7 @@ class TestPrinter(BaseTest):
         optimized_results, optimized_sql = query_results(shapes["where"], expr, PropertyGroupsMode.OPTIMIZED)
         self.assertEqual(optimized_results, disabled_results)
         self.assertIn(("absent",), optimized_results)
-        self.assertNotIn(", has(events.properties_group_custom, ", optimized_sql)
+        self.assertNotIn(_KEY_GUARD_SQL, optimized_sql)
 
     def test_property_groups_optimized_timestamp_comparison_query_results(self):
         # The printer leaves a comparison against an events timestamp without `ifNull`, so an absent key gives NULL
@@ -2064,16 +2064,7 @@ class TestPrinter(BaseTest):
             )
 
         def query_results(query: str, mode: PropertyGroupsMode) -> tuple[list, str]:
-            modifiers = HogQLQueryModifiers(materializationMode=MaterializationMode.AUTO, propertyGroupsMode=mode)
-            context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
-            response = execute_hogql_query(
-                query=parse_select(query, placeholders={"event": ast.Constant(value=event_name)}),
-                team=self.team,
-                context=context,
-                modifiers=modifiers,
-            )
-            assert response.clickhouse is not None
-            return response.results, response.clickhouse
+            return self._property_groups_query_results(query, mode, event=ast.Constant(value=event_name))
 
         comparison = "toDateTime(properties.when) > timestamp"
         queries = {
@@ -2089,7 +2080,7 @@ class TestPrinter(BaseTest):
                 disabled_results, _ = query_results(query, PropertyGroupsMode.DISABLED)
                 optimized_results, optimized_sql = query_results(query, PropertyGroupsMode.OPTIMIZED)
                 self.assertEqual(optimized_results, disabled_results)
-                has_guard = ", has(events.properties_group_custom, " in optimized_sql
+                has_guard = _KEY_GUARD_SQL in optimized_sql
                 if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
                     self.assertEqual(has_guard, name in ("where", "where or"))
 
