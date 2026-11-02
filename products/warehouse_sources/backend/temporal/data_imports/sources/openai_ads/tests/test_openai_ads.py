@@ -36,16 +36,32 @@ def _page(items: list[dict[str, Any]], *, has_more: bool, last_id: str | None = 
     return ScriptedResponse(json=body)
 
 
-def _insights_script(*pages: ScriptedResponse) -> Callable[[RecordedRequest], ScriptedResponse]:
+# 2024-01-01, older than the reporting history in every test.
+_OLD_CAMPAIGN = {"id": "cmpn_1", "created_at": 1704067200}
+
+
+def _insights_script(
+    *pages: ScriptedResponse, campaigns: list[dict[str, Any]] | None = None
+) -> Callable[[RecordedRequest], ScriptedResponse]:
     # A first sync reads the reporting history in several windows, and the windows after `pages` are empty.
     remaining = list(pages)
 
     def respond(request: RecordedRequest) -> ScriptedResponse:
         if request.path == "/v1/ad_account":
             return ScriptedResponse(json={"currency_code": "EUR"})
+        if request.path == "/v1/campaigns":
+            return _page([_OLD_CAMPAIGN] if campaigns is None else campaigns, has_more=False)
         return remaining.pop(0) if remaining else _page([], has_more=False)
 
     return respond
+
+
+def _requested_windows(requests: list[RecordedRequest]) -> list[dict[str, Any]]:
+    return [
+        json.loads(request.param("time_ranges[]") or "null")
+        for request in requests
+        if request.path == "/v1/ad_account/insights"
+    ]
 
 
 class TestFanOut:
@@ -127,7 +143,7 @@ class TestInsights:
         )
 
         assert result.raised is None
-        insights_request = result.requests[1]
+        insights_request = result.requests[2]
         assert insights_request.path == "/v1/ad_account/insights"
         assert insights_request.param("aggregation_level") == "campaign"
         assert insights_request.query.get("segments[]") == ((segment,) if segment else None)
@@ -202,7 +218,7 @@ class TestInsights:
         )
 
         assert result.raised is None
-        windows = [json.loads(request.param("time_ranges[]") or "null") for request in result.requests[1:]]
+        windows = _requested_windows(result.requests)
         assert windows[0]["since"] == "2025-07-22"
         assert windows[-1]["until"] == "2026-07-20"
         for previous, current in zip(windows, windows[1:]):
@@ -210,6 +226,25 @@ class TestInsights:
         assert all(
             (date.fromisoformat(window["until"]) - date.fromisoformat(window["since"])).days < 30 for window in windows
         )
+
+    @parameterized.expand(
+        [
+            ("campaign_inside_history", [{"id": "cmpn_1", "created_at": 1777075200}], "2026-04-25"),
+            ("iso_created_at", [{"id": "cmpn_1", "created_at": "2026-04-25T10:00:00Z"}], "2026-04-25"),
+            ("no_campaign_yet", [], "2026-07-20"),
+            ("campaign_without_created_at", [{"id": "cmpn_1"}], "2025-07-22"),
+        ]
+    )
+    @time_machine.travel("2026-07-21", tick=False)
+    def test_first_sync_starts_at_the_oldest_campaign(
+        self, _name: str, campaigns: list[dict[str, Any]], expected_since: str
+    ) -> None:
+        result = _driver().run("campaign_insights", _insights_script(campaigns=campaigns))
+
+        assert result.raised is None
+        windows = _requested_windows(result.requests)
+        assert windows[0]["since"] == expected_since
+        assert windows[-1]["until"] == "2026-07-20"
 
     @time_machine.travel("2026-07-21", tick=False)
     def test_resume_reuses_the_pinned_window_with_the_saved_cursor(self) -> None:
