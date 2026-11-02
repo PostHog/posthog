@@ -23,8 +23,7 @@ const counterEmailStatusWriteFailed = new Counter({
 
 export type EmailDeliveryStatus = 'queued' | 'failed' | 'sent' | 'delivered' | 'bounced' | 'complained'
 
-// What the recipient did with the email. These rows only reach email_status_events, never email_status,
-// so they never replace a delivery status.
+// Only email_status_events keeps these, so they never replace a delivery status.
 export type EmailEngagementStatus = 'opened' | 'clicked'
 
 export type EmailStatus = EmailDeliveryStatus | EmailEngagementStatus
@@ -113,10 +112,8 @@ export interface EmailStatusUpdate {
     statusAt?: Date
     // A failure of the whole run rather than of the email step.
     runOutcome?: boolean
-    // Set on the queued row.
     recipient?: string
     functionId?: string
-    // Set on the sent row.
     sendingDomain?: string
 }
 
