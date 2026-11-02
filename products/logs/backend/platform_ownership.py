@@ -62,7 +62,7 @@ def on_created(alert: LogsAlertConfiguration, at: datetime, *, grouping: Groupin
 
 def create_platform_owned(*, team_id: int, edit: PlatformAlertConfigurationEdit, created_by_id: int | None) -> UUID:
     """Creates a logs alert through the platform API: the logs row and the platform's copy, both owned
-    by the platform, as a create through the logs API does.
+    by the platform.
     """
     try:
         claim_alert_slot(team_id)

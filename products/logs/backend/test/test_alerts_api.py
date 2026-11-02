@@ -103,7 +103,6 @@ class TestLogsAlertAPI(APIBaseTest):
         return response.json()
 
     def _keep_the_team_on_logs(self) -> None:
-        # A team with logs alerts and none on the platform, such as one rolled back, keeps new alerts on logs.
         LogsAlertConfiguration.objects.create(team=self.team, name="Kept on logs", enabled=False)
 
     # --- CRUD ---
