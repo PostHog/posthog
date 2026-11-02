@@ -58,7 +58,7 @@ export function ReplayListHeader({
 
     return (
         <div
-            className="shrink-0 bg-bg-3000 flex items-center gap-0.5 whitespace-nowrap border-b text-xs"
+            className="@container/list-header shrink-0 min-w-0 bg-bg-3000 flex items-center gap-0.5 whitespace-nowrap border-b text-xs"
             data-attr="list-header-bar"
         >
             {selectMode ? (

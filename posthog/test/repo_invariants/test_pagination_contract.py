@@ -112,6 +112,7 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.autoresearch.backend.presentation.views.views.AutoresearchSuggestionViewSet",
     "products.autoresearch.backend.presentation.views.views.AutoresearchTrainingRunViewSet",
     "products.batch_exports.backend.presentation.views.batch_export.backfills.BatchExportBackfillViewSet",
+    "products.batch_exports.backend.presentation.views.batch_export.exports.BatchExportViewSet",
     "products.batch_exports.backend.presentation.views.batch_export.runs.BatchExportRunViewSet",
     "products.batch_exports.backend.presentation.views.file_download.FileDownloadBatchExportOnDemandViewSet",
     # Lists at most MAX_LIBRARIES_PER_TEAM (100) libraries, so it has no pages.
@@ -225,6 +226,9 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.product_analytics.backend.presentation.events_retention.OrganizationEventsRetentionViewSet",
     "products.product_analytics.backend.presentation.insight.InsightViewSet",
     "products.product_tours.backend.api.product_tour.ProductTourViewSet",
+    # Pages with `limit`/`offset` over clusters ranked live, with `has_more`; the API tests cover the page boundary.
+    "products.replay_vision.backend.api.clusters.VisionGroupViewSet",
+    "products.replay_vision.backend.api.clusters.VisionThemeViewSet",
     "products.replay_vision.backend.api.observations.ReplayObservationViewSet",
     "products.replay_vision.backend.api.observations.SessionReplayObservationViewSet",
     "products.replay_vision.backend.api.quota.VisionQuotaViewSet",

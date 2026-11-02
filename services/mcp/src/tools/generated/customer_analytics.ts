@@ -98,6 +98,7 @@ const accountRelationshipDefinitionsList = (): ToolBase<
             query: {
                 limit: params.limit,
                 offset: params.offset,
+                pagination: params.pagination,
             },
         })
         const filtered = {
@@ -869,6 +870,7 @@ const customPropertyDefinitionsList = (): ToolBase<
             query: {
                 limit: params.limit,
                 offset: params.offset,
+                pagination: params.pagination,
             },
         })
         const filtered = {

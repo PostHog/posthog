@@ -2,6 +2,7 @@ import type { UserBasicType } from '~/types'
 
 import {
     type SignalReportApi,
+    type PatchedSignalSourceConfigApi,
     type ReportChartApi,
     type ReportMetricApi,
     type ReportPlanApi,
@@ -219,6 +220,7 @@ export interface ToggleSignalSourceParams {
     sourceType: SignalSourceType
     enabled: boolean
     config?: Record<string, any>
+    configSet?: PatchedSignalSourceConfigApi['config_set']
     /** True when the enable came through the data-warehouse setup wizard, for `Signal source connected`. */
     viaSetupWizard?: boolean
 }
@@ -305,6 +307,7 @@ export const INBOX_REPORT_SECTION_KEYS = [
     'monitoring',
     'needs-decision',
     'resolved',
+    'closed',
     'dismissed',
     'held-back',
     'not-actionable',
@@ -321,6 +324,7 @@ export const INBOX_REPORT_SECTION_LABEL: Record<InboxReportSectionKey, string> =
     monitoring: 'Review and merge',
     'needs-decision': 'Needs decision',
     resolved: 'Resolved',
+    closed: 'Closed',
     dismissed: 'Dismissed',
     'held-back': 'Held back',
     'not-actionable': 'Not actionable',
@@ -331,6 +335,7 @@ export const INBOX_REPORT_SECTION_DESCRIPTION: Record<InboxReportSectionKey, str
     monitoring: 'Reports with a pull request open, ready for you to review and merge on GitHub.',
     'needs-decision': 'Reports an agent can act on that have no pull request yet.',
     resolved: 'Reports fixed by a merged pull request, or marked resolved.',
+    closed: 'Reports marked closed, including reports whose verification checks failed.',
     dismissed:
         'Reports a person or agent dismissed, and reports whose pull request was closed without merging. Most can be restored to your inbox.',
     'held-back':
@@ -396,6 +401,8 @@ export interface SignalTeamConfig {
     default_autostart_priority: SignalReportPriority | null
     /** Default Slack channel for this team's inbox notifications. */
     default_slack_notification_channel?: string | null
+    /** Slack integration that owns the team channel. Send it together with the channel. */
+    default_slack_notification_integration?: number | null
     /** Per-repo base-branch overrides for auto-started PRs, keyed by 'org/repo'. */
     autostart_base_branches?: Record<string, string>
     /** Integration self-driving opens a tracker issue in for each PR it makes. Null turns tracker issues off. */
@@ -412,6 +419,8 @@ export interface SignalTeamConfig {
     pull_request_label_enabled?: boolean
     /** The label name to apply, at most 50 characters. Null or blank means the default label. */
     pull_request_label?: string | null
+    /** Extra 'org/repo' names implementation tasks can read and write. They are not cloned and never become the PR target. */
+    implementation_repositories?: string[]
     /** Whether anomaly scoring writes $anomaly_score events for this project. True by default; false opts out. */
     anomaly_scoring_enabled?: boolean
     /** Read-only: whether anomaly scoring covers this project, so the switch above has an effect. Never send in a patch. */

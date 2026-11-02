@@ -69,9 +69,9 @@ const meta: Meta = {
                     results: [comparisonRun()],
                 },
                 [`/api/projects/:team_id/tasks/${COMPARISON_TASK_ID}/runs/${COMPARISON_RUN_ID}/`]: comparisonRun(),
-                [`/api/projects/:team_id/tasks/${COMPARISON_TASK_ID}/runs/${COMPARISON_RUN_ID}/logs`]: () =>
+                [`/api/projects/:team_id/tasks/${COMPARISON_TASK_ID}/runs/${COMPARISON_RUN_ID}/log_entries`]: () =>
                     new HttpResponse(comparisonRunLogBody()),
-                [`/api/projects/:team_id/tasks/${COMPARISON_TASK_ID}/runs/${COMPARISON_RUN_ID}/logs/`]: () =>
+                [`/api/projects/:team_id/tasks/${COMPARISON_TASK_ID}/runs/${COMPARISON_RUN_ID}/log_entries/`]: () =>
                     new HttpResponse(comparisonRunLogBody()),
                 '/api/users/@me/': () => [200, { ...MOCK_DEFAULT_BASIC_USER, is_staff: false }],
             },
