@@ -172,6 +172,10 @@ describe('email pacing policies', () => {
             tiers.getEmailSendingTier.mockReset().mockResolvedValue(0)
         })
 
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
         it.each([
             ['a tier above the table', 9, 50, 200],
             ['a negative tier', -1, 5, 20],
@@ -237,7 +241,6 @@ describe('email pacing policies', () => {
                 logMessage:
                     "Could not check this project's email sending limit, so this email is waiting. Retrying in 10s. No action is needed on your side.",
             })
-            jest.restoreAllMocks()
         })
 
         it('drains both buckets in shadow mode but never delays the send', async () => {
