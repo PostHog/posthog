@@ -26,18 +26,27 @@ RESPONSE_ACTIONS: list[ResponseAction] = [
     {"status_code": 403, "action": "raise", "message": AUTH_ERROR},
 ]
 # A project in the merchant project list can have no store, so the Store API does not know it.
-STORE_RESPONSE_ACTIONS: list[ResponseAction] = [*RESPONSE_ACTIONS, {"status_code": 404, "action": "ignore"}]
+# A promotion can also be deleted between the read of the promotion list and the read of its rewards.
+NOT_FOUND_IGNORED_RESPONSE_ACTIONS: list[ResponseAction] = [
+    *RESPONSE_ACTIONS,
+    {"status_code": 404, "action": "ignore"},
+]
 
 
 @frozen
 class XsollaEndpoint:
     path: str
     primary_keys: tuple[str, ...] = ("id",)
-    # Project endpoints are read once per project that the merchant owns.
-    scope: Literal["merchant", "project"] = "merchant"
+    # Project and promotion endpoints are read once per project or promotion of the merchant.
+    scope: Literal["merchant", "project", "promotion"] = "merchant"
     paginated: bool = True
     # Endpoints that need datetime_from/datetime_to are read in windows of this many days.
     window_days: int | None = None
+    # Reads one calendar month for each request, and stamps the month on each row as period_start/period_end.
+    monthly_windows: bool = False
+    # False for endpoints that return one object instead of a list.
+    list_response: bool = True
+    ignore_not_found: bool = False
     # Nested values copied to the row root, so that they can be primary keys or incremental fields.
     lifted_fields: tuple[tuple[str, str, str], ...] = ()
     partition_key: str | None = None
@@ -91,9 +100,23 @@ ENDPOINTS: dict[str, XsollaEndpoint] = {
         path="merchants/{merchant_id}/promotions",
         paginated=False,
     ),
+    "promotion_rewards": XsollaEndpoint(
+        path="merchants/{merchant_id}/promotions/{promotion_id}/rewards",
+        primary_keys=("promotion_id",),
+        scope="promotion",
+        paginated=False,
+        list_response=False,
+        ignore_not_found=True,
+    ),
     "projects": XsollaEndpoint(
         path="merchants/{merchant_id}/projects",
         paginated=False,
+    ),
+    "payouts_breakdown": XsollaEndpoint(
+        path="merchants/{merchant_id}/reports/transactions/summary/transfer",
+        primary_keys=("period_start", "IsoCurrency"),
+        paginated=False,
+        monthly_windows=True,
     ),
     "transaction_registry": XsollaEndpoint(
         path="merchants/{merchant_id}/reports/transactions/registry.json",
@@ -107,6 +130,7 @@ ENDPOINTS: dict[str, XsollaEndpoint] = {
         scope="project",
         base_url=STORE_BASE_URL,
         store=True,
+        ignore_not_found=True,
     ),
     "virtual_currencies": XsollaEndpoint(
         path="project/{project_id}/admin/items/virtual_currency",
@@ -114,6 +138,7 @@ ENDPOINTS: dict[str, XsollaEndpoint] = {
         scope="project",
         base_url=STORE_BASE_URL,
         store=True,
+        ignore_not_found=True,
     ),
     "bundles": XsollaEndpoint(
         path="project/{project_id}/admin/items/bundle",
@@ -121,6 +146,7 @@ ENDPOINTS: dict[str, XsollaEndpoint] = {
         scope="project",
         base_url=STORE_BASE_URL,
         store=True,
+        ignore_not_found=True,
     ),
 }
 

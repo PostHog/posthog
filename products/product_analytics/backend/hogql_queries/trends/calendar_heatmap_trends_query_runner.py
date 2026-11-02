@@ -66,13 +66,6 @@ class CalendarHeatmapTrendsQueryRunner(TrendsQueryRunner):
         return TrendsQueryResponse(
             results=[
                 {
-                    "action": {
-                        "id": self.series_event(self.query.series[0]) if self.query.series else "heatmap",
-                        "type": "events",
-                        "order": 0,
-                        "name": self.series_event(self.query.series[0]) if self.query.series else "Heatmap",
-                        "math": self.query.series[0].math if self.query.series else "total",
-                    },
                     "label": self.series_event(self.query.series[0]) if self.query.series else "Heatmap",
                     "order": 0,
                     "data": [],  # Empty array for non-time-series data

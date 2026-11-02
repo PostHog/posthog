@@ -1,8 +1,8 @@
 import { generateText } from '@tiptap/core'
 
+import { DEFAULT_EXTENSIONS, serializationOptions } from 'lib/components/RichContentEditor/LemonRichContentEditor'
 import { JSONContent, RichContentNodeType } from 'lib/components/RichContentEditor/types'
 import { dayjs } from 'lib/dayjs'
-import { DEFAULT_EXTENSIONS, serializationOptions } from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
 import { urls } from 'scenes/urls'
 
 import { ActivityScope } from '~/types'

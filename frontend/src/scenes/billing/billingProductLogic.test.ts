@@ -9,7 +9,7 @@ import { dayjs } from 'lib/dayjs'
 // replaces `.error` on the same `lemonToast` singleton the logic calls at runtime (see the same
 // note in paymentEntryLogic.test.ts).
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { billingLogic } from 'scenes/billing/billingLogic'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { billingProductLogic } from 'scenes/billing/billingProductLogic'
 import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
 import { organizationLogic } from 'scenes/organizationLogic'

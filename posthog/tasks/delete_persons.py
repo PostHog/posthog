@@ -157,6 +157,8 @@ def delete_persons_async(
             was_impersonated=was_impersonated,
             organization_id=uuid_lib.UUID(organization_id) if organization_id else None,
             unmatched_distinct_ids=unmatched_distinct_ids,
+            # A retry under the first attempt's op id replays its recorded conflicts instead of trying again.
+            run_id=f"{self.request.id}:{retries}",
         )
     except Exception as exc:
         # Nothing per person was recorded, so the same arguments go round again.

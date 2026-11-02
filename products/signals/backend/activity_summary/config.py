@@ -31,6 +31,8 @@ ACTIVITY_SUMMARY_FLAG = "activity-summary"
 ACTIVITY_SUMMARY_FLAG_DISTINCT_ID = "signals_activity_summary"
 # One unit of a source never adds more than this to the pending score.
 MAX_SOURCE_WEIGHT = 10.0
+MAX_MCP_CALLS_PER_DAY = 500
+MAX_MCP_BUFFER_DAYS = 30
 
 
 @frozen
@@ -98,6 +100,18 @@ class ActivitySummaryConfig:
     rebuild_before: datetime.datetime | None = None
     # The largest share of a tick that rebuilds of stale summaries can take. Other updates get the rest.
     rebuild_budget_share: float = 0.3
+    mcp_buffer_enabled: bool = False
+    # The buffer keeps the enrolled teams of these organizations and of the `mcp_buffer_percentage` rollout.
+    # Use `mcp_buffer_percentage: 100` for every enrolled team.
+    mcp_buffer_organization_ids: tuple[str, ...] = ()
+    # Uses the rollout buckets of `self_driving_organization_percentage`, so a higher percentage keeps the lower ones.
+    mcp_buffer_percentage: float = 0.0
+    # The buffer keeps the latest calls of each user, team and day. A separate counter keeps the full count.
+    mcp_calls_per_day: int = 50
+    # Must cover the longest gap between two updates of one summary.
+    mcp_buffer_days: int = 10
+    # Renders the buffer in the input. Apart from `mcp_buffer_enabled`, so the buffer can fill before the prompt uses it.
+    mcp_render_enabled: bool = False
 
 
 DISABLED = ActivitySummaryConfig()
@@ -233,6 +247,16 @@ def parse_config(payload: Any) -> ActivitySummaryConfig:
         limits=parse_limits(payload.get("limits")),
         rebuild_before=_timestamp(payload.get("rebuild_before")),
         rebuild_budget_share=_fraction(payload.get("rebuild_budget_share"), defaults.rebuild_budget_share),
+        mcp_buffer_enabled=_bool(payload.get("mcp_buffer_enabled"), defaults.mcp_buffer_enabled),
+        mcp_buffer_organization_ids=_organization_ids(payload.get("mcp_buffer_organization_ids")),
+        mcp_buffer_percentage=_percentage(payload.get("mcp_buffer_percentage"), defaults.mcp_buffer_percentage),
+        mcp_calls_per_day=min(
+            _positive_int(payload.get("mcp_calls_per_day"), defaults.mcp_calls_per_day), MAX_MCP_CALLS_PER_DAY
+        ),
+        mcp_buffer_days=min(
+            _positive_int(payload.get("mcp_buffer_days"), defaults.mcp_buffer_days), MAX_MCP_BUFFER_DAYS
+        ),
+        mcp_render_enabled=_bool(payload.get("mcp_render_enabled"), defaults.mcp_render_enabled),
     )
 
 
