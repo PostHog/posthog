@@ -46,6 +46,17 @@ class TestCloudinarySource:
         assert result.raised is None
         assert result.params("next_cursor") == ["page-2"]
 
+    def test_a_rate_limit_is_retried_rather_than_failing_the_sync(self) -> None:
+        # Cloudinary rate-limits with a 420 ("Enhance Your Calm") instead of the standard 429.
+        result = _driver().run(
+            "images",
+            [ScriptedResponse(status=420), ScriptedResponse(json={"resources": [{"asset_id": "one"}]})],
+        )
+
+        assert result.raised is None
+        assert [row["asset_id"] for row in result.rows] == ["one"]
+        assert len(result.requests) == 2
+
     def test_only_a_real_cursor_is_checkpointed(self) -> None:
         without_cursor = _driver().run("images", [ScriptedResponse(json={"resources": [{"asset_id": "one"}]})])
         with_cursor = _driver().run(
@@ -83,6 +94,21 @@ class TestCloudinarySubfolders:
             CloudinaryResumeConfig(cursor="p2", pending_folders=["shop", "shop/red shoes"]),
             CloudinaryResumeConfig(cursor="", pending_folders=["shop/red shoes", "shop/hats"]),
         ]
+
+    def test_a_rate_limit_is_retried_rather_than_failing_the_sync(self) -> None:
+        # The custom folder-walk endpoints pass their own response hooks to `client.paginate`,
+        # a separate wiring point from the declarative `response_actions` the REST resource path uses.
+        result = _driver().run(
+            "subfolders",
+            [
+                ScriptedResponse(status=420),
+                ScriptedResponse(json={"folders": [{"path": "shop"}]}),
+                ScriptedResponse(json={"folders": []}),
+            ],
+        )
+
+        assert result.raised is None
+        assert len(result.requests) == 3
 
     def test_a_resume_continues_the_saved_folder_without_relisting_the_root(self) -> None:
         def answer(request: RecordedRequest) -> ScriptedResponse:
@@ -180,6 +206,29 @@ class TestCloudinaryUsage:
             CloudinaryResumeConfig(cursor="2026-10-18"),
             CloudinaryResumeConfig(cursor="2026-10-19"),
         ]
+
+    @pytest.mark.parametrize(
+        "statuses,expected_days",
+        [
+            ([200, 400], ["2026-10-17"]),
+            ([400, 200], None),
+        ],
+    )
+    @time_machine.travel("2026-10-18T02:00:00Z", tick=False)
+    def test_only_a_refused_current_day_ends_the_sync_cleanly(
+        self, statuses: list[int], expected_days: list[str] | None
+    ) -> None:
+        result = _driver().run(
+            "usage",
+            [ScriptedResponse(status=status, json={"plan": "Plus"}) for status in statuses],
+            resume_state=CloudinaryResumeConfig(cursor="2026-10-17"),
+        )
+
+        if expected_days is None:
+            assert result.raised is not None
+        else:
+            assert result.raised is None
+            assert [row["date"] for row in result.rows] == expected_days
 
 
 class TestCloudinaryCredentials:
