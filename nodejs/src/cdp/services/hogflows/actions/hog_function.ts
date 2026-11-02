@@ -437,12 +437,9 @@ export class HogFunctionHandler implements ActionHandler {
             { key: 'hogFlow.action.hogFunction.buildHogFunction', sendException: false },
             () => this.hogFlowFunctionsService.buildHogFunction(invocation.hogFlow, action.config, action.name)
         )
-        // A send that started protected stays protected through its retries, even if protection is turned off
-        // before the retry runs: the queued message was rendered under protection.
-        if (invocation.state.currentAction?.hogFunctionState?.sensitive) {
-            hogFunction.metadata = { ...hogFunction.metadata, sensitive: true }
-        }
-        if (send?.sensitive) {
+        // A code send can ask for protection itself. A send that started protected stays protected through its
+        // retries, even if protection is turned off before the retry runs: the queued message was rendered under it.
+        if (invocation.state.currentAction?.hogFunctionState?.sensitive || send?.sensitive) {
             hogFunction.metadata = { ...hogFunction.metadata, sensitive: true }
         }
         const hogFunctionInvocation = await instrumentFn(
