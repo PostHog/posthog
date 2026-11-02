@@ -486,10 +486,9 @@ export interface DataCatalogMetricApproveRequestApi {
  * * `quarter` - quarter
  * * `year` - year
  */
-export type DataCatalogMetricRunRequestIntervalEnumApi =
-    (typeof DataCatalogMetricRunRequestIntervalEnumApi)[keyof typeof DataCatalogMetricRunRequestIntervalEnumApi]
+export type IntervalTypeEnumApi = (typeof IntervalTypeEnumApi)[keyof typeof IntervalTypeEnumApi]
 
-export const DataCatalogMetricRunRequestIntervalEnumApi = {
+export const IntervalTypeEnumApi = {
     Second: 'second',
     Minute: 'minute',
     Hour: 'hour',
@@ -518,7 +517,7 @@ export interface DataCatalogMetricRunRequestApi {
      * * `month` - month
      * * `quarter` - quarter
      * * `year` - year */
-    interval?: DataCatalogMetricRunRequestIntervalEnumApi
+    interval?: IntervalTypeEnumApi
     /** Client-supplied id to correlate or cancel the run. */
     query_id?: string
 }
