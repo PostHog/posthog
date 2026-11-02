@@ -14,6 +14,7 @@ from unittest.mock import MagicMock, patch
 from django.test import override_settings
 
 from parameterized import parameterized
+from temporalio.testing import ActivityEnvironment
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import get_query_tags
@@ -596,15 +597,26 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("too_many_queries", ClickHouseAtCapacity()),
-            ("cluster_memory_full", ClickHouseClusterMemoryLimitExceeded()),
+            ("too_many_queries", ClickHouseAtCapacity(), False, ALERT_EVALUATE_RETRY_POLICY.maximum_attempts),
+            (
+                "cluster_memory_full",
+                ClickHouseClusterMemoryLimitExceeded(),
+                False,
+                ALERT_EVALUATE_RETRY_POLICY.maximum_attempts,
+            ),
+            # The default test activity was scheduled at the epoch with a one-second budget, so it has no time to retry.
+            ("attempt_out_of_time", ClickHouseAtCapacity(), True, 1),
         ]
     )
     def test_a_check_clickhouse_refuses_on_every_try_leaves_the_alert_as_it_was(
-        self, _name: str, error: Exception
+        self, _name: str, error: Exception, in_attempt: bool, tries: int
     ) -> None:
+        configuration = self._copy(self._alert())
         with patch(f"{_MODULE}.time.sleep"):
-            outcome, query = self._evaluate(self._copy(self._alert()), result=error)
+            if in_attempt:
+                outcome, query = ActivityEnvironment().run(lambda: self._evaluate(configuration, result=error))
+            else:
+                outcome, query = self._evaluate(configuration, result=error)
 
         assert outcome is not None
         assert (outcome.groups[0].kind, outcome.groups[0].new_state, outcome.error_message, outcome.disable) == (
@@ -613,7 +625,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             CAPACITY_REJECTED,
             False,
         )
-        assert query.call_count == ALERT_EVALUATE_RETRY_POLICY.maximum_attempts
+        assert query.call_count == tries
 
     def test_a_check_clickhouse_refuses_once_records_the_retried_query_verdict(self) -> None:
         with patch(f"{_MODULE}.time.sleep"):

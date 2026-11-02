@@ -28,6 +28,7 @@ from typing import Any, Final
 from django.conf import settings
 
 import structlog
+from temporalio import activity
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
@@ -373,12 +374,36 @@ def _with_capacity_retries[T](run: Callable[[], T], alert: AlertConfiguration, q
         try:
             return run()
         except Exception as error:
-            if tried == tries or classify_query_error(error) != QueryErrorCategory.RATE_LIMITED:
+            if (
+                tried == tries
+                or classify_query_error(error) != QueryErrorCategory.RATE_LIMITED
+                or not _attempt_outlasts(delay)
+            ):
                 raise
-        time.sleep(delay)
-        query_slot.waited_ms += int(delay * 1000)
+            time.sleep(delay)
+            query_slot.waited_ms += int(delay * 1000)
+            if not _attempt_outlasts(0):
+                raise
         delay = min(delay * policy.backoff_coefficient, longest)
     raise AssertionError("The retry loop returns or raises on its last try")
+
+
+def _attempt_outlasts(seconds: float) -> bool:
+    """Whether the Temporal attempt running this check is live and has `seconds` of its budget left.
+
+    An attempt that timed out or was cancelled keeps its thread, and the failed-check cleanup has
+    already stopped its queries, so a query it started after that would hold a ClickHouse slot that
+    nothing frees. Outside an activity there is no budget to outlast.
+    """
+    if not activity.in_activity():
+        return True
+    if activity.is_cancelled():
+        return False
+    info = activity.info()
+    if info.start_to_close_timeout is None:
+        return True
+    deadline = info.current_attempt_scheduled_time + info.start_to_close_timeout
+    return datetime.now(UTC) + timedelta(seconds=seconds) < deadline
 
 
 def _stop_query(team_id: int, configuration_id: str, query_id: str) -> None:
