@@ -149,6 +149,7 @@ class TestMarketingRecommendations(SimpleTestCase):
         assert [step.copyValue for step in steps if step.copyValue] == ["Costly", "[drain big]\n[drain small]"]
         assert '"cheap keeper"' in steps[2].text
         assert "costly converter" not in steps[2].text and "cheap but excluded" not in steps[2].text
+        assert all(step.linkText and step.linkText in step.text for step in steps if step.url)
 
     @parameterized.expand(
         [

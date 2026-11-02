@@ -472,6 +472,7 @@ class _Recommender:
                     "Open Negative keywords and add them for the campaign in exact match.",
                     copyValue="\n".join(f"[{term}]" for term in draining),
                     url=ADS_NEGATIVE_KEYWORDS_URL,
+                    linkText="Negative keywords",
                 )
             )
         if converting:
@@ -487,8 +488,9 @@ class _Recommender:
         steps.append(
             Step(
                 text=f"If its non-brand cost per conversion is still more than {REVIEW_CPA_MULTIPLE}x the non-brand "
-                "average after two weeks, pause it.",
+                "average after two weeks, pause it in Campaigns.",
                 url=ADS_CAMPAIGNS_URL,
+                linkText="Campaigns",
             )
         )
         return tuple(steps)
