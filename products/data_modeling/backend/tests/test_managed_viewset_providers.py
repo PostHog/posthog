@@ -36,6 +36,7 @@ from products.data_modeling.backend.facade.models import (
     NodeType,
 )
 from products.data_modeling.backend.logic.cohort_scheduling import is_tier_schedule_id
+from products.data_modeling.backend.logic.flags import MANAGED_VIEWSETS_FEATURE_FLAG
 from products.data_modeling.backend.logic.freshness import UnsupportedFrequencyTargetError
 from products.data_modeling.backend.logic.node_frequency import get_declared_target
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
@@ -199,8 +200,10 @@ class TestManagedViewSetProviders(BaseTest):
         self.assertEqual(get_declared_target(node), timedelta(minutes=15))
         mock_schedule.assert_called_once()
 
+    # Lineage resolves a managed view only when this flag puts managed views in the HogQL database.
+    @patch("posthoganalytics.feature_enabled", side_effect=lambda key, *_, **__: key == MANAGED_VIEWSETS_FEATURE_FLAG)
     @patch(SCHEDULE_MATERIALIZATION)
-    def test_upstream_and_downstream_cadences_change_together(self, _: Mock) -> None:
+    def test_upstream_and_downstream_cadences_change_together(self, _schedule: Mock, _flag: Mock) -> None:
         def views(cadence: timedelta) -> list[ProvidedView]:
             return [
                 _fake_view(name="upstream", sync_frequency=cadence),
