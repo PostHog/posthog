@@ -5,7 +5,7 @@ import {
   GitPullRequest,
 } from "@phosphor-icons/react";
 import { useHostTRPC } from "@posthog/host-router/react";
-import type { GitActionType } from "@posthog/ui/features/sessions/components/GitActionMessage";
+import type { GitActionType } from "@posthog/ui/features/sessions/components/gitActionMarker";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { Badge, Box, Button, Flex, Text } from "@radix-ui/themes";
 import { useQuery } from "@tanstack/react-query";

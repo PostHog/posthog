@@ -93,6 +93,7 @@ export default defineConfig({
     "src/extensions/agent-instructions/index.ts",
     "src/extensions/skills-store/index.ts",
     "src/extensions/posthog-provider/model-catalog.ts",
+    "src/extensions/posthog-provider/oauth.ts",
     "src/extensions/mcp/config.ts",
     "src/extensions/mcp/schema.ts",
     "src/extensions/mcp/tool-bridge.ts",

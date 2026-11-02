@@ -1,5 +1,5 @@
 import { buildApiFetcher, createApiClient } from "@posthog/api-client";
-import type { ApiClient } from "@posthog/api-client/generated";
+import type { ApiClient } from "@posthog/api-client/generated.runtime";
 import { getPosthogApiClientAppVersion } from "@posthog/api-client/posthog-client";
 import { useHostTRPCClient } from "@posthog/host-router/react";
 import { getCloudUrlFromRegion } from "@posthog/shared";

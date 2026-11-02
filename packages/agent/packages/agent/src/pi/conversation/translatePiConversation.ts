@@ -156,6 +156,9 @@ function isAssistantMessage(
   return message.role === "assistant";
 }
 
+// What a model request reports when an abort cuts it off, such as fetch's "This operation was aborted".
+const ABORT_ERROR = /\babort(ed)?\b/i;
+
 function normalizeStopReason(
   stopReason: string | undefined,
 ): string | undefined {
@@ -565,8 +568,17 @@ export function createPiConversationTranslator(
         return customMessageEvents(event.message);
       }
 
+      // A model request cut off by the user's abort can report an error instead of an abort. It is a
+      // cancellation, and it must not end the turn as an error: the backend fails the run on an error.
+      const abortedByUser =
+        turnInterrupted &&
+        isAssistantMessage(event.message) &&
+        event.message.stopReason === "error" &&
+        ABORT_ERROR.test(event.message.errorMessage ?? "");
       if (isAssistantMessage(event.message)) {
-        settledStopReason = normalizeStopReason(event.message.stopReason);
+        settledStopReason = abortedByUser
+          ? "cancelled"
+          : normalizeStopReason(event.message.stopReason);
       }
 
       const events = messageTranslator.translate(
@@ -578,7 +590,7 @@ export function createPiConversationTranslator(
       const runtimeError = events.find(
         (translated) => translated.type === "runtime_error",
       );
-      if (runtimeError) {
+      if (runtimeError && !abortedByUser) {
         pendingRuntimeError = runtimeError;
       }
 
@@ -659,6 +671,7 @@ export function createPiConversationTranslator(
           type: "runtime_status",
           timestamp: latestConversationTimestamp,
           status: "compacting",
+          compaction: { reason: event.reason },
         },
       ];
     }
@@ -693,6 +706,11 @@ export function createPiConversationTranslator(
           timestamp,
           status: "compacting",
           isComplete: true,
+          compaction: {
+            reason: event.reason,
+            tokensBefore: event.result?.tokensBefore,
+            estimatedTokensAfter: event.result?.estimatedTokensAfter,
+          },
         },
       ];
       if (event.result?.summary) {

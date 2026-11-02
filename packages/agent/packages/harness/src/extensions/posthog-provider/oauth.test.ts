@@ -119,6 +119,17 @@ describe("buildAuthorizeUrl", () => {
     expect(url.searchParams.get("required_access_level")).toBe("project");
   });
 
+  it("adds a client's extra scopes to the shared set, once each", () => {
+    const url = buildAuthorizeUrl("us", "c", getRedirectUri(), [
+      "today:read",
+      OAUTH_SCOPES[0],
+    ]);
+
+    expect(url.searchParams.get("scope")).toBe(
+      [...OAUTH_SCOPES, "today:read"].join(" "),
+    );
+  });
+
   it("routes each region to its own cloud host", () => {
     for (const region of ["us", "eu", "dev", "dev-cloud"] as const) {
       const url = buildAuthorizeUrl(region, "c", getRedirectUri());

@@ -208,6 +208,7 @@ import {
   PI_RUNTIME_FACTORY,
   PI_SESSION_SERVICE,
 } from "@posthog/workspace-server/services/pi-session/identifiers";
+import { LocalPiRpcClientFactory } from "@posthog/workspace-server/services/pi-session/pi-rpc-client-factory";
 import type { PiSessionService } from "@posthog/workspace-server/services/pi-session/pi-session";
 import { piSessionModule } from "@posthog/workspace-server/services/pi-session/pi-session.module";
 import { POSTHOG_PLUGIN_SERVICE } from "@posthog/workspace-server/services/posthog-plugin/identifiers";
@@ -247,7 +248,6 @@ import { workspaceModule } from "@posthog/workspace-server/services/workspace/wo
 import { workspaceMetadataModule } from "@posthog/workspace-server/services/workspace-metadata/workspace-metadata.module";
 import ExternalAppsStoreImpl from "electron-store";
 import type { FileWatcherBridge } from "../index";
-import { DesktopPiRpcClientFactory } from "../platform-adapters/desktop-pi-rpc-client-factory";
 import { DesktopPiRuntimeFactory } from "../platform-adapters/desktop-pi-runtime-factory";
 import { ElectronAppLifecycle } from "../platform-adapters/electron-app-lifecycle";
 import { ElectronAppMeta } from "../platform-adapters/electron-app-meta";
@@ -417,7 +417,7 @@ container.bind(AGENT_REPO_FILES).toService(MAIN_FS_SERVICE);
 container.bind(AGENT_AUTH).toService(MAIN_AUTH_SERVICE);
 container
   .bind(PI_RPC_CLIENT_FACTORY)
-  .to(DesktopPiRpcClientFactory)
+  .to(LocalPiRpcClientFactory)
   .inSingletonScope();
 container.bind(AGENT_LOGGER).toConstantValue(logger);
 container.load(osModule);

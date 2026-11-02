@@ -1,0 +1,58 @@
+{
+  "name": "@posthog/tui",
+  "version": "0.0.0-dev",
+  "description": "Terminal command centre for PostHog tasks",
+  "type": "module",
+  "bin": {
+    "posthog-tui": "posthog-tui.mjs"
+  },
+  "files": [
+    "posthog-tui.mjs",
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PostHog/posthog.git",
+    "directory": "products/desktop/apps/tui"
+  },
+  "license": "MIT",
+  "scripts": {
+    "dev": "node cli.mjs",
+    "build": "node scripts/build.mjs",
+    "start": "node posthog-tui.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "catalog:",
+    "@earendil-works/pi-coding-agent": "catalog:",
+    "@earendil-works/pi-tui": "catalog:"
+  },
+  "devDependencies": {
+    "@posthog/agent": "link:../../../../packages/agent/packages/agent",
+    "@posthog/api-client": "workspace:*",
+    "@posthog/core": "workspace:*",
+    "@posthog/di": "workspace:*",
+    "@posthog/harness": "link:../../../../packages/agent/packages/harness",
+    "@posthog/platform": "workspace:*",
+    "@posthog/shared": "workspace:*",
+    "@posthog/ui": "workspace:*",
+    "@posthog/tsconfig": "workspace:*",
+    "@posthog/workspace-server": "workspace:*",
+    "@types/react": "catalog:",
+    "esbuild": "^0.27.7",
+    "ink": "^7.1.1",
+    "posthog-node": "^5.55.0",
+    "react": "catalog:",
+    "typescript": "catalog:",
+    "vite": "^7.0.0",
+    "vitest": "^4.1.8",
+    "zod": "^4.1.12"
+  }
+}

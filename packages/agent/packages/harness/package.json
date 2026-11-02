@@ -56,6 +56,10 @@
       "types": "./dist/extensions/posthog-mcp-policy/index.d.ts",
       "import": "./dist/extensions/posthog-mcp-policy/index.js"
     },
+    "./extensions/posthog-provider/oauth": {
+      "types": "./dist/extensions/posthog-provider/oauth.d.ts",
+      "import": "./dist/extensions/posthog-provider/oauth.js"
+    },
     "./extensions/posthog-provider/model-catalog": {
       "types": "./dist/extensions/posthog-provider/model-catalog.d.ts",
       "import": "./dist/extensions/posthog-provider/model-catalog.js"

@@ -332,6 +332,7 @@ interface SessionConfig {
   importedSessionId?: string;
   /** rtk command-output compression for this session; false opts out. */
   rtkEnabled?: boolean;
+  skipLogPersistence?: boolean;
   /** The user's spoken-narration setting at session start. */
   spokenNarration?: boolean;
   /** Matched `bedrock-llm-gateway` variant at session start. */
@@ -1084,7 +1085,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
         ...this.agentAuthAdapter.createPosthogConfig(credentials),
         userAgent: `posthog/desktop.hog.dev; version: ${this.appMeta.version}`,
       },
-      skipLogPersistence: isPreview,
+      skipLogPersistence: isPreview || config.skipLogPersistence === true,
       localCachePath: join(homedir(), ".posthog-code"),
       debug: isDevBuild(),
       onLog: this.onAgentLog,
@@ -2472,6 +2473,8 @@ For git operations while detached:
       importedSessionId:
         "importedSessionId" in params ? params.importedSessionId : undefined,
       rtkEnabled: "rtkEnabled" in params ? params.rtkEnabled : undefined,
+      skipLogPersistence:
+        "skipLogPersistence" in params ? params.skipLogPersistence : undefined,
       spokenNarration:
         "spokenNarration" in params ? params.spokenNarration : undefined,
       bedrockGatewayVariant:

@@ -211,6 +211,30 @@ describe("PiRuntime", () => {
     },
   );
 
+  it("gives a manual compaction's start the focus it was asked for", async () => {
+    const { client, emit, send } = createClient();
+    const runtime = new PiRuntime(client);
+    const conversationListener = vi.fn();
+    runtime.onConversationEvent(conversationListener);
+    send.mockImplementation(async () => {
+      emit({ type: "compaction_start", reason: "manual" });
+      return { type: "response", command: "compact", success: true };
+    });
+
+    await runtime.sendCommand({
+      type: "compact",
+      customInstructions: " keep the test plan ",
+    });
+    emit({ type: "compaction_start", reason: "threshold" });
+
+    expect(
+      conversationListener.mock.calls.map(([event]) => event.compaction),
+    ).toEqual([
+      { reason: "manual", instructions: "keep the test plan" },
+      { reason: "threshold" },
+    ]);
+  });
+
   it("uses the native command id for the echoed user message", async () => {
     const { client, emit, send } = createClient();
     const runtime = new PiRuntime(client);
