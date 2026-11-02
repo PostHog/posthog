@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { BindLogic } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -90,4 +90,17 @@ describe('ConversionGoalEditor', () => {
             expect(screen.queryByText('signed_up') !== null).toBe(allEntriesEnabled)
         }
     )
+
+    it("shows an entry's own property filters and removes one from that entry only", () => {
+        const onChange = renderEditor(true)
+
+        const propertyFilter = screen.getByText(/plan/).closest('.PropertyFilterButton') as HTMLElement
+        fireEvent.click(within(propertyFilter).getByRole('button'))
+
+        expect(onChange).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                events: [{ filters: { ...downloadedFileEntry.filters, properties: [] } }, signedUpEntry],
+            })
+        )
+    })
 })

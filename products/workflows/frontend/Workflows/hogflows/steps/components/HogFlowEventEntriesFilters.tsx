@@ -2,7 +2,7 @@ import { Fragment } from 'react'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
-import { HogFlowEventFilters, HogFlowFiltersProps } from '../../filters/HogFlowFilters'
+import { HogFlowEventFilters, HogFlowFiltersProps, HogFlowPropertyFilters } from '../../filters/HogFlowFilters'
 import { EventEntry } from './cohortMembershipEvent'
 
 export interface HogFlowEventEntriesFiltersProps extends Pick<
@@ -54,6 +54,19 @@ export function HogFlowEventEntriesFilters({
                                 replaceEntry(index, { ...entry, filters: { ...entry.filters, ...filters } })
                             }
                         />
+                        {entry.filters?.properties?.length ? (
+                            <HogFlowPropertyFilters
+                                filtersKey={`${entryTypeKey}-properties`}
+                                filters={entry.filters}
+                                setFilters={(filters) =>
+                                    replaceEntry(index, {
+                                        ...entry,
+                                        filters: { ...entry.filters, properties: filters?.properties ?? [] },
+                                    })
+                                }
+                                excludeGroupProperties={filterProps.excludeGroupProperties}
+                            />
+                        ) : null}
                     </Fragment>
                 )
             })}
