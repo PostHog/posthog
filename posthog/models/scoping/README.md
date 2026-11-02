@@ -83,14 +83,8 @@ They do not cover reverse foreign key or many-to-many managers such as `flag.exp
 
 If app code catches the `FieldFetchBlocked`, the root `conftest.py` still fails the test that made the load.
 
-To keep production batching for a read on purpose, set the mode on the queryset that loads the rows:
-
-```python
-Metric.objects.for_team(team_id).fetch_mode(FETCH_RELATION_PEERS)
-```
-
-Where no single queryset owns the rows, such as a signal handler or a helper that many callers reach, allow the one field at the read with `allow_peer_lazy_loads("app_label.Model.field")`.
-Each allowance is a place that still depends on batching, so prefer a fix with `select_related()`, `prefetch_related()` or `only()`.
+Fix a failure with `select_related()`, `prefetch_related()` or `only()`.
+To keep production batching on purpose, set `.fetch_mode(FETCH_RELATION_PEERS)` on the queryset that loads the rows.
 
 ## Adoption
 

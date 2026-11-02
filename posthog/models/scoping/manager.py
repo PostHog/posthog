@@ -18,8 +18,6 @@ ORM entirely. Use this alongside explicit team checks at the API layer.
 
 import os
 from collections.abc import AsyncIterator, Iterator
-from contextlib import contextmanager
-from contextvars import ContextVar
 from functools import cache
 from typing import Any, TypeVar, cast
 
@@ -74,35 +72,18 @@ def _fix_hint(fetcher: Any, field: str) -> str:
     return f'add select_related("{field}") or prefetch_related("{field}")'
 
 
-_allowed_peer_loads: ContextVar[frozenset[str]] = ContextVar("allowed_peer_loads", default=frozenset())
-
-
-@contextmanager
-def allow_peer_lazy_loads(*fields: str) -> Iterator[None]:
-    """Let these `app_label.Model.field` loads batch across peer rows in tests, as they do in production.
-
-    Use it only where no single queryset owns the rows. Otherwise set `.fetch_mode(FETCH_RELATION_PEERS)` on that queryset.
-    """
-    token = _allowed_peer_loads.set(_allowed_peer_loads.get() | frozenset(fields))
-    try:
-        yield
-    finally:
-        _allowed_peer_loads.reset(token)
-
-
 class FetchRaiseOnPeers(FetchRelationPeers):
     """Test-only `FETCH_RELATION_PEERS` that raises when a lazy load would run once per row.
 
     A row from `.get()`, `.first()` or a one-row result has no live peers and loads as usual.
-    A queryset that sets `.fetch_mode(FETCH_RELATION_PEERS)`, or a field inside `allow_peer_lazy_loads()`,
-    loads like production.
+    A queryset that sets `.fetch_mode(FETCH_RELATION_PEERS)` loads like production.
     """
 
     __slots__ = ()
 
     def fetch(self, fetcher: Any, instance: models.Model) -> None:
         label, field = instance._meta.label, fetcher.field.name
-        if f"{label}.{field}" not in _allowed_peer_loads.get() and _has_live_peers(instance):
+        if _has_live_peers(instance):
             message = (
                 f"Lazy load of {label}.{field} on a row from a multi-row query, which costs one query per row. "
                 f"Load it with the query: {_fix_hint(fetcher, field)}."

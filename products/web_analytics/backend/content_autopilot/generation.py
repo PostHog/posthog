@@ -13,7 +13,6 @@ from celery.exceptions import SoftTimeLimitExceeded
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
-from posthog.models.scoping.manager import FETCH_RELATION_PEERS
 from posthog.security.llm_prompt_sanitization import sanitize_user_text, strip_llm_framing_markers
 
 from products.web_analytics.backend.content_autopilot.edits import PageEdit, apply_edits, first_h1, page_headings
@@ -912,7 +911,7 @@ def generate_run(team_id: int, run_id: str, *, client: Anthropic | None = None) 
     try:
         opportunities = list(
             ContentAutopilotOpportunity.objects.for_team(team_id)
-            .fetch_mode(FETCH_RELATION_PEERS)
+            .select_related("proposal")
             .filter(run=run, status=ContentAutopilotOpportunity.Status.QUEUED)
             .order_by("-score")
         )

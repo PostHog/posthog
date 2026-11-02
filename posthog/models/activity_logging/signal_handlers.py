@@ -51,7 +51,6 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
-from posthog.models.scoping.manager import allow_peer_lazy_loads
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
 from posthog.session.activity import session_activity_credential
@@ -570,8 +569,6 @@ RELATED_OBJECT_ACTIVITY_LOGGERS: dict[str, RelatedObjectActivityLogger] = {
 
 
 @mutable_receiver(model_activity_signal, sender=TaggedItem)
-# Tag changes on several items log each item, which production batches across the rows.
-@allow_peer_lazy_loads("posthog.TaggedItem.tag", "posthog.TaggedItem.uuid_object", "posthog.Tag.team")
 def handle_tagged_item_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):

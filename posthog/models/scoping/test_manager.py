@@ -16,7 +16,6 @@ from posthog.models.scoping.manager import (
     TeamScopedManager,
     TeamScopedQuerySet,
     TeamScopeError,
-    allow_peer_lazy_loads,
     default_fetch_mode,
 )
 from posthog.models.team import Team
@@ -241,18 +240,6 @@ class TestFetchRaiseOnPeers(BaseTest):
         with self.assertNumQueries(1):
             for flag in flags:
                 assert flag.created_by == self.user
-
-    def test_allowed_field_batches_and_no_other_field_does(self) -> None:
-        flags = list(self._flags().only("id", "created_by"))
-
-        with allow_peer_lazy_loads("feature_flags.FeatureFlag.created_by"):
-            with self.assertNumQueries(1):
-                for flag in flags:
-                    assert flag.created_by == self.user
-            with pytest.raises(FieldFetchBlocked, match="FeatureFlag.name"):
-                _ = flags[0].name
-
-        assert len(peer_lazy_loads.finish_test()) == 1
 
     @parameterized.expand(
         [

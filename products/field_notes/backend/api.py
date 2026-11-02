@@ -10,7 +10,6 @@ from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models.scoping.manager import FETCH_RELATION_PEERS
 from posthog.models.team.team import Team
 
 from products.field_notes.backend.models import FieldNote
@@ -169,5 +168,4 @@ class FieldNoteViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         host = self.request.query_params.get("host")
         if host:
             queryset = queryset.filter(host=host)
-        # The serializer reads created_by per row, which production batches across the page.
-        return queryset.order_by("-created_at").fetch_mode(FETCH_RELATION_PEERS)
+        return queryset.select_related("created_by").order_by("-created_at")
