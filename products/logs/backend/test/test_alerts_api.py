@@ -48,7 +48,7 @@ from products.logs.backend.platform_alert_backfill import (
     follow_logs_alert,
     platform_upsert_of,
 )
-from products.logs.backend.platform_cutover import cut_over_team, hand_over
+from products.logs.backend.platform_cutover import cut_over_team, hand_over, roll_back_team
 from products.logs.backend.presentation.views.alerts_api import (
     ALLOWED_WINDOW_MINUTES,
     MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
@@ -102,6 +102,9 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         return response.json()
 
+    def _keep_the_team_on_logs(self) -> None:
+        LogsAlertConfiguration.objects.create(team=self.team, name="Kept on logs", enabled=False)
+
     # --- CRUD ---
 
     @patch("products.logs.backend.presentation.views.alerts_api.report_user_action")
@@ -130,6 +133,7 @@ class TestLogsAlertAPI(APIBaseTest):
 
     @time_machine.travel("2026-01-01T23:00:00Z", tick=False)
     def test_update_with_quiet_hours_defers_next_check(self):
+        self._keep_the_team_on_logs()
         created = self._create_via_api()
 
         response = self.client.patch(
@@ -142,6 +146,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.json()["next_check_at"] == "2026-01-02T07:00:00Z"
 
     def test_enabling_alert_during_quiet_hours_defers_next_check(self):
+        self._keep_the_team_on_logs()
         with time_machine.travel("2026-01-01T16:00:00Z", tick=False):
             created = self._create_via_api(
                 schedule_restriction={"blocked_windows": [{"start": "22:00", "end": "07:00"}]}
@@ -458,6 +463,7 @@ class TestLogsAlertAPI(APIBaseTest):
     def test_a_created_or_reenabled_alert_follows_its_team_onto_the_platform(
         self, _name: str, write: str, team_run: str, copy_enabled: bool | None
     ) -> None:
+        self._keep_the_team_on_logs()
         self._create_via_api(name="Already on the platform")
         dormant = self._create_via_api(name="Turned back on", enabled=False)
         if team_run != "not_backfilled":
@@ -481,6 +487,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert (copy.enabled if copy else None) is copy_enabled
 
     def test_a_copy_an_operator_retired_by_name_stays_off_when_its_alert_comes_back_on(self) -> None:
+        self._keep_the_team_on_logs()
         self._create_via_api(name="Already on the platform")
         retired = self._create_via_api(name="Retired by the rollout")
         backfill_platform_alert_configurations(team_id=self.team.id)
@@ -498,6 +505,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert {str(view.legacy_configuration_id): view.enabled for view in copies}[retired["id"]] is False
 
     def test_a_copy_that_fails_is_handed_to_celery_to_retry(self) -> None:
+        self._keep_the_team_on_logs()
         self._create_via_api(name="Already on the platform")
         backfill_platform_alert_configurations(team_id=self.team.id)
         alert_id = self._create_via_api(name="New alert", enabled=False)["id"]
@@ -847,6 +855,7 @@ class TestLogsAlertAPI(APIBaseTest):
             assert [(close["alert_id"], close["reason"]) for close in closes] == [(created["id"], expected_reason)]
 
     def test_deleting_a_firing_alert_sends_a_close_before_its_destinations_go(self):
+        self._keep_the_team_on_logs()
         created = self._create_via_api()
         self._add_pagerduty_destination(created["id"])
         LogsAlertConfiguration.objects.filter(pk=created["id"]).update(state="firing")
@@ -862,6 +871,7 @@ class TestLogsAlertAPI(APIBaseTest):
     # --- Edit behavior: recheck and state reset ---
 
     def test_threshold_change_resets_state_and_clears_next_check(self):
+        self._keep_the_team_on_logs()
         created = self._create_via_api()
         LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
             state="firing",
@@ -890,6 +900,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.json()["state"] == "not_firing"
 
     def test_window_change_preserves_state_and_clears_next_check(self):
+        self._keep_the_team_on_logs()
         created = self._create_via_api()
         LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
             state="firing",
@@ -906,6 +917,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.json()["next_check_at"] is None
 
     def test_name_change_preserves_state_and_next_check(self):
+        self._keep_the_team_on_logs()
         next_check = datetime(2026, 3, 19, 12, 0, tzinfo=UTC)
         created = self._create_via_api()
         LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
@@ -1617,6 +1629,7 @@ class TestLogsAlertAPI(APIBaseTest):
 
     @patch("products.logs.backend.presentation.views.alerts_api.report_user_action")
     def test_reset_broken_alert(self, mock_report):
+        self._keep_the_team_on_logs()
         created = self._create_via_api()
         LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
             state=LogsAlertConfiguration.State.BROKEN,
@@ -1716,6 +1729,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_reset_writes_activity_log(self):
+        self._keep_the_team_on_logs()
         from posthog.models.activity_logging.activity_log import ActivityLog
 
         created = self._create_via_api()
@@ -1754,6 +1768,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert event.result_count is None
 
     def test_reset_writes_reset_event_row(self):
+        self._keep_the_team_on_logs()
         created = self._create_via_api()
         LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
             state=LogsAlertConfiguration.State.BROKEN,
@@ -1854,6 +1869,7 @@ class TestLogsAlertAPI(APIBaseTest):
         return f"{self.base_url}{alert_id}/events/"
 
     def test_events_returns_rows_newest_first(self):
+        self._keep_the_team_on_logs()
         created = self._create_via_api()
         older_transition = LogsAlertEvent.objects.create(
             alert_id=created["id"],
@@ -1878,6 +1894,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert ids.index(str(newer_transition.id)) < ids.index(str(older_transition.id))
 
     def test_events_filters_out_quiet_check_rows(self):
+        self._keep_the_team_on_logs()
         # "Quiet" CHECK rows (state didn't change, no error) carry no forensic value and
         # are kept inline at a cap of 10 per alert — surfacing them in the event history
         # would bury the interesting transitions. Backend filter pins this contract.
@@ -1921,6 +1938,7 @@ class TestLogsAlertAPI(APIBaseTest):
 
     @parameterized.expand([(kind,) for kind in LogsAlertEvent.Kind.values])
     def test_events_filter_by_kind(self, kind):
+        self._keep_the_team_on_logs()
         created = self._create_via_api()
         # CHECK rows need a real transition to survive the quiet-row filter; control-plane
         # kinds are never quiet-filtered so any state pair is fine.
@@ -2008,6 +2026,7 @@ class TestLogsAlertAPI(APIBaseTest):
 
     @time_machine.travel("2025-12-16T10:30:00Z", tick=False)
     def test_state_timeline_splits_on_state_transitions(self):
+        self._keep_the_team_on_logs()
         created = self._create_via_api()
         alert_id = created["id"]
         self._make_event_at(
@@ -2568,14 +2587,29 @@ class TestLogsAlertAPI(APIBaseTest):
         with team_scope(self.team.id):
             assert list_configurations(team_id=self.team.id, source_kinds=["logs"], limit=1, offset=0).total == 0
 
-    def test_a_new_alert_in_a_team_the_platform_has_begun_taking_over_starts_on_the_platform(self) -> None:
-        self._owned_by_the_platform()
+    @parameterized.expand(
+        [
+            ("first_alert_of_the_team", None, True),
+            ("team_the_platform_has_begun_taking_over", "platform", True),
+            ("team_whose_alerts_stay_on_logs", "logs", False),
+            ("team_rolled_back", "rolled_back", False),
+        ]
+    )
+    def test_where_a_new_alert_starts(self, _name: str, existing: str | None, on_the_platform: bool) -> None:
+        if existing == "platform":
+            self._owned_by_the_platform()
+        elif existing == "logs":
+            self._keep_the_team_on_logs()
+        elif existing == "rolled_back":
+            self._create_via_api(name="Moved, then handed back", enabled=False)
+            assert [result.skipped for result in roll_back_team(self.team.id)] == [None]
 
-        created = self._create_via_api(name="Added after the cutover")
+        created = self._create_via_api(name="New alert")
 
-        assert created["platform_owned"] is True
-        assert LogsAlertConfiguration.objects.get(pk=created["id"]).platform_owned
-        assert self._copy(created["id"]).owner == "platform"
+        assert created["platform_owned"] is on_the_platform
+        assert LogsAlertConfiguration.objects.get(pk=created["id"]).platform_owned is on_the_platform
+        if on_the_platform:
+            assert self._copy(created["id"]).owner == "platform"
 
     def _copy_grouping_keys(self, alert_id: str) -> tuple[str, ...]:
         with team_scope(self.team.id):
@@ -2620,6 +2654,7 @@ class TestLogsAlertAPI(APIBaseTest):
         ]
     )
     def test_creating_a_grouped_alert(self, _name: str, cut_over: bool, key: str, expected_status: int) -> None:
+        self._keep_the_team_on_logs()
         if cut_over:
             self._owned_by_the_platform()
         alerts_before = LogsAlertConfiguration.objects.filter(team=self.team).count()
@@ -2651,6 +2686,7 @@ class TestLogsAlertAPI(APIBaseTest):
     def test_a_grouping_the_alert_cannot_take_is_rejected(
         self, _name: str, platform_owned: bool, payload: dict
     ) -> None:
+        self._keep_the_team_on_logs()
         created = self._owned_by_the_platform() if platform_owned else self._create_via_api()
 
         response = self.client.patch(f"{self.base_url}{created['id']}/", payload, format="json")
@@ -2668,6 +2704,7 @@ class TestLogsAlertAPI(APIBaseTest):
         ]
     )
     def test_a_source_owned_alert_accepts_the_single_grouping_it_reads(self, _name: str, grouping: dict | None) -> None:
+        self._keep_the_team_on_logs()
         created = self._create_via_api()
 
         response = self.client.put(
