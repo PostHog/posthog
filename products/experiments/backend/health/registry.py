@@ -17,13 +17,16 @@ from products.experiments.backend.health.checks.conditions_changed import releas
 from products.experiments.backend.health.checks.early_significance import early_significance
 from products.experiments.backend.health.checks.exposure_criteria import exposure_criteria_cannot_match
 from products.experiments.backend.health.checks.exposure_filters import exposure_filters
+from products.experiments.backend.health.checks.filtered_exposures import exposures_removed_by_test_account_filter
 from products.experiments.backend.health.checks.flag_change_findings import flag_history_not_readable
 from products.experiments.backend.health.checks.flag_state import flag_state
 from products.experiments.backend.health.checks.flag_variants import flag_variants_mismatch
 from products.experiments.backend.health.checks.forced_variant import forced_variant_release_condition
+from products.experiments.backend.health.checks.metric_all_zero import metric_all_zero
 from products.experiments.backend.health.checks.metric_calculation_failed import metric_calculation_failed
 from products.experiments.backend.health.checks.metric_cannot_compile import metric_cannot_compile
 from products.experiments.backend.health.checks.metric_event_not_ingested import metric_event_not_ingested
+from products.experiments.backend.health.checks.metrics_not_matured import metrics_not_matured
 from products.experiments.backend.health.checks.multiple_variants import multiple_variants_share
 from products.experiments.backend.health.checks.new_flag_no_traffic import new_flag_no_traffic
 from products.experiments.backend.health.checks.no_metric import no_metric
@@ -103,19 +106,29 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
         run=metric_calculation_failed,
     ),
     HealthCheck(
+        key=ExperimentHealthCheckKey.METRIC_ALL_ZERO,
+        name="Metrics at zero in every variant",
+        run=metric_all_zero,
+    ),
+    HealthCheck(
         key=ExperimentHealthCheckKey.EXPOSURE_CRITERIA_CANNOT_MATCH,
         name="Exposure criteria that can't match",
         run=exposure_criteria_cannot_match,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.EXPOSURE_FILTERS,
-        name="Exposure filters that count unexpected users",
+        name="Dynamic cohorts in the exposure criteria",
         run=exposure_filters,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.EARLY_SIGNIFICANCE,
         name="Significance on a small sample",
         run=early_significance,
+    ),
+    HealthCheck(
+        key=ExperimentHealthCheckKey.METRICS_NOT_MATURED,
+        name="Metric windows not complete yet",
+        run=metrics_not_matured,
     ),
 )
 
@@ -127,6 +140,11 @@ EXPOSURE_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
         key=ExperimentHealthCheckKey.ZERO_EXPOSURES,
         name="Exposures not received since launch",
         run=zero_exposures,
+    ),
+    HealthCheck(
+        key=ExperimentHealthCheckKey.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES,
+        name="Test account filters that leave out most users",
+        run=exposures_removed_by_test_account_filter,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.SRM,

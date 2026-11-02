@@ -9,7 +9,13 @@ from django.db.models import Count
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, PolymorphicProxySerializer, extend_schema, extend_schema_field
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    PolymorphicProxySerializer,
+    extend_schema,
+    extend_schema_field,
+    extend_schema_serializer,
+)
 from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action as drf_action
 from rest_framework.renderers import BaseRenderer
@@ -45,11 +51,15 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
+from products.actions.backend.facade.enums import ACTION_REFERENCE_JSONPATH, ACTIONS_ARRAY_JSONPATH
 from products.actions.backend.models.action import ACTION_STEP_MATCHING_OPTIONS, Action
 from products.actions.backend.models.selector_match_change import ActionSelectorMatchChange
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.actions import (
+    count_experiments_referencing_actions,
+    experiments_referencing_action,
+)
 from products.feature_flags.backend.facade.flags import hides_flag_calls_from_query_builders
 from products.product_analytics.backend.facade.models import Insight
 
@@ -412,25 +422,6 @@ class ActionSelectorMatchChangeSerializer(serializers.Serializer):
     )
 
 
-_ACTION_JSONPATH = (
-    '$.** ? ((@.kind == "ActionsNode" && (@.id == $id || @.id == $id_str))'
-    " || (@.actionId == $id || @.actionId == $id_str)"
-    ' || (@.type == "actions" && (@.id == $id || @.id == $id_str)))'
-)
-_ACTIONS_ARRAY_JSONPATH = "$.actions[*] ? (@.id == $id || @.id == $id_str)"
-
-_EXPERIMENT_JSON_FIELDS = (
-    "metrics",
-    "metrics_secondary",
-    "filters",
-    "parameters",
-    "exposure_criteria",
-    "stats_config",
-    "scheduling_config",
-    "variants",
-)
-
-
 def find_action_references(action_id: int, team: Team) -> list[dict[str, Any]]:
     """Find resources that reference a given action using database-level jsonb_path queries."""
     refs: list[dict[str, Any]] = []
@@ -444,9 +435,9 @@ def find_action_references(action_id: int, team: Team) -> list[dict[str, Any]]:
         .extra(
             where=[
                 f"""
-                jsonb_path_exists(query, '{_ACTION_JSONPATH}', %s::jsonb)
-                OR jsonb_path_exists(filters, '{_ACTION_JSONPATH}', %s::jsonb)
-                OR jsonb_path_exists(filters, '{_ACTIONS_ARRAY_JSONPATH}', %s::jsonb)
+                jsonb_path_exists(query, '{ACTION_REFERENCE_JSONPATH}', %s::jsonb)
+                OR jsonb_path_exists(filters, '{ACTION_REFERENCE_JSONPATH}', %s::jsonb)
+                OR jsonb_path_exists(filters, '{ACTIONS_ARRAY_JSONPATH}', %s::jsonb)
                 """
             ],
             params=[vars_json] * 3,
@@ -468,19 +459,7 @@ def find_action_references(action_id: int, team: Team) -> list[dict[str, Any]]:
     if remaining <= 0:
         return refs
 
-    exp_conditions = []
-    for field in _EXPERIMENT_JSON_FIELDS:
-        exp_conditions.append(f"jsonb_path_exists({field}, '{_ACTION_JSONPATH}', %s::jsonb)")
-        exp_conditions.append(f"jsonb_path_exists({field}, '{_ACTIONS_ARRAY_JSONPATH}', %s::jsonb)")
-
-    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-    experiments = (
-        Experiment.objects.filter(team_id=team.pk)
-        .exclude(deleted=True)
-        .select_related("created_by")
-        .extra(where=[" OR ".join(exp_conditions)], params=[vars_json] * len(exp_conditions))
-    )
-    for exp in experiments[:remaining]:
+    for exp in experiments_referencing_action(team.pk, action_id, limit=remaining):
         refs.append(
             {
                 "type": "experiment",
@@ -531,7 +510,7 @@ def find_action_references(action_id: int, team: Team) -> list[dict[str, Any]]:
         HogFunction.objects.filter(team_id=team.pk, deleted=False)
         .select_related("created_by")
         .extra(
-            where=[f"jsonb_path_exists(filters, '{_ACTIONS_ARRAY_JSONPATH}', %s::jsonb)"],
+            where=[f"jsonb_path_exists(filters, '{ACTIONS_ARRAY_JSONPATH}', %s::jsonb)"],
             params=[vars_json],
         )
     )
@@ -572,9 +551,9 @@ def count_action_references_bulk(action_ids: list[int], team: Team) -> dict[int,
                 SELECT 1 FROM {insight_table}
                 WHERE team_id = %s AND NOT deleted
                 AND (
-                    jsonb_path_exists(query, '{_ACTION_JSONPATH}', jsonb_build_object('id', aid, 'id_str', aid::text))
-                    OR jsonb_path_exists(filters, '{_ACTION_JSONPATH}', jsonb_build_object('id', aid, 'id_str', aid::text))
-                    OR jsonb_path_exists(filters, '{_ACTIONS_ARRAY_JSONPATH}', jsonb_build_object('id', aid, 'id_str', aid::text))
+                    jsonb_path_exists(query, '{ACTION_REFERENCE_JSONPATH}', jsonb_build_object('id', aid, 'id_str', aid::text))
+                    OR jsonb_path_exists(filters, '{ACTION_REFERENCE_JSONPATH}', jsonb_build_object('id', aid, 'id_str', aid::text))
+                    OR jsonb_path_exists(filters, '{ACTIONS_ARRAY_JSONPATH}', jsonb_build_object('id', aid, 'id_str', aid::text))
                 )
             ) AS matched
             GROUP BY aid
@@ -584,33 +563,7 @@ def count_action_references_bulk(action_ids: list[int], team: Team) -> dict[int,
         for aid, cnt in cursor.fetchall():
             counts[aid] += cnt
 
-    exp_conditions = []
-    for field in _EXPERIMENT_JSON_FIELDS:
-        exp_conditions.append(
-            f"jsonb_path_exists({field}, '{_ACTION_JSONPATH}', jsonb_build_object('id', aid, 'id_str', aid::text))"
-        )
-        exp_conditions.append(
-            f"jsonb_path_exists({field}, '{_ACTIONS_ARRAY_JSONPATH}', jsonb_build_object('id', aid, 'id_str', aid::text))"
-        )
-    exp_table = Experiment._meta.db_table
-    exp_where = " OR ".join(exp_conditions)
-
-    # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (parameterized via %s)
-    with connection.cursor() as cursor:
-        cursor.execute(
-            f"""
-            SELECT aid, count(*) FROM unnest(%s::int[]) AS aid
-            CROSS JOIN LATERAL (
-                SELECT 1 FROM {exp_table}
-                WHERE team_id = %s AND NOT COALESCE(deleted, false)
-                AND ({exp_where})
-            ) AS matched
-            GROUP BY aid
-            """,
-            [ids_array, team.pk],
-        )
-        for aid, cnt in cursor.fetchall():
-            counts[aid] += cnt
+    counts.update(count_experiments_referencing_actions(team.pk, ids_array))
 
     # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (parameterized via %s)
     with connection.cursor() as cursor:
@@ -640,7 +593,7 @@ def count_action_references_bulk(action_ids: list[int], team: Team) -> dict[int,
             CROSS JOIN LATERAL (
                 SELECT 1 FROM {hf_table}
                 WHERE team_id = %s AND NOT deleted
-                AND jsonb_path_exists(filters, '{_ACTIONS_ARRAY_JSONPATH}', jsonb_build_object('id', aid, 'id_str', aid::text))
+                AND jsonb_path_exists(filters, '{ACTIONS_ARRAY_JSONPATH}', jsonb_build_object('id', aid, 'id_str', aid::text))
             ) AS matched
             GROUP BY aid
             """,
@@ -650,6 +603,23 @@ def count_action_references_bulk(action_ids: list[int], team: Team) -> dict[int,
             counts[aid] += cnt
 
     return dict(counts)
+
+
+class ActionListPagingQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        required=False, min_value=0, help_text="Maximum number of actions to return. Omit to return all."
+    )
+    offset = serializers.IntegerField(
+        required=False, default=0, min_value=0, help_text="Number of actions to skip before returning results."
+    )
+
+
+@extend_schema_serializer(many=False)
+class ActionListResponseSerializer(serializers.Serializer):
+    count = serializers.IntegerField(
+        help_text="Number of actions that match the filters. Without `limit`, it is `offset` plus the number of actions returned."
+    )
+    results = ActionSerializer(many=True, help_text="Actions on this page, or every matching action without `limit`.")
 
 
 class ActionViewSet(
@@ -732,16 +702,6 @@ class ActionViewSet(
         refs = find_action_references(action_obj.id, action_obj.team)
         return Response(ActionReferenceSerializer(refs, many=True).data)
 
-    @staticmethod
-    def _parse_non_negative_int(raw: str | None) -> int | None:
-        if raw is None:
-            return None
-        try:
-            value = int(raw)
-        except (TypeError, ValueError):
-            return None
-        return value if value >= 0 else None
-
     _ORDERING_WHITELIST = {"name", "created_at", "pinned_at", "created_by"}
 
     def _ordering_from_request(self, request: request.Request) -> list[str] | None:
@@ -788,7 +748,8 @@ class ActionViewSet(
                 OpenApiTypes.STR,
                 description="Field to order by (name, created_at, pinned_at, created_by). Prefix with '-' for descending.",
             ),
-        ]
+        ],
+        responses={200: ActionListResponseSerializer(many=False)},
     )
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         # :HACKY: we need to override this viewset method until actions support
@@ -826,8 +787,10 @@ class ActionViewSet(
         if ordering:
             actions = actions.order_by(*ordering)
 
-        offset = self._parse_non_negative_int(request.query_params.get("offset")) or 0
-        limit = self._parse_non_negative_int(request.query_params.get("limit"))
+        paging = ActionListPagingQuerySerializer(data=request.query_params)
+        paging.is_valid(raise_exception=True)
+        offset: int = paging.validated_data["offset"]
+        limit: int | None = paging.validated_data.get("limit")
         # Only pay for a COUNT query when actually paginating. The full-list default
         # (no `limit`) is a hot path shared with the taxonomic filter, so we derive the
         # count from the serialized results there instead of hitting the DB again.

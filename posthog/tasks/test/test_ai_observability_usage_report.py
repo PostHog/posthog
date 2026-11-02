@@ -604,7 +604,7 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         all_data = defaultdict(dict, {key: dict(rows) for key, rows in counter_report.counts.items()})
         org_id = str(self.organization.id)
         before = list(OfflineEvaluationUsageLedger.objects.for_team(self.team.id).order_by("id").values())
-        celery_report = _get_all_org_reports(period=period, counter_report=counter_report)[org_id]
+        celery_report = _get_all_org_reports(period=period)[org_id]
         ctx = WorkflowContext(
             run_id="offline-usage", date_str="2026-10-31", period_start=period.start, period_end=period.end
         )

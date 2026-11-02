@@ -4,12 +4,12 @@ import posthog from 'posthog-js'
 import api, { ApiConfig, ApiError, ApiRequest, NetworkError, ResponseBodyReadError } from 'lib/api'
 import { shouldReportApiFailure } from 'lib/api-error'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
-import * as oauthClient from 'lib/oauth/oauthClient'
+import * as oauthClient from 'lib/utils/oauthClient'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
-// Mirrors SESSION_KEY in lib/oauth/oauthClient — the localStorage key its real getStoredSession reads.
+// Mirrors SESSION_KEY in lib/utils/oauthClient — the localStorage key its real getStoredSession reads.
 const OAUTH_SESSION_KEY = 'ph_oauth_session'
 
 describe('API helper', () => {
@@ -85,7 +85,7 @@ describe('API helper', () => {
                 expect(fakeFetch).toHaveBeenCalledWith(
                     path === 'proxy'
                         ? 'https://example.com/v1/runs/run-1/stream?resync=1'
-                        : `/api/projects/123/tasks/task-1/runs/run-1/${path === 'history' ? 'logs' : 'stream'}/`,
+                        : `/api/projects/123/tasks/task-1/runs/run-1/${path === 'history' ? 'log_entries' : 'stream'}/`,
                     expect.objectContaining({
                         signal: controller.signal,
                         ...(path !== 'history' ? { headers: streamHeaders } : {}),

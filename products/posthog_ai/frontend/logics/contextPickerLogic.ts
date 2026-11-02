@@ -14,8 +14,8 @@ import type { BreakPointFunction } from 'kea'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
-import { type AttachedContextItem, attachedContextItemKey } from '../types/contextTypes'
-import { attachedContextLogic } from './attachedContextLogic'
+import { type AttachedContextItem, attachedContextItemKey } from '~/layout/ai/attachedContext'
+import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
 
 export const PICKER_PROVIDER_ID = 'user-picker'
 

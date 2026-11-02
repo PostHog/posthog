@@ -12,9 +12,11 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.dbrouter import ReplicaRouter
 from posthog.models import Team
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
+from products.signals.backend.artefact_schemas import CheckAuthoringStatus
 from products.signals.backend.models import (
     InvalidStatusTransition,
     SignalReport,
@@ -485,6 +487,22 @@ class TestReportMonitoringAttempts(BaseTest):
             ).count()
             == 1
         )
+
+    def test_authoring_failure_blocks_completion_with_replica_routing(self) -> None:
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(self.report.id),
+            content=CheckAuthoringStatus(status="failed", reason="Invalid verification proposal"),
+            attribution=ArtefactAttribution.system(),
+        )
+        with (
+            self.settings(DATABASE_ROUTERS=[ReplicaRouter(["SignalReportArtefact"])]),
+            self.assertRaisesRegex(ValueError, "Follow-up check authoring failed"),
+        ):
+            complete_implementation(team_id=self.team.id, report_id=self.report.id, monitoring_started_at=self.now)
+        self.report.refresh_from_db()
+        assert self.report.status == SignalReport.Status.READY
+        assert not SignalReportMonitoringAttempt.objects.for_team(self.team.id).filter(report=self.report).exists()
 
     def test_expiry_log_failure_rolls_back_entry_and_check_changes(self) -> None:
         stale = self._check(status=SignalReportCheck.Status.ACTIVE)
