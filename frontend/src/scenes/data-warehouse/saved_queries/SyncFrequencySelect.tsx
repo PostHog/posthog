@@ -1,7 +1,5 @@
-import { useState } from 'react'
-
 import { IconInfo, IconRabbit, IconTortoise } from '@posthog/icons'
-import { LemonButton, LemonLabel, LemonSegmentedButton, LemonSegmentedButtonOption, Spinner } from '@posthog/lemon-ui'
+import { LemonLabel, LemonSegmentedButton, LemonSegmentedButtonOption, Spinner } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
@@ -91,15 +89,8 @@ export function SyncFrequencySelect({
     disabledReason,
     'data-attr': dataAttr,
 }: SyncFrequencySelectProps): JSX.Element {
-    // A cadence that also speeds up upstream views waits here until it is confirmed. It is tied to the
-    // value it was picked against, so a value that changes underneath it (Discard changes) drops it.
-    const [pendingChoice, setPending] = useState<{ cadence: DataModelingSyncInterval; against: typeof value } | null>(
-        null
-    )
-    const pending = pendingChoice && pendingChoice.against === value ? pendingChoice.cadence : null
-    const pendingWarning = pending ? speedUpWarning(bounds, pending) : null
     const inherited = inheritedCadence(bounds, value)
-    const selectedSpeedUp = !pending && value && value !== 'never' ? speedUpWarning(bounds, value) : null
+    const selectedSpeedUp = value && value !== 'never' ? speedUpWarning(bounds, value) : null
     const options = buildOptions(bounds)
     // The inherited note already names the downstream view, so the ceiling sentence would repeat it.
     const explanation = buildExplanation(bounds, { omitCeiling: !!inherited })
@@ -133,13 +124,8 @@ export function SyncFrequencySelect({
                 <IconRabbit className={PACE_ICON_CLASS} aria-hidden />
                 <LemonSegmentedButton<DataModelingSyncInterval>
                     size="small"
-                    value={pending ?? inherited?.cadence ?? (value && value !== 'never' ? value : undefined)}
+                    value={inherited?.cadence ?? (value && value !== 'never' ? value : undefined)}
                     onChange={(next) => {
-                        if (next !== value && speedUpWarning(bounds, next)) {
-                            setPending({ cadence: next, against: value })
-                            return
-                        }
-                        setPending(null)
                         if (next !== value) {
                             onChange(next)
                         }
@@ -149,37 +135,6 @@ export function SyncFrequencySelect({
                 />
                 <IconTortoise className={PACE_ICON_CLASS} aria-hidden />
             </div>
-            {pending && pendingWarning && (
-                <div
-                    className="flex flex-wrap items-center gap-x-4 gap-y-2 border rounded bg-surface-primary px-3 py-2 max-w-prose"
-                    role="alert"
-                >
-                    <span className="text-xs flex-1 min-w-60">
-                        <WithUpstreamRule text={pendingWarning} />
-                    </span>
-                    <div className="flex gap-2 ml-auto">
-                        <LemonButton
-                            size="xsmall"
-                            type="secondary"
-                            onClick={() => setPending(null)}
-                            data-attr="sync-frequency-speeds-up-cancel"
-                        >
-                            Cancel
-                        </LemonButton>
-                        <LemonButton
-                            size="xsmall"
-                            type="primary"
-                            onClick={() => {
-                                setPending(null)
-                                onChange(pending)
-                            }}
-                            data-attr="sync-frequency-speeds-up-confirm"
-                        >
-                            <span>{`Refresh every ${CADENCE_LABELS[pending]}`}</span>
-                        </LemonButton>
-                    </div>
-                </div>
-            )}
             {inherited && (
                 <span className="text-xs text-secondary max-w-prose">
                     <WithUpstreamRule text={inherited.note} />
@@ -199,7 +154,7 @@ export function SyncFrequencySelect({
  * What else a cadence changes, or null when it only changes this view.
  *
  * A view can't be fresher than its inputs, so a slower upstream view runs at this cadence for as long
- * as this view does. Its own setting is left alone, so it slows back down if this view does.
+ * as this view does. Its saved setting is left alone.
  */
 export function speedUpWarning(
     bounds: SyncFrequencyBoundsApi | null | undefined,
@@ -215,10 +170,7 @@ export function speedUpWarning(
     const subject = !named.length
         ? 'Some upstream views'
         : `${plural ? 'Upstream views' : 'Upstream view'} ${named.join(', ')}${option.speeds_up_withheld ? ' and others' : ''}`
-    return (
-        `${subject} also ${plural ? 'refresh' : 'refreshes'} every ${CADENCE_LABELS[cadence]} to keep up with this view. ` +
-        `${plural ? 'Their own settings apply' : 'Its own setting applies'} again if this view refreshes less often.`
-    )
+    return `${subject} also ${plural ? 'refresh' : 'refreshes'} every ${CADENCE_LABELS[cadence]} to keep up with this view.`
 }
 
 const UPSTREAM_RULE =
