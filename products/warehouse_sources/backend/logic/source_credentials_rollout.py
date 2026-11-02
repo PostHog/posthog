@@ -149,8 +149,9 @@ def assign_credentials_reference(
 
     ``reference`` is a row that an API edit picked. It replaces the stored reference. With the flag on:
 
-    - An in-use OAuth pointer goes to the column. It wins over typed-in fields, because the sync uses the
-      OAuth row (Pardot keeps a typed-in `environment` next to its OAuth pointer).
+    - An in-use OAuth pointer goes to the column. A source whose selected options hold an OAuth field gets
+      no typed-in row, because the sync uses the OAuth row (Pardot keeps a typed-in `environment` next to
+      its OAuth pointer).
     - Typed-in connection fields go to the credentials row, and the column points at it. When the column
       holds no typed-in row, the stored value under the source lock decides the row. A failure is counted
       and logged, and the caller continues with its `job_inputs` write. An edit of a row that other
@@ -169,8 +170,10 @@ def assign_credentials_reference(
     if not dual_write_enabled(source.team_id):
         return
     try:
-        pointer = in_use_oauth_pointer(source.source_type, inputs)
-        connection = _typed_in_connection_fields(source.source_type, inputs) if pointer is None else {}
+        source_class = _source_class(source.source_type)
+        slot = source_class.in_use_oauth_slot(inputs)
+        pointer = source_class.in_use_oauth_pointer(inputs)
+        connection = _typed_in_connection_fields(source.source_type, inputs) if slot is None else {}
     except Exception:
         # An unknown source type, or a shape that the walk does not read: nothing can tell which row the
         # inputs use, so the column keeps its value.
@@ -331,7 +334,7 @@ def shadow_compare_many(sources: Iterable[ExternalDataSource], loaded: Mapping[U
 
 def _typed_in_connection(source: ExternalDataSource, inputs: Mapping[str, Any]) -> dict[str, Any] | None:
     """The connection fields that the row of the source must hold, or None when the source has no typed-in row."""
-    if in_use_oauth_pointer(source.source_type, inputs) is not None:
+    if _source_class(source.source_type).in_use_oauth_slot(inputs) is not None:
         return None
     return _typed_in_connection_fields(source.source_type, inputs) or None
 

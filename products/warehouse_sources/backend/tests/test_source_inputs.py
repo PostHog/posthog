@@ -329,6 +329,13 @@ class TestSourceInputsStoreCredentialsMirror(BaseTest):
                 "7",
             ),
             ("slack_legacy_pointer", ExternalDataSourceType.SLACK, {"slack_integration_id": "7"}, "7"),
+            # Its OAuth field is in use without a value, so the typed-in `environment` still makes no row.
+            (
+                "pardot_without_pointer",
+                ExternalDataSourceType.PARDOT,
+                {"environment": "sandbox", "business_unit_id": "b"},
+                None,
+            ),
         ]
     )
     def test_an_oauth_source_points_at_its_in_use_oauth_row_and_gets_no_typed_in_row(
