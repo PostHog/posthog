@@ -5,6 +5,7 @@ import { IconArrowRight, IconCheckCircle, IconExternal, IconInfo } from '@postho
 import { LemonButton, LemonCard, LemonInput, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
@@ -58,7 +59,10 @@ export function SourceCatalog({ onContinue, hasSources, onBack }: SourceCatalogP
             isConnected: validExternalTables.some((table) => table.source_type === sourceType),
             category: 'external' as const,
         })),
-        ...VALID_SELF_MANAGED_MARKETING_SOURCES.map((sourceType) => ({
+        ...(featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_OBJECT_STORAGE_SOURCES]
+            ? []
+            : VALID_SELF_MANAGED_MARKETING_SOURCES
+        ).map((sourceType) => ({
             id: sourceType,
             isConnected: validExternalTables.some((table) => table.source_type === sourceType),
             category: 'self-managed' as const,
@@ -100,7 +104,7 @@ export function SourceCatalog({ onContinue, hasSources, onBack }: SourceCatalogP
     const totalConnected = validNativeSources.length + validExternalTables.length
 
     return (
-        <LemonCard hoverEffect={false} className="max-w-3xl w-full mx-auto mt-6 p-0 overflow-hidden">
+        <LemonCard hoverEffect={false} className="w-full mt-6 p-0 overflow-hidden">
             <div className="p-6 space-y-3">
                 {/* Header */}
                 <div className="flex items-start justify-between gap-4">

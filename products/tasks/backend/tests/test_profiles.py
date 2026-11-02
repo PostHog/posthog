@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from dataclasses import replace
 
 from django.test import SimpleTestCase
@@ -6,14 +7,21 @@ from parameterized import parameterized
 
 from products.tasks.backend.facade.profiles import (
     Read,
+    SourceKind,
     TaskProfile,
     TaskProfileError,
+    TaskSource,
+    TaskSourceError,
+    check_task_source,
     get_task_profile,
     register_task_profile,
     resolve_task_origin,
 )
 
 BUSINESS_KNOWLEDGE = get_task_profile("business_knowledge")
+REPORT_PROFILE = replace(BUSINESS_KNOWLEDGE, key="test.report", source_kind=SourceKind.SIGNAL_REPORT)
+REPORT_SOURCE = TaskSource(kind=SourceKind.SIGNAL_REPORT, id="report-1")
+FLOW_SOURCE = TaskSource(kind=SourceKind.HOG_FLOW, id="5ab01f4d-5b1e-4990-9802-4f8792a76759")
 
 
 class TestTaskProfileRegistry(SimpleTestCase):
@@ -76,3 +84,20 @@ class TestTaskProfileRegistry(SimpleTestCase):
     ) -> None:
         with self.assertRaises(TaskProfileError):
             resolve_task_origin(profile=profile, origin_product=origin, internal=internal)
+
+    @parameterized.expand(
+        [
+            ("no_profile_with_source", None, FLOW_SOURCE, False),
+            ("no_profile_without_source", None, None, False),
+            ("profile_without_kind_or_source", BUSINESS_KNOWLEDGE, None, False),
+            ("profile_with_matching_source", REPORT_PROFILE, REPORT_SOURCE, False),
+            ("profile_without_kind_given_source", BUSINESS_KNOWLEDGE, REPORT_SOURCE, True),
+            ("profile_with_kind_missing_source", REPORT_PROFILE, None, True),
+            ("profile_with_kind_other_source", REPORT_PROFILE, FLOW_SOURCE, True),
+        ]
+    )
+    def test_check_task_source_matches_the_profile(
+        self, _name: str, profile: TaskProfile | None, source: TaskSource | None, refused: bool
+    ) -> None:
+        with self.assertRaises(TaskSourceError) if refused else nullcontext():
+            check_task_source(profile=profile, source=source)

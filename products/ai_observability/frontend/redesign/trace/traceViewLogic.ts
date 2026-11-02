@@ -183,7 +183,7 @@ function toLoadFailure(error: unknown): LoadFailure {
 
 const layoutNavOverrideOwner = (props: TraceViewLogicProps): string => `ai-trace-${props.traceId}`
 
-function elapsedMs(since: number): number {
+export function elapsedMs(since: number): number {
     return Math.round(performance.now() - since)
 }
 

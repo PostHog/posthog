@@ -38,6 +38,7 @@ from products.signals.backend.models import (
     SignalSpend,
 )
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS, ReportChart
+from products.signals.backend.report_generation.select_repo import persisted_repo_selection
 from products.signals.backend.report_metrics import ReportMetric
 from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
 from products.signals.backend.reviewer_rules import ReviewerRules
@@ -63,6 +64,7 @@ from products.signals.backend.scout_report.judge import resolve_authored_report_
 from products.signals.backend.scout_report.persistence import _report_metrics_unchanged
 from products.signals.backend.slack_inbox_notifications import resolve_suggested_reviewer_user_ids
 from products.signals.backend.spend import register_report_task_spend, signal_spend_totals
+from products.tasks.backend.facade.repo_selection_types import ReportResearchContext, RepoSelectionResult
 from products.tasks.backend.models import Task, TaskRun
 
 PERSISTENCE_MODULE = "products.signals.backend.scout_report.persistence"
@@ -978,20 +980,40 @@ class TestScoutReportRepository(BaseTest):
         assert self._set(report_id, repository) is False
         assert self._set(report_id, "acme/other") is True
 
-    def test_naming_an_already_inferred_repository_is_a_change(self) -> None:
+    @parameterized.expand([False, True])
+    def test_naming_an_already_inferred_repository_is_a_change(self, with_context: bool) -> None:
         # An inferred selection names the repository the report links, and is stamped ineligible for
         # autostart because the report never asked for a pull request. A scout naming the same one is
         # the decision that lifts it, so comparing the repository alone would drop the correction and
         # leave the report unable to open a draft pull request.
         report_id = self._create()
+        context = ReportResearchContext(mode="data_only", repository_status="no_integration") if with_context else None
+        if context is not None:
+            SignalReportArtefact.append_status(
+                team_id=self.team.id,
+                report_id=report_id,
+                content=RepoSelectionResult(
+                    repository="example/previous",
+                    reason="Inferred from the report",
+                    autostart_eligible=False,
+                    research_context=context,
+                ),
+                attribution=ArtefactAttribution.system(),
+                reevaluate_autostart=False,
+            )
         set_scout_report_inferred_repository(
             team_id=self.team.id,
             report_id=report_id,
             repository="acme/widgets",
             attribution=ArtefactAttribution.system(),
         )
+        inferred = persisted_repo_selection(report_id)
+        assert inferred is not None and inferred.research_context == context
 
         assert self._set(report_id, "acme/widgets") is True
+        corrected = persisted_repo_selection(report_id)
+        assert corrected is not None and corrected.research_context == context
+        assert self._set(report_id, "acme/widgets") is False
         selection = (
             SignalReportArtefact.objects.filter(
                 report_id=report_id, type=SignalReportArtefact.ArtefactType.REPO_SELECTION

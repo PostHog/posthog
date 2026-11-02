@@ -10,7 +10,7 @@ import type {
     DrawHoverResult,
     ResolvedSeries,
 } from '../types'
-import { clearAndPrepare } from './clearCanvas'
+import { clearAndPrepare, releaseCanvas } from './clearCanvas'
 import { useLatest } from './useLatest'
 
 interface UseHoverAnimationOptions {
@@ -91,7 +91,16 @@ export function useHoverAnimation({
             }
             const elapsed = monotonicNow() - hoverAnimRef.current.startTime
             const hoverProgress = hoverAnimationMs > 0 ? Math.min(1, elapsed / hoverAnimationMs) : 1
-            clearAndPrepare(overlayCtx, dimensions)
+            // Idle (no hover, no drag) draws nothing, so release the bitmap instead of clearing a
+            // full-size one. drawHover still runs, against the empty canvas, so chart types can
+            // reset their own hover state.
+            const idle = hoverIndex < 0 && !dragRectRef.current
+            if (idle) {
+                releaseCanvas(overlayCtx.canvas)
+                overlayCtx.save()
+            } else {
+                clearAndPrepare(overlayCtx, dimensions)
+            }
             let drewVisible: DrawHoverResult
             try {
                 drewVisible = drawHoverRef.current({

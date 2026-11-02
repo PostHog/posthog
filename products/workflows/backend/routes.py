@@ -13,6 +13,7 @@ from products.workflows.backend.presentation.views import (
     people_imports,
     workflow_classifications,
     workflow_data_suggestions,
+    workflow_imports,
     workflow_message_opt_outs,
     workflow_scout_runs,
     workflow_sending_rules,
@@ -74,6 +75,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"workflow_classifications",
         workflow_classifications.WorkflowClassificationViewSet,
         "project_workflow_classifications",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"workflow_imports",
+        workflow_imports.WorkflowImportViewSet,
+        "project_workflow_imports",
         ["team_id"],
     )
     routers.projects.register(

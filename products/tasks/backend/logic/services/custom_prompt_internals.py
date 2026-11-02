@@ -54,7 +54,7 @@ FINAL_POLL_READ_SECONDS = 5
 # a finished-but-noisy turn is never salvaged (the observed dominant failure mode). The null-cost
 # finalization fingerprint (_ended_on_pending_finalization) is the real safety gate; this floor only
 # rules out salvaging a turn caught mid-stream. It must stay well below the per-turn poll budget (the
-# Signals scout passes 1200s): a floor near the budget would salvage only turns that fell silent early
+# Signals scout passes 1800s): a floor near the budget would salvage only turns that fell silent early
 # and reject one that works late and then drops end_turn, the exact case this path exists to recover.
 STALE_TURN_SALVAGE_SECONDS = 300
 
@@ -278,6 +278,11 @@ class AgentTurnFailed(RuntimeError):
         return self.category in UPSTREAM_RETRYABLE_ERROR_CATEGORIES
 
 
+class RepositoryContextUnavailable(SandboxRunFailed):
+    def __init__(self, error_type: str, message: str | None = None) -> None:
+        super().__init__(message or error_type, error_type=error_type)
+
+
 SESSION_FILE_ARTIFACT_TYPE = "context"
 
 
@@ -488,6 +493,11 @@ async def _refresh_task_run(task_run_id) -> TaskRun:
         return await sync_to_async(_read)()
 
 
+async def _saved_finish_report(task_run_id) -> str | None:
+    """The report a `finish` call saved. It can land before end_turn and outranks the log's commentary."""
+    return (await _refresh_task_run(task_run_id)).finish_report
+
+
 @frozen
 class TurnPollResult:
     last_message: str
@@ -624,7 +634,7 @@ async def poll_for_turn(
         # If success
         if log_state.agent_finished and log_state.last_message:
             return TurnPollResult(
-                last_message=log_state.last_message,
+                last_message=await _saved_finish_report(task_run.id) or log_state.last_message,
                 full_log=log_state.full_log,
                 total_lines=log_state.total_lines,
                 printed_lines=printed_lines,
@@ -632,11 +642,12 @@ async def poll_for_turn(
         # Surface empty end_turn to the multi-turn session, so it can retry
         # the prompt instead of us polling until MAX_POLL_SECONDS.
         if log_state.empty_end_turn:
-            # If the agent emitted text in an earlier poll of this same turn, the turn
-            # is genuinely complete — end_turn just landed in a later slice.
-            if latest_assistant_text is not None:
+            # A finish report, or text the agent emitted in an earlier poll of this same turn,
+            # means the turn is genuinely complete — end_turn just landed in a later slice.
+            turn_message = await _saved_finish_report(task_run.id) or latest_assistant_text
+            if turn_message is not None:
                 return TurnPollResult(
-                    last_message=latest_assistant_text,
+                    last_message=turn_message,
                     full_log=log_state.full_log,
                     total_lines=log_state.total_lines,
                     printed_lines=printed_lines,
@@ -680,6 +691,7 @@ async def poll_for_turn(
                 error_message=refreshed.error_message,
                 failure_error_type=(refreshed.state or {}).get("failure_error_type"),
                 startup_failure=read_startup_failure(refreshed.state),
+                finish_report=refreshed.finish_report,
                 printed_lines=printed_lines,
                 original_skip_lines=original_skip_lines,
                 verbose=verbose,
@@ -707,6 +719,7 @@ async def poll_for_turn(
             error_message=refreshed.error_message,
             failure_error_type=(refreshed.state or {}).get("failure_error_type"),
             startup_failure=read_startup_failure(refreshed.state),
+            finish_report=refreshed.finish_report,
             printed_lines=printed_lines,
             original_skip_lines=original_skip_lines,
             verbose=verbose,
@@ -891,6 +904,7 @@ async def _drain_final_log(
     error_message: str | None = None,
     failure_error_type: str | None = None,
     startup_failure: AgentStartupFailure | None = None,
+    finish_report: str | None = None,
     printed_lines: int,
     original_skip_lines: int,
     verbose: bool,
@@ -906,6 +920,9 @@ async def _drain_final_log(
     it. Scanning from start-of-turn recovers it without crossing into the previous turn (which would return a
     stale earlier-turn response in multi-turn sessions). For single-turn callers `original_skip_lines == 0`, so
     the scan covers the full log as before. The walk is idempotent and only runs once at terminal status.
+
+    A report the agent passed to `finish` wins over the log, because the run ends before the turn
+    that carries it, so the log can hold only the commentary that came before it.
     """
     if refreshed_status == TaskRun.Status.FAILED and startup_failure is not None:
         raise AgentStartupFailed(
@@ -916,9 +933,10 @@ async def _drain_final_log(
         )
     final_state = await _read_turn_log_with_retry(task_run, skip_lines=original_skip_lines, context="drain_final_log")
     printed_lines = _stream_new_lines(final_state.full_log, printed_lines, verbose=verbose, output_fn=output_fn)
-    if final_state.last_message:
+    last_message = finish_report or final_state.last_message
+    if last_message:
         return TurnPollResult(
-            last_message=final_state.last_message,
+            last_message=last_message,
             full_log=final_state.full_log,
             total_lines=final_state.total_lines,
             printed_lines=printed_lines,
@@ -942,6 +960,14 @@ async def _drain_final_log(
     cause = f" (cause: {error_message})" if error_message else ""
     message = f"custom_prompt - drain_final_log: TaskRun reached terminal status={refreshed_status}{cause} — {reason}"
     if refreshed_status == TaskRun.Status.FAILED:
+        if failure_error_type in {
+            "RepositoryAccessError",
+            "RepositoryCloneError",
+            "GitHubAuthenticationError",
+            "GitHubIntegrationError",
+            "GitHubRateLimitedError",
+        }:
+            raise RepositoryContextUnavailable(failure_error_type, f"{message} ({failure_error_type})")
         raise SandboxRunFailed(message, error_type=failure_error_type)
     raise RuntimeError(message)
 

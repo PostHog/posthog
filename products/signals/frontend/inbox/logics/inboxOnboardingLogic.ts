@@ -8,7 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
 
-import { captureInboxOnboardingDecided, captureInboxWelcomeManualSetupClicked } from '../inboxAnalytics'
+import { captureInboxOnboardingDecided } from '../inboxAnalytics'
 import { signalSourcesLogic } from '../signalSourcesLogic'
 import { type SignalSourceConfig } from '../types'
 import { inboxSetupLogic } from './inboxSetupLogic'
@@ -42,48 +42,12 @@ export type InboxSettledUiState = 'takeover' | 'inbox'
 // forgets which UI it painted last visit and falls back to the skeleton on their next one.
 export const INBOX_LAST_UI_STATE_STORAGE_KEY = 'inbox-onboarding-last-ui-state'
 
-/** sessionStorage key for the per-team "Set up manually" choice (see `manualSetupRequestedByTeam`). */
-// pinned: browser storage key - a rename drops the choice mid-session, so the takeover returns
-// for someone who already pressed "Set up manually".
-export const INBOX_MANUAL_SETUP_STORAGE_KEY = 'inbox-onboarding-manual-setup'
-
-/**
- * Teams that asked to set self-driving up by hand, read back at mount.
- *
- * The store is sessionStorage, not localStorage, because the takeover is the only prompt to run
- * the setup agent: a suppression that never expires costs a team who clicked once and enabled
- * nothing every later chance to see it. It must still survive a reload, because the button's own
- * copy sends the user off to connect GitHub, so leaving the inbox and coming back is part of the
- * flow it starts. It is keyed by team because switching project reloads the app in the same tab
- * and sessionStorage outlives that reload, so an unkeyed flag would carry one project's choice
- * into every other project.
- */
-function readManualSetupTeams(): Record<string, boolean> {
-    try {
-        const raw = window.sessionStorage.getItem(INBOX_MANUAL_SETUP_STORAGE_KEY)
-        const parsed = raw ? JSON.parse(raw) : null
-        return typeof parsed === 'object' && parsed !== null ? parsed : {}
-    } catch {
-        // sessionStorage can be unavailable (privacy mode), and a hand-edited value can be
-        // unparseable. Either way the takeover shows, which is the safe direction to fail.
-        return {}
-    }
-}
-
-function writeManualSetupTeams(teams: Record<string, boolean>): void {
-    try {
-        window.sessionStorage.setItem(INBOX_MANUAL_SETUP_STORAGE_KEY, JSON.stringify(teams))
-    } catch {
-        // Unwritable storage costs the choice its reload survival, nothing else.
-    }
-}
-
 /**
  * Why the onboarding is not showing. `null` whenever it is.
  *
- * `'wizard_running'` and `'manual_setup'` are the deliberate suppressions; every other value is an
- * input the decision is still waiting on, or a user who does not need onboarding at all. Carried
- * into telemetry so a withheld prompt is distinguishable from an absent one.
+ * `'wizard_running'` is the deliberate suppression; every other value is an input the decision is
+ * still waiting on, or a user who does not need onboarding at all. Carried into telemetry so a
+ * withheld prompt is distinguishable from an absent one.
  */
 export type InboxOnboardingSuppressionReason =
     | 'wizard_running'
@@ -93,7 +57,6 @@ export type InboxOnboardingSuppressionReason =
     | 'counts_loading'
     | 'refetching'
     | 'banner_dismissed'
-    | 'manual_setup'
     | null
 
 export interface InboxOnboardingDecision {
@@ -148,9 +111,6 @@ export interface OnboardingModeInputs {
     /** A config/count refetch is in flight, so the loaded values may be about to change (e.g. the
      * wizard just finished, or the user returned to the tab). */
     isRefetching: boolean
-    /** The user chose "Set up manually" on the takeover this session, so they are configuring the
-     * project by hand and the prompt to run the setup agent is not what they asked for. */
-    manualSetupRequested: boolean
 }
 
 /**
@@ -176,7 +136,6 @@ export function computeOnboardingDecision({
     isWizardRunning,
     isWizardStateResolved,
     isRefetching,
-    manualSetupRequested,
 }: OnboardingModeInputs): InboxOnboardingDecision {
     // A run in flight is setup in progress: sources and scouts land as it goes, so telling the user
     // to go and run the wizard would contradict the progress widget already showing it running.
@@ -187,13 +146,6 @@ export function computeOnboardingDecision({
     // wizard detector nor the report counts could flip their verdict to an onboarding.
     if (isSetupLoaded && isSelfDrivingSetUp) {
         return { mode: 'none', reason: 'already_set_up' }
-    }
-    // The user asked for the Configuration and Scouts tabs instead of the setup agent, so hold the
-    // whole prompt back: the takeover covers those tabs, and the banner would nag about a decision
-    // they already made. It is checked after `already_set_up` so the reported reason stays the more
-    // specific one once a source or scout is actually enabled.
-    if (manualSetupRequested) {
-        return { mode: 'none', reason: 'manual_setup' }
     }
     // Work already in the inbox rules the takeover out: the only remaining outcomes (banner /
     // none) both render the normal inbox, so show it now rather than holding a skeleton. The
@@ -268,7 +220,6 @@ export function computeIsSelfDrivingSetUp(
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface inboxOnboardingLogicValues {
-    isUiSetup: boolean // inboxSetupLogic
     setupCompleted: boolean // inboxSetupLogic
     setupInProgress: boolean // inboxSetupLogic
     setupStateLoading: boolean // inboxSetupLogic
@@ -297,8 +248,6 @@ export interface inboxOnboardingLogicValues {
     isWizardStateResolved: boolean
     lastSettledUiState: InboxSettledUiState | null
     lastSettledUiStateByTeam: Record<string, InboxSettledUiState>
-    manualSetupRequested: boolean
-    manualSetupRequestedByTeam: Record<string, boolean>
     onboardingDecision: InboxOnboardingDecision
     onboardingMode: InboxOnboardingMode
     resolvedOnboardingMode: InboxOnboardingMode
@@ -323,18 +272,12 @@ export interface inboxOnboardingLogicActions {
     refreshSetupState: () => {
         value: true
     }
-    requestManualSetup: () => {
-        value: true
-    }
     setLastSettledUiState: (
         teamId: number,
         uiState: InboxSettledUiState
     ) => {
         teamId: number
         uiState: InboxSettledUiState
-    }
-    setManualSetupRequested: (teamId: number) => {
-        teamId: number
     }
 }
 
@@ -366,10 +309,6 @@ export interface inboxOnboardingLogicMeta {
             pullsCountLoading: boolean,
             reportsCountLoading: boolean
         ) => boolean
-        manualSetupRequested: (
-            manualSetupRequestedByTeam: Record<string, boolean>,
-            currentTeamId: number | null
-        ) => boolean
         onboardingDecision: (
             isSetupLoaded: boolean,
             isSelfDrivingSetUp: boolean,
@@ -378,8 +317,7 @@ export interface inboxOnboardingLogicMeta {
             bannerDismissed: boolean,
             isWizardRunning: boolean,
             isWizardStateResolved: boolean,
-            isRefetching: boolean,
-            manualSetupRequested: boolean
+            isRefetching: boolean
         ) => InboxOnboardingDecision
         resolvedOnboardingMode: (onboardingDecision: InboxOnboardingDecision) => InboxOnboardingMode
         lastSettledUiState: (
@@ -394,7 +332,6 @@ export interface inboxOnboardingLogicMeta {
             isWizardRunning: boolean,
             setupInProgress: boolean,
             setupCompleted: boolean,
-            isUiSetup: boolean,
             setupStateLoading: boolean
         ) => InboxOnboardingMode
     }
@@ -408,10 +345,11 @@ export type inboxOnboardingLogicType = MakeLogicType<
 >
 
 /**
- * Decides how the single-command self-driving onboarding presents itself. The wizard is the main
- * way in – one command in the user's repo, no in-app steps – so "set up" is read from what ends up
- * watching: at least one signal source or scout. `enabledSourcesCount` counts Replay Vision too,
- * which reaches the inbox on its own, without the wizard ever being run.
+ * Decides how the self-driving onboarding presents itself. A project that completed the in-app
+ * setup goes straight to its inbox, and one that is mid-setup keeps the takeover. For every other
+ * project, "set up" is read from what ends up watching: at least one signal source or scout.
+ * `enabledSourcesCount` counts Replay Vision too, which reaches the inbox on its own, and a setup
+ * agent run detected in flight counts as setup under way.
  *
  * When self-driving is NOT set up, the presentation depends on whether there's anything to show:
  * - nothing landed yet (no reports or PRs) → the inbox becomes a locked "Welcome" tab whose body is
@@ -428,12 +366,7 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
     connect(() => ({
         values: [
             inboxSetupLogic,
-            [
-                'inProgress as setupInProgress',
-                'completed as setupCompleted',
-                'usesFocusedSetup as isUiSetup',
-                'savedStateLoading as setupStateLoading',
-            ],
+            ['inProgress as setupInProgress', 'completed as setupCompleted', 'savedStateLoading as setupStateLoading'],
             signalSourcesLogic,
             ['sourceConfigs', 'sourceConfigsLoading', 'enabledSourcesCount', 'hasEmittingScanner'],
             scoutFleetLogic,
@@ -478,12 +411,9 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
         expireWizardVerdictWait: true,
         setLastSettledUiState: (teamId: number, uiState: InboxSettledUiState) => ({ teamId, uiState }),
         refreshSetupState: true,
-        /** "Set up manually" was pressed on the takeover. */
-        requestManualSetup: true,
-        setManualSetupRequested: (teamId: number) => ({ teamId }),
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions }) => ({
         // Re-pull everything the verdict is computed from. Fired when the wizard run ends and when
         // the user returns to a tab whose verdict still says "not set up".
         refreshSetupState: () => {
@@ -491,14 +421,6 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
             actions.loadScoutConfigs()
             actions.loadPullsCount()
             actions.loadReportsCount()
-        },
-        requestManualSetup: () => {
-            captureInboxWelcomeManualSetupClicked()
-            inboxSetupLogic.actions.openSetup()
-        },
-        // Listeners run after the reducer, so this writes the map the choice is already in.
-        setManualSetupRequested: () => {
-            writeManualSetupTeams(values.manualSetupRequestedByTeam)
         },
     })),
 
@@ -523,14 +445,6 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
             {
                 setLastSettledUiState: (state, { teamId, uiState }) =>
                     state[teamId] === uiState ? state : { ...state, [teamId]: uiState },
-            },
-        ],
-        // Keyed by team for the same reason, and seeded from sessionStorage so the choice survives
-        // a reload of the inbox without outliving the tab (see `readManualSetupTeams`).
-        manualSetupRequestedByTeam: [
-            readManualSetupTeams(),
-            {
-                setManualSetupRequested: (state, { teamId }) => (state[teamId] ? state : { ...state, [teamId]: true }),
             },
         ],
     }),
@@ -588,11 +502,6 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
                 reportsCountLoading: boolean
             ): boolean => sourceConfigsLoading || scoutConfigsLoading || pullsCountLoading || reportsCountLoading,
         ],
-        manualSetupRequested: [
-            (s) => [s.manualSetupRequestedByTeam, s.currentTeamId],
-            (manualSetupRequestedByTeam: Record<string, boolean>, currentTeamId: number | null): boolean =>
-                currentTeamId != null ? (manualSetupRequestedByTeam[currentTeamId] ?? false) : false,
-        ],
         // The verdict from live inputs alone, with the input it is still waiting on. Kept separate
         // from `onboardingMode` so neither the cache writer nor the telemetry below ever reports a
         // guess that itself came from the cache.
@@ -606,7 +515,6 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
                 s.isWizardRunning,
                 s.isWizardStateResolved,
                 s.isRefetching,
-                s.manualSetupRequested,
             ],
             (
                 isSetupLoaded: boolean,
@@ -616,8 +524,7 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
                 bannerDismissed: boolean,
                 isWizardRunning: boolean,
                 isWizardStateResolved: boolean,
-                isRefetching: boolean,
-                manualSetupRequested: boolean
+                isRefetching: boolean
             ): InboxOnboardingDecision =>
                 computeOnboardingDecision({
                     isSetupLoaded,
@@ -628,7 +535,6 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
                     isWizardRunning,
                     isWizardStateResolved,
                     isRefetching,
-                    manualSetupRequested,
                 }),
         ],
         resolvedOnboardingMode: [
@@ -654,7 +560,6 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
                 s.isWizardRunning,
                 s.setupInProgress,
                 s.setupCompleted,
-                s.isUiSetup,
                 s.setupStateLoading,
             ],
             (
@@ -665,25 +570,21 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
                 isWizardRunning: boolean,
                 setupInProgress: boolean,
                 setupCompleted: boolean,
-                isUiSetup: boolean,
                 setupStateLoading: boolean
             ): InboxOnboardingMode => {
-                if (isUiSetup) {
-                    if (setupCompleted) {
-                        return 'none'
-                    }
-                    if (setupInProgress) {
-                        return 'takeover'
-                    }
-                    if (setupStateLoading) {
-                        return 'pending'
-                    }
+                if (setupCompleted) {
+                    return 'none'
+                }
+                if (setupInProgress) {
+                    return 'takeover'
+                }
+                if (setupStateLoading) {
+                    return 'pending'
                 }
                 if (searchParams.setup === 'github-first' && !isSelfDrivingSetUp && !isWizardRunning) {
                     return 'takeover'
                 }
-                const mode = resolveDisplayMode(resolvedOnboardingMode, lastSettledUiState)
-                return mode === 'takeover' && setupStateLoading ? 'pending' : mode
+                return resolveDisplayMode(resolvedOnboardingMode, lastSettledUiState)
             },
         ],
     }),

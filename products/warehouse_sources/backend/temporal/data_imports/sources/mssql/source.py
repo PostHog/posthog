@@ -64,6 +64,13 @@ _CONNECTION_TIMED_OUT_ERROR = (
 
 _GENERIC_CONNECTION_ERROR = "Could not connect to MS SQL. Please check all connection details are valid."
 
+# DB-Lib error 20002 at setup, usually paired with 20017 ("Unexpected EOF from the server"): the server
+# dropped the connection mid-handshake. Mirrors the Postgres source's wording for the same failure.
+_CONNECTION_DROPPED_ERROR = (
+    "Your SQL Server closed the connection while PostHog was connecting. Check your host, port, and "
+    "encryption settings, and that no firewall or SSH tunnel is dropping the connection."
+)
+
 # SQL Server error 1105 in tempdb. tempdb is shared across sessions, so a concurrent workload that
 # filled it can release it; scoped to tempdb so a customer database genuinely out of disk isn't matched.
 _TEMPDB_ALLOCATION_FAILED_ERROR = "in database 'tempdb' because the '"
@@ -86,9 +93,8 @@ MSSQLErrors = {
     "connection timed out": _CONNECTION_TIMED_OUT_ERROR,
     # DB-Lib error 20002, the generic connect-time failure `get_non_retryable_errors` below also
     # matches (and leaves unmapped there since the cause varies). Map it here too so a credential
-    # check that hits it returns the same generic guidance as an unmatched error already gets,
-    # instead of falling through to `capture_exception` as a bug.
-    "Adaptive Server connection failed": _GENERIC_CONNECTION_ERROR,
+    # check that hits it names the likely causes instead of falling through to `capture_exception`.
+    "Adaptive Server connection failed": _CONNECTION_DROPPED_ERROR,
 }
 
 _MSSQL_IMPLEMENTATION = MSSQLImplementation()

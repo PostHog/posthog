@@ -15,12 +15,14 @@ export const VISION_ROOT_BREADCRUMB: Breadcrumb = {
 }
 
 /**
- * The home view an observation was opened from, carried in its URL's `from` param. The watch feed
+ * The home view an observation was opened from, carried in its URL's `from` param. The highlight feed
  * lives on the home scene, not the scanner that owns a row, so back needs this to return to the feed
  * rather than the scanner. Absent for observations opened from a scanner's own list.
  */
 export const OBSERVATION_ORIGIN_PARAM = 'from'
-export const WATCH_FEED_ORIGIN = 'watch'
+/** The home tab that shows the highlight feed, also the `from` value of an observation opened from it. */
+export const HIGHLIGHTS_TAB = 'highlights'
+export const HIGHLIGHT_FEED_ORIGIN = HIGHLIGHTS_TAB
 export const RECORDING_ORIGIN = 'recording'
 export const POSTHOG_AI_ORIGIN = 'ai'
 /** The in-app page the reader left, such as a playlist or the scene a PostHog AI side panel was open over. */
@@ -28,7 +30,7 @@ export const OBSERVATION_RETURN_PATH_PARAM = 'return_to'
 
 export type ReturnOrigin = typeof RECORDING_ORIGIN | typeof POSTHOG_AI_ORIGIN
 
-const OBSERVATION_ORIGINS: readonly string[] = [WATCH_FEED_ORIGIN, RECORDING_ORIGIN, POSTHOG_AI_ORIGIN]
+const OBSERVATION_ORIGINS: readonly string[] = [HIGHLIGHT_FEED_ORIGIN, RECORDING_ORIGIN, POSTHOG_AI_ORIGIN]
 
 export function isObservationOrigin(value: unknown): value is string {
     return typeof value === 'string' && OBSERVATION_ORIGINS.includes(value)
@@ -52,12 +54,12 @@ export function observationFromOriginUrl(observationId: string, origin: ReturnOr
     }).url
 }
 
-/** The crumb the back button returns to for an observation opened from the "What to watch" feed. */
-export function watchFeedBreadcrumb(): Breadcrumb {
+/** The crumb the back button returns to for an observation opened from the Highlights feed. */
+export function highlightFeedBreadcrumb(): Breadcrumb {
     return {
         key: 'replay-vision-watch',
-        name: 'What to watch',
-        path: combineUrl(urls.replayVision(), { tab: WATCH_FEED_ORIGIN }).url,
+        name: 'Highlights',
+        path: combineUrl(urls.replayVision(), { tab: HIGHLIGHTS_TAB }).url,
     }
 }
 

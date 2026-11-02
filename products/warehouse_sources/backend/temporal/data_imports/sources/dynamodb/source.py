@@ -56,6 +56,10 @@ class DynamoDBSource(ResumableSource[DynamoDBSourceConfig, DynamoDBResumeConfig]
         return ExternalDataSourceType.DYNAMODB
 
     @property
+    def credential_kind(self) -> str | None:
+        return "dynamodb"
+
+    @property
     def connection_host_fields(self) -> list[str]:
         # The region picks the endpoint the signed request — and so the customer's key — is sent to.
         return ["aws_region"]

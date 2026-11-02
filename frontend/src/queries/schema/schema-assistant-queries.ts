@@ -1,5 +1,5 @@
 import type { FunnelLayout } from 'lib/constants'
-import type { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
+import type { AggregationAxisFormat } from 'lib/insights/aggregationAxisFormat'
 
 import {
     BehavioralPropertyFilter,
@@ -707,11 +707,14 @@ export interface AssistantTrendsQuery extends AssistantInsightsQueryBase {
     compareFilter?: CompareFilter
 }
 
-export type AssistantFunnelsMath = FunnelMathType.FirstTimeForUser | FunnelMathType.FirstTimeForUserWithFilters
+export type AssistantFunnelsMath =
+    | FunnelMathType.AnyMatch
+    | FunnelMathType.FirstTimeForUser
+    | FunnelMathType.FirstTimeForUserWithFilters
 
 export interface AssistantFunnelNodeShared {
     /**
-     * Optional math aggregation type for the series. Only specify this math type if the user wants one of these.
+     * Optional math aggregation type for the series. `total` is the default stored on saved funnels and can be preserved when rerunning one.
      * `first_time_for_user` - counts the number of users who have completed the event for the first time ever.
      * `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.
      */
@@ -1190,6 +1193,7 @@ export interface AssistantPathsFilter {
      * `custom_event` - custom events (any event not starting with `$`). Path values are event names.
      * `hogql` - custom HogQL expression defined in `pathsHogQLExpression`. Path values come from evaluating the expression.
      * You can combine multiple types. If not specified, all events are included without type filtering.
+     * Paths never include `$feature_flag_called` events, whichever types are set.
      */
     includeEventTypes?: PathType[]
     /**
@@ -1892,6 +1896,16 @@ export interface AssistantDataVisualizationAxisDisplaySettings {
     label?: string
     /** Custom color for this series as a hex string (e.g. `#1d4aff`). */
     color?: string
+    /**
+     * Keep this series out of the tooltip's total row, e.g. a target line over stacked bars.
+     * A bar series still stacks, so set `displayType` to `line` for a series drawn over the stack.
+     */
+    excludeFromTotal?: boolean
+    /**
+     * Per-series override of chart-level `showValuesOnSeries`. `show` labels this series even when the
+     * chart setting is off, `hide` leaves it unlabeled when the setting is on, `auto` follows the chart.
+     */
+    valueLabels?: 'auto' | 'show' | 'hide'
 }
 
 export interface AssistantDataVisualizationAxisFormatting {
@@ -1920,6 +1934,19 @@ export interface AssistantDataVisualizationAxis {
     column: string
     /** Optional series settings. Only applies to Y-axis series. */
     settings?: AssistantDataVisualizationAxisSettings
+}
+
+export interface AssistantDataVisualizationColumnSettings {
+    /** Number-formatting settings for the values in this column. */
+    formatting?: AssistantDataVisualizationAxisFormatting
+}
+
+/** A column with number formatting only. Series display settings apply only to Y-axis series. */
+export interface AssistantDataVisualizationColumn {
+    /** Name of a column returned by the SQL query. */
+    column: string
+    /** Optional number formatting for this column. */
+    settings?: AssistantDataVisualizationColumnSettings
 }
 
 export interface AssistantDataVisualizationGoalLine {
@@ -1973,7 +2000,7 @@ export interface AssistantDataVisualizationChartSettings {
      * Column used as the X axis. Typically a time bucket or categorical column, but `ScatterPlot`
      * plots two measures against each other, so it needs a numeric column here too.
      */
-    xAxis?: AssistantDataVisualizationAxis
+    xAxis?: AssistantDataVisualizationColumn
     /** Label rendered under the X axis. */
     xAxisLabel?: string
     /** One or more numeric columns plotted as Y series. */
@@ -2012,7 +2039,7 @@ export interface AssistantDataVisualizationChartSettings {
 
 export interface AssistantDataVisualizationTableSettings {
     /** Columns to display and their order. Omit to show every column returned by the query. */
-    columns?: AssistantDataVisualizationAxis[]
+    columns?: AssistantDataVisualizationColumn[]
     /** Column names to pin to the left of the table. */
     pinnedColumns?: string[]
     /** Transpose rows and columns. */

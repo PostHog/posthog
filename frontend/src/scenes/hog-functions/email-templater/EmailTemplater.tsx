@@ -54,7 +54,7 @@ export type EmailEditorMode = 'full' | 'preview'
 // Maps a templater field key onto its validation message slot. Only the sender, recipient, and
 // subject rows have their own message; body content is reported separately near the editor.
 function fieldErrorFor(fieldKey: string, fieldErrors?: EmailFieldErrors): string | undefined {
-    if (fieldKey === 'from' || fieldKey === 'to' || fieldKey === 'subject') {
+    if (fieldKey === 'from' || fieldKey === 'to' || fieldKey === 'subject' || fieldKey === 'preheader') {
         return fieldErrors?.[fieldKey]
     }
     return undefined
@@ -1159,7 +1159,7 @@ function EmailTemplaterModal({
                     host={sceneTakeoverElement}
                 />
             ) : (
-                // No takeover host registered (minimal/zen layouts): keep the fullscreen modal.
+                // No takeover host registered (minimal layout): keep the fullscreen modal.
                 <LemonModal
                     isOpen={isModalOpen}
                     fullScreen

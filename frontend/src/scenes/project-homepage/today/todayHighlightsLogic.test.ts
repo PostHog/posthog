@@ -31,9 +31,8 @@ describe('todayHighlightsLogic', () => {
         jest.restoreAllMocks()
     })
 
-    it('records which pulse metric was opened, why it was shown and the ranking variant', async () => {
+    it('records which pulse metric was opened and why it was shown', async () => {
         const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
-        jest.spyOn(posthog, 'getFeatureFlag').mockReturnValue('frecency')
         const logic = todayHighlightsLogic()
         logic.mount()
 
@@ -43,7 +42,6 @@ describe('todayHighlightsLogic', () => {
             kind: 'insight',
             reason: 'dashboard',
             position: 2,
-            pulse_ranking: 'frecency',
         })
     })
 
@@ -62,6 +60,26 @@ describe('todayHighlightsLogic', () => {
         ])
     })
 
+    it('hides a pulse metric in this project only, fills its place with the next suggestion, and undoes the hide', async () => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+        const pulse = ['a', 'b', 'c', 'd', 'e'].map((key) => makePulseMetric({ key: `insight:${key}` }))
+        highlightResponses = [[200, makeHighlights({ pulse })]]
+        const logic = todayHighlightsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const shown = (): string[] => logic.values.pulseTiles.map((metric) => metric.key)
+
+        logic.actions.setHiddenPulseMetrics({ '1:insight:a': true })
+        expect(shown()).toEqual(['insight:a', 'insight:b', 'insight:c', 'insight:d'])
+
+        logic.actions.hidePulseMetric(pulse[1], 1)
+        expect(shown()).toEqual(['insight:a', 'insight:c', 'insight:d', 'insight:e'])
+        expect(capture).toHaveBeenCalledWith('today pulse metric hidden', expect.objectContaining({ position: 1 }))
+
+        logic.actions.unhidePulseMetric(pulse[1], 1)
+        expect(shown()).toEqual(['insight:a', 'insight:b', 'insight:c', 'insight:d'])
+    })
+
     it.each([
         { status: 404, failed: false },
         { status: 500, failed: true },
@@ -75,7 +93,7 @@ describe('todayHighlightsLogic', () => {
             .toMatchValues({ highlights: null, highlightsFailed: failed, highlightsPending: false })
     })
 
-    it('shows the skeleton until there is content, keeps the last ready content while new highlights compute, and polls until they are ready', async () => {
+    it('shows the skeleton until there is content, keeps the pulse skeleton while an older result without tiles is replaced, and polls until ready', async () => {
         jest.useFakeTimers()
         const item = makeHighlightItem()
         highlightResponses = [
@@ -86,17 +104,19 @@ describe('todayHighlightsLogic', () => {
         const logic = todayHighlightsLogic()
         logic.mount()
 
-        await expectLogic(logic).toDispatchActions(['loadHighlightsSuccess']).toMatchValues({ highlightsPending: true })
+        await expectLogic(logic)
+            .toDispatchActions(['loadHighlightsSuccess'])
+            .toMatchValues({ highlightsPending: true, pulsePending: true })
         await expectLogic(logic, () => {
             jest.advanceTimersByTime(HIGHLIGHTS_POLL_MS)
         })
             .toDispatchActions(['loadHighlights', 'loadHighlightsSuccess'])
-            .toMatchValues({ highlightsPending: false, forYouHighlights: [item] })
+            .toMatchValues({ highlightsPending: false, pulsePending: true, forYouHighlights: [item] })
         await expectLogic(logic, () => {
             jest.advanceTimersByTime(HIGHLIGHTS_POLL_MS)
         })
             .toDispatchActions(['loadHighlights', 'loadHighlightsSuccess'])
-            .toMatchValues({ highlights: makeHighlights({ items: [item] }) })
+            .toMatchValues({ highlights: makeHighlights({ items: [item] }), pulsePending: false })
 
         await jest.advanceTimersByTimeAsync(HIGHLIGHTS_POLL_MS * 3)
         expect(highlightCalls).toBe(3)

@@ -1,9 +1,13 @@
-from datetime import UTC, date, datetime
+from collections.abc import Iterator
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
+    interruptible_wait,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
@@ -16,7 +20,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.recall_ai.settings import RECALL_AI_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.recall_ai.settings import (
+    RECALL_AI_ENDPOINTS,
+    USAGE_BACKFILL_DAYS,
+    USAGE_ENDPOINT,
+    USAGE_REQUEST_INTERVAL_SECONDS,
+    USAGE_RESTATEMENT_DAYS,
+)
 
 # API keys are region-scoped and each region is its own host. The allowlist pins outbound
 # traffic to *.recall.ai even if a stored config carries an unexpected region value.
@@ -25,7 +35,9 @@ REGIONS = ("us-east-1", "us-west-2", "eu-central-1", "ap-northeast-1")
 
 @frozen
 class RecallAIResumeConfig:
-    next_url: str
+    next_url: Optional[str] = None
+    # The next UTC day the usage walk requests, as an ISO date.
+    next_date: Optional[str] = None
 
 
 def base_url_for_region(region: str) -> str:
@@ -102,6 +114,70 @@ def get_resource(
     }
 
 
+def _utc_today() -> date:
+    return datetime.now(UTC).date()
+
+
+def _to_date(value: Any) -> Optional[date]:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        try:
+            return date.fromisoformat(value[:10])
+        except ValueError:
+            return None
+    return None
+
+
+def _usage_rows(
+    api_key: str,
+    region: str,
+    resumable_source_manager: ResumableSourceManager[RecallAIResumeConfig],
+    db_incremental_field_last_value: Optional[Any],
+) -> Iterator[dict[str, Any]]:
+    today = _utc_today()
+    day = today - timedelta(days=USAGE_BACKFILL_DAYS)
+    watermark = _to_date(db_incremental_field_last_value)
+    if watermark is not None:
+        day = watermark - timedelta(days=USAGE_RESTATEMENT_DAYS)
+
+    if resumable_source_manager.can_resume():
+        resume_config = resumable_source_manager.load_state()
+        resumed_day = _to_date(resume_config.next_date) if resume_config is not None else None
+        if resumed_day is not None and resumed_day > day:
+            day = resumed_day
+
+    url = f"{base_url_for_region(region)}{RECALL_AI_ENDPOINTS[USAGE_ENDPOINT].path}"
+    session = make_tracked_session(
+        headers={"Authorization": f"Token {api_key}", "Accept": "application/json"},
+        redact_values=(api_key,),
+    )
+
+    first_request = True
+    while day <= today:
+        if not first_request:
+            interruptible_wait(USAGE_REQUEST_INTERVAL_SECONDS, safe_point=resumable_source_manager.safe_point)
+        first_request = False
+
+        # Both bounds round up to UTC midnight, so [day, day + 1) covers exactly one UTC day.
+        next_day = day + timedelta(days=1)
+        response = session.get(
+            url,
+            params={"start": _to_iso8601(day), "end": _to_iso8601(next_day)},
+            timeout=60,
+            allow_redirects=False,
+        )
+        response.raise_for_status()
+        body = response.json()
+
+        if next_day <= today:
+            resumable_source_manager.save_state(RecallAIResumeConfig(next_date=next_day.isoformat()))
+        yield {"date": day.isoformat(), "bot_total": body.get("bot_total") if isinstance(body, dict) else None}
+        day = next_day
+
+
 def recall_ai_source(
     api_key: str,
     region: str,
@@ -113,6 +189,25 @@ def recall_ai_source(
     should_use_incremental_field: bool = False,
 ) -> SourceResponse:
     endpoint_config = RECALL_AI_ENDPOINTS[endpoint]
+
+    if endpoint == USAGE_ENDPOINT:
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: _usage_rows(
+                api_key,
+                region,
+                resumable_source_manager,
+                db_incremental_field_last_value if should_use_incremental_field else None,
+            ),
+            primary_keys=["date"],
+            partition_count=1,
+            partition_size=1,
+            partition_mode="datetime",
+            partition_format="month",
+            partition_keys=[endpoint_config.partition_key],
+            # Days are requested oldest first, one ordered series per run.
+            sort_mode="asc",
+        )
 
     config: RESTAPIConfig = {
         "client": {
@@ -142,7 +237,7 @@ def recall_ai_source(
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resumable_source_manager.can_resume():
         resume_config = resumable_source_manager.load_state()
-        if resume_config is not None:
+        if resume_config is not None and resume_config.next_url:
             initial_paginator_state = {"next_url": resume_config.next_url}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:

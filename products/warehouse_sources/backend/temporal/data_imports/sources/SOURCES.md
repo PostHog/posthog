@@ -1177,6 +1177,7 @@ doesn't conflict with concurrent PRs.
 - facebook_pages
 - faros_ai
 - fastbill
+- fathom
 - fauna
 - feishu
 - fieldwire
@@ -1349,6 +1350,7 @@ doesn't conflict with concurrent PRs.
 - moodle
 - msg91
 - mycase
+- nango
 - nasa
 - nationbuilder
 - navan
@@ -1498,6 +1500,7 @@ doesn't conflict with concurrent PRs.
 - sprout_social
 - sqlite
 - stackadapt
+- stamped
 - starburst
 - stockx
 - strato

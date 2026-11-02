@@ -258,6 +258,19 @@ export const IntegrationKindEnumApi = {
 } as const
 
 /**
+ * * `oauth` - OAuth
+ * * `token` - Token
+ * * `credentials` - Credentials
+ */
+export type IntegrationAuthTypeEnumApi = (typeof IntegrationAuthTypeEnumApi)[keyof typeof IntegrationAuthTypeEnumApi]
+
+export const IntegrationAuthTypeEnumApi = {
+    Oauth: 'oauth',
+    Token: 'token',
+    Credentials: 'credentials',
+} as const
+
+/**
  * * `connected` - connected
  * * `unavailable` - unavailable
  */
@@ -274,6 +287,12 @@ export const InstallationStatusEnumApi = {
 export interface IntegrationConfigApi {
     readonly id: number
     kind: IntegrationKindEnumApi
+    /** How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
+     *
+     * * `oauth` - OAuth
+     * * `token` - Token
+     * * `credentials` - Credentials */
+    readonly auth_type: IntegrationAuthTypeEnumApi
     config?: unknown
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -332,6 +351,12 @@ export interface SlackChannelsResponseApi {
 export interface PatchedIntegrationConfigApi {
     readonly id?: number
     kind?: IntegrationKindEnumApi
+    /** How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
+     *
+     * * `oauth` - OAuth
+     * * `token` - Token
+     * * `credentials` - Credentials */
+    readonly auth_type?: IntegrationAuthTypeEnumApi
     config?: unknown
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -620,6 +645,16 @@ export interface GitHubReposRefreshResponseApi {
      * * `connected` - connected
      * * `unavailable` - unavailable */
     installation_status: InstallationStatusEnumApi
+}
+
+export interface GitHubRepositoryAccessResponseApi {
+    /** Whether a live GitHub request confirmed repository access. */
+    available: boolean
+}
+
+export interface ErrorResponseApi {
+    /** Error message */
+    error: string
 }
 
 export interface GitHubTeamApi {
@@ -1225,6 +1260,14 @@ export type IntegrationsGithubReposRetrieveParams = {
      * Optional case-insensitive repository name search query.
      */
     search?: string
+}
+
+export type IntegrationsGithubRepositoryAccessRetrieveParams = {
+    /**
+     * Repository in owner/repo format. Omit to check access to any repository.
+     * @minLength 1
+     */
+    repository?: string
 }
 
 export type IntegrationsGithubTeamsRetrieveParams = {

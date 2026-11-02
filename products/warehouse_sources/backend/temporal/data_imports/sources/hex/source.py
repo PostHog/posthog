@@ -96,6 +96,15 @@ If your workspace runs on a single-tenant or self-hosted Hex deployment, enter i
             # Matched on the stable error code rather than the per-request URL; every retry sends the
             # identical request and fails identically, so there's nothing to gain from retrying.
             "code=UNPROCESSABLE_CONTENT": "Hex rejected a request as unprocessable. This is usually caused by the state of a specific project in your Hex workspace rather than something PostHog can retry. Check the project in Hex, or contact Hex support if this persists.",
+            # Catch-all for every other 422: some Hex endpoints (e.g. GetQueriedTables) reject a
+            # request without a structured error code in the body, so the key above never matches
+            # and the message carries nothing past the stock "for url: ..." text. A 422 means the
+            # request itself was semantically rejected, so every retry fails identically regardless
+            # of which endpoint raised it. Kept last so the more specific, better-worded key above
+            # still wins when Hex does return a structured code. Matched on just the status, like
+            # the 401/403 keys above, since the reason phrase isn't guaranteed stable (RFC 9110
+            # renamed it "Unprocessable Content").
+            "422 Client Error": "Hex rejected a request as unprocessable. This is usually caused by the state of a specific resource in your Hex workspace rather than something PostHog can retry. Check your Hex workspace, or contact Hex support if this persists.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

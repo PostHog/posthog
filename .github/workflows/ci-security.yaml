@@ -38,6 +38,7 @@ jobs:
             desktop: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.desktop || 'true' }}
             # Pushes default to 'false' because the semgrep-ci action already scans the whole tree on a push.
             scan-setup: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.scan-setup || 'false' }}
+            idor-rule: ${{ steps.filter.outputs.idor-rule || 'false' }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -143,9 +144,14 @@ jobs:
                         - '.github/workflows/ci-security.yaml'
                       # A change to the rules or the scan setup can change findings in
                       # unchanged code, so the jobs that pass local rules scan the whole tree.
+                      # Every new team-scoped model edits the IDOR rule, so semgrep-python
+                      # scans the whole tree with that rule file only.
                       scan-setup:
                         - '.semgrep/rules/security/**'
+                        - '!.semgrep/rules/security/idor-team-scoped-models.yaml'
                         - '.github/workflows/ci-security.yaml'
+                      idor-rule:
+                        - '.semgrep/rules/security/idor-team-scoped-models.yaml'
 
     semgrep-python:
         needs: changes
@@ -189,6 +195,28 @@ jobs:
                       --exclude-rule trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
                       --exclude-rule python.django.security.audit.csrf-exempt.no-csrf-exempt
                       --exclude-rule generic.html-templates.security.var-in-href.var-in-href
+                      --include /bin
+                      --include /common
+                      --include /ee
+                      --include /posthog
+                      --include /products
+                      --include /services/llm-gateway
+                      --include /services/stripe-mock
+                      --include /tools
+                      --exclude products/desktop
+                      --jobs 4
+
+            # The scan above checks only the changed files. A newly listed model can
+            # already have unscoped lookups in unchanged files. Keep the paths aligned
+            # with the scan above.
+            - name: Run the IDOR rule over the whole tree
+              if: needs.changes.outputs.idor-rule == 'true' && needs.changes.outputs.scan-setup != 'true'
+              uses: ./.github/actions/semgrep-ci
+              with:
+                  image: ${{ env.SEMGREP_IMAGE }}
+                  full-scan: 'true'
+                  args: >-
+                      --config .semgrep/rules/security/idor-team-scoped-models.yaml
                       --include /bin
                       --include /common
                       --include /ee
@@ -485,6 +513,30 @@ jobs:
                       --verbose \
                       --timeout 300 \
                       bin/ common/ docs/onboarding/ ee/ frontend/ packages/ posthog/ products/ services/ tools/
+
+            # Per-file ratchet: the INFO rule integration-model-through-sdk has a backlog, and its
+            # baseline file lists the allowed count per file. More findings than the baseline fails, and
+            # so do fewer, so each migration lowers the baseline. See .semgrep/rules/devex/README.md.
+            # Skip on unrebased branches: the rule may not exist there yet.
+            - name: Integration model ratchet (blocking)
+              run: |
+                  if [ ! -f .semgrep/rules/devex/integration-model-through-sdk.yaml ]; then
+                      echo "integration-model-through-sdk not present on this branch yet, skipping (rebase to pick it up)"
+                      exit 0
+                  fi
+                  docker run --rm -v "${{ github.workspace }}:/src" -w /src \
+                    -e SEMGREP_ENABLE_VERSION_CHECK=false \
+                    ${{ env.SEMGREP_IMAGE }} \
+                    semgrep \
+                      --config ".semgrep/rules/devex/integration-model-through-sdk.yaml" \
+                      --json \
+                      --output semgrep-integration-model.json \
+                      --metrics=off \
+                      --timeout 300 \
+                      common/ ee/ posthog/ products/
+                  python3 bin/semgrep_ratchet.py \
+                    --findings semgrep-integration-model.json \
+                    --baseline posthog/integrations/model_access_baseline.txt
 
             # Pass 3 (PRs only): fail on newly-introduced WARNING findings.
             # --baseline-commit diffs against the PR base (first parent of the

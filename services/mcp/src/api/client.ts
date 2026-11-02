@@ -13,6 +13,7 @@ import {
     PostHogRateLimitError,
     PostHogTransportError,
     PostHogValidationError,
+    ToolInputValidationError,
 } from '@/lib/errors'
 import { getSearchParamsFromRecord, sanitizeHeaders, sanitizeHeaderValue } from '@/lib/utils.js'
 import type {
@@ -60,6 +61,19 @@ const SAFE_HTTP_METHODS = new Set(['GET', 'HEAD'])
  *  thrown out of `fetch` or a body read is a transport fault. */
 function isAbortError(error: unknown): boolean {
     return (error instanceof Error && error.name === 'AbortError') || isTimeoutError(error)
+}
+
+/** A caller's cancellation also ends a wait before a retry, so its deadline holds across retries. */
+function waitUnlessAborted(ms: number, signal: AbortSignal | null | undefined): Promise<void> {
+    return new Promise((resolve) => {
+        const done = (): void => {
+            clearTimeout(timer)
+            signal?.removeEventListener('abort', done)
+            resolve()
+        }
+        const timer = setTimeout(done, ms)
+        signal?.addEventListener('abort', done)
+    })
 }
 
 // Per-attempt deadline for a JSON API request. Without it, an upstream request that
@@ -343,6 +357,8 @@ export class ApiClient {
         responseType?: 'json' | 'text'
         /** Per-attempt deadline for a JSON response. Defaults to the path-based deadline. */
         timeoutMs?: number
+        /** Cancels the request, including any wait before a retry. */
+        signal?: AbortSignal
     }): Promise<T> {
         const pathname = opts.path.split(/[?#]/, 1)[0]!
         if (
@@ -350,7 +366,9 @@ export class ApiClient {
             pathname.includes('//') ||
             new URL(pathname, this.baseUrl).pathname !== pathname
         ) {
-            throw new Error('Invalid API path')
+            throw new ToolInputValidationError(
+                'Invalid API path: a path parameter is empty, ".", or "..". Send a valid resource id and try again.'
+            )
         }
         const searchParams = new URLSearchParams()
         if (opts.query) {
@@ -376,6 +394,7 @@ export class ApiClient {
             method: opts.method,
             ...(opts.body ? { body: JSON.stringify(opts.body) } : {}),
             ...(opts.headers ? { headers: opts.headers } : {}),
+            ...(opts.signal ? { signal: opts.signal } : {}),
         }
 
         if (opts.responseType === 'text') {
@@ -655,6 +674,18 @@ export class ApiClient {
         const timeoutMs = timeoutOverrideMs ?? apiRequestTimeoutMs(url)
 
         for (;;) {
+            if (options?.signal?.aborted) {
+                return {
+                    success: false,
+                    error: new PostHogTransportError({
+                        url,
+                        method,
+                        attempts: transportRetries + rateLimitRetries + 1,
+                        retryable: false,
+                        cause: options.signal.reason,
+                    }),
+                }
+            }
             let response: Response
             let bodyText: string
             const deadline = new AbortController()
@@ -698,7 +729,7 @@ export class ApiClient {
                 console.warn(
                     `[API] Transport failure on ${method} ${url}: ${String(error)}. Retrying in ${Math.round(delayMs)}ms (attempt ${transportRetries}/${TRANSPORT_MAX_RETRIES})`
                 )
-                await new Promise((resolve) => setTimeout(resolve, delayMs))
+                await waitUnlessAborted(delayMs, options?.signal)
                 continue
             } finally {
                 clearTimeout(timer)
@@ -742,7 +773,7 @@ export class ApiClient {
                 console.warn(
                     `[API] Rate limited (429) on ${method} ${url}. Retrying in ${Math.round(delayMs)}ms (attempt ${rateLimitRetries}/${RATE_LIMIT_MAX_RETRIES})`
                 )
-                await new Promise((resolve) => setTimeout(resolve, delayMs))
+                await waitUnlessAborted(delayMs, options?.signal)
                 continue
             }
 
@@ -799,8 +830,11 @@ export class ApiClient {
 
     apiKeys(): Endpoint {
         return {
-            current: async (): Promise<Result<ApiRedactedPersonalApiKey>> => {
-                return this.fetchJson<ApiRedactedPersonalApiKey>(`${this.baseUrl}/api/personal_api_keys/@current`)
+            current: async ({ signal }: { signal?: AbortSignal } = {}): Promise<Result<ApiRedactedPersonalApiKey>> => {
+                return this.fetchJson<ApiRedactedPersonalApiKey>(
+                    `${this.baseUrl}/api/personal_api_keys/@current`,
+                    signal ? { signal } : undefined
+                )
             },
         }
     }
@@ -1622,8 +1656,10 @@ export class ApiClient {
 
             runQuery: async ({
                 query,
+                signal,
             }: {
                 query: Record<string, unknown>
+                signal?: AbortSignal
             }): Promise<{
                 results: unknown
                 columns?: unknown[] | null
@@ -1643,6 +1679,7 @@ export class ApiClient {
                     method: 'POST',
                     path: `/api/environments/${projectId}/query/`,
                     body: { query: normalizeQuery(query) },
+                    signal,
                 })
             },
 

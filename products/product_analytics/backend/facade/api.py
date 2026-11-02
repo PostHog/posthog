@@ -255,6 +255,17 @@ def viewable_insights(*, team: Team, user: User, insight_ids: Collection[int]) -
     ]
 
 
+def viewable_saved_queries(*, team: Team, user: User, short_ids: Collection[str]) -> dict[str, dict[str, Any]]:
+    """The stored queries of this team's live insights among ``short_ids`` that the user may view, by short ID."""
+    if not short_ids:
+        return {}
+    access_control = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
+    insights = access_control.filter_queryset_by_access_level(
+        Insight.objects.filter(team_id=team.id, short_id__in=short_ids, deleted=False), resource="insight"
+    )
+    return {short_id: query for short_id, query in insights.values_list("short_id", "query") if query}
+
+
 def save_saved_insight_query(
     *, team: Team, user: User, insight_id: int, expected_query: dict[str, Any], query: dict[str, Any]
 ) -> str | None:
@@ -287,6 +298,7 @@ def get_insight_series(
     short_id: str,
     dashboard: InsightDashboardContext | None = None,
     blocking: bool = False,
+    wait_until: float | None = None,
 ) -> InsightSeries | None:
     insight = Insight.objects.filter(team__project_id=team.project_id, short_id=short_id, deleted=False).first()
     if insight is None:
@@ -306,4 +318,5 @@ def get_insight_series(
         query=insight.query or {},
         dashboard=dashboard,
         blocking=blocking,
+        wait_until=wait_until,
     )

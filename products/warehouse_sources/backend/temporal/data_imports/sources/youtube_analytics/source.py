@@ -65,6 +65,10 @@ class YouTubeAnalyticsSource(ResumableSource[YouTubeAnalyticsSourceConfig, YouTu
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.YOUTUBEANALYTICS
 
+    @property
+    def credential_kind(self) -> str | None:
+        return "youtube-analytics"
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error": (

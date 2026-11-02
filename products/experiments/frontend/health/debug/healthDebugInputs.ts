@@ -316,7 +316,7 @@ export function buildMetricFacts(
         {
             label: 'Metric queries',
             value: serverValue(state, (inputs) => describeMetricCompiles(inputs.metric_compiles)),
-            help: "The metric queries check compiles each metric's query as you, without running it. A metric that compiles is cached for a day. A failing metric compiles again on every load.",
+            help: "The 'Invalid metric definitions' check compiles each metric's query as you, without running it. A metric that compiles is cached for a day. A failing metric compiles again on every load.",
         },
         ...(state.inputs?.metric_compiles?.failures ?? []).map((failure) => ({
             label: `Doesn't compile: ${failure.name} (${failure.role})`,
@@ -331,6 +331,12 @@ export function buildMetricFacts(
             label: `Failed: ${failure.name} (${failure.role})`,
             value: `${failure.error_type ?? 'no class'}${failure.retriable ? ', retriable' : ''}: ${
                 failure.message ?? 'message hidden, it can hold evaluation rules'
+            }`,
+        })),
+        ...(state.inputs?.latest_calculation?.zero_metrics ?? []).map((metric) => ({
+            label: `Zero: ${metric.name} (${metric.role})`,
+            value: `${metric.exposures} exposures${metric.ratio_side ? `, ${metric.ratio_side}` : ''}${
+                metric.stopped_events.length ? `, stopped: ${metric.stopped_events.join(', ')}` : ''
             }`,
         })),
     ]

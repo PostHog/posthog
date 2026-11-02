@@ -103,6 +103,14 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
                 return
 
             task_run.status = input.status
+            if (
+                input.status == TaskRun.Status.FAILED
+                and input.error_type
+                and not (task_run.state or {}).get("failure_error_type")
+            ):
+                task_run.state = TaskRun.update_state_atomic(
+                    task_run.id, updates={"failure_error_type": input.error_type}
+                )
             if input.error_message:
                 task_run.error_message = input.error_message
             marker = TIMED_OUT_INACTIVITY_STATE_KEY if input.timed_out_inactivity else input.timeout_marker

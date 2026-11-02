@@ -49,7 +49,9 @@ export function SceneDashboardChoiceModal({ scene }: SceneDashboardChoiceModalPr
                                 closeSceneDashboardChoiceModal()
                             }}
                         >
-                            {scene === Scene.ProductAnalyticsHomeTab ? 'Use default dashboard' : 'Reset to "new tab"'}
+                            {scene === Scene.ProductAnalyticsHomeTab
+                                ? 'Reset to PostHog default'
+                                : 'Reset to "new tab"'}
                         </LemonButton>
                     ) : null}
                     <LemonButton
@@ -96,7 +98,7 @@ export function SceneDashboardChoiceModal({ scene }: SceneDashboardChoiceModalPr
                                     ) : (
                                         <strong className="set-default-text">
                                             {scene === Scene.ProductAnalyticsHomeTab
-                                                ? 'Set as Home dashboard'
+                                                ? 'Show on this page'
                                                 : 'Set as default'}
                                         </strong>
                                     )}

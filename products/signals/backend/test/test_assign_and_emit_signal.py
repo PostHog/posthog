@@ -455,6 +455,8 @@ async def test_ready_repromotes_to_candidate_on_a_bucket_regardless_of_weight(at
     "report_status,flag_result,recurs",
     [
         (SignalReport.Status.RESOLVED, False, True),
+        (SignalReport.Status.CLOSED, False, True),
+        (SignalReport.Status.CLOSED, True, True),
         (SignalReport.Status.MONITORING, False, True),
         (SignalReport.Status.MONITORING, RuntimeError("flag service unavailable"), True),
         (SignalReport.Status.MONITORING, True, False),

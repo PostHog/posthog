@@ -161,7 +161,7 @@ def _cost_less_usage_update_line(used: int = 1000) -> str:
     )
 
 
-@dataclass
+@dataclass(frozen=False)
 class FakeTaskRun:
     id: str = "run-1"
     task_id: str = "task-1"
@@ -169,3 +169,4 @@ class FakeTaskRun:
     status: str = "running"
     error_message: str | None = None
     state: dict[str, object] | None = None
+    finish_report: str | None = None
