@@ -32134,6 +32134,10 @@ export namespace Schemas {
       speeds_up: SyncFrequencyBlocker[];
       /** True when at least one view this cadence speeds up sits outside the caller's access grants, so `speeds_up` is incomplete. */
       speeds_up_withheld: boolean;
+      /** Downstream views and endpoints that refresh more often than this cadence, so they would read data older than their own cadence if this view were pinned to it. Only views the caller may read are listed. */
+      delays_if_pinned: SyncFrequencyBlocker[];
+      /** True when at least one view this pin would delay sits outside the caller's access grants, so `delays_if_pinned` is incomplete. */
+      delays_if_pinned_withheld: boolean;
     }
 
     export interface SyncFrequencyBound {
@@ -32150,6 +32154,8 @@ export namespace Schemas {
        * * `managed_viewset` - managed_viewset
        * * `no_node` - no_node */
       frequency_mode: FrequencyModeEnum;
+      /** True when this view holds its own cadence instead of refreshing as often as its downstream views and endpoints need. See `sync_frequency_pinned`. */
+      pinned: boolean;
       /** Every cadence a picker may show, coarsest-last, each marked allowed or blocked with its cause. Empty outside 'tiered' mode. */
       options: SyncFrequencyOption[];
       /** The fastest bound: no cadence finer than this is allowed, because the source named here does not sync more often. Null when no source withholds a cadence. */
@@ -32239,6 +32245,8 @@ export namespace Schemas {
        * * `7day` - 7day
        * * `30day` - 30day */
       sync_frequency?: SavedQuerySyncFrequencyEnum | null;
+      /** Pin this view to its own `sync_frequency`. A pinned view refreshes at that cadence even when downstream views or endpoints refresh more often, so they read data up to one pinned interval old. Requires a `sync_frequency`. Set false to go back to refreshing as often as downstream views need. Clearing `sync_frequency` also clears the pin. */
+      sync_frequency_pinned?: boolean;
       /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling. Read-only, and present on retrieve, create and update responses only. */
       readonly sync_frequency_bounds: SyncFrequencyBounds;
       readonly columns: readonly DataWarehouseSavedQueryColumnsItem[];
@@ -86479,6 +86487,8 @@ export namespace Schemas {
        * * `7day` - 7day
        * * `30day` - 30day */
       sync_frequency?: SavedQuerySyncFrequencyEnum | null;
+      /** Pin this view to its own `sync_frequency`. A pinned view refreshes at that cadence even when downstream views or endpoints refresh more often, so they read data up to one pinned interval old. Requires a `sync_frequency`. Set false to go back to refreshing as often as downstream views need. Clearing `sync_frequency` also clears the pin. */
+      sync_frequency_pinned?: boolean;
       /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling. Read-only, and present on retrieve, create and update responses only. */
       readonly sync_frequency_bounds?: SyncFrequencyBounds;
       readonly columns?: readonly PatchedDataWarehouseSavedQueryColumnsItem[];

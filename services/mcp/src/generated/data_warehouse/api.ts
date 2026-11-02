@@ -446,6 +446,12 @@ export const WarehouseSavedQueriesCreateBody = () => zod
             .describe(
                 "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the cadence stored on the view's DAG node.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
             ),
+        sync_frequency_pinned: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Pin this view to its own `sync_frequency`. A pinned view refreshes at that cadence even when downstream views or endpoints refresh more often, so they read data up to one pinned interval old. Requires a `sync_frequency`. Set false to go back to refreshing as often as downstream views need. Clearing `sync_frequency` also clears the pin.'
+            ),
         folder_id: zod
             .string()
             .nullish()
@@ -558,6 +564,12 @@ export const WarehouseSavedQueriesPartialUpdateBody = () => zod
             .optional()
             .describe(
                 "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the cadence stored on the view's DAG node.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
+            ),
+        sync_frequency_pinned: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Pin this view to its own `sync_frequency`. A pinned view refreshes at that cadence even when downstream views or endpoints refresh more often, so they read data up to one pinned interval old. Requires a `sync_frequency`. Set false to go back to refreshing as often as downstream views need. Clearing `sync_frequency` also clears the pin.'
             ),
         folder_id: zod
             .string()
@@ -708,6 +720,12 @@ export const WarehouseSavedQueriesRevertMaterializationCreateBody = () => zod
             .optional()
             .describe(
                 "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the cadence stored on the view's DAG node.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
+            ),
+        sync_frequency_pinned: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Pin this view to its own `sync_frequency`. A pinned view refreshes at that cadence even when downstream views or endpoints refresh more often, so they read data up to one pinned interval old. Requires a `sync_frequency`. Set false to go back to refreshing as often as downstream views need. Clearing `sync_frequency` also clears the pin.'
             ),
         folder_id: zod
             .string()
