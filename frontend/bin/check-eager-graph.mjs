@@ -104,8 +104,8 @@ const ROOTS = [
     {
         root: AUTHENTICATED_SHELL,
         label: 'authenticated shell (every logged-in page)',
-        // 2026-11-01: 4.06 MiB eager output, stable CSS included. ~0.3% headroom.
-        budgetBytes: 4_270_000,
+        // 2026-11-02: 4.02 MiB eager output, stable CSS included. ~0.3% headroom.
+        budgetBytes: 4_230_000,
         forbidden: [
             'node_modules/monaco-editor/',
             'products/product_analytics/frontend/insights/activityDescriptions',
@@ -138,6 +138,8 @@ const ROOTS = [
             'src/layout/today/TodayTopBar.tsx',
             // The rail's pane actions pull in the new-analytics menu and the canvas block library.
             'src/layout/today/todayRailItems.tsx',
+            // The pay gate loads the payment logic on click. It pulls in the billing product logic.
+            'src/scenes/billing/paymentEntryLogic.ts',
             // The rich text editor stack is for the scenes that edit text. Rendered markdown needs none of it.
             'node_modules/@tiptap/',
             'node_modules/prosemirror-',
@@ -192,8 +194,8 @@ const ROOTS = [
             'src/scenes/project-homepage/today/TodayHome.tsx',
         ],
         label: 'today home path',
-        // 2026-11-01: 4.97 MiB, stable CSS included. ~0.3% headroom.
-        budgetBytes: 5_225_000,
+        // 2026-11-02: 4.93 MiB, stable CSS included. ~0.3% headroom.
+        budgetBytes: 5_186_000,
         forbidden: [
             'src/scenes/project-homepage/ai-first/AiFirstHomepage.tsx',
             'src/scenes/project-homepage/today/TodayReportPage.tsx',
