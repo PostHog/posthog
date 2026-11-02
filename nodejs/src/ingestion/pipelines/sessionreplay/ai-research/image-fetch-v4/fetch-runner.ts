@@ -40,6 +40,7 @@ export type ShedReason =
     | 'registrable_domain_map_full'
 export const HOPS_EXHAUSTED = 'hops_exhausted'
 export const DELAY_TOO_LONG = 'delay_too_long'
+export const URL_TOO_OLD = 'url_too_old'
 export type AttemptOutcome =
     | FetchOutcome
     | FetchRefusalReason
@@ -47,6 +48,7 @@ export type AttemptOutcome =
     | 'publish_failed'
     | typeof HOPS_EXHAUSTED
     | typeof DELAY_TOO_LONG
+    | typeof URL_TOO_OLD
 
 export interface FetchAttempt {
     candidate: FetchCandidate
@@ -72,6 +74,7 @@ export interface FetchRunnerOptions {
 
 const TRANSIENT_OUTCOMES = new Set<TransientFetchOutcome>(['timeout', 'error', 'rate_limited', 'server_error'])
 const ONE_MINUTE_MS = 60_000
+const TEN_MINUTES_MS = 10 * ONE_MINUTE_MS
 const CONFIGURATION_RETRY_MS = 60 * 60 * 1000
 const STORAGE_FAILURE_LOG_INTERVAL_MS = 10_000
 
@@ -440,7 +443,7 @@ export class FetchRunner implements FetchPass {
             return this.terminal(candidate, HOPS_EXHAUSTED, undefined, [])
         }
         if (Date.now() > deadlineMs) {
-            return await this.republish(republishBatch, candidate, 'deadline', 'pass_deadline', 0, [], 'pass_deadline')
+            return await this.deferPastDeadline(republishBatch, candidate)
         }
         return await ImageFetchProcessingMetrics.runLimited(
             this.candidateWork,
@@ -454,15 +457,7 @@ export class FetchRunner implements FetchPass {
                     }
                     try {
                         if (Date.now() > deadlineMs) {
-                            return await this.republish(
-                                republishBatch,
-                                candidate,
-                                'deadline',
-                                'pass_deadline',
-                                0,
-                                [],
-                                'pass_deadline'
-                            )
+                            return await this.deferPastDeadline(republishBatch, candidate)
                         }
                         return await this.fetchOne(
                             candidate,
@@ -743,13 +738,18 @@ export class FetchRunner implements FetchPass {
                 }
             } catch (error) {
                 this.logStorageFailure(result.outcome === 'ok' ? 'publish' : 'refresh', error)
-                return {
-                    candidate: attemptedCandidate,
-                    outcome: 'publish_failed',
-                    finished: false,
-                    lost: true,
+                // The republish keeps the URL on the frontier, so one failed write does not fail the whole batch. The
+                // origin did nothing wrong, so its budget records no failure. The block reason is one that pods on
+                // older code can still parse, because they dead-letter a record with a reason they do not know.
+                return await this.republish(
+                    republishBatch,
+                    attemptedCandidate,
+                    'publish_failed',
+                    'retry',
+                    ONE_MINUTE_MS,
                     configurationUpdates,
-                }
+                    'transient_backoff'
+                )
             }
             if (!stored) {
                 return await this.refetchWithoutValidators(
@@ -810,6 +810,28 @@ export class FetchRunner implements FetchPass {
         }
     }
 
+    /**
+     * A URL that the pass did not reach goes back to the frontier, so the next pass can try it at once. A URL whose
+     * registrable domain is backing off would only wait in the pool until that pass ends too, and loop through the
+     * frontier until the back-off ends. It waits out the back-off in a delay tier instead. The wait stops at the
+     * 10-minute tier because the one-hour tier runs one relay pod, and a back-off can outlast every tier.
+     */
+    private async deferPastDeadline(republishBatch: RepublishBatch, candidate: FetchCandidate): Promise<FetchAttempt> {
+        const blockedMs = this.budget.blockedForMs(candidate.registrableDomain, Date.now())
+        if (blockedMs > 0) {
+            return await this.republish(
+                republishBatch,
+                candidate,
+                'backoff',
+                'not_ready',
+                Math.min(Math.max(ONE_MINUTE_MS, blockedMs), TEN_MINUTES_MS),
+                [],
+                'unknown_backoff'
+            )
+        }
+        return await this.republish(republishBatch, candidate, 'deadline', 'pass_deadline', 0, [], 'pass_deadline')
+    }
+
     private async republish(
         republishBatch: RepublishBatch,
         candidate: FetchCandidate,
@@ -856,6 +878,9 @@ export class FetchRunner implements FetchPass {
         const result: RepublishResult = await republishBatch.republish(republishedCandidate, target, reason, waitMs)
         if (result === 'refused_delay') {
             return this.terminal(candidate, DELAY_TOO_LONG, undefined, configurationUpdates)
+        }
+        if (result === 'refused_age') {
+            return this.terminal(candidate, URL_TOO_OLD, undefined, configurationUpdates)
         }
         return {
             candidate: republishedCandidate,

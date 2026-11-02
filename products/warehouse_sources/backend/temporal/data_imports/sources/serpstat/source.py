@@ -199,6 +199,7 @@ class SerpstatSource(ResumableSource[SerpstatSourceConfig, SerpstatResumeConfig]
                     ),
                     SourceFieldInputConfig(
                         name="search_engine",
+                        sync_setting=True,
                         label="Search engine database",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

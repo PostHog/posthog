@@ -1,10 +1,11 @@
+from datetime import UTC, datetime
 from typing import Any
 
 from parameterized import parameterized
 
 from products.ai_observability.backend.logic.traces.evaluation_result import EvaluationResult
 
-from .rows import EVALUATION_ID, make_evaluation_result_row
+from .rows import EVALUATION_ID, T0, make_evaluation_result_row
 
 DETECTOR = {"true_is_failure": True}
 AT_LEAST_0_7 = {"passing_rule": {"operator": "gte", "threshold": 0.7}}
@@ -175,3 +176,30 @@ def test_target_name_and_backfill(_name: str, overrides: dict[str, Any], expecte
         result.name,
         result.reasoning,
     ) == expected
+
+
+@parameterized.expand(
+    [
+        ("a numeric result", {"result_type": "numeric", "score": "0.82"}, 0.82),
+        (
+            "a numeric result marked not applicable",
+            {"result_type": "numeric", "score": "0.82", "applicable": "false"},
+            None,
+        ),
+        ("a boolean result", {}, None),
+    ]
+)
+def test_score_is_the_numeric_result(_name: str, overrides: dict[str, Any], score: float | None) -> None:
+    assert evaluation_result(overrides).score == score
+
+
+@parameterized.expand(
+    [
+        ("the run start time", "2026-09-21T10:00:00+00:00", datetime(2026, 9, 21, 10, 0, tzinfo=UTC)),
+        ("a start time without a zone, as UTC", "2026-09-21T10:00:00", datetime(2026, 9, 21, 10, 0, tzinfo=UTC)),
+        ("the event time when the start time is not a date", "yesterday", T0),
+        ("the event time when there is no start time", None, T0),
+    ]
+)
+def test_produced_at_is(_name: str, start_time: str | None, produced_at: datetime) -> None:
+    assert evaluation_result({"start_time": start_time}).produced_at == produced_at

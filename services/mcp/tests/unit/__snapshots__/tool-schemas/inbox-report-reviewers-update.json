@@ -77,6 +77,16 @@
             "description": "A UUID string identifying this signal report.",
             "type": "string"
         },
+        "removal_note": {
+            "description": "Optional context for the removal, such as the area the person does not work on. Remove action only.",
+            "maxLength": 500,
+            "type": "string"
+        },
+        "removal_reason": {
+            "description": "Why the people in `targets` are removed. Remove action only. 'wrong_area': the work should not be on them, because it is outside their area, they moved off it, or someone else owns it. 'already_covered': another reviewer already covers the report. 'unavailable': they do not have bandwidth right now. The last two say nothing about ownership. 'other': explain in removal_note. Research and scouts read the reason when they pick reviewers for later reports.\n\n* `wrong_area` - Not their area\n* `already_covered` - Someone else is on it\n* `unavailable` - No bandwidth\n* `other` - Other",
+            "enum": ["wrong_area", "already_covered", "unavailable", "other"],
+            "type": "string"
+        },
         "targets": {
             "description": "Explicit add or remove targets. When supplied, content is only a fallback for older servers.",
             "items": {

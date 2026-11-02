@@ -38,9 +38,6 @@ function loadingGraph(
         id,
         source_id,
         target_id,
-        properties: {},
-        created_at: '',
-        updated_at: '',
     })
     const upstreamId = `${idPrefix}-upstream`
     const centerNodeId = `${idPrefix}-center`

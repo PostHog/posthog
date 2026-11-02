@@ -124,20 +124,22 @@ describe('taxonomicFilterLogic', () => {
     })
 
     it.each([
-        [TaxonomicFilterGroupType.Events, true, false, 'true'],
-        [TaxonomicFilterGroupType.CustomEvents, true, false, 'true'],
-        [TaxonomicFilterGroupType.Events, true, true, 'false'],
-        [TaxonomicFilterGroupType.CustomEvents, true, true, 'false'],
+        [TaxonomicFilterGroupType.Events, 'test', false, 'true'],
+        [TaxonomicFilterGroupType.CustomEvents, 'test', false, 'true'],
+        [TaxonomicFilterGroupType.Events, 'test', true, 'false'],
+        [TaxonomicFilterGroupType.CustomEvents, 'test', true, 'false'],
+        [TaxonomicFilterGroupType.Events, 'control', false, 'false'],
+        [TaxonomicFilterGroupType.CustomEvents, 'control', false, 'false'],
         [TaxonomicFilterGroupType.Events, false, false, 'false'],
         [TaxonomicFilterGroupType.CustomEvents, false, false, 'false'],
     ])(
         'for %s with the flag %p and allowNonCapturedEvents %p, fuzzy_search is %p',
-        (groupType, flagEnabled, allowNonCapturedEvents, expected) => {
+        (groupType, flagValue, allowNonCapturedEvents, expected) => {
             featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.TAXONOMIC_FILTER_FUZZY_EVENT_SEARCH]: flagEnabled,
+                [FEATURE_FLAGS.TAXONOMIC_FILTER_FUZZY_EVENT_SEARCH]: flagValue,
             })
             const fuzzyLogic = taxonomicFilterLogic({
-                taxonomicFilterLogicKey: `fuzzy-${groupType}-${flagEnabled}-${allowNonCapturedEvents}`,
+                taxonomicFilterLogicKey: `fuzzy-${groupType}-${flagValue}-${allowNonCapturedEvents}`,
                 taxonomicGroupTypes: [groupType],
                 allowNonCapturedEvents,
             })
@@ -941,8 +943,6 @@ describe('taxonomicFilterLogic', () => {
     })
 
     describe('MCP properties group by event scope', () => {
-        // Mirrors the rebuild-side assertions in utils/mcpProperties.test.ts — the two
-        // variants define the group independently, so both sides guard against drift.
         it.each([
             { eventNames: ['$mcp_tool_call'], expectPresent: true },
             { eventNames: ['$pageview'], expectPresent: false },
@@ -1738,7 +1738,7 @@ describe('taxonomicFilterLogic', () => {
                 (g) => g.type === TaxonomicFilterGroupType.HogQLExpression
             )!
             const item = { name: 'properties.$current_url', value: 'properties.$current_url' }
-            // Mirror TaxonomicFilterMenu's handleCommit: the value is derived via group.getValue.
+            // The value is derived via group.getValue.
             const value = group.getValue?.(item as any) ?? null
 
             await expectLogic(hogqlLogic, () => {

@@ -2,7 +2,9 @@ import { ReactNode } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 
+import type { WarehouseSuggestionApi } from '../generated/api.schemas'
 import { SavingHighlight } from '../suggestionCopy'
+import { SuggestionAssigneeSelect } from './SuggestionAssigneeSelect'
 
 const AMOUNT_CLASS = 'text-sm font-semibold tabular-nums text-success'
 export const SAVING_COLUMNS_CLASS =
@@ -10,6 +12,8 @@ export const SAVING_COLUMNS_CLASS =
 
 export interface SuggestionRowProps {
     suggestionId: string
+    assignee: WarehouseSuggestionApi['assignee']
+    canAct: boolean
     icon: ReactNode
     title: ReactNode
     meta: ReactNode[]
@@ -20,6 +24,8 @@ export interface SuggestionRowProps {
 
 export function SuggestionRow({
     suggestionId,
+    assignee,
+    canAct,
     icon,
     title,
     meta,
@@ -57,7 +63,15 @@ export function SuggestionRow({
                                 </div>
                             )}
                             <div className="flex flex-wrap items-baseline gap-x-4 gap-y-0.5 overflow-hidden text-xs text-secondary">
-                                {meta.map((item, index) => (
+                                {[
+                                    ...meta,
+                                    <SuggestionAssigneeSelect
+                                        key="assignee"
+                                        suggestionId={suggestionId}
+                                        assignee={assignee}
+                                        canAct={canAct}
+                                    />,
+                                ].map((item, index) => (
                                     <span key={index} className="-ml-4 inline-flex items-baseline">
                                         <span aria-hidden className="w-4 shrink-0 text-center text-muted">
                                             ·

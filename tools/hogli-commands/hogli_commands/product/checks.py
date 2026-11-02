@@ -109,7 +109,9 @@ def validate_facade_alternation(tach_content: str, products_dir: Path) -> list[s
       1. Every product named in the canonical alternation must exist as
          products/<name>/.
       2. Every product named in the canonical alternation must have
-         backend/facade/contracts.py (the Strict rung or above).
+         backend/facade/contracts.py (the Strict rung or above). A product
+         that also has a legacy-leak block is exempt: its facade block only
+         stops new reach-ins while the listed leaks drain.
       3. Names in alternation regexes must be sorted alphabetically.
 
     The inverse direction ("every Strict product must be listed") is not
@@ -149,6 +151,8 @@ def validate_facade_alternation(tach_content: str, products_dir: Path) -> list[s
                 f"canonical facade alternation lists '{name}' but products/{name}/ does not exist — "
                 "remove the stale entry from tach.toml"
             )
+            continue
+        if has_legacy_interface_leaks(tach_content, f"products.{name}"):
             continue
         if not has_contracts_module(product_dir / "backend"):
             issues.append(

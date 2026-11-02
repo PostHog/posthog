@@ -21,10 +21,9 @@ from products.messaging.backend.facade.preferences import (
     get_or_create_recipient,
     marketing_categories,
     preference_status,
-    recipient_preferences,
-    replace_preferences,
-    set_preferences_column,
+    record_unsubscribe_metric,
     sync_to_customerio,
+    transition_preferences,
 )
 from products.workflows.backend.facade.enums import EmailTrackingConsentMode
 
@@ -136,29 +135,33 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
         request.GET.get("one_click_unsubscribe") == "1" or request.POST.get("one_click_unsubscribe") == "1"
     )
     if is_one_click_unsubscribe:
+
+        def opt_out_of_everything(stored: dict[str, Any]) -> dict[str, Any]:
+            # If one-click unsubscribe, set all preferences to opted out
+            opted_out = {str(cat.id): PreferenceStatus.OPTED_OUT.value for cat in categories}
+
+            # Also set the "$all" preference
+            opted_out[ALL_MESSAGE_PREFERENCE_CATEGORY_ID] = PreferenceStatus.OPTED_OUT.value
+
+            # Unsubscribing is about which emails arrive, not how they're measured — a stored
+            # tracking-consent answer must survive the wholesale rebuild
+            tracking_pref = stored.get(EMAIL_TRACKING_PREFERENCE_ID)
+            if tracking_pref is not None:
+                opted_out[EMAIL_TRACKING_PREFERENCE_ID] = tracking_pref
+            return opted_out
+
+        prior_preferences = transition_preferences(team_id, identifier, opt_out_of_everything, touch_updated_at=False)
         was_fully_opted_out = (
-            preference_status(recipient.preferences, ALL_MESSAGE_PREFERENCE_CATEGORY_ID) == PreferenceStatus.OPTED_OUT
+            preference_status(prior_preferences, ALL_MESSAGE_PREFERENCE_CATEGORY_ID) == PreferenceStatus.OPTED_OUT
         )
-
-        # If one-click unsubscribe, set all preferences to opted out
-        preferences_dict = {str(cat.id): PreferenceStatus.OPTED_OUT.value for cat in categories}
-
-        # Also set the "$all" preference
-        preferences_dict[ALL_MESSAGE_PREFERENCE_CATEGORY_ID] = PreferenceStatus.OPTED_OUT.value
-
-        # Unsubscribing is about which emails arrive, not how they're measured — a stored
-        # tracking-consent answer must survive the wholesale rebuild
-        tracking_pref = (recipient.preferences or {}).get(EMAIL_TRACKING_PREFERENCE_ID)
-        if tracking_pref is not None:
-            preferences_dict[EMAIL_TRACKING_PREFERENCE_ID] = tracking_pref
-
-        set_preferences_column(team_id, identifier, preferences_dict)
+        preferences_dict = opt_out_of_everything(prior_preferences)
         current_preferences = preferences_dict
 
         sync_to_customerio(team_id, identifier, preferences_dict)
 
         # Only a genuine transition emits, so token replays and scanner prefetches don't inflate events
         if not was_fully_opted_out:
+            record_unsubscribe_metric(team_id, data, [ALL_MESSAGE_PREFERENCE_CATEGORY_ID])
             report_workflows_email_unsubscribed(team_id, identifier, [ALL_MESSAGE_PREFERENCE_CATEGORY_ID], "one_click")
 
         if request.method == "POST":
@@ -233,13 +236,12 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
     if not team_id or not identifier:
         return JsonResponse({"error": "Invalid recipient"}, status=400)
 
-    stored_preferences = recipient_preferences(team_id, identifier)
-
     try:
-        prior_preferences = dict(stored_preferences or {})
         preferences = request.POST.getlist("preferences[]")
+        # The form accepts any category id string, so unknown ids are dropped before they can derive "$all"
+        known_ids = team_category_ids(team_id) | {ALL_MESSAGE_PREFERENCE_CATEGORY_ID, EMAIL_TRACKING_PREFERENCE_ID}
         # Convert to dict of category_id: status
-        preferences_dict = {}
+        submitted: dict[str, str] = {}
 
         for pref in preferences:
             category_id, opted_in = pref.split(":")
@@ -247,28 +249,34 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
             if opted_in not in ["true", "false"]:
                 return JsonResponse({"error": "Preference values must be 'true' or 'false'"}, status=400)
 
+            if category_id not in known_ids:
+                continue
             status = PreferenceStatus.OPTED_IN if opted_in == "true" else PreferenceStatus.OPTED_OUT
-            preferences_dict[category_id] = status.value
+            submitted[category_id] = status.value
 
-        # $email_tracking is a measurement consent, not a subscription — it must neither
-        # block nor trigger the "unsubscribed from everything" $all computation
-        subscription_prefs = {k: v for k, v in preferences_dict.items() if k != EMAIL_TRACKING_PREFERENCE_ID}
+        def apply_submitted(stored: dict[str, Any]) -> dict[str, Any]:
+            updated = dict(submitted)
+            # $email_tracking is a measurement consent, not a subscription — it must neither
+            # block nor trigger the "unsubscribed from everything" $all computation
+            subscription_prefs = {k: v for k, v in updated.items() if k != EMAIL_TRACKING_PREFERENCE_ID}
 
-        # If all preferences are opted out, add the "$all" preference
-        if subscription_prefs and all(v == PreferenceStatus.OPTED_OUT.value for v in subscription_prefs.values()):
-            preferences_dict[ALL_MESSAGE_PREFERENCE_CATEGORY_ID] = PreferenceStatus.OPTED_OUT.value
+            # If all preferences are opted out, add the "$all" preference
+            if subscription_prefs and all(v == PreferenceStatus.OPTED_OUT.value for v in subscription_prefs.values()):
+                updated[ALL_MESSAGE_PREFERENCE_CATEGORY_ID] = PreferenceStatus.OPTED_OUT.value
 
-        # A save that doesn't include the tracking toggle (e.g. consent mode is off) must
-        # not erase a stored consent answer in the wholesale rebuild
-        if EMAIL_TRACKING_PREFERENCE_ID not in preferences_dict and EMAIL_TRACKING_PREFERENCE_ID in prior_preferences:
-            preferences_dict[EMAIL_TRACKING_PREFERENCE_ID] = prior_preferences[EMAIL_TRACKING_PREFERENCE_ID]
+            # A save that doesn't include the tracking toggle (e.g. consent mode is off) must
+            # not erase a stored consent answer in the wholesale rebuild
+            if EMAIL_TRACKING_PREFERENCE_ID not in updated and EMAIL_TRACKING_PREFERENCE_ID in stored:
+                updated[EMAIL_TRACKING_PREFERENCE_ID] = stored[EMAIL_TRACKING_PREFERENCE_ID]
 
-        # A tracking-only save (no category toggles rendered, e.g. a team without marketing
-        # categories) must not rebuild subscription state - it would drop a stored $all opt-out
-        if not subscription_prefs:
-            preferences_dict = {**prior_preferences, **preferences_dict}
+            # A tracking-only save (no category toggles rendered, e.g. a team without marketing
+            # categories) must not rebuild subscription state - it would drop a stored $all opt-out
+            if not subscription_prefs:
+                updated = {**stored, **updated}
+            return updated
 
-        replace_preferences(team_id, identifier, preferences_dict)
+        prior_preferences = transition_preferences(team_id, identifier, apply_submitted, touch_updated_at=True)
+        preferences_dict = apply_submitted(prior_preferences)
 
         sync_to_customerio(team_id, identifier, preferences_dict)
 
@@ -281,6 +289,7 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
             and prior_preferences.get(category_id) != PreferenceStatus.OPTED_OUT.value
         ]
         if newly_opted_out:
+            record_unsubscribe_metric(team_id, data, newly_opted_out)
             report_workflows_email_unsubscribed(team_id, identifier, newly_opted_out, "preferences_page")
 
         new_tracking_consent = preferences_dict.get(EMAIL_TRACKING_PREFERENCE_ID)

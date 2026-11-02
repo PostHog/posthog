@@ -1,7 +1,6 @@
 import clsx from 'clsx'
 import { deepEqual as equal } from 'fast-equals'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 
 import {
@@ -12,7 +11,6 @@ import {
     IconRefresh,
     IconRevert,
     IconSearch,
-    IconSparkles,
     IconTrash,
     IconX,
 } from '@posthog/icons'
@@ -42,18 +40,16 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
-import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { MaxTool } from 'scenes/max/MaxTool'
 import { RecordingEventMatchScopeSelect } from 'scenes/session-recordings/filters/RecordingEventMatchScopeSelect'
 import { hasPageFilter } from 'scenes/session-recordings/utils'
-import { urls } from 'scenes/urls'
 
 import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
-import { NodeKind, ProductIntentContext, ProductKey, RecordingsQuery } from '~/queries/schema/schema-general'
+import { NodeKind } from '~/queries/schema/schema-general'
 import {
     PropertyFilterType,
     PropertyOperator,
@@ -62,8 +58,7 @@ import {
     UniversalFiltersGroup,
 } from '~/types'
 
-import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
-import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
+import { ReplayFiltersScannerButton } from 'products/replay_vision/frontend/replay_scanners/components/ReplayFiltersScannerButton'
 import { scannerHandoffFromFilters } from 'products/replay_vision/frontend/replay_scanners/scannerHandoffFromFilters'
 
 import { sessionRecordingSavedFiltersLogic } from '../filters/sessionRecordingSavedFiltersLogic'
@@ -77,38 +72,9 @@ import { FilterTemplates } from '../templates/FilterTemplates'
 import { CurrentFilterIndicator } from './CurrentFilterIndicator'
 import { DurationFilter } from './DurationFilter'
 import { ProductAnalyticsOverLimitBanner } from './ProductAnalyticsOverLimitBanner'
-import {
-    DEFAULT_RECORDING_FILTERS_ORDER_BY,
-    DURATION_KEYS,
-    deriveOperand,
-    isValidRecordingOrder,
-    recordingsQueryToUniversalFilters,
-} from './recordingsQueryConversions'
+import { deriveOperand } from './recordingsQueryConversions'
 import { SavedFilters } from './SavedFilters'
-
-// Static instruction rendered into the trusted context block — never interpolate user or ingested data.
-const RECORDINGS_QUERY_TOOL_CONTEXT_ITEM: AttachedContextItem = {
-    type: 'instructions',
-    hidden: true,
-    value:
-        'The user has the session replay list open. When you call query-session-recordings-list, the filters from ' +
-        'your query (properties, duration, date range, ordering) are also applied to the open recordings list, so ' +
-        'the user sees matching recordings both in this chat and on screen.',
-}
-
-// Recording-metric keys of the query's `properties` filters, whose `type: 'recording'` is a zod
-// default the agent may omit from its raw args.
-const RECORDING_METRIC_KEYS = new Set([
-    ...DURATION_KEYS,
-    'console_error_count',
-    'console_log_count',
-    'console_warn_count',
-    'click_count',
-    'keypress_count',
-    'activity_score',
-    'visited_page',
-    'snapshot_source',
-])
+import { useRecordingFiltersAssist } from './useRecordingFiltersAssist'
 
 export const RecordingsUniversalFiltersEmbedButton = ({
     filters,
@@ -127,62 +93,7 @@ export const RecordingsUniversalFiltersEmbedButton = ({
     const { isFiltersExpanded } = useValues(playlistFiltersLogic)
     const { setIsFiltersExpanded } = useActions(playlistFiltersLogic)
 
-    useAttachedContext([
-        { type: 'recording_filters', value: JSON.stringify(filters), label: 'Current filters' },
-        RECORDINGS_QUERY_TOOL_CONTEXT_ITEM,
-        ...(currentSessionRecordingId
-            ? [{ type: 'session_recording', key: currentSessionRecordingId, label: 'Current session' } as const]
-            : []),
-    ] as AttachedContextItem[])
-
-    const applyFilters = (toolOutput: Record<string, any>): void => {
-        // Improve type
-        setFilters(toolOutput.recordings_filters)
-        setIsFiltersExpanded(true)
-    }
-
-    // The headless query tool's call input mirrored onto the open list. The input is a complete query:
-    // every field is applied, with omitted fields set to the query schema's defaults so the list shows
-    // the same recordings the tool returned. The args are raw agent-sent JSON (never zod-validated), so
-    // fields are coerced and the recording-metric `type` default is stamped back on before converting to
-    // the universal filter shape. person_uuid (query-level constraint), after (pagination cursor), and
-    // limit (the agent's page size, which shouldn't shrink the user's list) have no counterpart in the
-    // universal filters.
-    const applyRecordingsQuery = (input: Record<string, any>): void => {
-        const props = (Array.isArray(input.properties) ? input.properties : []).map((f: Record<string, any>) =>
-            f && !f.type && RECORDING_METRIC_KEYS.has(f.key) ? { ...f, type: 'recording' } : f
-        )
-        // Duration filters have their own control in the universal shape, so the converter expects
-        // them in `having_predicates` rather than `properties`.
-        const universal = recordingsQueryToUniversalFilters({
-            kind: NodeKind.RecordingsQuery,
-            properties: props.filter((f: Record<string, any>) => !DURATION_KEYS.has(f?.key)),
-            having_predicates: props.filter((f: Record<string, any>) => DURATION_KEYS.has(f?.key)),
-        } as RecordingsQuery)
-        setFilters({
-            filter_group: universal.filter_group,
-            duration: universal.duration,
-            date_from: input.date_from ?? '-3d',
-            date_to: input.date_to ?? null,
-            filter_test_accounts: !!input.filter_test_accounts,
-            order: isValidRecordingOrder(input.order) ? input.order : DEFAULT_RECORDING_FILTERS_ORDER_BY,
-            order_direction: input.order_direction === 'ASC' ? 'ASC' : 'DESC',
-            session_ids: Array.isArray(input.session_ids) ? input.session_ids : undefined,
-        })
-        setIsFiltersExpanded(true)
-    }
-
-    useMcpToolApplyBack({
-        tools: ['query-session-recordings-list'],
-        targetKey: 'replay-playlist-filters',
-        onApply: (_event, { innerInput }) => {
-            if (!innerInput) {
-                return
-            }
-            applyRecordingsQuery(innerInput)
-        },
-    })
-
+    const { applyFilters } = useRecordingFiltersAssist({ filters, setFilters, currentSessionRecordingId })
     return (
         <>
             <div className="flex gap-2">
@@ -235,6 +146,8 @@ export const RecordingsUniversalFiltersEmbedButton = ({
 interface ReplayUniversalFiltersEmbedProps {
     filters: RecordingUniversalFilters
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
+    /** Replaces the whole set from a saved filter. Falls back to `setFilters` where no list logic is bound. */
+    applySavedFilter?: (filters: Partial<RecordingUniversalFilters>) => void
     resetFilters?: () => void
     totalFiltersCount?: number
     className?: string
@@ -276,7 +189,7 @@ export const RecordingsUniversalFiltersEmbed = ({ ...props }: ReplayUniversalFil
                     <span>Saved filters</span>
                 </div>
             ),
-            content: <SavedFilters setFilters={props.setFilters} />,
+            content: <SavedFilters applyFilters={props.applySavedFilter ?? props.setFilters} />,
             'data-attr': 'session-recordings-saved-tab',
         },
         {
@@ -358,7 +271,7 @@ const RecordingsUniversalFilterGroup = ({ pinnedFilters }: { pinnedFilters?: Uni
     )
 }
 
-const SaveFiltersModal = ({
+export const SaveFiltersModal = ({
     isOpen,
     setIsOpen,
     filters,
@@ -647,6 +560,7 @@ const SessionIdsFilterChip = ({
 export const ReplayFiltersTab = ({
     filters,
     setFilters,
+    applySavedFilter,
     resetFilters,
     className,
     totalFiltersCount,
@@ -700,6 +614,7 @@ export const ReplayFiltersTab = ({
         sessionRecordingSavedFiltersLogic
     )
     const { setActiveFilterTab } = useActions(playlistFiltersLogic)
+    const applyFilters = applySavedFilter ?? setFilters
 
     useEffect(() => {
         if (!pendingFilterApplication) {
@@ -707,13 +622,19 @@ export const ReplayFiltersTab = ({
         }
 
         if (pendingFilterApplication.filters) {
-            setFilters(stripSessionIds(pendingFilterApplication.filters as Partial<RecordingUniversalFilters>))
+            applyFilters(stripSessionIds(pendingFilterApplication.filters as Partial<RecordingUniversalFilters>))
             setAppliedSavedFilter(pendingFilterApplication)
             setActiveFilterTab('filters')
         }
 
         clearPendingFilterApplication()
-    }, [pendingFilterApplication, setFilters, setActiveFilterTab, setAppliedSavedFilter, clearPendingFilterApplication])
+    }, [
+        pendingFilterApplication,
+        applyFilters,
+        setActiveFilterTab,
+        setAppliedSavedFilter,
+        clearPendingFilterApplication,
+    ])
 
     const updateSavedFilter = async (): Promise<void> => {
         if (appliedSavedFilter === null) {
@@ -778,7 +699,7 @@ export const ReplayFiltersTab = ({
                                 size="small"
                                 icon={<IconTrash />}
                                 onClick={() =>
-                                    setFilters(
+                                    applyFilters(
                                         stripSessionIds(
                                             appliedSavedFilter.filters as Partial<RecordingUniversalFilters>
                                         )
@@ -962,34 +883,7 @@ export const ReplayFiltersTab = ({
                         <div className="flex gap-2 ml-auto">
                             {scannerCrossSellEnabled && (
                                 <>
-                                    <LemonButton
-                                        type="secondary"
-                                        size="small"
-                                        icon={<IconSparkles className="text-ai" />}
-                                        data-attr="replay-save-filters-as-scanner"
-                                        tooltip="Create a Replay vision scanner that keeps watching sessions matching these filters. The date range does not carry over, so the scanner watches sessions from now on."
-                                        disabledReason={
-                                            scannerHandoff.narrowsSessions
-                                                ? undefined
-                                                : 'Add an event or property filter. A date range and pinned sessions do not carry over to a scanner.'
-                                        }
-                                        onClick={() => {
-                                            void addProductIntentForCrossSell({
-                                                from: ProductKey.SESSION_REPLAY,
-                                                to: ProductKey.REPLAY_VISION,
-                                                intent_context:
-                                                    ProductIntentContext.SESSION_REPLAY_SAVE_FILTERS_AS_SCANNER,
-                                            })
-                                            router.actions.push(
-                                                combineUrl(
-                                                    urls.replayVisionScannerConfigure('new'),
-                                                    scannerHandoff.searchParams
-                                                ).url
-                                            )
-                                        }}
-                                    >
-                                        Create scanner
-                                    </LemonButton>
+                                    <ReplayFiltersScannerButton handoff={scannerHandoff} />
                                     {/* Grouped away from the buttons that act on the filters themselves:
                                         this one leaves for another product. */}
                                     <LemonDivider vertical className="mx-1 self-stretch" />

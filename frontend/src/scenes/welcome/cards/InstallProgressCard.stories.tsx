@@ -15,7 +15,6 @@ const meta: Meta<typeof InstallProgressCard> = {
     component: InstallProgressCard,
     parameters: {
         layout: 'padded',
-        testOptions: { include: false },
     },
     decorators: [mswDecorator({})],
 }

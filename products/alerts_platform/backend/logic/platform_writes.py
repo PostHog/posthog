@@ -37,7 +37,13 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_restriction
-from products.alerts_platform.backend.logic import control_plane, platform_lifecycle, platform_reads, source_configs
+from products.alerts_platform.backend.logic import (
+    control_plane,
+    platform_lifecycle,
+    platform_reads,
+    rule_metadata,
+    source_configs,
+)
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
 
 
@@ -55,6 +61,8 @@ def edit_of(configuration: PlatformAlertConfiguration) -> PlatformAlertConfigura
         evaluation_periods=configuration.evaluation_periods,
         datapoints_to_alarm=configuration.datapoints_to_alarm,
         cooldown_minutes=configuration.cooldown_minutes,
+        labels=configuration.labels,
+        annotations=configuration.annotations,
     )
 
 
@@ -82,6 +90,14 @@ def _validated(
         schedule_restriction = validate_and_normalize_schedule_restriction(edit.schedule_restriction)
     except ValueError as error:
         raise InvalidPlatformAlertEdit("schedule_restriction", str(error)) from error
+    try:
+        rule_metadata.validate_labels(edit.labels)
+    except rule_metadata.InvalidRuleMetadata as error:
+        raise InvalidPlatformAlertEdit("labels", str(error)) from error
+    try:
+        rule_metadata.validate_annotations(edit.annotations, {*edit.grouping.keys, *edit.labels})
+    except rule_metadata.InvalidRuleMetadata as error:
+        raise InvalidPlatformAlertEdit("annotations", str(error)) from error
     source_config = edit.source_config
     # Settings the edit leaves alone may predate the schema, or name rows deleted since, and must not
     # block an unrelated change.
@@ -162,6 +178,9 @@ def create_configuration(
             source_kind=source_kind,
             edit=validated,
             check_interval_minutes=spec.native.check_interval_minutes,
+            destinations_owner=PlatformAlertOwner.PLATFORM
+            if spec.native.platform_destinations
+            else PlatformAlertOwner.SOURCE,
             now=django_timezone.now(),
         )
     else:
@@ -340,10 +359,12 @@ def _delete_native(team_id: int, configuration_id: UUID, native: NativeAlertLife
     configurations = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(id=configuration_id)
     # Before the destinations go, so an incident manager still gets the resolve for an open firing.
     _close_firings_now(lambda: configurations.select_for_update().first())
-    # In the delete's transaction, so a delete that fails keeps the alert's destinations.
+    # In the delete's transaction, so a delete that fails keeps the alert's destinations. An
+    # `AlertDestination` row goes with its configuration, so there is nothing to remove first.
+    remove = native.remove_destinations
     _delete_each(
         configurations,
-        before_delete=lambda: native.remove_destinations(team_id=team_id, configuration_id=configuration_id),
+        before_delete=None if remove is None else lambda: remove(team_id=team_id, configuration_id=configuration_id),
     )
 
 

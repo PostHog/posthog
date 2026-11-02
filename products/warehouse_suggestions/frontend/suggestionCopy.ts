@@ -119,6 +119,8 @@ export function suggestedScheduleHint(
             return `Suggested: every ${cadence}. Its sources don't sync more often than that.`
         case 'read_rate':
             return `Suggested: every ${cadence}. People don't read it more often than that.`
+        case 'consumer_refresh':
+            return `Suggested: every ${cadence}. The views that read it don't refresh more often than that.`
         case 'fastest_schedule':
             return `Suggested: every ${cadence}, the most often PostHog refreshes a view.`
         default:
@@ -135,6 +137,8 @@ export function shorterScheduleWarning(
             return `Its sources sync every ${cadence} at most, so refreshing more often reads the same data again.`
         case 'read_rate':
             return `People don't read it more often than every ${cadence}, so extra refreshes mostly go unread.`
+        case 'consumer_refresh':
+            return `The views that read it refresh every ${cadence} at most, so refreshing more often goes unread.`
         case 'fastest_schedule':
             return null
         default:
@@ -205,6 +209,10 @@ export function certificationSummaryText(suggestions: WarehouseSuggestionApi[]):
 
 export function readSummary(evidence: WarehouseSuggestionEvidenceApi): string {
     return `${countOf(evidence.human_requests ?? 0, 'read', 'reads')} by ${countOf(evidence.human_users ?? 0, 'person', 'people')}`
+}
+
+export function rebuiltSummary(views: number): string {
+    return `Rebuilt on every refresh of ${countOf(views, 'view', 'views')}`
 }
 
 export function daysReadLabel(evidence: WarehouseSuggestionEvidenceApi, windowDays: number): string {

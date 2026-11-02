@@ -15,7 +15,7 @@ from products.product_analytics.backend.facade.contracts import InsightSeries
 from products.today.backend.facade import contracts
 from products.today.backend.facade.contracts import PulsePin
 from products.today.backend.logic import pinned, pulse_pins
-from products.today.backend.logic.highlight_sources import routine
+from products.today.backend.logic.today_highlights import routine
 from products.today.backend.temporal.inputs import PinnedNumber, ResolvePinsInputs
 
 TODAY = date(2026, 10, 13)

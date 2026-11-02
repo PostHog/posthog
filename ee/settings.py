@@ -11,8 +11,12 @@ from posthog.utils import str_to_bool
 # SSO
 AUTHENTICATION_BACKENDS = [
     *AUTHENTICATION_BACKENDS,
-    "ee.api.authentication.MultitenantSAMLAuth",
+    "posthog.api.sso.MultitenantSAMLAuth",
     "posthog.api.oidc.MultitenantOIDCAuth",
+    "posthog.api.sso.CustomGoogleOAuth2",
+    # Legacy paths for sessions issued before the move. They resolve existing sessions but
+    # refuse to authenticate, so new sessions only ever use the paths above.
+    "ee.api.authentication.MultitenantSAMLAuth",
     "ee.api.authentication.CustomGoogleOAuth2",
 ]
 
@@ -57,8 +61,8 @@ if ENFORCE_ADMIN_OAUTH2 and ADMIN_AUTH_GOOGLE_OAUTH2_KEY and ADMIN_AUTH_GOOGLE_O
     ADMIN_OAUTH2_COOKIE_SECURE = str_to_bool(get_from_env("ADMIN_OAUTH2_COOKIE_SECURE", "True", type_cast=str))
     # middleware must be added after `AuthenticationMiddleware``
     MIDDLEWARE = MIDDLEWARE.copy()
-    auth_middleware_index = MIDDLEWARE.index("django.contrib.auth.middleware.AuthenticationMiddleware")
-    MIDDLEWARE.insert(auth_middleware_index + 1, "ee.middleware.AdminOAuth2Middleware")
+    auth_middleware_index = MIDDLEWARE.index("posthog.middleware.AuthenticationMiddleware")
+    MIDDLEWARE.insert(auth_middleware_index + 1, "posthog.admin.oauth2.AdminOAuth2Middleware")
 
 CUSTOMER_IO_API_KEY = get_from_env("CUSTOMER_IO_API_KEY", "", type_cast=str)
 CUSTOMER_IO_API_URL = get_from_env("CUSTOMER_IO_API_URL", "https://api-eu.customer.io", type_cast=str)
@@ -104,8 +108,6 @@ LLM_GATEWAY_API_KEY = get_from_env("LLM_GATEWAY_PERSONAL_API_KEY", DEV_API_KEY i
 INKEEP_API_KEY = get_from_env("INKEEP_API_KEY", "")
 MISTRAL_API_KEY = get_from_env("MISTRAL_API_KEY", "")
 GEMINI_API_KEY = get_from_env("GEMINI_API_KEY", "")
-# Dedicated key for Replay Vision (own GCP project for cost/quota isolation); falls back to GEMINI_API_KEY
-REPLAY_VISION_GEMINI_API_KEY = get_from_env("REPLAY_VISION_GEMINI_API_KEY", "")
 PPLX_API_KEY = get_from_env("PPLX_API_KEY", "")
 AZURE_INFERENCE_ENDPOINT = get_from_env("AZURE_INFERENCE_ENDPOINT", "", type_cast=str)
 AZURE_INFERENCE_CREDENTIAL = get_from_env("AZURE_INFERENCE_CREDENTIAL", "", type_cast=str)

@@ -1,4 +1,5 @@
 import dataclasses
+from datetime import UTC, date, datetime
 from typing import Any, Optional
 
 from requests.auth import HTTPBasicAuth
@@ -8,10 +9,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resources,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import (
+    make_parent_key_name,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     OffsetPaginator,
+    SinglePagePaginator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    Endpoint,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -26,6 +34,9 @@ PHYLLO_BASE_URLS: dict[str, str] = {
 # Documented maximum page size for Phyllo list endpoints.
 PAGE_SIZE = 100
 ACCOUNTS_PATH = "/v1/accounts"
+# Phyllo documents no lower bound for a required date window, so a full refresh starts far enough
+# back to cover the whole history of an account.
+DATE_WINDOW_START = date(2000, 1, 1)
 # Cheap list endpoint used to confirm a client ID/secret pair is genuine. Phyllo credentials are
 # environment-wide, so one probe validates access to every endpoint.
 DEFAULT_PROBE_PATH = "/v1/work-platforms"
@@ -54,7 +65,30 @@ def _base_headers() -> dict[str, str]:
     return {"Accept": "application/json"}
 
 
-def _build_resources(endpoint: str) -> list[EndpointResource | str]:
+def _date_window_params(endpoint: str, today: date) -> dict[str, str]:
+    config = PHYLLO_ENDPOINTS[endpoint]
+    if config.date_window_params is None:
+        return {}
+
+    from_param, to_param = config.date_window_params
+    return {from_param: DATE_WINDOW_START.isoformat(), to_param: today.isoformat()}
+
+
+def _child_endpoint(path: str, params: dict[str, Any], *, single_object: bool = False) -> Endpoint:
+    if single_object:
+        return {"path": path, "params": params, "data_selector": "$", "paginator": SinglePagePaginator()}
+    return {
+        "path": path,
+        "params": params,
+        "data_selector": "data",
+        # Dependent resources can't classify a malformed 200 body as retryable, so fail loud
+        # instead of silently syncing 0 rows if the response shape changes.
+        "data_selector_required": True,
+        "paginator": OffsetPaginator(limit=PAGE_SIZE, total_path=None),
+    }
+
+
+def _build_resources(endpoint: str, extra_params: dict[str, str]) -> list[EndpointResource | str]:
     config = PHYLLO_ENDPOINTS[endpoint]
 
     if not config.fan_out_by_account:
@@ -85,20 +119,52 @@ def _build_resources(endpoint: str) -> list[EndpointResource | str]:
             "paginator": OffsetPaginator(limit=PAGE_SIZE, total_path=None),
         },
     }
+    account_id_param = {"type": "resolve", "resource": "accounts", "field": "id"}
+
+    if config.fan_out_by_content:
+        # The parent account id is carried onto each content row, so the comments request can bind
+        # both ids from one parent row. The injected key is not in the comment rows.
+        contents_parent: EndpointResource = {
+            "name": "social_contents",
+            "endpoint": _child_endpoint(
+                f"{PHYLLO_ENDPOINTS['social_contents'].path}?account_id={{account_id}}",
+                {"account_id": account_id_param},
+            ),
+            "include_from_parent": ["id"],
+        }
+        comments: EndpointResource = {
+            "name": endpoint,
+            "endpoint": _child_endpoint(
+                f"{config.path}?account_id={{account_id}}&content_id={{content_id}}",
+                {
+                    "account_id": {
+                        "type": "resolve",
+                        "resource": "social_contents",
+                        "field": make_parent_key_name("accounts", "id"),
+                    },
+                    "content_id": {"type": "resolve", "resource": "social_contents", "field": "id"},
+                },
+            ),
+            "include_from_parent": [],
+        }
+        return [accounts_parent, contents_parent, comments]
+
     child: EndpointResource = {
         "name": endpoint,
-        "endpoint": {
-            "path": f"{config.path}?account_id={{account_id}}",
-            "params": {"account_id": {"type": "resolve", "resource": "accounts", "field": "id"}},
-            "data_selector": "data",
-            # Dependent resources can't classify a malformed 200 body as retryable, so fail loud
-            # instead of silently syncing 0 rows if the response shape changes.
-            "data_selector_required": True,
-            "paginator": OffsetPaginator(limit=PAGE_SIZE, total_path=None),
-        },
+        "endpoint": _child_endpoint(
+            f"{config.path}?account_id={{account_id}}",
+            {"account_id": account_id_param, **extra_params},
+            single_object=config.single_object,
+        ),
         "include_from_parent": [],
     }
     return [accounts_parent, child]
+
+
+def endpoint_supports_resume(endpoint: str) -> bool:
+    # The framework cannot checkpoint the two-level accounts -> contents -> comments fan-out, so a
+    # retry of that table starts again from the first account.
+    return not PHYLLO_ENDPOINTS[endpoint].fan_out_by_content
 
 
 def phyllo_source(
@@ -123,11 +189,12 @@ def phyllo_source(
             "paginator": OffsetPaginator(limit=PAGE_SIZE, total_path=None),
         },
         "resource_defaults": {},
-        "resources": _build_resources(endpoint),
+        "resources": _build_resources(endpoint, _date_window_params(endpoint, datetime.now(UTC).date())),
     }
 
+    supports_resume = endpoint_supports_resume(endpoint)
     initial_paginator_state: Optional[dict[str, Any]] = None
-    if resumable_source_manager.can_resume():
+    if supports_resume and resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
         if resume is not None and resume.paginator_state is not None:
             initial_paginator_state = resume.paginator_state
@@ -143,7 +210,7 @@ def phyllo_source(
         team_id,
         job_id,
         db_incremental_field_last_value,
-        resume_hook=save_checkpoint,
+        resume_hook=save_checkpoint if supports_resume else None,
         initial_paginator_state=initial_paginator_state,
     )
     target = next(resource for resource in resources if resource.name == endpoint)
@@ -157,6 +224,7 @@ def phyllo_source(
         partition_count=1,
         partition_size=1,
         column_hints=target.column_hints,
+        supports_resume=supports_resume,
     )
 
 

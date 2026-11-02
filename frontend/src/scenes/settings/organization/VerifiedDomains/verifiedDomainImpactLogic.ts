@@ -4,9 +4,9 @@ import { loaders } from 'kea-loaders'
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 
+import { membersLogic } from '~/models/membersLogic'
 import { OrganizationDomainType, OrganizationMemberType, OrganizationType } from '~/types'
 
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
