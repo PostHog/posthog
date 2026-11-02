@@ -369,6 +369,23 @@ class TestOAuthAPI(APIBaseTest):
             ("step_up_outside_mcp", True, "", None, "comment:write", {"comment:write"}),
             # The prior grant covers another project, so its scopes do not come back for this one.
             ("step_up_other_project", True, MCP_RESOURCE_PARAM, [987654], "comment:write", {"comment:write"}),
+            # A grant for this project's organization covers the project.
+            (
+                "step_up_organization_grant",
+                True,
+                MCP_RESOURCE_PARAM,
+                "organization",
+                "comment:write",
+                {"openid", "insight:write", "comment:write"},
+            ),
+            (
+                "step_up_downgraded_to_read",
+                True,
+                MCP_RESOURCE_PARAM,
+                None,
+                "comment:read",
+                {"openid", "insight:write", "comment:read"},
+            ),
             # A POST from another consent screen keeps exactly what its user picked.
             (
                 "step_up_other_screen",
@@ -382,7 +399,7 @@ class TestOAuthAPI(APIBaseTest):
     )
     @time_machine.travel("2026-03-01 12:00:00", tick=False)
     def test_mcp_reauthorize_keeps_prior_scopes_only_for_a_step_up_app(
-        self, _name, supports_step_up, resource_param, prior_scoped_teams, submitted_scope, expected
+        self, _name, supports_step_up, resource_param, prior_access, submitted_scope, expected
     ):
         self.confidential_application.supports_step_up = supports_step_up
         self.confidential_application.save()
@@ -392,7 +409,8 @@ class TestOAuthAPI(APIBaseTest):
             token="pha_prior_grant",
             expires=timezone.now() - timedelta(hours=1),
             scope="openid insight:write",
-            scoped_teams=prior_scoped_teams,
+            scoped_teams=prior_access if prior_access != "organization" else None,
+            scoped_organizations=[str(self.organization.id)] if prior_access == "organization" else None,
         )
         OAuthRefreshToken.objects.create(
             application=self.confidential_application,

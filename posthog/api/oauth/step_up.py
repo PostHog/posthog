@@ -5,6 +5,7 @@ from django.utils import timezone
 
 from posthog.dataclasses import frozen
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.team import Team
 from posthog.scopes import scopes_not_covered
 
 # What a step-up app gets on its first connection to the MCP resource. A write scope covers
@@ -156,11 +157,17 @@ def live_granted_scopes_covering(
     Restoring only these never widens where a scope applies: a scope granted for one project does
     not come back on a grant for another.
     """
+    team_organizations = {
+        str(organization_id)
+        for organization_id in Team.objects.filter(id__in=scoped_teams).values_list("organization_id", flat=True)
+    }
     granted: set[str] = set()
     for scope_string, token_teams, token_organizations in _live_access_tokens(application, user_id).values_list(
         "scope", "scoped_teams", "scoped_organizations"
     ):
-        if _access_covers(token_teams or [], token_organizations or [], scoped_teams, scoped_organizations):
+        if _access_covers(
+            token_teams or [], token_organizations or [], scoped_teams, scoped_organizations, team_organizations
+        ):
             granted |= set((scope_string or "").split())
     return granted
 
@@ -172,13 +179,20 @@ def _live_access_tokens(application: OAuthApplication, user_id: int) -> QuerySet
 
 
 def _access_covers(
-    token_teams: list[int], token_organizations: list[str], scoped_teams: list[int], scoped_organizations: list[str]
+    token_teams: list[int],
+    token_organizations: list[str],
+    scoped_teams: list[int],
+    scoped_organizations: list[str],
+    team_organizations: set[str],
 ) -> bool:
     # A token with neither list reaches everything the user can reach.
     if not token_teams and not token_organizations:
         return True
     if scoped_teams:
-        return set(scoped_teams) <= set(token_teams)
+        # A grant for an organization covers every project in it.
+        return set(scoped_teams) <= set(token_teams) or (
+            bool(team_organizations) and team_organizations <= set(token_organizations)
+        )
     if scoped_organizations:
         return set(scoped_organizations) <= set(token_organizations)
     return False

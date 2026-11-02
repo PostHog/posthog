@@ -1987,6 +1987,8 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         if not validated_data["allow"] or not application.supports_step_up or not isinstance(stored, dict):
             return set()
         listed = set(stored.get("consent", [])) | set(application.required_scopes) | ALWAYS_ALLOWED_SCOPES
+        # The consent picker lets the user downgrade a listed write scope to its read half.
+        listed |= {f"{scope.removesuffix(':write')}:read" for scope in listed if scope.endswith(":write")}
         if not set(submitted_scope.split()) <= listed:
             return set()
         still_granted = live_granted_scopes_covering(
