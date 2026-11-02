@@ -306,6 +306,8 @@ class TestCustomerioCampaignTranslation(BaseTest):
         actions = [
             {**action, "subscription_topic_id": 3, "name": "Welcome {{ customer.first_name }} !"}
             if action["id"] == "1"
+            else {**action, "send_to_unsubscribed": True}
+            if action["id"] == "7"
             else action
             for action in source.actions
         ]
@@ -316,7 +318,7 @@ class TestCustomerioCampaignTranslation(BaseTest):
             "13": {
                 **source.templates["13"],
                 "subject": "Tips & tricks for {{ customer.company }}",
-                "body": "<title>{{message.subject | default: ''}}</title><p>{{customer.company}}</p>",
+                "body": "<title>{{message.subject | default: ''}}</title><h1>{{ message.subject | upcase }}</h1>",
             },
         }
         options = ImportOptions(
@@ -352,8 +354,11 @@ class TestCustomerioCampaignTranslation(BaseTest):
         assert email["replyTo"] == "help@example.com"
         assert (welcome["message_category_id"], welcome["message_category_type"]) == ("cat-1", "marketing")
         assert actions_by_id["cio_5"]["config"]["message_category_id"] == "cat-2"
-        nudge = actions_by_id["cio_7"]["config"]["inputs"]["email"]["value"]
-        assert "<title>Tips &amp; tricks for {{ person.properties.company }}</title>" in nudge["html"]
+        nudge = actions_by_id["cio_7"]["config"]
+        assert (nudge.get("message_category_id"), nudge["message_category_type"]) == (None, "transactional")
+        nudge_html = nudge["inputs"]["email"]["value"]["html"]
+        assert "<title>Tips &amp; tricks for {{ person.properties.company }}</title>" in nudge_html
+        assert "<h1>{{ message.subject | upcase }}</h1>" in nudge_html
         activated = actions_by_id["cio_5"]["config"]["inputs"]["email"]["value"]
         assert activated["from"]["email"] == "ops@example.com"
         assert activated["html"].startswith('<div style="font-family: Arial, Helvetica, sans-serif;">')
@@ -371,7 +376,7 @@ class TestCustomerioCampaignTranslation(BaseTest):
         )
         assert any(text.startswith('Only people in segment "Beta list" (9) can enter') for _, _, text in messages)
         assert not any(step == "cio_1" and "sender" in text for _, step, text in messages)
-        assert not any(step == "cio_7" and "`message`" in text for _, step, text in messages)
+        assert any(step == "cio_7" and "`message`" in text for _, step, text in messages)
 
     def test_language_split_keeps_only_the_default_message(self) -> None:
         campaign = {

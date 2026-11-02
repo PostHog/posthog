@@ -49,7 +49,8 @@ _DAY_NAMES = {
 }
 _WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday"]
 _LAYOUT_CONTENT = re.compile(r"\{\{-?\s*content\s*-?\}\}")
-_MESSAGE_SUBJECT = re.compile(r"\{\{-?\s*message\.subject\b[^{}]*\}\}")
+# Only a bare subject or one with a `default`, so other filters such as `upcase` keep the unsupported note.
+_MESSAGE_SUBJECT = re.compile(r"\{\{-?\s*message\.subject\s*(?:\|\s*default:\s*(?:'[^']*'|\"[^\"]*\")\s*)?-?\}\}")
 # Never resolves (RFC 6761), so a draft enabled before the URL is set can't reach a real host.
 _PLACEHOLDER_WEBHOOK_URL = "https://webhook-url-not-imported.invalid"
 _LIQUID_TAG = re.compile(r"\{\{.{0,500}?\}\}|\{%.{0,500}?%\}", re.DOTALL)
@@ -470,9 +471,10 @@ class _Builder:
             "html": self._liquid(body, action, "email body"),
         }
         if template.get("body_plain"):
-            email["text"] = self._liquid(
-                _MESSAGE_SUBJECT.sub(lambda _: subject, template["body_plain"]), action, "plain-text body"
+            plain = (
+                _MESSAGE_SUBJECT.sub(lambda _: subject, template["body_plain"]) if subject else template["body_plain"]
             )
+            email["text"] = self._liquid(plain, action, "plain-text body")
         if not template:
             # A draft needs a subject and a body to save. The note about the missing content asks for the real ones.
             email["subject"] = email["subject"] or action["name"]
@@ -551,8 +553,10 @@ class _Builder:
         return {"email": found.email, "name": found.name}
 
     def _category(self, source: dict[str, Any], config: dict[str, Any], action: dict[str, Any]) -> None:
-        # An email step without its own topic sends under the automation's topic.
-        topic_id = source.get("subscription_topic_id") or self.campaign.get("subscription_topic_id")
+        topic_id = source.get("subscription_topic_id")
+        if not topic_id and not source.get("send_to_unsubscribed"):
+            # An email step without its own topic sends under the automation's topic, unless it ignores opt-outs.
+            topic_id = self.campaign.get("subscription_topic_id")
         if topic_id:
             category = self.options.topic_categories.get(str(topic_id))
             if category is not None:
@@ -1021,7 +1025,7 @@ def _plain_name(name: Any) -> str:
 
 def _with_subject(body: str, subject: str) -> str:
     """The body with Customer.io's `{{ message.subject }}` replaced by the subject itself, escaped for HTML."""
-    if not _MESSAGE_SUBJECT.search(body):
+    if not subject or not _MESSAGE_SUBJECT.search(body):
         return body
     escaped: list[str] = []
     position = 0
