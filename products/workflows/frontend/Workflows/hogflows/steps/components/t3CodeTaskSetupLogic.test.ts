@@ -55,7 +55,7 @@ describe('t3CodeTaskSetupLogic', () => {
         projectsCreate.mockReset()
         webhookTasksCreate.mockReset()
         onWebhookUrl = jest.fn()
-        logic = t3CodeTaskSetupLogic({ actionId: 'action-1', onWebhookUrl })
+        logic = t3CodeTaskSetupLogic({ actionId: 'action-1', webhookUrl: null, onWebhookUrl })
         logic.mount()
     })
 
@@ -149,6 +149,28 @@ describe('t3CodeTaskSetupLogic', () => {
             })
         }
     )
+
+    it("shows the task as ready only while the step's webhook URL is still the created task's", async () => {
+        const createdUrl = 'https://relay.example.com/hooks/laptop'
+        projectsCreate.mockImplementation((_teamId: string, { machine }: { machine: string }) =>
+            Promise.resolve(projectsOn(machine))
+        )
+        webhookTasksCreate.mockResolvedValue({ status: 'ok', approval_token: null, webhook_url: createdUrl })
+        await expectLogic(logic, () => {
+            logic.actions.setMachine('laptop')
+            logic.actions.setProject('laptop-project')
+            logic.actions.createTask({ title: 'PostHog: Signups' })
+        }).toFinishAllListeners()
+        expect(onWebhookUrl).toHaveBeenCalledWith(createdUrl)
+
+        const withStepUrl = (webhookUrl: string | null): boolean =>
+            t3CodeTaskSetupLogic({ actionId: 'action-1', onWebhookUrl, webhookUrl }).values.taskReady
+        expect([withStepUrl(createdUrl), withStepUrl('https://example.com/other'), withStepUrl(null)]).toEqual([
+            true,
+            false,
+            false,
+        ])
+    })
 
     it('drops the webhook URL of a task created for a selection the member left', async () => {
         projectsCreate.mockImplementation((_teamId: string, { machine }: { machine: string }) =>

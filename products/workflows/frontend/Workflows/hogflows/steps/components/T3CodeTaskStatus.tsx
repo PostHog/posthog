@@ -21,7 +21,7 @@ export function T3CodeTaskStatus(): JSX.Element {
         callInFlight,
         retry,
         taskResultLoading,
-        createdWebhookUrl,
+        taskReady,
         createTaskDisabledReason,
         error,
     } = useValues(t3CodeTaskSetupLogic)
@@ -67,7 +67,7 @@ export function T3CodeTaskStatus(): JSX.Element {
                     {error}
                 </LemonBanner>
             )}
-            {createdWebhookUrl ? (
+            {taskReady ? (
                 <LemonBanner type="success">
                     The task is ready in T3 Code, and the step's webhook URL points to it.
                 </LemonBanner>
