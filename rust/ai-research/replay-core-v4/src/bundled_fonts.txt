@@ -1,4 +1,4 @@
-# Text font families that the v4 renderer ships, so that a block names them and the fetcher does not fetch them.
+# Font families that the v4 renderer ships, so that a block names them and the fetcher does not fetch them.
 #
 # One family name per line, as the font-family descriptor of an @font-face rule names it. Only ASCII letters, digits
 # and single spaces. The recorder compares names without case and reads a run of whitespace as one space. A blank line
@@ -8,9 +8,11 @@
 # the name in lowercase with "-" for each space. The renderer must hold each family here in every weight and style,
 # and pick the face from the rule's font-weight and font-style descriptors.
 #
-# List only text families whose licence lets the renderer image carry them: SIL OFL, Apache 2.0 or the Ubuntu Font
-# Licence. Never list an icon font. An icon font puts its glyphs at private code points that move between versions,
-# so a bundled copy can draw the wrong icon. The fetcher fetches those.
+# List only families whose licence lets the renderer image carry them: SIL OFL, Apache 2.0 or the Ubuntu Font Licence.
+# An icon font is listed only when one publisher owns its name and never moves an icon to another code point or
+# ligature, as Google does for Material Icons and Material Symbols. The renderer ships the full font, which holds every
+# glyph of any subset a page asks for, such as an icon_names= subset. A site's own icon font is never listed: many
+# sites share a generated name such as "icomoon", and icon font generators can number the glyphs again on each build.
 #
 # replay-core-v4 embeds this file, so a change ships with a recorder image build. A malformed or repeated line fails
 # the crate's tests.
@@ -61,6 +63,14 @@ Libre Baskerville
 Libre Franklin
 Lora
 Manrope
+Material Icons
+Material Icons Outlined
+Material Icons Round
+Material Icons Sharp
+Material Icons Two Tone
+Material Symbols Outlined
+Material Symbols Rounded
+Material Symbols Sharp
 Maven Pro
 Merriweather
 Montserrat

@@ -281,6 +281,7 @@ pub struct UrlRewrite {
     url_key: [u8; 32],
     fallback: Fallback,
     scrubber: Scrubber,
+    font_source_scrubber: Scrubber,
     scrubbed: u64,
     /// The JSON key whose value held the first declined URL that stayed, for the log. It names the shape without any URL.
     kept_in: Option<String>,
@@ -333,6 +334,8 @@ pub struct Fallback {
     /// Replace a declined URL wherever its bytes are, also inside a longer URL that would otherwise keep it.
     pub overwrite_declined: bool,
     pub scrub: Scrub,
+    /// Replace every remote URL in a `url()` of an `@font-face` `src`, also where `scrub` replaces nothing.
+    pub scrub_font_sources: bool,
     /// The metric label of why the fallback runs.
     pub reason: Option<&'static str>,
 }
@@ -527,6 +530,7 @@ impl UrlRewrite {
             url_key,
             fallback: Fallback::default(),
             scrubber: Scrubber::new(&Scrub::Nothing),
+            font_source_scrubber: Scrubber::new(&Scrub::Nothing),
             scrubbed: 0,
             kept_in: None,
             counters: PassCounters::default(),
@@ -535,6 +539,11 @@ impl UrlRewrite {
 
     pub fn with_fallback(mut self, fallback: Fallback) -> Self {
         self.scrubber = Scrubber::new(&fallback.scrub);
+        self.font_source_scrubber = Scrubber::new(if fallback.scrub_font_sources {
+            &Scrub::AllRemote
+        } else {
+            &fallback.scrub
+        });
         self.fallback = fallback;
         self
     }
@@ -664,7 +673,7 @@ impl UrlRewrite {
 
     /// Runs before the scrub, which would leave an image marker where the renderer loads a font.
     fn mark_unchecked_fonts<'b>(&mut self, bytes: &'b [u8]) -> Cow<'b, [u8]> {
-        if !self.scrubber.replaces_tokens() || !holds_font_face(bytes) {
+        if !self.font_source_scrubber.replaces_tokens() || !holds_font_face(bytes) {
             return Cow::Borrowed(bytes);
         }
         let mut out: Option<Vec<u8>> = None;
@@ -679,7 +688,7 @@ impl UrlRewrite {
             let rewritten = rewrite_font_src_functions(&css, &mut |function| {
                 let mut json = Vec::with_capacity(function.len() + 2);
                 write_json_string(function, &mut json);
-                (self.scrubber.apply(&json).1 > 0).then(|| {
+                (self.font_source_scrubber.apply(&json).1 > 0).then(|| {
                     self.scrubbed += 1;
                     format!("url(\"{UNCHECKED_FONT_MARKER}\")")
                 })

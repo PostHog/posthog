@@ -210,6 +210,10 @@ impl UrlLimit {
             UrlLimit::FontUrlBytes => "too_many_font_url_bytes",
         }
     }
+
+    pub fn is_font_budget(self) -> bool {
+        matches!(self, UrlLimit::FontUrlCount | UrlLimit::FontUrlBytes)
+    }
 }
 
 /// One URL gets one reference, so a URL used as several kinds takes the greatest. A fetched font beats a bundled one because it is the page's own file.

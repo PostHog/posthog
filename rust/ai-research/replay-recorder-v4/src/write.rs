@@ -191,9 +191,17 @@ fn prepare_block(
 /// block is kept without a URL nobody checked.
 fn first_fallback(block: &Block) -> Fallback {
     match block.url_limit {
+        // Past the font budget the inspector still named every URL it reads except font sources, so links and text keep theirs.
+        Some(limit) if limit.is_font_budget() => Fallback {
+            overwrite_declined: true,
+            scrub: Scrub::Nothing,
+            scrub_font_sources: true,
+            reason: Some(limit.label()),
+        },
         Some(limit) => Fallback {
             overwrite_declined: true,
             scrub: Scrub::AllRemote,
+            scrub_font_sources: false,
             reason: Some(limit.label()),
         },
         None => Fallback::default(),
@@ -216,6 +224,7 @@ fn second_fallback(first: &Fallback, report: &RewriteReport) -> Fallback {
     Fallback {
         overwrite_declined: true,
         scrub,
+        scrub_font_sources: first.scrub_font_sources,
         reason: first.reason.or(Some(reason)),
     }
 }
@@ -956,8 +965,10 @@ mod tests {
         let faces: String = (0..=MAX_BLOCK_FONT_URLS)
             .map(|i| format!("@font-face{{font-family:Brand{i};src:url(https://fonts.example.com/{i}.woff2)}}"))
             .collect();
+        let link = "https://app.example.com/pricing";
         let fonts = vec![
             json!({"type": 2, "tagName": "style", "attributes": {"_cssText": faces}, "childNodes": [], "id": 2}),
+            json!({"type": 2, "tagName": "a", "attributes": {"href": link}, "childNodes": [], "id": 3}),
         ];
         use crate::scrub::{UNCHECKED_FONT_MARKER, UNCHECKED_MARKER};
         for (nodes, named, marker, other_marker) in [
@@ -982,7 +993,12 @@ mod tests {
                 lines.contains(marker) && !lines.contains(other_marker),
                 "{marker}"
             );
-            assert!(!lines.contains("https://"));
+            assert!(!lines.contains("https://cdn.") && !lines.contains("https://fonts."));
+            assert_eq!(
+                lines.contains(link),
+                marker == UNCHECKED_FONT_MARKER,
+                "only the font budget keeps links"
+            );
         }
     }
 
