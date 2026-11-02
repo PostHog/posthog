@@ -1,6 +1,6 @@
 import json
 import base64
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from urllib.parse import quote_plus, urlencode
 
 import time_machine
@@ -240,7 +240,8 @@ class TestOAuthDeviceGrant(APIBaseTest):
         jwk.update({"kid": "device-key-1", "use": "sig", "alg": "RS256"})
 
         def assertion(jti: str) -> dict[str, str]:
-            now = int(timezone.now().timestamp())
+            # START, the frozen time the token endpoint checks the assertion against.
+            now = int(datetime(2026, 3, 2, 10, tzinfo=UTC).timestamp())
             claims = {"iss": client_id, "sub": client_id, "aud": "http://testserver/oauth/token/", "jti": jti}
             token = jwt.encode(
                 {**claims, "iat": now, "exp": now + 60}, private_key, algorithm="RS256", headers={"kid": "device-key-1"}
@@ -265,6 +266,36 @@ class TestOAuthDeviceGrant(APIBaseTest):
             token = self._poll(started.json()["device_code"], client_id=client_id, **assertion("poll"))
 
         self.assertEqual(token.status_code, status.HTTP_200_OK, token.content)
+
+    def test_a_forged_assertion_cannot_claim_it_was_verified(self) -> None:
+        OAuthApplication.objects.create(
+            name="signing device client",
+            client_id="signing-device-client",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_DEVICE_CODE,
+            redirect_uris="",
+            algorithm="RS256",
+            jwks_uri="https://cli.example.com/.well-known/jwks.json",
+        )
+        forged = jwt.encode(
+            {"iss": "signing-device-client", "sub": "signing-device-client", "jti": "forged"},
+            rsa.generate_private_key(public_exponent=65537, key_size=2048),
+            algorithm="RS256",
+        )
+        body = {
+            "client_id": "signing-device-client",
+            "client_assertion_type": CLIENT_ASSERTION_TYPE_JWT_BEARER,
+            "client_assertion": forged,
+            # oauthlib answers a missing request attribute from the parameters, so a caller can send this.
+            "verified_client_assertion": forged,
+        }
+
+        with patch("posthog.api.oauth.client_assertion.fetch_client_json_document", return_value=({"keys": []}, None)):
+            response = self.client.post("/oauth/device-authorization/", urlencode(body), content_type=FORM)
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED, response.content)
+        self.assertFalse(OAuthDeviceGrant.objects.exists())
 
     def test_approval_needs_access_to_the_project(self) -> None:
         other_team = Team.objects.create(organization=Organization.objects.create(name="Elsewhere"), name="Theirs")
