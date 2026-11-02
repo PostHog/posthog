@@ -65,12 +65,12 @@ class TestJudgeAttachmentsMarkers:
 
 class TestJudgeAttachmentsContent:
     @pytest.fixture(autouse=True)
-    def _openrouter_catalogue(self):
+    def openrouter_catalogue(self):
         with patch(
             "products.ai_observability.backend.llm.providers.openrouter.model_input_modalities",
             side_effect=OPENROUTER_CATALOGUE.get,
-        ):
-            yield
+        ) as lookup:
+            yield lookup
 
     def test_an_image_referenced_again_at_the_end_stays_attached(self):
         images = JudgeAttachments(team_id=7)
@@ -394,7 +394,7 @@ class TestJudgeAttachmentsContent:
         assert f"Video {11 - attached}:" not in labels
         assert f"Not attached, over the judge's attachment limit: {11 - attached}." in labels
 
-    def test_attachments_the_judge_cannot_read_take_no_slot(self):
+    def test_attachments_the_judge_cannot_read_take_no_slot(self, openrouter_catalogue):
         images = JudgeAttachments(team_id=7)
         image = images.marker(_inline("aa"))
         pdfs = " ".join(
@@ -409,6 +409,8 @@ class TestJudgeAttachmentsContent:
             AttachmentPart(mime_type="image/png", data=base64.b64decode("aa" * 4)),
             {"type": "text", "text": f"Not attached, this judge can't read their file type: {MAX_ATTACHMENTS}."},
         ]
+        # Each lookup reads the whole OpenRouter catalogue, so it runs once per file type, not per attachment.
+        assert openrouter_catalogue.call_count == 2
 
     def test_an_inline_image_exactly_at_the_provider_limit_is_attached(self):
         images = JudgeAttachments(team_id=7)
