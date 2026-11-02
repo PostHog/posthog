@@ -414,12 +414,13 @@ describe('the feature flags logic', () => {
             expect(listFilterParamsFromCarried(flagPageParams)).toEqual({ search: 'checkout', page: '3' })
         })
 
-        it('restores search, creator, and sort filters when the crumb hands them back', async () => {
+        it('restores search, creator, sort, and deleted filters when the crumb hands them back', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setFeatureFlagsFilters({
                     search: 'checkout',
                     created_by_id: [42],
                     order: '-created_at',
+                    deleted: 'true',
                 })
             }).toFinishAllListeners()
 
@@ -448,6 +449,7 @@ describe('the feature flags logic', () => {
             expect(logic.values.filters.search).toBe('checkout')
             expect(logic.values.filters.created_by_id).toEqual([42])
             expect(logic.values.filters.order).toBe('-created_at')
+            expect(logic.values.filters.deleted).toBe('true')
         })
 
         it('resets to defaults when the bare list URL is visited directly', async () => {
