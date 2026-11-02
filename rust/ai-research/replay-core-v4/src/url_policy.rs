@@ -321,16 +321,22 @@ impl Decline {
 
     /// The metric label. Stable, because a dashboard and an alert both key on it.
     pub fn label(self) -> &'static str {
-        match self {
-            Decline::TooLong => "too_long",
-            Decline::NotAbsolute => "not_absolute",
-            Decline::BadScheme => "bad_scheme",
-            Decline::BadPort => "bad_port",
-            Decline::NoHost => "no_host",
-            Decline::NonPublicHost => "non_public_host",
-            Decline::Credential => "credential",
-            Decline::InvalidQuery => "invalid_query",
-            Decline::TrackingBeacon => "tracking_beacon",
+        posthog_replay_anonymizer::Decline::from(self).label()
+    }
+}
+
+impl From<Decline> for posthog_replay_anonymizer::Decline {
+    fn from(decline: Decline) -> Self {
+        match decline {
+            Decline::TooLong => Self::TooLong,
+            Decline::NotAbsolute => Self::NotAbsolute,
+            Decline::BadScheme => Self::BadScheme,
+            Decline::BadPort => Self::BadPort,
+            Decline::NoHost => Self::NoHost,
+            Decline::NonPublicHost => Self::NonPublicHost,
+            Decline::Credential => Self::Credential,
+            Decline::InvalidQuery => Self::InvalidQuery,
+            Decline::TrackingBeacon => Self::TrackingBeacon,
         }
     }
 }

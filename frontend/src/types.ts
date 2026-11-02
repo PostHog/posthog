@@ -2961,6 +2961,7 @@ export interface OrganizationInviteType {
     level: OrganizationMembershipLevel
     is_expired: boolean
     emailing_attempt_made: boolean
+    email_suppressed: boolean
     created_by: UserBasicType | null
     created_at: string
     updated_at: string
@@ -6238,6 +6239,7 @@ export enum ActivityScope {
     PLATFORM_ALERT_CONFIGURATION = 'PlatformAlertConfiguration',
     PRODUCT_TOUR = 'ProductTour',
     TICKET = 'Ticket',
+    TICKET_MACRO = 'TicketMacro',
     KNOWLEDGE_SOURCE = 'KnowledgeSource',
     KNOWLEDGE_LIBRARY = 'KnowledgeLibrary',
     INSTANCE_SETTING = 'InstanceSetting',

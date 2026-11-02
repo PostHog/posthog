@@ -10,6 +10,7 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use futures::stream::{self, StreamExt, TryStreamExt};
 use metrics::counter;
+use posthog_replay_anonymizer::v4_image_refs::ImageDecline;
 use rand::Rng;
 use replay_core_v4::bytescan::write_json_string;
 use replay_core_v4::envelope::{seal_frame, seal_json_envelope, Codec, Context, Version};
@@ -19,7 +20,7 @@ use replay_core_v4::inspect::stats::MAX_URL_FINGERPRINTS;
 use replay_core_v4::keys::batch::{FlushKeys, SessionId, SessionKey as Key};
 use replay_core_v4::refs::url_fingerprint;
 use replay_core_v4::scan::cv::extract_event_images;
-use replay_core_v4::scan::images::{Declined, Image, ImageLimits, ImageSink};
+use replay_core_v4::scan::images::{Image, ImageLimits, ImageSink};
 use replay_core_v4::seal::{image_content_key, url_fingerprint_key};
 
 use tokio::sync::Semaphore;
@@ -134,7 +135,7 @@ fn prepare_block(
     let mut images = Vec::new();
     let mut kept = HashSet::new();
     let mut counts = WriterCounts::default();
-    let mut removed_images = [0u64; Declined::ALL.len()];
+    let mut removed_images = [0u64; ImageDecline::ALL.len()];
     for message in &block.messages {
         let mut window = Vec::new();
         write_json_string(
@@ -866,8 +867,7 @@ mod tests {
         .1;
         assert!(
             lines.contains(&format!(
-                r#""src":"{}","srcset":"{reference} 2x""#,
-                crate::rewrite::declined_marker("credential")
+                r#""src":"imageurl:v4:declined:credential","srcset":"{reference} 2x""#
             )),
             "{lines}"
         );
@@ -881,7 +881,7 @@ mod tests {
         // A URL too long to fetch is declined, and the block is kept.
         let long_lines = stored_lines(&long(16 * 1024), &[]);
         assert!(
-            long_lines.contains(&crate::rewrite::declined_marker("too_long")),
+            long_lines.contains("imageurl:v4:declined:too_long"),
             "{long_lines}"
         );
         // Keys written with escapes hide no URL.
@@ -900,8 +900,7 @@ mod tests {
             .to_string();
             let lines = stored_lines(&events, &[]);
             assert!(
-                lines.contains(&crate::rewrite::declined_marker("credential"))
-                    && !lines.contains("secret"),
+                lines.contains("imageurl:v4:declined:credential") && !lines.contains("secret"),
                 "{lines}"
             );
         }
@@ -916,7 +915,7 @@ mod tests {
         ] {
             let lines = stored_lines(&events, &[]);
             assert!(
-                lines.contains(&crate::rewrite::declined_marker("credential"))
+                lines.contains("imageurl:v4:declined:credential")
                     && !lines.contains("X-Amz-Signature"),
                 "{lines}"
             );
@@ -970,19 +969,21 @@ mod tests {
             json!({"type": 2, "tagName": "style", "attributes": {"_cssText": faces}, "childNodes": [], "id": 2}),
             json!({"type": 2, "tagName": "a", "attributes": {"href": link}, "childNodes": [], "id": 3}),
         ];
-        use crate::scrub::{UNCHECKED_FONT_MARKER, UNCHECKED_MARKER};
+        use posthog_replay_anonymizer::v4_image_refs::{
+            FONT_URL_UNCHECKED_MARKER, URL_UNCHECKED_MARKER,
+        };
         for (nodes, named, marker, other_marker) in [
             (
                 images,
                 "imageurl:v4:7:2026-10:",
-                UNCHECKED_MARKER,
-                UNCHECKED_FONT_MARKER,
+                URL_UNCHECKED_MARKER,
+                FONT_URL_UNCHECKED_MARKER,
             ),
             (
                 fonts,
                 "fonturl:v4:7:2026-10:",
-                UNCHECKED_FONT_MARKER,
-                UNCHECKED_MARKER,
+                FONT_URL_UNCHECKED_MARKER,
+                URL_UNCHECKED_MARKER,
             ),
         ] {
             let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": nodes}}}]).to_string();
@@ -996,7 +997,7 @@ mod tests {
             assert!(!lines.contains("https://cdn.") && !lines.contains("https://fonts."));
             assert_eq!(
                 lines.contains(link),
-                marker == UNCHECKED_FONT_MARKER,
+                marker == FONT_URL_UNCHECKED_MARKER,
                 "only the font budget keeps links"
             );
         }
@@ -1041,10 +1042,7 @@ mod tests {
                 r#"image-set(url({}) 2x)"#,
                 reference("https://cdn.example.com/2x.png")
             ),
-            format!(
-                r#"url(\"{}\")"#,
-                crate::rewrite::declined_marker("credential")
-            ),
+            r#"url(\"imageurl:v4:declined:credential\")"#.to_owned(),
             format!(
                 r#"src:url(\"{}\")"#,
                 crate::urls::url_reference(
@@ -1260,8 +1258,7 @@ mod tests {
         );
         assert!(
             custom.contains(&format!(
-                r#""srcset":"{reference} 1x, {} 2x""#,
-                crate::rewrite::declined_marker("non_public_host")
+                r#""srcset":"{reference} 1x, imageurl:v4:declined:non_public_host 2x""#
             )),
             "{custom}"
         );
@@ -1343,10 +1340,7 @@ mod tests {
         assert!(font_reference.starts_with("fonturl:v4:7:2026-10:"));
         for expected in [
             format!(r#""src":"{image_reference}""#),
-            format!(
-                r#""srcset":"{} 2x""#,
-                crate::rewrite::declined_marker("credential")
-            ),
+            r#""srcset":"imageurl:v4:declined:credential 2x""#.to_owned(),
             format!("src:url({font_reference})"),
             "src:url(fonturl:v4:bundled:inter)".to_owned(),
         ] {
@@ -1453,7 +1447,7 @@ mod tests {
             keys.sessions.insert(id, key);
         }
         keys.team_months.insert(7, [6; 32]);
-        let old_ref = replay_core_v4::refs::image_ref(
+        let old_ref = posthog_replay_anonymizer::v4_image_refs::image_ref(
             7,
             "2026-10",
             &replay_core_v4::refs::reference_hash(&image_content_key(&[6; 32]), &png(b"old")),

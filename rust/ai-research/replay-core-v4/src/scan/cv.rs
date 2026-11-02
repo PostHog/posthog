@@ -10,7 +10,9 @@ use crate::compression;
 use serde::de::IgnoredAny;
 
 use super::canvas::{self, CanvasImage};
-use super::images::{extract_images, Declined, ImageSink};
+use posthog_replay_anonymizer::v4_image_refs::ImageDecline;
+
+use super::images::{extract_images, ImageSink};
 use super::message::{canonicalize_keys, Event, Message};
 
 const FULL_SNAPSHOT: u8 = 2;
@@ -473,9 +475,9 @@ fn move_out_canvas_images(
         let replacement = match image {
             CanvasImage::Base64(span) => match scan::unescape(inner, span) {
                 Ok(payload) => sink.take_base64(payload.as_bytes()),
-                Err(_) => sink.decline(Declined::Undecodable),
+                Err(_) => sink.decline(ImageDecline::Undecodable),
             },
-            CanvasImage::Pixels(_) => sink.decline(Declined::Unsupported),
+            CanvasImage::Pixels(_) => sink.decline(ImageDecline::Unsupported),
         };
         let mut quoted = Vec::with_capacity(replacement.len() + 2);
         scan::write_json_string(&replacement, &mut quoted);
@@ -877,7 +879,7 @@ mod tests {
     fn moves_every_canvas_image_out_or_declines_it() {
         enum Outcome {
             Stored(&'static str),
-            Marker(Declined),
+            Marker(ImageDecline),
             Kept,
         }
         let png = b"\x89PNG\r\n\x1a\nframe".as_slice();
@@ -920,7 +922,7 @@ mod tests {
             (
                 draw(bitmap("image/bmp", b"BMbitmap")),
                 format!("/data/commands/0/args/0{blob}"),
-                Outcome::Marker(Declined::Unsupported),
+                Outcome::Marker(ImageDecline::Unsupported),
             ),
             (
                 draw(bitmap(
@@ -928,7 +930,7 @@ mod tests {
                     b"\x00\x00\x00\x1cftypavif\x00\x00\x00\x00avifmif1miaf",
                 )),
                 format!("/data/commands/0/args/0{blob}"),
-                Outcome::Marker(Declined::Avif),
+                Outcome::Marker(ImageDecline::Avif),
             ),
             (
                 draw(
@@ -936,7 +938,7 @@ mod tests {
                     "data": [{"rr_type": "ArrayBuffer", "base64": "A"}]}]}),
                 ),
                 format!("/data/commands/0/args/0{blob}"),
-                Outcome::Marker(Declined::Undecodable),
+                Outcome::Marker(ImageDecline::Undecodable),
             ),
             (
                 commands(
@@ -944,7 +946,7 @@ mod tests {
                     "args": [{"rr_type": "Uint8ClampedArray", "args": [[255, 0, 0, 255]]}, 1, 1]}, 0, 0]}]),
                 ),
                 "/data/commands/0/args/0/args/0".to_owned(),
-                Outcome::Marker(Declined::Unsupported),
+                Outcome::Marker(ImageDecline::Unsupported),
             ),
             (
                 webgl(
@@ -952,12 +954,12 @@ mod tests {
                     json!([3553, 0, 6408, 1, 1, 0, 6408, 5121, {"rr_type": "Uint8Array", "args": [[255, 0, 0, 255]]}]),
                 ),
                 "/data/args/8/args/0".to_owned(),
-                Outcome::Marker(Declined::Unsupported),
+                Outcome::Marker(ImageDecline::Unsupported),
             ),
             (
                 webgl("bufferData", json!([34962, buffer(b"vertices"), 35044])),
                 "/data/args/1/base64".to_owned(),
-                Outcome::Marker(Declined::Unsupported),
+                Outcome::Marker(ImageDecline::Unsupported),
             ),
             (
                 draw(json!({"rr_type": "HTMLImageElement", "src": "https://example.com/a.png"})),

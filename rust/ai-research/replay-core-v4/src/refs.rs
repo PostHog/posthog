@@ -1,12 +1,15 @@
-//! Image and URL references, which stand in for an image in a v4 block, and the URL fingerprints of the block index.
+//! The keyed hash of the image and URL references in `posthog_replay_anonymizer::v4_image_refs`, the asset of a URL
+//! reference, and the URL fingerprints of the block index.
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use hmac::{Hmac, Mac};
+use posthog_replay_anonymizer::v4_image_refs::{
+    font_url_declined_marker, font_url_ref, image_url_ref, url_declined_marker, HASH_CHARS,
+};
+use posthog_replay_anonymizer::Decline;
 use sha2::Sha256;
 
-/// The length v3 truncates a reference hash to: 132 bits of the HMAC.
-const HASH_CHARS: usize = 22;
 /// 64 bits of the HMAC: enough to tell the pages of one session apart.
 const FINGERPRINT_BYTES: usize = 8;
 
@@ -20,41 +23,25 @@ pub fn reference_hash(key: &[u8; 32], bytes: &[u8]) -> String {
     encoded
 }
 
-pub fn image_ref(team_id: i64, key_month: &str, hash: &str) -> String {
-    format!("image:v4:{team_id}:{key_month}:{hash}")
-}
-
-/// The prefix of a URL's reference tells the fetcher what to check the response for and where to store it.
+/// The asset that a URL reference names, which tells the fetcher what to check the response for and where to store it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum UrlAsset {
     Image,
     Font,
 }
 
-impl UrlAsset {
-    pub fn prefix(self) -> &'static str {
-        match self {
-            UrlAsset::Image => "imageurl",
-            UrlAsset::Font => "fonturl",
-        }
+pub fn url_ref(asset: UrlAsset, team_id: i64, key_month: &str, hash: &str) -> String {
+    match asset {
+        UrlAsset::Image => image_url_ref(team_id, key_month, hash),
+        UrlAsset::Font => font_url_ref(team_id, key_month, hash),
     }
 }
 
-pub fn image_url_ref(team_id: i64, key_month: &str, hash: &str) -> String {
-    url_ref(UrlAsset::Image, team_id, key_month, hash)
-}
-
-pub fn url_ref(asset: UrlAsset, team_id: i64, key_month: &str, hash: &str) -> String {
-    format!("{}:v4:{team_id}:{key_month}:{hash}", asset.prefix())
-}
-
-pub fn declined_url_ref(asset: UrlAsset, reason: &str) -> String {
-    format!("{}:v4:declined:{reason}", asset.prefix())
-}
-
-/// It names no URL, so the renderer uses its own copy of the family.
-pub fn bundled_font_ref(slug: &str) -> String {
-    format!("fonturl:v4:bundled:{slug}")
+pub fn declined_url_ref(asset: UrlAsset, reason: Decline) -> String {
+    match asset {
+        UrlAsset::Image => url_declined_marker(reason),
+        UrlAsset::Font => font_url_declined_marker(reason),
+    }
 }
 
 /// A page URL as the block index shows it in plaintext: lowercase hex of the HMAC under
