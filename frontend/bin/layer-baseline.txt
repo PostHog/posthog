@@ -177,9 +177,6 @@ frontend/src/lib/components/Errors/Exception/CollapsibleExceptionHeader.tsx -> p
 frontend/src/lib/components/Errors/Frame/FrameVariables.tsx -> products/error_tracking/frontend/components/PropertiesTable.tsx
 frontend/src/lib/components/EventPropertyTabs/EventPropertyTabs.tsx -> frontend/src/scenes/surveys/utils.ts
 frontend/src/lib/components/EventPropertyTabs/EventPropertyTabs.tsx -> products/error_tracking/frontend/utils.ts
-frontend/src/lib/components/ExportButton/exportNudge.ts -> products/subscriptions/frontend/components/Subscriptions/exportNudge/ExportNudgeToast.tsx
-frontend/src/lib/components/ExportButton/exportNudge.ts -> products/subscriptions/frontend/components/Subscriptions/exportNudge/exportNudgeLogic.ts
-frontend/src/lib/components/ExportButton/exportNudge.ts -> products/subscriptions/frontend/components/Subscriptions/exportNudge/exportNudgeSubject.ts
 frontend/src/lib/components/FlagCalledRebuildBanner/flagCalledDependencies.ts -> frontend/src/scenes/cohorts/CohortFilters/types.ts
 frontend/src/lib/components/FlagCalledRebuildBanner/flagCalledDependencies.ts -> frontend/src/scenes/cohorts/cohortUtils.tsx
 frontend/src/lib/components/FlagCalledRebuildBanner/flagCalledDependencies.ts -> frontend/src/scenes/feature-flags/flagEvaluationsTable.ts
@@ -211,7 +208,6 @@ frontend/src/lib/components/JSSnippet.tsx -> frontend/src/scenes/settings/enviro
 frontend/src/lib/components/NotFound/index.tsx -> frontend/src/scenes/activity/explore/defaults.ts
 frontend/src/lib/components/NotFound/index.tsx -> frontend/src/scenes/notebooks/Nodes/NotebookNodeContext.ts
 frontend/src/lib/components/PathCleanFilters/PathRegexModal.tsx -> frontend/src/scenes/session-recordings/components/AiRegexHelper/AiRegexHelper.tsx
-frontend/src/lib/components/PayGateMini/PayGateButton.tsx -> frontend/src/scenes/billing/paymentEntryLogic.ts
 frontend/src/lib/components/PayGateMini/PayGateMini.tsx -> frontend/src/scenes/onboarding/shared/utils.tsx
 frontend/src/lib/components/ProductEmptyState/ProductEmptyState.tsx -> frontend/src/scenes/onboarding/shared/useWizardCommand.ts
 frontend/src/lib/components/PropertiesTable/PropertiesTable.tsx -> products/persons/frontend/components/NewProperty.tsx

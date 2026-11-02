@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("warehouse_sources", "0188_reset_trunkio_v2_failing_tests"),
+        ("warehouse_sources", "0190_repin_profound_api_version_v2"),
     ]
 
     operations = [

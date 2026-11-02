@@ -2698,9 +2698,8 @@ export interface InsightModel<R extends Node<Record<string, any>> = Node<Record<
     created_by: UserBasicType | null
     is_sample: boolean
     /**
-     * @deprecated Write-only. Session responses omit it, so read membership with
-     * `liveDashboardIds(insight.dashboard_tiles)`. Send it to place a new insight on dashboards, or to
-     * replace a saved insight's whole membership.
+     * @deprecated Session responses omit it, so read membership with `liveDashboardIds(insight.dashboard_tiles)`.
+     * The app never sends it: on an unsaved insight it holds the dashboards to place the saved insight on.
      */
     dashboards?: number[]
     dashboard_tiles: DashboardTileBasicType[] | null
@@ -2961,6 +2960,7 @@ export interface OrganizationInviteType {
     level: OrganizationMembershipLevel
     is_expired: boolean
     emailing_attempt_made: boolean
+    email_suppressed: boolean
     created_by: UserBasicType | null
     created_at: string
     updated_at: string
@@ -6238,6 +6238,7 @@ export enum ActivityScope {
     PLATFORM_ALERT_CONFIGURATION = 'PlatformAlertConfiguration',
     PRODUCT_TOUR = 'ProductTour',
     TICKET = 'Ticket',
+    TICKET_MACRO = 'TicketMacro',
     KNOWLEDGE_SOURCE = 'KnowledgeSource',
     KNOWLEDGE_LIBRARY = 'KnowledgeLibrary',
     INSTANCE_SETTING = 'InstanceSetting',

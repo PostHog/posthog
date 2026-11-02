@@ -46,4 +46,38 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "malware_kits": "Known malware kits that leverage the vulnerability.",
         },
     },
+    "sites": {
+        "description": "A site in InsightVM: a named group of assets that are scanned together.",
+        "docs_url": "https://help.rapid7.com/insightvm/en-us/api/integrations.html",
+        "columns": {
+            "name": "Name of the site.",
+            "type": "Type of the record. Always `SITE` for sites.",
+        },
+    },
+    "scans": {
+        "description": "A scan run in InsightVM, with the engine that ran it, its status, and when it started and finished.",
+        "docs_url": "https://help.rapid7.com/insightvm/en-us/api/integrations.html",
+        "columns": {
+            "id": "Unique identifier for the scan.",
+            "name": "Name of the scan.",
+            "engine_id": "Identifier of the scan engine that ran the scan.",
+            "status": "Status of the scan (e.g. Running, Success, Failed).",
+            "started": "Timestamp when the scan started.",
+            "finished": "Timestamp when the scan finished.",
+            "details": "Additional details about the scan.",
+        },
+    },
+    "scan_engines": {
+        "description": "A scan engine registered with InsightVM, with its host, health status, and configuration profile.",
+        "docs_url": "https://help.rapid7.com/insightvm/en-us/api/integrations.html",
+        "columns": {
+            "id": "Unique identifier for the scan engine.",
+            "name": "Name of the scan engine.",
+            "host_name": "Host name or address of the scan engine.",
+            "status": "Health status of the scan engine (e.g. HEALTHY).",
+            "registered": "Timestamp when the scan engine was registered.",
+            "last_seen": "Timestamp when the scan engine last communicated with the platform.",
+            "profile": "Configuration profile of the scan engine, including custom properties.",
+        },
+    },
 }
