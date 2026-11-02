@@ -4334,6 +4334,79 @@ class TestGetOrMintLiveEventsToken(APIBaseTest):
         assert token_old_key != token_new_key
 
 
+class TestSecretApiTokenVisibility(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.team.secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
+        self.team.secret_api_token_backup = "phs_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        self.team.save()
+
+    def _oauth_token(self, scope: str) -> str:
+        application = OAuthApplication.objects.create(
+            name="Test OAuth App",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            user=self.user,
+        )
+        return OAuthAccessToken.objects.create(
+            application=application,
+            user=self.user,
+            token="pha_secret_token_visibility",
+            scope=scope,
+            expires=timezone.now() + timedelta(hours=1),
+        ).token
+
+    @parameterized.expand(
+        [
+            ("session", None, [], True),
+            ("personal_api_key_project_read", "personal_api_key", ["project:read"], False),
+            (
+                "personal_api_key_with_mirrored_scopes",
+                "personal_api_key",
+                ["project:read", "feature_flag:read", "support_ticket:read"],
+                True,
+            ),
+            ("personal_api_key_all_scopes", "personal_api_key", ["*"], True),
+            ("oauth_project_read", "oauth", ["project:read"], False),
+        ]
+    )
+    @patch("posthog.event_usage.report_user_action")
+    def test_secret_api_tokens_need_the_scopes_rotation_needs(
+        self,
+        _name: str,
+        credential: str | None,
+        scopes: list[str],
+        visible: bool,
+        _mock_report_user_action: MagicMock,
+    ) -> None:
+        headers: dict[str, str] = {}
+        if credential is not None:
+            token = (
+                self.create_personal_api_key_with_scopes(scopes)
+                if credential == "personal_api_key"
+                else self._oauth_token(" ".join(scopes))
+            )
+            headers["authorization"] = f"Bearer {token}"
+            self.client.logout()
+
+        responses = {
+            "ProjectBackwardCompatSerializer": self.client.get(f"/api/projects/{self.project.id}/", headers=headers),
+            "TeamSerializer": self.client.patch(
+                f"/api/projects/{self.project.id}/add_product_intent/",
+                {"product_type": "product_analytics"},
+                headers=headers,
+            ),
+        }
+
+        expected = (self.team.secret_api_token, self.team.secret_api_token_backup) if visible else (None, None)
+        for serializer_name, response in responses.items():
+            assert response.status_code in (status.HTTP_200_OK, status.HTTP_201_CREATED), response.json()
+            body = response.json()
+            assert (body["secret_api_token"], body["secret_api_token_backup"]) == expected, serializer_name
+
+
 # Sensitive Team/Project settings the frontend gates behind
 # `TeamMembershipLevel.Admin` AND that ordinary members are not expected to flip
 # from any onboarding/dashboard surface. Each tuple is

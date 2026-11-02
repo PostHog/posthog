@@ -13,13 +13,16 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import Team, User
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.project import Project
+from posthog.models.project_secret_api_key import MIRRORED_LEGACY_TOKEN_SCOPES
 from posthog.models.team.logs_retention import LOGS_CUSTOM_RETENTION_FLAG
-from posthog.permissions import posthog_feature_flag_enabled
+from posthog.permissions import posthog_feature_flag_enabled, scopes_caller_lacks
 from posthog.types import AnyPropertyFilter
 
 from . import team_config
 
 if TYPE_CHECKING:
+    from rest_framework.request import Request
+
     from posthog.user_permissions import UserPermissions
 
 test_account_filters_adapter = TypeAdapter(list[AnyPropertyFilter])
@@ -165,6 +168,15 @@ def heatmaps_screenshot_secret_for_reader(team: Team, user_permissions: "UserPer
     if level is None or level < OrganizationMembership.Level.ADMIN:
         return None
     return team.heatmaps_screenshot_secret
+
+
+def hide_secret_api_tokens_from_unscoped_caller(representation: dict[str, Any], request: "Request | None") -> None:
+    # Rotating the token needs MIRRORED_LEGACY_TOKEN_SCOPES, the scopes its PSAK mirror row grants, so reading it needs them too.
+    if not scopes_caller_lacks(request, MIRRORED_LEGACY_TOKEN_SCOPES):
+        return
+    for field in ("secret_api_token", "secret_api_token_backup"):
+        if field in representation:
+            representation[field] = None
 
 
 def _get_organization_for_logs_settings_check(serializer: serializers.BaseSerializer) -> Organization | None:
