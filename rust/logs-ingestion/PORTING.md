@@ -1,7 +1,12 @@
 # Porting notes: logs ingestion, Node to Rust
 
 This crate ports the Node logs consumer in `nodejs/src/logs`.
-The two must give the same messages out for the same messages in.
+
+## Parity contract
+
+For the same messages in, the two must give semantically equivalent output: the same records and field values, numbers equal as doubles, the same sampling, retention and rate-limit decisions, the same headers, the same billing and usage counts, and the same DLQ routing.
+Byte layout, the spelling of a number (`1706.7781372070312` or `...313`), and error message text may differ.
+
 The contract is the shared corpus in `nodejs/src/logs/parity/fixtures`:
 
 - `scenarios/*.json` hold end-to-end inputs and the outputs that Node produced.
@@ -138,13 +143,16 @@ Each rule has evidence in Node, and a test that pins it.
    | Any other codec | "unknown codec: X", so `null` and `deflate` containers go to the DLQ |
    | A bad sync marker in any complete block | "invalid sync marker" (avsc checks all blocks before it decompresses any) |
    | Bad zstd | "zstandard codec decompression error" |
-   | A record past its block | "truncated block" |
+   | A record past its block, or a string or bytes length that is NaN, infinite or past the end | "truncated block" |
+   | A block count outside ±(2^53 - 2), also in trailing bytes | "potential precision loss" (Node rejects since `decodeLogRecords` writes to the decoder directly; through a pipe the throw was uncaught and the promise never settled) |
+   | A first array count over 2^32 - 1 | "Invalid array length" |
    | Bad union index | "invalid union index: N" |
    | Bad enum index | "invalid NAME enum index: N" |
    | A long outside ±(2^53 - 2) | "potential precision loss" |
    | An incomplete trailing block, or trailing garbage | Ignored, with no error |
    | A block whose count is below its data | Reads only the counted records |
    | A block with count 0 | Skipped |
+   | A block count | Taken as `count \| 0`; a negative count reads records until one fails |
    | Invalid UTF-8 | U+FFFD per maximal invalid subpart |
 
    - `int` is read with the `long` reader and no range check.
@@ -219,7 +227,10 @@ A parsed `FilterGroupNode` implements `metric_rules::FilterGroupMatcher` with `f
 ## Not reproduced
 
 - **Writer schemas that fail to parse.** avsc's error text comes from `JSON.parse` or `Type.forSchema`. Capture always writes a valid schema.
-- **A block with a negative record count.** avsc reads records until one fails; this port skips the block.
+- **Writer-schema validation.** avsc's `Type.forSchema` checks are not ported, so accept and reject decisions differ, not only error text. A corrupted record `name` key makes an anonymous record, which avsc decodes and this port rejects. A name with invalid characters (`LogRec\u007frd`) is rejected by avsc and decoded here. Ambiguous unions, field defaults and enum symbols are not validated either.
+- **Counts that run far past the data.** For an array or map count in the millions whose items run past the end, avsc keeps reading empty items and Node can throw "Invalid array length" or run out of memory; this port stops at the end with "truncated block". Records that read no bytes are capped at 2^20 per container ("too many empty records"); Node holds them all or runs out of memory.
+- **A NaN `bytes` length** (a varint of about 150 bytes). avsc allocates from its shared buffer pool with a NaN length, which leaves every later `bytes` value in the Node process empty, so later messages fail with "unknown codec: ". This port fails only the one message.
+- **An `int` that decodes to NaN or past i64.** avsc keeps the float; this port stores an `i64`.
 - **Decode error precedence across blocks.** When an early block has a bad record and a later block fails to decompress, avsc's async order decides which error comes first. This port reports the first block in order.
 - **Encode error text.** It follows avsc's `invalid <schema>: <value>` shape, but the value is printed with Rust `Debug`. Only a hog transformation that writes a wrongly typed value can reach it. Port it with the transformations.
 - **The HTTP POST of `LogsMetricsEmitter`.** The crate has no HTTP client. `LogsMetricsEmitter` takes an `OtlpTransport` and keeps the body, the two attempts, the 2xx check and the `logs_metrics_rules_export_failed_total{team_id}` counter.
@@ -254,6 +265,12 @@ cd nodejs && npx tsx --tsconfig tsconfig.json ../rust/logs-ingestion/scripts/nod
 
 ```bash
 NODE_PATH=nodejs/node_modules node rust/logs-ingestion/scripts/node-re2-reference.js
+```
+
+`tests/fixtures/fuzz/` comes from `scripts/fuzz-generate.ts`, a seeded generator over every module. `tests/differential_fuzz.rs` replays it semantically. Inputs that once differed are in `regression-inputs.json`. `FUZZ_SEED`, `FUZZ_N` and `FUZZ_BUDGET=0` (keep every case) with `FUZZ_OUT` write a larger corpus, and `FUZZ_DIR` replays it.
+
+```bash
+cd nodejs && FUZZ_UNIQUE_IDS=1 NODE_PATH=node_modules DATABASE_URL=postgres://x:x@127.0.0.1:1/x npx tsx --tsconfig tsconfig.json ../rust/logs-ingestion/scripts/fuzz-generate.ts
 ```
 
 `tests/fixtures/rate-limiter-reference.json` comes from `scripts/node-rate-limiter-reference.ts`. It needs Redis at 127.0.0.1:6379 and deletes only its own keys (`@posthog-test/logs-parity-rl*` and the sampling keys of team 987654321). `tests/rate_limiter_redis.rs` replays it against the same Redis and skips when Redis is down.

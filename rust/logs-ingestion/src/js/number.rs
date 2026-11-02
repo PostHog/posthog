@@ -1,7 +1,8 @@
 //! ECMAScript `Number::toString(10)`, which `String(n)` and `JSON.stringify` use.
 //!
-//! Rust's `{:e}` gives the same shortest round-trip digits as ECMAScript; only the layout
-//! differs (where JavaScript switches to exponent form, and `e+21` instead of `e21`).
+//! Rust's `{:e}` gives the shortest round-trip digit count. ECMAScript breaks a tie between two
+//! equally close shortest candidates toward the even digit, so an odd last digit is checked
+//! against the exactly rounded form, which rounds ties to even.
 
 pub fn number_to_string(value: f64) -> String {
     if value.is_nan() {
@@ -17,7 +18,7 @@ pub fn number_to_string(value: f64) -> String {
     if value < 0.0 {
         out.push('-');
     }
-    let sci = format!("{:e}", value.abs());
+    let sci = shortest_scientific(value.abs());
     let (mantissa, exp) = sci.split_once('e').expect("LowerExp has an exponent");
     let exp: i32 = exp.parse().expect("exponent is an integer");
     let digits: String = mantissa.chars().filter(|c| *c != '.').collect();
@@ -48,6 +49,23 @@ pub fn number_to_string(value: f64) -> String {
     out
 }
 
+fn shortest_scientific(value: f64) -> String {
+    let shortest = format!("{value:e}");
+    let mantissa = shortest.split_once('e').map_or("", |(m, _)| m);
+    let last_is_odd = mantissa.bytes().last().is_some_and(|d| (d - b'0') % 2 == 1);
+    if !last_is_odd {
+        return shortest;
+    }
+    let digits = mantissa.bytes().filter(u8::is_ascii_digit).count();
+    let exact = format!("{:.*e}", digits - 1, value);
+    // At a power of two the lower gap is narrower, so the nearest candidate can miss.
+    if exact != shortest && exact.parse::<f64>() == Ok(value) {
+        exact
+    } else {
+        shortest
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::number_to_string;
@@ -70,6 +88,9 @@ mod tests {
             (-3.5, "-3.5"),
             (42.0, "42"),
             (f64::MAX, "1.7976931348623157e+308"),
+            (f64::from_bits(0x409a_ab1c_d000_0000), "1706.7781372070312"),
+            (f64::from_bits(0x40fd_58f9_f100_0000), "120207.62133789062"),
+            (-1417389728594571.2, "-1417389728594571.2"),
         ];
         for (value, expected) in cases {
             assert_eq!(number_to_string(*value), *expected, "{value}");

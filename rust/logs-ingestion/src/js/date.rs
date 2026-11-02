@@ -185,13 +185,19 @@ impl Tokenizer {
             return Token::End;
         };
         if c.is_ascii_digit() {
+            // V8's `ReadUnsignedNumeral`: skip leading zeros, keep 9 significant digits, and
+            // count every digit in the length.
             let start = self.pos;
+            while self.ch() == Some('0') {
+                self.pos += 1;
+            }
             let mut n: i64 = 0;
-            let max = (i32::MAX / 10 - 10) as i64;
+            let mut significant = 0;
             while let Some(d) = self.ch().filter(char::is_ascii_digit) {
-                if n < max {
+                if significant < 9 {
                     n = n * 10 + (d as i64 - '0' as i64);
                 }
+                significant += 1;
                 self.pos += 1;
             }
             return Token::Number {
@@ -783,5 +789,11 @@ mod tests {
         // V8 skips a word before the first number, so this is 2025-01-01.
         assert_eq!(date_parse("garbage 2025"), Some(1735689600000.0));
         assert_eq!(date_parse("garbage2025"), None);
+        // Leading zeros are skipped, and only 9 significant digits are kept.
+        assert_eq!(
+            date_parse("-0800 12:00:00.1234561970"),
+            Some(-36921614399877.0)
+        );
+        assert_eq!(date_parse("Jan 15 0000000000002025"), Some(1736899200000.0));
     }
 }

@@ -14,6 +14,16 @@ pub(crate) struct Tap<'a> {
 /// avsc's `isSafeLong` bound: one less than 2^53 - 1 on each side, for its rounding.
 const SAFE_LONG: f64 = 9007199254740990.0;
 
+const MAX_ARRAY_LENGTH: f64 = 4_294_967_295.0;
+
+/// A block of records that read no bytes repeats one value; Node runs out of memory on a large
+/// count of them, and this port stops instead.
+const MAX_EMPTY_RECORDS: u64 = 1 << 20;
+
+fn precision_loss() -> AvroError {
+    AvroError::Decode("potential precision loss".to_string())
+}
+
 impl<'a> Tap<'a> {
     pub fn new(buf: &'a [u8]) -> Self {
         Self { buf, pos: 0 }
@@ -30,7 +40,7 @@ impl<'a> Tap<'a> {
     /// A byte, or 0 past the end as `buf[pos]` gives `undefined` in JavaScript.
     fn byte(&mut self) -> u8 {
         let b = self.buf.get(self.pos).copied().unwrap_or(0);
-        self.pos += 1;
+        self.pos = self.pos.saturating_add(1);
         b
     }
 
@@ -69,18 +79,28 @@ impl<'a> Tap<'a> {
         while self.byte() & 0x80 != 0 {}
     }
 
+    /// A read past the end leaves the tap invalid. avsc moves `pos` by any length, but every
+    /// later read past the end gives zeros either way, so the exact position does not matter.
     pub fn read_fixed(&mut self, len: usize) -> Option<&'a [u8]> {
         let start = self.pos;
-        self.pos += len;
-        if self.pos > self.buf.len() {
-            return None;
+        match start.checked_add(len) {
+            Some(end) if end <= self.buf.len() => {
+                self.pos = end;
+                Some(&self.buf[start..end])
+            }
+            _ => {
+                self.invalidate();
+                None
+            }
         }
-        Some(&self.buf[start..self.pos])
     }
 
+    /// A NaN, infinite or oversized length leaves avsc's `pos` past the end (or NaN), which
+    /// is invalid too.
     pub fn read_bytes(&mut self) -> Option<&'a [u8]> {
         let len = self.read_long();
-        if len < 0.0 {
+        let remaining = self.buf.len().saturating_sub(self.pos) as f64;
+        if !(0.0..=remaining).contains(&len) {
             self.invalidate();
             return None;
         }
@@ -114,7 +134,7 @@ pub(crate) fn read_value(tap: &mut Tap<'_>, schema: &Schema) -> Result<AvroValue
         Schema::Long => {
             let n = tap.read_long();
             if !(-SAFE_LONG..=SAFE_LONG).contains(&n) {
-                return Err(AvroError::Decode("potential precision loss".to_string()));
+                return Err(precision_loss());
             }
             AvroValue::Long(n as i64)
         }
@@ -163,14 +183,23 @@ pub(crate) fn read_value(tap: &mut Tap<'_>, schema: &Schema) -> Result<AvroValue
         }
         Schema::Array(items) => {
             let mut out = Vec::new();
+            let mut first_batch = true;
             loop {
                 let mut n = tap.read_long();
-                if n == 0.0 || !tap.is_valid() {
+                if n == 0.0 || n.is_nan() {
                     break;
                 }
                 if n < 0.0 {
                     n = -n;
                     tap.skip_long();
+                }
+                // avsc sizes the array from the first count with `new Array(n)`.
+                if first_batch && n > MAX_ARRAY_LENGTH {
+                    return Err(AvroError::Decode("Invalid array length".to_string()));
+                }
+                first_batch = false;
+                if !tap.is_valid() {
+                    break;
                 }
                 for _ in 0..n as u64 {
                     out.push(read_value(tap, items)?);
@@ -185,7 +214,7 @@ pub(crate) fn read_value(tap: &mut Tap<'_>, schema: &Schema) -> Result<AvroValue
             let mut out = AvroMap::new();
             loop {
                 let n = tap.read_array_size();
-                if n == 0.0 || !tap.is_valid() {
+                if n == 0.0 || n.is_nan() || !tap.is_valid() {
                     break;
                 }
                 for _ in 0..n as u64 {
@@ -223,7 +252,7 @@ fn read_header(tap: &mut Tap<'_>) -> Option<Header> {
     let mut meta = Vec::new();
     loop {
         let n = tap.read_array_size();
-        if n == 0.0 || !tap.is_valid() {
+        if n == 0.0 || n.is_nan() || !tap.is_valid() {
             break;
         }
         for _ in 0..n as u64 {
@@ -280,7 +309,11 @@ pub fn decode_container(buf: &[u8]) -> Result<Container, AvroError> {
     // is never read, and the stream ends without an error.
     let mut blocks = Vec::new();
     loop {
+        // avsc reads the count as a `long`, which throws before the rest of the block is read.
         let count = tap.read_long();
+        if !(-SAFE_LONG..=SAFE_LONG).contains(&count) {
+            return Err(precision_loss());
+        }
         let data = tap.read_bytes();
         let sync = tap.read_fixed(16);
         if !tap.is_valid() {
@@ -296,17 +329,26 @@ pub fn decode_container(buf: &[u8]) -> Result<Container, AvroError> {
     }
 
     let mut records = Vec::new();
+    let mut empty_records = 0u64;
     for (count, data) in blocks {
         let inflated = zstd::stream::decode_all(data)
             .map_err(|_| AvroError::Decompression("zstandard".to_string()))?;
-        if count <= 0.0 {
-            continue;
-        }
+        // avsc keeps `count | 0`. A negative count never counts down to 0, so avsc reads records
+        // until one fails.
+        let mut remaining = i64::from((count as i64) as i32);
         let mut block = Tap::new(&inflated);
-        for _ in 0..count as u64 {
+        while remaining != 0 {
+            remaining -= 1;
+            let start = block.pos;
             let value = read_value(&mut block, &schema)?;
             if !block.is_valid() {
                 return Err(AvroError::Decode("truncated block".to_string()));
+            }
+            if block.pos == start {
+                empty_records += 1;
+                if empty_records > MAX_EMPTY_RECORDS || remaining < 0 {
+                    return Err(AvroError::Decode("too many empty records".to_string()));
+                }
             }
             records.push(value);
         }

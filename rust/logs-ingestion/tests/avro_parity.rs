@@ -142,3 +142,71 @@ fn schema_export_matches_avsc_for_the_production_schemas() {
         let _ = json_parse(&again).unwrap();
     }
 }
+
+#[test]
+fn decode_never_panics_on_corrupt_containers() {
+    let schema = Schema::parse_json(
+        r#"{"type":"record","name":"R","fields":[
+            {"name":"s","type":["null","string"]},{"name":"b","type":"bytes"},
+            {"name":"l","type":"long"},{"name":"i","type":"int"},
+            {"name":"m","type":{"type":"map","values":"string"}},
+            {"name":"a","type":{"type":"array","items":"long"}},
+            {"name":"e","type":{"type":"enum","name":"E","symbols":["x","y"]}},
+            {"name":"f","type":{"type":"fixed","name":"F","size":4}},
+            {"name":"d","type":"double"},{"name":"g","type":"float"}]}"#,
+    )
+    .unwrap();
+    let mut state = 0x9e37_79b9_7f4a_7c15u64;
+    let mut next = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state
+    };
+    let valid = encode_container(&schema, "zstandard", &[]).unwrap();
+    // Varints that overflow 2^53, 2^64 and f64, and one that decodes to NaN.
+    let huge: [&[u8]; 4] = [
+        &[0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x20],
+        &[0xfe, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f],
+        &[0xff; 160],
+        &[[0x80; 150].as_slice(), &[0]].concat(),
+    ];
+    for i in 0..4000 {
+        let mut payload = Vec::new();
+        for _ in 0..next() % 64 {
+            match next() % 4 {
+                0 => payload.extend_from_slice(huge[(next() % 4) as usize]),
+                1 => payload.push((next() % 256) as u8),
+                _ => payload.extend_from_slice(&[0x02, (next() % 4) as u8 * 2]),
+            }
+        }
+        let block = zstd::stream::encode_all(payload.as_slice(), 1).unwrap();
+        let mut bytes = valid.clone();
+        let sync = valid[valid.len() - 16..].to_vec();
+        let count = huge[(next() % 4) as usize];
+        bytes.extend_from_slice(if i % 3 == 0 { count } else { &[0x02] });
+        bytes.extend_from_slice(&encode_long(block.len() as i64));
+        bytes.extend_from_slice(&block);
+        bytes.extend_from_slice(&sync);
+        for _ in 0..next() % 3 {
+            let at = (next() as usize) % bytes.len();
+            bytes[at] ^= 1 << (next() % 8);
+        }
+        if i % 5 == 0 {
+            bytes.truncate((next() as usize) % (bytes.len() + 1));
+        }
+        let result = std::panic::catch_unwind(|| decode_container(&bytes));
+        assert!(result.is_ok(), "panic on case {i}");
+    }
+}
+
+fn encode_long(n: i64) -> Vec<u8> {
+    let mut z = ((n << 1) ^ (n >> 63)) as u64;
+    let mut out = Vec::new();
+    while z >= 0x80 {
+        out.push((z as u8) | 0x80);
+        z >>= 7;
+    }
+    out.push(z as u8);
+    out
+}
