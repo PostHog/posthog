@@ -1,5 +1,10 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "properties": {},
+    "properties": {
+        "refresh_github": {
+            "description": "Recheck GitHub access using the repository cache refresh cooldown.",
+            "type": "boolean"
+        }
+    },
     "type": "object"
 }
