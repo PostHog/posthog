@@ -19,6 +19,7 @@ from posthog.models.data_deletion_request import (
     RequestStatus,
     RequestType,
     build_deletion_count_query,
+    count_adhoc_event_deletion_backlog,
     count_remaining_for_request,
     fetch_deletion_stats,
     invalidate_compiled_predicate_cache,
@@ -792,9 +793,17 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             messages.error(request, "Only pending requests can be approved.")
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
+        # The backlog only informs the approver, so a ClickHouse failure must not block approval.
+        try:
+            adhoc_backlog = count_adhoc_event_deletion_backlog(obj.team_id)
+        except Exception as e:
+            adhoc_backlog = None
+            messages.warning(request, f"Could not count queued adhoc event deletions: {e}")
+
         context = {
             **self.admin_site.each_context(request),
             "obj": obj,
+            "adhoc_backlog": adhoc_backlog,
             "supports_deferred": supports_deferred,
             "is_hogql_event_removal": is_hogql_event_removal,
             "is_person_removal": obj.request_type == RequestType.PERSON_REMOVAL,
