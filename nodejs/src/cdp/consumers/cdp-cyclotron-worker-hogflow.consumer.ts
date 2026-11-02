@@ -147,13 +147,16 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                     })
                     counterHogFlowJobsFailed.labels({ reason: 'workflow_version_behind' }).inc()
 
-                    terminalResults.push(
-                        this.buildFailedResult(
-                            item,
-                            hogFlow,
-                            `Workflow version ${hogFlow.version} is older than version ${send?.hogFlowVersion}, which this send was checked against`
+                    const failure = `Workflow version ${hogFlow.version} is older than version ${send?.hogFlowVersion}, which this send was checked against`
+                    const behind = { ...item, hogFlow }
+                    const recorded =
+                        await this.invocationResultsService.invocationResultsRowsService.recordTerminalFailureDurably(
+                            behind,
+                            { errorKind: 'workflow_version_behind', error: failure }
                         )
-                    )
+                    if (recorded || !this.config.HOG_INVOCATION_RESULTS_ENABLED) {
+                        terminalResults.push(this.buildFailedResult(item, hogFlow, failure))
+                    }
 
                     return
                 }
