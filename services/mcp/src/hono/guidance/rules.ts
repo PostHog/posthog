@@ -132,12 +132,12 @@ const RULES: GuidanceRule[] = [
         requiresTool: ['query-trends', 'query-funnel', 'read-data-schema'],
         text: [
             'This SQL is a simple aggregate over events.',
-            'For a new product analytics result, prefer a typed runner when it supports the calculation:',
-            '`query-trends` for event counts, unique users, breakdowns, time series and period comparisons,',
-            '`query-funnel` for conversion between steps.',
-            'Typed runners keep PostHog calculation rules and save as native insights.',
+            'Before you report these numbers, run the same calculation with `query-trends`,',
+            'or with `query-funnel` for conversion between steps, and report that result.',
+            "The typed runner applies the project's default test account filter, which raw SQL does not apply,",
+            'so the numbers can differ.',
+            'Keep this SQL only when the user asked for SQL or the runners cannot express the calculation.',
             'To only check that an event or property exists, use `read-data-schema`.',
-            'Keep SQL for row inspection, joins, warehouse tables and calculations the runners do not support.',
         ].join(' '),
     },
 ]
