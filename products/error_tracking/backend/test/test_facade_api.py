@@ -680,7 +680,7 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         assert api.get_spike_detection_config(self.team.id) == updated
 
 
-class TestSymbolSetCountsDatabase(SimpleTestCase):
+class TestUsageReportCountsDatabase(SimpleTestCase):
     @parameterized.expand([("all", False), ("resolved_only", True)])
     def test_reads_from_replica_when_configured(self, _name: str, resolved_only: bool) -> None:
         with patch.dict(settings.DATABASES, {"replica": settings.DATABASES["default"]}):
@@ -695,3 +695,19 @@ class TestSymbolSetCountsDatabase(SimpleTestCase):
             queryset = _symbol_set_counts_queryset(resolved_only=resolved_only)
 
         assert queryset.db == "default"
+
+    def test_issue_counts_read_from_replica_when_configured(self) -> None:
+        with (
+            patch.dict(settings.DATABASES, {"replica": settings.DATABASES["default"]}),
+            patch.object(ErrorTrackingIssue.objects, "using") as using,
+        ):
+            api.get_issue_counts_by_team()
+
+        using.assert_called_once_with("replica")
+
+    def test_issue_counts_fall_back_to_default_without_replica(self) -> None:
+        with patch.dict(settings.DATABASES), patch.object(ErrorTrackingIssue.objects, "using") as using:
+            settings.DATABASES.pop("replica", None)
+            api.get_issue_counts_by_team()
+
+        using.assert_called_once_with("default")

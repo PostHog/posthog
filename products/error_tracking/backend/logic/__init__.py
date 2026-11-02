@@ -207,9 +207,15 @@ def count_issues_created_since(team_id: int, since: datetime) -> int:
     return ErrorTrackingIssue.objects.filter(team_id=team_id, created_at__gte=since).count()
 
 
+def read_database() -> str:
+    """The database for expensive reads that can tolerate replica lag."""
+    return "replica" if "replica" in settings.DATABASES else DEFAULT_DB_ALIAS
+
+
 def get_issue_counts_by_team() -> list[tuple[int, int]]:
     return list(
-        ErrorTrackingIssue.objects.values("team_id")
+        ErrorTrackingIssue.objects.using(read_database())
+        .values("team_id")
         .annotate(total=Count("id"))
         .order_by("team_id")
         .values_list("team_id", "total")
@@ -218,8 +224,7 @@ def get_issue_counts_by_team() -> list[tuple[int, int]]:
 
 def _symbol_set_counts_queryset(*, resolved_only: bool) -> QuerySet[ErrorTrackingSymbolSet]:
     # These counts scan the whole table and the usage report runs them every 30 minutes, so keep them off the writer.
-    database = "replica" if "replica" in settings.DATABASES else DEFAULT_DB_ALIAS
-    queryset = ErrorTrackingSymbolSet.objects.using(database).all()
+    queryset = ErrorTrackingSymbolSet.objects.using(read_database()).all()
     if resolved_only:
         queryset = queryset.filter(storage_ptr__isnull=False)
     return queryset
