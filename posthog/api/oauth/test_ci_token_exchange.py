@@ -128,7 +128,7 @@ class TestCITokenExchange(APIBaseTest):
         assert 0 < body["expires_in"] <= 600
         assert "refresh_token" not in body
         assert created.status_code == status.HTTP_201_CREATED, created.json()
-        annotation = Annotation.objects.get(pk=created.json()["id"])
+        annotation = Annotation.objects.get(pk=created.json()["id"], team_id=self.team.id)
         assert annotation.created_by_id == self.user.id != newer_owner.id
         entry = ActivityLog.objects.filter(scope="Annotation", item_id=str(annotation.pk)).get()
         assert (entry.credential_type, entry.credential_id) == ("oidc_ci", str(self.policy.pk))
