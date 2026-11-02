@@ -116,6 +116,7 @@ The native build supports rotation; iOS builds use Xcode 27.1 for the full Duo d
   Custom controls stay inside safe content; they do not occupy native reserved regions or infer a hinge angle.
 - Reports keep their contextual Chat action; their navigation bar does not add a second compose button.
   The report action bar stays in the page layout when the keyboard opens or the window rotates.
+  With a navigation rail beside native side chrome, its bottom gutter is 16pt; phone layouts retain their bottom safe-area spacing.
 - Chat keeps a centered reading column up to 720pt wide. Resizing keeps the session, composer, queued messages and draft mounted.
   Short landscape windows put the input and composer controls on one row, with a smaller header.
   Empty-state suggestions scroll above the composer; Android keeps the app visible while editing instead of opening a full-screen editor.

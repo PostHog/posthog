@@ -6,6 +6,7 @@ import { ComposeIcon } from '@/ui/icons/ComposeIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useTheme } from '@/ui/theme'
 import { iconSizes, layout, radii, type } from '@/ui/tokens'
+import { useAppLayout } from '@/ui/useAppLayout'
 import { bottomOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { ActionPill } from './ActionPill'
@@ -48,6 +49,9 @@ export function ActionBar({
     const { colors, shadows } = useTheme()
     const styles = useStyles()
     const insets = useScreenInsets()
+    const { rail } = useAppLayout()
+    const bottomPadding =
+        rail && Math.max(insets.left, insets.right) > insets.bottom ? layout.minBottomPadding : bottomOffset(insets, 38)
     const unstartedTaskId =
         useHandoffEntry(report.id)?.unstartedTaskId ??
         (report.task?.status === 'not_started' && !report.task.runId ? report.task.taskId : undefined)
@@ -111,7 +115,7 @@ export function ActionBar({
     )
 
     return (
-        <View style={[styles.bar, { paddingBottom: bottomOffset(insets, 38) }]} testID={`action-bar-${footerState}`}>
+        <View style={[styles.bar, { paddingBottom: bottomPadding }]} testID={`action-bar-${footerState}`}>
             {notice ? (
                 <Text style={styles.notice} accessibilityRole="alert" testID="handoff-notice">
                     {notice}
