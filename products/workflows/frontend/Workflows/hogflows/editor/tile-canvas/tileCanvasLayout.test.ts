@@ -61,13 +61,15 @@ const STACK: NodeSize = { width: 180, height: 90, anchor: { x: 40, y: 40, width:
 async function layOut(
     flow: FlowGraph,
     flowGroups: PathGroup[],
-    openIds: string[]
+    openIds: string[],
+    stopIfStale?: () => void
 ): Promise<{ layout: CanvasLayout; sizes: Record<string, NodeSize>; edges: VisibleEdge[] }> {
     const graph = computeVisibleGraph(flow, flowGroups, openIds)
     const sizes: Record<string, NodeSize> = Object.fromEntries(
         graph.nodes.map((node) => [node.id, node.kind === 'stack' ? STACK : STEP])
     )
-    const layout = await layoutTileCanvas(sizes, graph.edges, pathFrameSpecs(flowGroups, openIds, graph.nodes))
+    const frames = pathFrameSpecs(flowGroups, openIds, graph.nodes)
+    const layout = await layoutTileCanvas(sizes, graph.edges, frames, stopIfStale)
     return { layout, sizes, edges: graph.edges }
 }
 
@@ -328,6 +330,16 @@ describe('layoutTileCanvas', () => {
         expect(ends).toHaveLength(10)
         expect(Math.min(...gaps)).toBeGreaterThanOrEqual(8)
         expect(starts.filter((x) => x < tileLeft || x > tileLeft + tile.width)).toEqual([])
+    })
+
+    it('stops a layout that a newer one replaced before its next pass', async () => {
+        const replaced = new Error('replaced')
+        const stopIfStale = jest.fn(() => {
+            throw replaced
+        })
+
+        await expect(layOut(workflow, groups, [], stopIfStale)).rejects.toBe(replaced)
+        expect(stopIfStale).toHaveBeenCalledTimes(1)
     })
 
     it('gives a path no more room for a name longer than its label shows', () => {

@@ -872,7 +872,7 @@ export const tileCanvasLogic = kea<tileCanvasLogicType>([
                     return
                 }
                 try {
-                    const layout = await layoutTileCanvas(sizes, input.edges, input.frames)
+                    const layout = await layoutTileCanvas(sizes, input.edges, input.frames, () => breakpoint())
                     breakpoint()
                     cache.layoutInput = input
                     actions.setLayout(layout, graph)

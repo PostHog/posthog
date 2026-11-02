@@ -399,10 +399,12 @@ function attachToTiles(layout: CanvasLayout, edges: VisibleEdge[], sizes: Record
     return { ...layout, edges: attached }
 }
 
+/** `stopIfStale` throws when a newer layout replaces this one, so a stale layout sends no more passes to the shared ELK worker. */
 export async function layoutTileCanvas(
     sizes: Record<string, NodeSize>,
     edges: VisibleEdge[],
-    frames: PathFrameSpec[]
+    frames: PathFrameSpec[],
+    stopIfStale: () => void = () => {}
 ): Promise<CanvasLayout> {
     const elk = await getElk()
     const frameIds = new Set(frames.map((frame) => frame.id))
@@ -412,6 +414,7 @@ export async function layoutTileCanvas(
     let layout = readLayout(await elk.layout(graph()), frameIds)
     let order: PortOrder | null = null
     for (let pass = 1; pass < MAX_LAYOUT_PASSES; pass++) {
+        stopIfStale()
         const next = portOrderOf(layout, shown)
         if (order && sameOrder(order, next)) {
             break
