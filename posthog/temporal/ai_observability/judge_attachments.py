@@ -51,6 +51,16 @@ _NOT_ATTACHED_LABELS: dict[Outcome, str] = {
 }
 
 
+# Judges asked whether an answer matches a missing attachment otherwise tend to take the answer's word for it.
+_NOT_ATTACHED_NOTE = "You can't see the attachments marked not attached. Don't guess what they contain."
+
+
+def _names(labels: list[str]) -> str:
+    # Capped: these lines sit outside the transcript's text budget, and a transcript can hold thousands of markers.
+    rest = len(labels) - MAX_ATTACHMENTS
+    return ", ".join(labels[:MAX_ATTACHMENTS]) + (f", and {rest} more" if rest > 0 else "")
+
+
 _NUMBERED_MARKER_RE = re.compile(r"\[(image|file|audio|video) \d+\]")
 
 
@@ -173,14 +183,21 @@ class JudgeAttachments:
             else:
                 parts.extend([{"type": "text", "text": f"{image.label}:"}, attachment.part])
         # One line each, not one per attachment: they sit outside the transcript's text budget.
-        if over_limit := len(readable) - len(attachments):
-            outcomes["over_limit"] = over_limit
-            parts.append({"type": "text", "text": f"Not attached, over the judge's attachment limit: {over_limit}."})
-        if unreadable := len(images) - len(readable):
-            outcomes["unreadable"] = unreadable
+        if over_limit := [image.label for image in readable if image.marker not in attachments]:
+            outcomes["over_limit"] = len(over_limit)
             parts.append(
-                {"type": "text", "text": f"Not attached, this judge can't read their file type: {unreadable}."}
+                {"type": "text", "text": f"Not attached, over the judge's attachment limit: {_names(over_limit)}."}
             )
+        if unreadable := [image.label for image in images if transports[image.mime_type] is None]:
+            outcomes["unreadable"] = len(unreadable)
+            parts.append(
+                {
+                    "type": "text",
+                    "text": f"Not attached, this judge can't read their file type: {_names(unreadable)}.",
+                }
+            )
+        if over_limit or unreadable or any(attachment.part is None for attachment in attachments.values()):
+            parts.append({"type": "text", "text": _NOT_ATTACHED_NOTE})
         parts.append({"type": "text", "text": user_prompt})
         logger.info("judge_attachments_attached", provider=provider, model=model, inline_bytes=inline_bytes, **outcomes)
         return parts
