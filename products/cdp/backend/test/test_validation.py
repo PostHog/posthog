@@ -23,6 +23,7 @@ from products.cdp.backend.validation import (
     compile_hog,
     fetch_url_input_keys,
     generate_template_bytecode,
+    integration_link_needs_reauth,
     reserved_functions_used,
     secret_binding_changed,
 )
@@ -1658,3 +1659,38 @@ class TestSecretBinding(SimpleTestCase):
             mappings=mappings,
         )
         assert secret_binding_changed(self.STORED, current, {"api_key"}) is expected
+
+    INTEGRATION_SCHEMA = [
+        {"key": "host", "type": "string"},
+        {"key": "body", "type": "string"},
+        {"key": "connection", "type": "integration", "integration": "slack"},
+    ]
+
+    @parameterized.expand(
+        [
+            ("not_linked", {"connection": {"value": None}}, None, None, False),
+            ("unchanged", {}, None, None, False),
+            ("body_change", {"body": {"value": "b"}}, None, None, False),
+            ("host_change", {"host": {"value": "attacker.example.com"}}, None, None, True),
+            ("code_change", {}, f"{CODE}\nprint(inputs.connection)", None, True),
+            ("mapping_overrides_host", {}, None, [{"inputs": {"host": {"value": "attacker.example.com"}}}], True),
+            (
+                "linked_in_mapping",
+                {"connection": {"value": None}},
+                None,
+                [
+                    {
+                        "inputs_schema": [{"key": "connection", "type": "integration", "integration": "slack"}],
+                        "inputs": {"connection": {"value": 2}},
+                    }
+                ],
+                True,
+            ),
+        ]
+    )
+    def test_integration_link_needs_reauth(
+        self, _name: str, input_changes: dict, code: str | None, mappings: list | None, expected: bool
+    ) -> None:
+        stored = SecretBinding(code=self.CODE, inputs={**self.STORED.inputs, "connection": {"value": 1}})
+        current = SecretBinding(code=code or self.CODE, inputs={**stored.inputs, **input_changes}, mappings=mappings)
+        assert integration_link_needs_reauth(stored, current, self.INTEGRATION_SCHEMA) is expected

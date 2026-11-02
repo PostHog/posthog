@@ -3,6 +3,8 @@ and folded back in for inline test runs."""
 
 from products.workflows.backend.services.hog_flow_secrets import (
     TemplateCache,
+    action_bindings,
+    action_integration_link_needs_reauth,
     mask_derived_trigger,
     mask_secret_action_inputs,
     mask_workflow_fields,
@@ -18,6 +20,8 @@ from products.workflows.backend.services.hog_flow_secrets import (
 )
 
 __all__ = [
+    "action_bindings",
+    "action_integration_link_needs_reauth",
     "TemplateCache",
     "mask_derived_trigger",
     "mask_secret_action_inputs",

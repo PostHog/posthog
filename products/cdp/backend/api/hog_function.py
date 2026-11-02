@@ -42,6 +42,7 @@ from posthog.helpers.trigram_search import (
 )
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.permissions import require_recent_authentication
 from posthog.plugins.plugin_server_api import create_hog_invocation_test, rerun_hog_invocations
 from posthog.scopes import APIScopeObject
 
@@ -83,6 +84,7 @@ from products.cdp.backend.validation import (
     compile_hog,
     exposes_secret_dictionary_keys,
     generate_template_bytecode,
+    integration_link_needs_reauth,
     masked_dictionary_secret,
     masked_secret_input_keys,
     require_viewer_access_to_added_actions,
@@ -881,7 +883,27 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             if not attrs.get("hog"):
                 raise serializers.ValidationError({"hog": "Required."})
 
+        self._require_recent_authentication_for_integration_links(attrs, instance)
         return attrs
+
+    def _require_recent_authentication_for_integration_links(
+        self, attrs: dict, instance: Optional[HogFunction]
+    ) -> None:
+        # A stolen session cookie alone must not be enough to send a connected integration's
+        # credentials somewhere new.
+        current = SecretBinding(
+            code=attrs.get("hog", instance.hog if instance else None),
+            inputs=attrs.get("inputs") or {},
+            mappings=attrs.get("mappings", instance.mappings if instance else None),
+        )
+        stored = (
+            SecretBinding(code=instance.hog, inputs=instance.inputs or {}, mappings=instance.mappings)
+            if instance
+            else None
+        )
+        inputs_schema = attrs.get("inputs_schema", instance.inputs_schema if instance else [])
+        if integration_link_needs_reauth(stored, current, inputs_schema):
+            require_recent_authentication(self.context.get("request"))
 
     def to_representation(self, data):
         is_instance = isinstance(data, HogFunction)

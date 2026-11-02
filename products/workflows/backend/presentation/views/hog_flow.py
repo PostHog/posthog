@@ -74,6 +74,7 @@ from posthog.permissions import (
     get_authenticator_scoped_team_ids,
     get_authenticator_scopes,
     is_service_auth,
+    require_recent_authentication,
 )
 from posthog.ph_client import feature_enabled_or_false
 from posthog.plugins.plugin_server_api import (
@@ -273,6 +274,8 @@ from products.workflows.backend.facade.schedules import (
 )
 from products.workflows.backend.facade.secrets import (
     TemplateCache,
+    action_bindings,
+    action_integration_link_needs_reauth,
     mask_workflow_fields,
     merge_secret_maps,
     plaintext_secret_map,
@@ -2287,6 +2290,15 @@ class HogFlowActionSerializer(serializers.Serializer):
                     function_config_serializer.is_valid(raise_exception=True)
                     data["config"]["inputs"] = function_config_serializer.validated_data["inputs"]
 
+                # A stolen session cookie alone must not be enough to send a connected
+                # integration's credentials somewhere new.
+                if action_integration_link_needs_reauth(
+                    (self.context.get("stored_action_bindings") or {}).get(data.get("id")),
+                    template.code,
+                    data["config"].get("inputs"),
+                    input_schema,
+                ):
+                    require_recent_authentication(self.context.get("request"))
                 if not is_draft:
                     _reject_empty_required_lists(input_schema, data["config"].get("inputs") or {})
                 if strict and template_id == _CREATE_TASK_TEMPLATE_ID:
@@ -3677,10 +3689,17 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             self.context["existing_encrypted_inputs"] = secret_map(
                 instance, template_cache=self.context.setdefault("_hogflow_template_cache", {})
             )
-            secret_bindings = live_secret_bindings if self.context.get("live_secrets_only") else existing_secret_bindings
+            secret_bindings = (
+                live_secret_bindings if self.context.get("live_secrets_only") else existing_secret_bindings
+            )
             self.context["existing_secret_bindings"] = secret_bindings(
                 instance, template_cache=self.context["_hogflow_template_cache"]
             )
+            # Draft wins over live, as for secrets: it is the config the client last saw.
+            self.context["stored_action_bindings"] = {
+                **action_bindings(instance.actions, self.context["_hogflow_template_cache"]),
+                **action_bindings((instance.draft or {}).get("actions"), self.context["_hogflow_template_cache"]),
+            }
             # Stored sender overrides, keyed by action id, so child action validation only holds
             # newly written custom sender addresses to the verified-domain rule. Draft wins over
             # live for the same reason as secrets: it is the value the client last saw.

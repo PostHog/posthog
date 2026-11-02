@@ -1271,6 +1271,43 @@ def secret_binding_changed(stored: SecretBinding, current: SecretBinding, secret
     return any(_binding_input_values(stored, key) != _binding_input_values(current, key) for key in keys - secret_keys)
 
 
+INTEGRATION_INPUT_TYPES = frozenset({"integration", "integration_multi"})
+
+
+def _integration_input_keys(inputs_schema: Any, mappings: Any) -> set[str]:
+    schemas = list(inputs_schema or [])
+    for mapping in mappings or []:
+        if isinstance(mapping, dict):
+            schemas.extend(mapping.get("inputs_schema") or [])
+    return {
+        str(schema["key"])
+        for schema in schemas
+        if isinstance(schema, dict) and schema.get("type") in INTEGRATION_INPUT_TYPES and "key" in schema
+    }
+
+
+def integration_link_needs_reauth(stored: Optional[SecretBinding], current: SecretBinding, inputs_schema: Any) -> bool:
+    """Whether a save links an integration, or changes where a linked integration's credentials go.
+
+    Code edits count even when every fetch URL stays the same, because code can expose a token in
+    other ways, for example in logs.
+    """
+    keys = _integration_input_keys(inputs_schema, current.mappings)
+    linked = {key for key in keys if _binding_input_values(current, key) != (json.dumps(None), [])}
+    if not linked:
+        return False
+    if stored is None or stored.code != current.code:
+        return True
+    if any(_binding_input_values(stored, key) != _binding_input_values(current, key) for key in linked):
+        return True
+    secret_keys = {
+        str(schema["key"])
+        for schema in inputs_schema or []
+        if isinstance(schema, dict) and schema.get("secret") and "key" in schema
+    }
+    return secret_binding_changed(stored, current, secret_keys | keys)
+
+
 def rebound_secret_keys(
     inputs: Any, inputs_schema: Any, bindings: dict[str, SecretBinding], code: Optional[str], mappings: Any = None
 ) -> set[str]:

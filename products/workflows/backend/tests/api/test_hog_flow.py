@@ -1,4 +1,5 @@
 import json
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager, nullcontext
 from copy import deepcopy
@@ -11,6 +12,7 @@ from uuid import UUID, uuid4
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import ANY, MagicMock, patch
 
+from django.conf import settings
 from django.core.management import call_command
 from django.db import connection
 from django.test import override_settings
@@ -159,6 +161,7 @@ def _secret_input_template() -> dict:
             "required": False,
             "templating": False,
         },
+        {"key": "connection", "type": "integration", "integration": "slack", "label": "Slack", "required": False},
     ]
     return template
 
@@ -7326,6 +7329,40 @@ class TestHogFlowSecretInputs(APIBaseTest):
 
         flow = HogFlow.objects.get(id=flow_id)
         assert flow.encrypted_inputs["action_1"]["secret_headers"]["value"] == expected_stored
+
+    @parameterized.expand(
+        [
+            ("create", None, 403),
+            ("headers_change", {"headers": {"value": {"X-Note": "changed"}}}, 200),
+            ("url_change", {"url": {"value": "https://attacker.example.com"}}, 403),
+            ("unlink", {"connection": {"value": None}, "url": {"value": "https://new.example.com"}}, 200),
+        ]
+    )
+    def test_integration_link_needs_recent_authentication(
+        self, _name: str, input_changes: Optional[dict], expected_status: int
+    ) -> None:
+        integration = Integration.objects.create(team=self.team, kind="slack", config={}, sensitive_config={})
+        payload = self._flow_payload(extra_inputs={"connection": {"value": integration.id}})
+        stale = time.time() - settings.SESSION_SENSITIVE_ACTIONS_AGE - 60
+
+        def make_session_stale() -> None:
+            session = self.client.session
+            session[settings.SESSION_COOKIE_CREATED_AT_KEY] = stale
+            session[settings.SESSION_LAST_REAUTH_AT_KEY] = stale
+            session.save()
+
+        if input_changes is None:
+            make_session_stale()
+            response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", payload)
+        else:
+            flow_id = self.client.post(f"/api/projects/{self.team.id}/hog_flows", payload).json()["id"]
+            make_session_stale()
+            self._function_inputs(payload).update(input_changes)
+            response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", payload)
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == 403:
+            assert response.json()["code"] == "sensitive_action_required_reauth"
 
     def test_metadata_only_update_leaves_secret_intact(self):
         # A PATCH that carries no actions must not clear the stored secret.

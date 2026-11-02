@@ -1,4 +1,5 @@
 import json
+import time
 from datetime import UTC, datetime
 from typing import Any, Optional
 
@@ -6,6 +7,7 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from unittest.mock import ANY, MagicMock, patch
 
+from django.conf import settings
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
@@ -1453,6 +1455,66 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             assert res.json()["attr"] == "inputs__secret1"
             res = self.client.patch(url, data={"hog": new_hog, "inputs": {"secret1": {"value": "RETYPED"}}})
             assert res.status_code == 200, res.json()
+
+    def _make_session_stale(self) -> None:
+        stale = time.time() - settings.SESSION_SENSITIVE_ACTIONS_AGE - 60
+        session = self.client.session
+        session[settings.SESSION_COOKIE_CREATED_AT_KEY] = stale
+        session[settings.SESSION_LAST_REAUTH_AT_KEY] = stale
+        session.save()
+
+    @parameterized.expand(
+        [
+            ("create", None, 403),
+            ("body_change", {"inputs": {"body": {"value": "changed"}}}, 200),
+            ("url_change", {"inputs": {"url": {"value": "https://attacker.example.com"}}}, 403),
+            (
+                "code_change",
+                {"hog": "fetch(inputs.url, {'body': inputs.slack.access_token}); print(inputs.slack)"},
+                403,
+            ),
+            ("new_integration", {"inputs": {"slack": {"value": "other"}}}, 403),
+            ("unlink", {"inputs": {"slack": {}, "url": {"value": "https://new.example.com"}}}, 200),
+        ]
+    )
+    def test_integration_link_needs_recent_authentication(
+        self, _name: str, change: Optional[dict], expected_status: int
+    ) -> None:
+        integration = Integration.objects.create(team=self.team, kind="slack", config={}, sensitive_config={})
+        other = Integration.objects.create(team=self.team, kind="slack", integration_id="other", config={})
+        payload = {
+            "type": "destination",
+            "name": "Fetch URL",
+            "hog": "fetch(inputs.url, {'body': inputs.body, 'headers': {'Authorization': inputs.slack.access_token}});",
+            "inputs_schema": [
+                {"key": "url", "type": "string", "label": "URL", "required": True},
+                {"key": "body", "type": "string", "label": "Body", "required": False},
+                {"key": "slack", "type": "integration", "integration": "slack", "required": False},
+            ],
+            "inputs": {
+                "url": {"value": "https://example.com"},
+                "body": {"value": "hello"},
+                "slack": {"value": integration.id},
+            },
+        }
+        if change is None:
+            self._make_session_stale()
+            res = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=payload)
+        else:
+            create = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=payload)
+            assert create.status_code == 201, create.json()
+            self._make_session_stale()
+            inputs = {**payload["inputs"], **change.get("inputs", {})}
+            if inputs["slack"].get("value") == "other":
+                inputs["slack"] = {"value": other.id}
+            res = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_functions/{create.json()['id']}",
+                data={**{k: v for k, v in change.items() if k != "inputs"}, "inputs": inputs},
+            )
+
+        assert res.status_code == expected_status, res.json()
+        if expected_status == 403:
+            assert res.json()["code"] == "sensitive_action_required_reauth"
 
     def test_secret_input_turned_public_keeps_a_new_value(self, *args):
         payload = {

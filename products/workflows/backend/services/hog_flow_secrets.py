@@ -6,6 +6,7 @@ from products.cdp.backend.validation import (
     MASKED_SECRET_VALUE,
     SecretBinding,
     exposes_secret_dictionary_keys,
+    integration_link_needs_reauth,
     masked_dictionary_secret,
     rebound_secret_keys,
     restore_masked_dictionary_entries,
@@ -109,6 +110,28 @@ def secret_bindings_for_actions(
         )
         result[action_id] = dict.fromkeys(secrets_by_action[action_id], binding)
     return result
+
+
+def action_bindings(actions: Any, template_cache: Optional[TemplateCache] = None) -> dict[str, SecretBinding]:
+    # The template code and inputs of each function step, keyed by action id.
+    if not isinstance(actions, list):
+        return {}
+    result: dict[str, SecretBinding] = {}
+    for action in actions:
+        action_id = action.get("id") if isinstance(action, dict) else None
+        template = _function_template_for_action(action, template_cache) if isinstance(action_id, str) else None
+        if template is None:
+            continue
+        inputs = (action.get("config") or {}).get("inputs")
+        result[str(action_id)] = SecretBinding(code=template.code, inputs=inputs if isinstance(inputs, dict) else {})
+    return result
+
+
+def action_integration_link_needs_reauth(
+    stored: Optional[SecretBinding], code: Optional[str], inputs: Any, inputs_schema: Any
+) -> bool:
+    current = SecretBinding(code=code, inputs=inputs if isinstance(inputs, dict) else {})
+    return integration_link_needs_reauth(stored, current, inputs_schema)
 
 
 def recover_or_drop_masked_inputs(
