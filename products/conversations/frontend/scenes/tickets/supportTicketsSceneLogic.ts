@@ -215,6 +215,8 @@ export interface supportTicketsSceneLogicValues {
     assigneeFilter: AssigneeFilterEntry[]
     assigneeFilterEntries: AssigneeFilterEntry[]
     breadcrumbs: Breadcrumb[]
+    bulkDeleteDisabledReason: string | undefined
+    bulkDeleteSkippedTooltip: string | undefined
     bulkUpdating: boolean
     channelFilter: TicketChannel | 'all'
     currentFilters: TicketViewFilters
@@ -369,6 +371,15 @@ export interface supportTicketsSceneLogicMeta {
             selectedTickets: Ticket[],
             hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
         ) => string[]
+        bulkDeleteDisabledReason: (
+            selectedTicketIds: string[],
+            deletableSelectedTicketIds: string[],
+            bulkUpdating: boolean
+        ) => string | undefined
+        bulkDeleteSkippedTooltip: (
+            selectedTicketIds: string[],
+            deletableSelectedTicketIds: string[]
+        ) => string | undefined
         assigneeFilterEntries: (assigneeFilter: AssigneeFilterEntry[]) => AssigneeFilterEntry[]
         hasActiveFilters: (
             statusFilter: TicketStatus[],
@@ -675,6 +686,29 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                             )
                     )
                     .map((ticket) => ticket.id)
+            },
+        ],
+        bulkDeleteDisabledReason: [
+            (s) => [s.selectedTicketIds, s.deletableSelectedTicketIds, s.bulkUpdating],
+            (selectedTicketIds: string[], deletableIds: string[], bulkUpdating: boolean): string | undefined => {
+                if (bulkUpdating) {
+                    return 'Updating…'
+                }
+                if (selectedTicketIds.length === 0) {
+                    return 'Select tickets first'
+                }
+                return deletableIds.length === 0
+                    ? "You don't have permission to delete the selected tickets"
+                    : undefined
+            },
+        ],
+        bulkDeleteSkippedTooltip: [
+            (s) => [s.selectedTicketIds, s.deletableSelectedTicketIds],
+            (selectedTicketIds: string[], deletableIds: string[]): string | undefined => {
+                const skipped = selectedTicketIds.length - deletableIds.length
+                return skipped > 0 && deletableIds.length > 0
+                    ? `${skipped} selected ticket(s) will be skipped because you don't have permission to delete them`
+                    : undefined
             },
         ],
         assigneeFilterEntries: [

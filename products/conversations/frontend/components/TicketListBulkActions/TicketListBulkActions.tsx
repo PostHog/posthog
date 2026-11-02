@@ -9,8 +9,15 @@ import { supportTicketsSceneLogic } from '../../scenes/tickets/supportTicketsSce
 import { type TicketStatus, statusOptionsWithoutAll } from '../../types'
 
 export function TicketListBulkActions(): JSX.Element {
-    const { selectedTicketIds, selectedTickets, editableSelectedTicketIds, deletableSelectedTicketIds, bulkUpdating } =
-        useValues(supportTicketsSceneLogic)
+    const {
+        selectedTicketIds,
+        selectedTickets,
+        editableSelectedTicketIds,
+        deletableSelectedTicketIds,
+        bulkUpdating,
+        bulkDeleteDisabledReason,
+        bulkDeleteSkippedTooltip,
+    } = useValues(supportTicketsSceneLogic)
     const { bulkUpdateStatus, bulkDeleteTickets, clearSelectedTickets, loadTickets } =
         useActions(supportTicketsSceneLogic)
 
@@ -33,17 +40,6 @@ export function TicketListBulkActions(): JSX.Element {
     const restrictedSelectionTooltip =
         hasRestrictedSelection && editableTicketIds.length > 0
             ? `${selectedTicketIds.length - editableTicketIds.length} selected ticket(s) will be skipped because you don't have edit access to them`
-            : undefined
-
-    const skippedDeleteCount = selectedTicketIds.length - deletableSelectedTicketIds.length
-    const noDeletableSelectionReason = !hasSelection
-        ? 'Select tickets first'
-        : deletableSelectedTicketIds.length === 0
-          ? "You don't have permission to delete the selected tickets"
-          : undefined
-    const restrictedDeleteTooltip =
-        skippedDeleteCount > 0 && deletableSelectedTicketIds.length > 0
-            ? `${skippedDeleteCount} selected ticket(s) will be skipped because you don't have permission to delete them`
             : undefined
 
     return (
@@ -80,8 +76,8 @@ export function TicketListBulkActions(): JSX.Element {
                 icon={<IconTrash />}
                 onClick={() => bulkDeleteTickets(deletableSelectedTicketIds)}
                 loading={bulkUpdating}
-                disabledReason={bulkUpdating ? 'Updating…' : noDeletableSelectionReason}
-                tooltip={restrictedDeleteTooltip}
+                disabledReason={bulkDeleteDisabledReason}
+                tooltip={bulkDeleteSkippedTooltip}
                 data-attr="support-tickets-bulk-delete"
             >
                 Delete
