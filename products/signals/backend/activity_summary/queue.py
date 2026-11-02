@@ -312,6 +312,16 @@ def is_team_enrolled_for_read(config: ActivitySummaryConfig, team: Team) -> bool
     return config.enroll_all_approved or team.organization_id in _parse_organization_ids(config.organization_ids)
 
 
+def read_enrolled_teams(config: ActivitySummaryConfig, teams: QuerySet[Team]) -> QuerySet[Team]:
+    """The teams of `teams` that `is_team_enrolled_for_read` enrolls, in one query."""
+    if not config.enabled:
+        return teams.none()
+    teams = teams.filter(organization__is_ai_data_processing_approved=True).exclude(id__in=config.skip_team_ids)
+    if config.enroll_all_approved:
+        return teams
+    return teams.filter(organization_id__in=_parse_organization_ids(config.organization_ids))
+
+
 def _parse_organization_ids(organization_ids: tuple[str, ...]) -> set[uuid.UUID]:
     # A UUID parse, so an id in another UUID format still matches, and an invalid id matches nothing.
     parsed: set[uuid.UUID] = set()
