@@ -680,7 +680,9 @@ class TestSwapFlagCallsBesideJoinedTable(BaseTest):
         database = Database.create_for(team=self.team, include_flag_evaluations_table=True)
         database._read_flag_calls_from_flag_evaluations = True
         database.tables.add_child(TableNode(name=registered, table=table, case_insensitive=folds_case))
-        context = HogQLContext(team_id=self.team.pk, database=database, enable_select_queries=True)
+        context = HogQLContext(
+            team_id=self.team.pk, database=database, enable_select_queries=True, use_new_events_schema=False
+        )
         query = _beside(f"JOIN {spelled} ON e.distinct_id = {spelled}.distinct_id")
 
         swap = swap_flag_calls(
