@@ -15,6 +15,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ActionsNode,
+    CachedExperimentExposureQueryResponse,
     ExperimentEventExposureConfig,
     ExperimentExposureCriteria,
     ExperimentExposureHealthFindingCode,
@@ -26,13 +27,15 @@ from posthog.schema import (
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.query_tagging import AccessMethod, tags_context
+from posthog.clickhouse.query_tagging import AccessMethod, reset_query_tags, tags_context
 from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseQueryTimeOut
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
 from posthog.models import PropertyDefinition
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.user import User
+from posthog.tasks.tasks import process_query_task
 from posthog.test.persons import create_group_type_mapping
 from posthog.test.test_journeys import journeys_for
 
@@ -1947,6 +1950,81 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                 )
             ],
         )
+
+    def _expose_a_mismatch_located_in_one_library_version(self) -> None:
+        ff_property = f"$feature/{self.feature_flag.key}"
+        journeys_for(
+            {
+                f"user_{library}_{variant}_{i}": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02",
+                        "properties": {
+                            "$feature_flag_response": variant,
+                            ff_property: variant,
+                            "$feature_flag": self.feature_flag.key,
+                            "$lib": library,
+                            "$lib_version": "1.0.0",
+                        },
+                    }
+                ]
+                for library, counts in (
+                    ("web", (("control", 60), ("test", 60))),
+                    ("posthog-node", (("control", 15), ("test", 105))),
+                )
+                for variant, count in counts
+                for i in range(count)
+            },
+            self.team,
+        )
+        flush_persons_and_events()
+
+    @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
+    def test_impersonated_session_reads_the_segments_and_keeps_its_answer_apart_from_the_customers(self) -> None:
+        self._expose_a_mismatch_located_in_one_library_version()
+        query = self._running_exposure_query()
+
+        def cached_and_reason() -> tuple[bool | None, str | None]:
+            response = ExperimentExposuresQueryRunner(team=self.team, query=query, user=self.user).run(
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+            )
+            assert isinstance(response, CachedExperimentExposureQueryResponse)
+            [finding] = response.health_findings or []
+            return response.is_cached, finding.reason
+
+        customer = cached_and_reason()
+        with tags_context(is_impersonated=True):
+            impersonated = cached_and_reason()
+        customer_again = cached_and_reason()
+
+        self.assertEqual(
+            [customer, impersonated, customer_again],
+            [(False, None), (False, "library_version"), (True, None)],
+        )
+
+    @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
+    def test_async_run_of_an_impersonated_session_fills_the_entry_the_web_request_reads(self) -> None:
+        self._expose_a_mismatch_located_in_one_library_version()
+        query = self._running_exposure_query()
+
+        def run(execution_mode: ExecutionMode) -> Any:
+            return ExperimentExposuresQueryRunner(team=self.team, query=query, user=self.user).run(
+                execution_mode, user=self.user
+            )
+
+        with tags_context(is_impersonated=True), patch("posthog.tasks.tasks.process_query_task.si") as queued_task:
+            run(ExecutionMode.CALCULATE_ASYNC_ALWAYS)
+
+        # A worker starts without the tags of the request, so only what the queued task carries reaches it.
+        with tags_context():
+            reset_query_tags()
+            process_query_task.apply(args=queued_task.call_args.args, kwargs=queued_task.call_args.kwargs).get()
+
+        with tags_context(is_impersonated=True):
+            response = run(ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
+
+        [finding] = response.health_findings or []
+        self.assertEqual(finding.reason, "library_version")
 
     def test_cache_key_keeps_the_flag_history_from_a_reader_who_cannot_view_the_flag(self) -> None:
         self.organization.available_product_features = [

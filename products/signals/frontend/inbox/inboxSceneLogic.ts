@@ -121,6 +121,7 @@ export function mergeSignalRuns(scoutRuns: SignalScoutRunSummary[], signalTasks:
             (run): SignalRun => ({
                 task_id: run.task_id,
                 kind: 'scout',
+                total_spend: run.total_spend,
                 title: run.skill_name,
                 status: run.status,
                 report_id: null,

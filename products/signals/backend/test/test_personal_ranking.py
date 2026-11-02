@@ -382,8 +382,15 @@ class TestBuildPersonalRanking(BaseTest):
         self.llm = MagicMock()
         scoped_capture = MagicMock()
         self.capture = scoped_capture.return_value.__enter__.return_value
+        self.summary: ActivitySummaryView | None = ActivitySummaryView(
+            status=ActivitySummaryStatus.READY, headline="Works on checkout", version=7
+        )
         for target, value in (
             ("products.signals.backend.personal_ranking.logic.build_openai_client", MagicMock(return_value=self.llm)),
+            (
+                "products.signals.backend.personal_ranking.logic.get_summary",
+                MagicMock(side_effect=lambda *_: self.summary),
+            ),
             ("products.signals.backend.personal_ranking.logic.ph_scoped_capture", scoped_capture),
             (
                 "products.signals.backend.personal_ranking.candidates.fetch_source_products_for_reports",
@@ -391,7 +398,7 @@ class TestBuildPersonalRanking(BaseTest):
             ),
             (
                 "products.signals.backend.ranking.inbox_sort.posthoganalytics.get_feature_flag",
-                MagicMock(return_value="action"),
+                MagicMock(return_value="action_pills"),
             ),
         ):
             patcher = patch(target, value)
@@ -473,14 +480,8 @@ class TestBuildPersonalRanking(BaseTest):
     def _build(self, **kwargs: Any):
         return build_personal_ranking(self.team, self.user, config=PersonalRankingConfig(), **kwargs)
 
-    @parameterized.expand([("no_summary", False), ("ready_summary", True)])
-    def test_ranks_every_candidate_and_stores_one_row(self, _name: str, with_summary: bool) -> None:
+    def test_ranks_every_candidate_and_stores_one_row(self) -> None:
         reports = self._setup_reports()
-        summary = (
-            ActivitySummaryView(status=ActivitySummaryStatus.READY, headline="Works on checkout", version=7)
-            if with_summary
-            else None
-        )
 
         def answer(**kwargs: Any) -> SimpleNamespace:
             prompt = kwargs["messages"][1]["content"]
@@ -489,8 +490,7 @@ class TestBuildPersonalRanking(BaseTest):
             return _response(_answer([*ranked[:-1], _entry("c99", 1)]))
 
         self.create.side_effect = answer
-        with patch("products.signals.backend.personal_ranking.logic.get_summary", return_value=summary):
-            build = self._build(focus="  checkout   bugs ")
+        build = self._build(focus="  checkout   bugs ")
 
         row = PersonalInboxRanking.objects.for_team(self.team.id).get()
         ranked_ids = [entry["report_id"] for entry in row.result["ranked"]]
@@ -501,8 +501,8 @@ class TestBuildPersonalRanking(BaseTest):
         assert all(entry["reason"] for entry in row.result["ranked"])
         assert row.result["counts"]["unknown_refs"] == 1
         assert row.status == PersonalInboxRanking.Status.OK
-        assert row.personalized is with_summary
-        assert row.activity_summary_version == (7 if with_summary else None)
+        assert row.personalized is True
+        assert row.activity_summary_version == 7
         assert row.tokens_in == 1000
         needs_you = {candidate.report_id: candidate.needs_you for candidate in build.candidates}
         assert needs_you == {
@@ -517,7 +517,7 @@ class TestBuildPersonalRanking(BaseTest):
         event = self.capture.call_args.kwargs
         assert event["event"] == BUILT_EVENT
         assert event["properties"]["ranking_id"] == str(row.id)
-        assert event["properties"]["personalized"] is with_summary
+        assert (event["properties"]["personalized"], event["properties"]["model_called"]) == (True, True)
         assert event["properties"]["tier_counts"] == {"top": 0, "worth_a_look": 2, "later": 1}
         serialized = json.dumps(event["properties"])
         assert "Waiting" not in serialized and "reason c" not in serialized and "checkout" not in serialized
@@ -528,14 +528,17 @@ class TestBuildPersonalRanking(BaseTest):
             ("api_error", RuntimeError("gateway down"), "llm_error"),
             ("malformed", _response("not json"), "malformed_output"),
             ("truncated", _response(_answer([_entry("c1", 1)]), finish_reason="length"), "truncated_output"),
-            ("ai_not_approved", None, "ai_not_approved"),
+            ("ai_not_approved", "not_approved", "ai_not_approved"),
+            ("no_activity_summary", "no_summary", "no_activity_summary"),
         ]
     )
     def test_model_failure_falls_back_to_model_order(self, _name: str, outcome: Any, fallback_reason: str) -> None:
         self._setup_reports()
-        if outcome is None:
+        if outcome == "not_approved":
             self.organization.is_ai_data_processing_approved = False
             self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        elif outcome == "no_summary":
+            self.summary = None
         elif isinstance(outcome, Exception):
             self.create.side_effect = outcome
         else:
@@ -551,7 +554,9 @@ class TestBuildPersonalRanking(BaseTest):
         row = PersonalInboxRanking.objects.for_team(self.team.id).get()
         assert row.fallback_reason == fallback_reason
         assert len(row.result["ranked"]) == 3
-        if outcome is None:
+        model_called = not isinstance(outcome, str)
+        assert self.capture.call_args.kwargs["properties"]["model_called"] is model_called
+        if not model_called:
             self.create.assert_not_called()
 
     def test_a_model_that_rejects_reasoning_effort_gets_calls_without_it(self) -> None:
@@ -711,11 +716,13 @@ class TestForMeEndpoint(APIBaseTest):
         query = "&".join(f"{key}={value}" for key, value in params.items())
         return f"/api/projects/{self.team.id}/signals/reports/for_me/" + (f"?{query}" if query else "")
 
-    def _claimed_report(self, title: str) -> SignalReport:
+    def _claimed_report(self, title: str, user: User | None = None) -> SignalReport:
         report = SignalReport.objects.create(
             team=self.team, title=title, summary=title, signal_count=1, total_weight=1.0, status="ready"
         )
-        SignalReportAssignment.all_teams.create(team=self.team, report=report, actor_kind="user", actor_user=self.user)
+        SignalReportAssignment.all_teams.create(
+            team=self.team, report=report, actor_kind="user", actor_user=user or self.user
+        )
         return report
 
     def _rows(self) -> int:
@@ -817,6 +824,30 @@ class TestForMeEndpoint(APIBaseTest):
 
             traveller.shift(datetime.timedelta(hours=9))
             assert self._get(refresh="true")["building"] is True
+
+    def test_shared_daily_limit_counts_only_builds_that_call_the_model(self) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        self.payload = {"build_burst": 10, "max_builds_per_day": 1}
+        other = User.objects.create_and_join(self.organization, "other@example.com", "password")
+        third = User.objects.create_and_join(self.organization, "third@example.com", "password")
+        ready = ActivitySummaryView(status=ActivitySummaryStatus.READY, version=1)
+        summaries = {self.user.id: ready, other.id: ready, third.id: None}
+        for user in (self.user, other, third):
+            self._claimed_report(f"Claimed by {user.email}", user)
+
+        with patch(
+            "products.signals.backend.personal_ranking.serve.get_summary",
+            side_effect=lambda _team, user_id: summaries[user_id],
+        ):
+            assert self._get()["building"] is True
+            self.client.force_login(other)
+            body = self._get()
+            assert (body["fallback_reason"], body["building"]) == ("rate_limited", False)
+            self.client.force_login(third)
+            assert self._get()["building"] is True
+
+        assert [args[1] for args in self.queued] == [self.user.id, third.id]
 
     def test_another_user_never_reads_your_list(self) -> None:
         self._get()

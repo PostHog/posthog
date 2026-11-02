@@ -118,7 +118,11 @@ def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     reraise=True,
 )
 def _fetch_page(
-    session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger
+    session: requests.Session,
+    url: str,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    response_list_key: str | None = None,
 ) -> list[dict[str, Any]]:
     response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
 
@@ -136,6 +140,8 @@ def _fetch_page(
         response.raise_for_status()
 
     data = response.json()
+    if response_list_key and isinstance(data, dict):
+        data = data.get(response_list_key) or []
     if not isinstance(data, list):
         raise ValueError(f"Render API returned a non-list response for url={url}")
     return data
@@ -153,6 +159,31 @@ def _unwrap_item(item: dict[str, Any], wrapper_key: str) -> tuple[dict[str, Any]
     return item, item.get("cursor") if isinstance(item.get("cursor"), str) else None
 
 
+def _explode_metric_series(series: dict[str, Any]) -> list[dict[str, Any]]:
+    """Turn one metrics time series into a row per data point.
+
+    Labels identify the series (instance, status code, host, quantile, …) and vary by metric,
+    so they are folded into a sorted `seriesKey` that makes (service, series, timestamp) unique.
+    """
+    labels = {
+        label["field"]: label.get("value")
+        for label in series.get("labels") or []
+        if isinstance(label, dict) and "field" in label
+    }
+    series_key = ",".join(f"{field}={labels[field]}" for field in sorted(labels))
+    return [
+        {
+            "seriesKey": series_key,
+            "labels": labels,
+            "unit": series.get("unit"),
+            "timestamp": point.get("timestamp"),
+            "value": point.get("value"),
+        }
+        for point in series.get("values") or []
+        if isinstance(point, dict)
+    ]
+
+
 def _build_params(
     config: RenderEndpointConfig,
     owner_id: str | None,
@@ -162,6 +193,7 @@ def _build_params(
     logger: FilteringBoundLogger,
 ) -> dict[str, Any]:
     params: dict[str, Any] = {"limit": config.page_size} if config.paginated else {}
+    params.update(config.extra_params)
 
     if config.supports_owner_filter and owner_id:
         params["ownerId"] = owner_id
@@ -218,17 +250,24 @@ def _walk_pages(
             page_params["cursor"] = cursor
         url = f"{RENDER_BASE_URL}{path}?{urlencode(page_params)}"
 
-        items = _fetch_page(session, url, headers, logger)
+        items = _fetch_page(session, url, headers, logger, config.response_list_key)
         if not items:
             return
 
         rows: list[dict[str, Any]] = []
         next_cursor: str | None = None
         for item in items:
+            if config.metric_series:
+                rows.extend(_explode_metric_series(item))
+                continue
             row, item_cursor = _unwrap_item(item, config.wrapper_key)
             rows.append(row)
             if item_cursor:
                 next_cursor = item_cursor
+
+        if not rows:
+            # Metric series with no data points in the window.
+            return
 
         yield rows, next_cursor
 

@@ -19,7 +19,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     materialized,
 )
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from django.test import override_settings
 
@@ -71,6 +71,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.hogql_queries.utils.breakdowns import (
     BREAKDOWN_NULL_DISPLAY,
     BREAKDOWN_NULL_STRING_LABEL,
@@ -3556,6 +3557,26 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "Error thrown inside thread",
         )
 
+    @parameterized.expand([("without_callback", False, 3), ("with_callback", True, 1)])
+    @patch("products.product_analytics.backend.hogql_queries.trends.trends_query_runner.execute_hogql_query")
+    def test_on_series_error_stops_the_queued_series_queries(
+        self, _name: str, with_callback: bool, expected_queries: int, patch_execute: MagicMock
+    ) -> None:
+        error = ClickHouseQueryTimeOut()
+        patch_execute.side_effect = error
+        runner = self._create_query_runner(
+            "2020-01-09", "2020-01-20", IntervalType.DAY, [EventsNode(event=event) for event in ("a", "b", "c")]
+        )
+        callback = MagicMock()
+        if with_callback:
+            runner.on_series_error = callback
+
+        with self.assertRaises(ClickHouseQueryTimeOut):
+            runner.calculate()
+
+        assert patch_execute.call_count == expected_queries
+        assert callback.call_args_list == ([call(error)] if with_callback else [])
+
     def test_to_actors_query_options(self):
         self._create_test_events()
         flush_persons_and_events()
@@ -6646,7 +6667,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ),
         ]
     )
-    def test_flag_call_series_reads_flag_evaluations_when_the_rewrite_is_on(
+    def test_flag_call_series_reads_flag_evaluations_when_the_org_reads_flag_evaluations(
         self,
         _name: str,
         series: Callable[[Team, list[str]], EventsNode | ActionsNode],
@@ -6672,24 +6693,20 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         if math is not None:
             node = node.model_copy(update={"math": math})
 
-        with patch(
-            "posthog.hogql.database.database.feature_enabled_or_false",
-            side_effect=lambda key, *args, **kwargs: key == "hogql-flag-calls-from-flag-evaluations",
-        ):
-            # Mode 2 raises when the swapped query reads people differently, so the persons-on-events mode is fixed.
-            # Mode 1 reads events on the native-JSON events table, so the events table is fixed too.
-            response = self._run_trends_query(
-                "-7d",
-                None,
-                IntervalType.DAY,
-                [node],
-                breakdown=breakdown,
-                filter_test_accounts=filter_test_accounts,
-                hogql_modifiers=HogQLQueryModifiers(
-                    personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
-                    useNewEventsSchema=False,
-                ),
-            )
+        # Mode 2 raises when the swapped query reads people differently, so the persons-on-events mode is fixed.
+        # Mode 1 reads events on the native-JSON events table, so the events table is fixed too.
+        response = self._run_trends_query(
+            "-7d",
+            None,
+            IntervalType.DAY,
+            [node],
+            breakdown=breakdown,
+            filter_test_accounts=filter_test_accounts,
+            hogql_modifiers=HogQLQueryModifiers(
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+                useNewEventsSchema=False,
+            ),
+        )
 
         assert response.results[0]["count"] == expected_count
         if breakdown is not None:

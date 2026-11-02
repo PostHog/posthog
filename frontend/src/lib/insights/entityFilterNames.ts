@@ -1,9 +1,16 @@
 import { ensureStringIsNotBlank } from 'lib/utils/strings'
 
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
-import { ActionFilter, EntityFilter, EntityTypes } from '~/types'
+import { EntityType, EntityTypes } from '~/types'
 
-export const isAllEventsEntityFilter = (filter: EntityFilter | ActionFilter | null | undefined): boolean => {
+export interface LegacyDisplayEntity {
+    type?: EntityType
+    id?: string | number | null
+    name?: string | null
+    custom_name?: string | null
+}
+
+export const isAllEventsEntityFilter = (filter: LegacyDisplayEntity | null | undefined): boolean => {
     return (
         filter != null &&
         filter.type === EntityTypes.EVENTS &&
@@ -32,7 +39,7 @@ export const formatEventName = (name: string | undefined | null): string | undef
 }
 
 export const getDisplayNameFromEntityFilter = (
-    filter: EntityFilter | ActionFilter | null | undefined,
+    filter: LegacyDisplayEntity | null | undefined,
     isCustom = true
 ): string | null => {
     // Make sure names aren't blank strings

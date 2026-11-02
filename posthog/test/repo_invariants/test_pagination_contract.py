@@ -255,6 +255,10 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.signals.backend.presentation.onboarding.InboxOnboardingViewSet",
     # Lists only the requesting member's own exclusions, a short list, so `pagination_class` is None.
     "products.signals.backend.presentation.reviewer_exclusions.SignalReviewerExclusionViewSet",
+    # Returns one usage overview document, not a page of rows.
+    "products.signals.backend.presentation.spend.SignalSpendViewSet",
+    # Returns one rollup per signal source type; Settings needs the complete breakdown to total usage.
+    "products.signals.backend.presentation.spend.SignalSourceSpendViewSet",
     "products.signals.backend.scout_harness.views.SignalScoutConfigViewSet",
     "products.signals.backend.scout_harness.views.SignalScoutMembersViewSet",
     "products.signals.backend.scout_harness.views.SignalScoutNoteViewSet",
