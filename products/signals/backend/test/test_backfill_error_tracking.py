@@ -80,7 +80,8 @@ def test_rank_caps_issues_sharing_a_source_file():
 
 
 @pytest.mark.asyncio
-async def test_workflow_replaces_steered_out_candidates_and_stops_at_limit():
+@pytest.mark.parametrize("dispatched_result", [True, None])
+async def test_workflow_replaces_steered_out_candidates_and_stops_at_limit(dispatched_result: bool | None):
     steered_out = {"issue_0", "issue_1"}
     emitted: list[str] = []
 
@@ -92,9 +93,9 @@ async def test_workflow_replaces_steered_out_candidates_and_stops_at_limit():
         ]
 
     @activity.defn(name="emit_backfill_signal_activity")
-    async def fake_emit(input: EmitBackfillSignalInput) -> bool:
+    async def fake_emit(input: EmitBackfillSignalInput) -> bool | None:
         emitted.append(input.issue.issue_id)
-        return input.issue.issue_id not in steered_out
+        return False if input.issue.issue_id in steered_out else dispatched_result
 
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(

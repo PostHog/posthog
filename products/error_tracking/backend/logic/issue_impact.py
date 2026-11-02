@@ -11,7 +11,7 @@ from products.error_tracking.backend.facade.queries import run_error_tracking_qu
 
 
 def list_active_issue_impact(team_id: int, days: int, limit: int) -> list[contracts.ErrorTrackingIssueImpact]:
-    """Active issues seen in the last `days` days, ordered by distinct users affected, most first."""
+    """Active issues seen in the last `days` days, newest first seen first."""
     team = Team.objects.get(id=team_id)
     query = ErrorTrackingQuery(
         kind="ErrorTrackingQuery",
@@ -20,7 +20,7 @@ def list_active_issue_impact(team_id: int, days: int, limit: int) -> list[contra
         filterTestAccounts=True,
         volumeResolution=days,
         limit=limit,
-        orderBy="users",
+        orderBy="first_seen",
         orderDirection="DESC",
         withAggregations=True,
         withFirstEvent=False,

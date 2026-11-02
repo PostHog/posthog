@@ -146,7 +146,7 @@ def list_issues_created_since(team_id: int, since: datetime, limit: int) -> list
 def list_active_issue_impact(team_id: int, days: int, limit: int) -> list[contracts.ErrorTrackingIssueImpact]:
     """Active issues seen in the last `days` days with their user, session and daily occurrence counts.
 
-    Ordered by distinct users affected, most first. Runs one ClickHouse query.
+    Ordered by first seen, newest first. Runs one ClickHouse query.
     """
     from ..logic.issue_impact import (  # noqa: PLC0415 - keeps the HogQL query runners off the django.setup() path
         list_active_issue_impact as _list_active_issue_impact,

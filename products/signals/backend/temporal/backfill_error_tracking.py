@@ -14,7 +14,9 @@ from products.error_tracking.backend.facade.contracts import ErrorTrackingIssueI
 
 BACKFILL_WINDOW_DAYS = 30
 BACKFILL_ISSUE_LIMIT = 5
-CANDIDATE_POOL_SIZE = 100
+# The pool holds the newest issues and ranking happens in Python, because a pool cut by users would
+# fill with long-running issues that are older than the window, and the backfill would emit nothing.
+CANDIDATE_POOL_SIZE = 200
 CANDIDATE_LIMIT = 15
 MAX_CANDIDATES_PER_SOURCE = 2
 MIN_USERS = 2
@@ -150,7 +152,9 @@ async def fetch_error_tracking_issues_activity(input: BackfillErrorTrackingInput
 @activity.defn
 @scoped_temporal()
 @close_db_connections
-async def emit_backfill_signal_activity(input: EmitBackfillSignalInput) -> bool:
+# `None` stays in the hint because histories and workers from before the boolean result return `None`,
+# and a `bool` hint makes Temporal fail to decode it on every replay.
+async def emit_backfill_signal_activity(input: EmitBackfillSignalInput) -> bool | None:
     """Emit an issue_created signal for a single error tracking issue. Returns whether it was dispatched."""
     from posthog.models import Team
 
@@ -215,5 +219,6 @@ class BackfillErrorTrackingWorkflow:
                 start_to_close_timeout=timedelta(minutes=2),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
-            if dispatched:
+            # `None` comes from an old worker, which emitted the signal, so it counts toward the limit.
+            if dispatched is not False:
                 emitted += 1

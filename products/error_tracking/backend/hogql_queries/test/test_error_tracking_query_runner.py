@@ -845,7 +845,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         self.assertEqual([r["id"] for r in results], [self.issue_id_three, self.issue_id_two, self.issue_id_one])
 
     @time_machine.travel("2020-01-10T12:12:00", tick=False)
-    def test_list_active_issue_impact_ranks_active_issues_by_users(self):
+    def test_list_active_issue_impact_lists_newest_active_issues(self):
         from products.error_tracking.backend.facade import api
 
         self.team.test_account_filters = []
@@ -859,11 +859,11 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
 
         self.assertEqual(
             [(str(impact.id), impact.users, impact.occurrences) for impact in impacts],
-            [(self.issue_id_one, 2, 2), (self.issue_id_two, 1, 1)],
+            [(self.issue_id_two, 1, 1), (self.issue_id_one, 2, 2)],
         )
-        self.assertEqual(len(impacts[0].daily_occurrences), 30)
-        self.assertEqual(sum(impacts[0].daily_occurrences), 2)
-        self.assertEqual(impacts[0].last_seen, datetime(2020, 1, 10, 9, 11, tzinfo=UTC))
+        self.assertEqual(len(impacts[1].daily_occurrences), 30)
+        self.assertEqual(sum(impacts[1].daily_occurrences), 2)
+        self.assertEqual(impacts[1].last_seen, datetime(2020, 1, 10, 9, 11, tzinfo=UTC))
 
     @time_machine.travel("2022-01-10T12:11:00", tick=False)
     def test_expired_postgres_state_uses_clickhouse_state(self):
