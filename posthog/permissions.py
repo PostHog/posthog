@@ -17,7 +17,6 @@ from rest_framework.views import APIView
 from rest_framework.viewsets import ViewSet
 
 from posthog.auth import (
-    CIAccessTokenAuthentication,
     ExportRendererAuthentication,
     IDJagAccessTokenAuthentication,
     JwtAuthentication,
@@ -28,6 +27,7 @@ from posthog.auth import (
     SharingAccessTokenAuthentication,
     SharingPasswordProtectedAuthentication,
     TeamSecretTokenAuthentication,
+    WorkloadAccessTokenAuthentication,
     is_mcp_request,
 )
 from posthog.cloud_utils import is_cloud
@@ -745,7 +745,7 @@ def get_authenticator_scopes(authenticator) -> list[str] | None:
         return list(authenticator.personal_api_key.scopes or [])
     if isinstance(authenticator, OAuthAccessTokenAuthentication):
         return str(authenticator.access_token.scope or "").split()
-    if isinstance(authenticator, IDJagAccessTokenAuthentication | CIAccessTokenAuthentication):
+    if isinstance(authenticator, IDJagAccessTokenAuthentication | WorkloadAccessTokenAuthentication):
         return list(authenticator.scopes or [])
     if isinstance(authenticator, ProjectSecretAPIKeyAuthentication):
         return list(authenticator.project_secret_api_key.scopes or [])
@@ -777,8 +777,8 @@ def get_authenticator_client(authenticator) -> dict[str, str]:
         return {"credential_type": "project_secret_key", "client_id": "project_secret_key"}
     if isinstance(authenticator, IDJagAccessTokenAuthentication):
         return {"credential_type": "id_jag", "client_id": getattr(authenticator, "client_id", None) or "id_jag"}
-    if isinstance(authenticator, CIAccessTokenAuthentication):
-        return {"credential_type": "oidc_ci", "client_id": "oidc_ci"}
+    if isinstance(authenticator, WorkloadAccessTokenAuthentication):
+        return {"credential_type": "oidc_workload", "client_id": "oidc_workload"}
     if authenticator is None or isinstance(authenticator, SessionAuthentication):
         return {"credential_type": "session", "client_id": CLIENT_ID_POSTHOG}
     return {"credential_type": "other", "client_id": "other"}
@@ -816,8 +816,8 @@ def get_authenticator_scoped_organization_ids(authenticator) -> list[str] | None
         # keeps it away from the other organizations the resolved user happens to belong to
         # (cross-org confused-deputy defense).
         return [authenticator.organization_id]
-    if isinstance(authenticator, CIAccessTokenAuthentication):
-        # A CI token acts as an owner, who belongs to the whole organization. The trust policy only
+    if isinstance(authenticator, WorkloadAccessTokenAuthentication):
+        # A workload token acts as an owner, who belongs to the whole organization. The trust policy only
         # covers the project the exchange named, so the token is confined to that organization and project.
         return [authenticator.organization_id]
     return None
@@ -834,7 +834,7 @@ def get_authenticator_scoped_team_ids(authenticator) -> list[int] | None:
     credential = get_authenticator_user_credential(authenticator)
     if credential is not None:
         return list(credential.scoped_teams or []) or None
-    if isinstance(authenticator, ExportRendererAuthentication | CIAccessTokenAuthentication):
+    if isinstance(authenticator, ExportRendererAuthentication | WorkloadAccessTokenAuthentication):
         return [authenticator.team_id]
     return None
 
@@ -911,8 +911,8 @@ class APIScopePermission(ScopeBasePermission):
         if isinstance(authenticator, IDJagAccessTokenAuthentication) and not key_scopes:
             self.message = "ID-JAG access token has no scopes and cannot access this resource"
             return False
-        if isinstance(authenticator, CIAccessTokenAuthentication) and not key_scopes:
-            self.message = "CI access token has no scopes and cannot access this resource"
+        if isinstance(authenticator, WorkloadAccessTokenAuthentication) and not key_scopes:
+            self.message = "Workload access token has no scopes and cannot access this resource"
             return False
         if is_psak:
             psak_allowed_actions = getattr(view, "psak_allowed_actions", self.psak_allowed_actions)
@@ -953,7 +953,7 @@ class APIScopePermission(ScopeBasePermission):
         legacy_covered = scopes_covered_by_legacy_fallback(key_scopes, missing_scopes)
         missing_scopes = [scope for scope in missing_scopes if scope not in legacy_covered]
         if missing_scopes:
-            # A token type can answer with its own error, such as the RFC 6750 challenge CI tokens get.
+            # A token type can answer with its own error, such as the RFC 6750 challenge workload tokens get.
             insufficient_scope_error = getattr(type(authenticator), "insufficient_scope_error", None)
             if insufficient_scope_error is not None:
                 raise insufficient_scope_error(authenticator, view, required_scopes, missing_scopes)
@@ -1029,7 +1029,7 @@ class APIScopePermission(ScopeBasePermission):
             | PersonalAPIKeyAuthentication
             | JwtAuthentication
             | IDJagAccessTokenAuthentication
-            | CIAccessTokenAuthentication
+            | WorkloadAccessTokenAuthentication
             | ExportRendererAuthentication,
         ):
             raise ValueError("Unexpected authentication type")

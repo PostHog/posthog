@@ -1,1 +1,1 @@
-1419_ci_trust_policy_request
+1419_workload_trust_policy_request

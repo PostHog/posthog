@@ -1,8 +1,9 @@
-"""CI trust policies: which repository's CI jobs may exchange an OIDC token for a project token.
+"""Workload trust policies: which workloads, such as a repository's CI jobs, may exchange an OIDC token
+for a project token.
 
-A policy hands out tokens that act as the organization owner, so it is a standing credential. Members
-can read policies. Only an organization admin or owner can write one, and only from a browser session
-with recent authentication, so no token can create or widen a policy.
+A policy hands out tokens that act as the organization owner, so it is a standing credential. Only an
+organization admin or owner can read or write one, and writes need a browser session with recent
+authentication, so no token can create or widen a policy. Any member can ask for a policy through a request.
 """
 
 import functools
@@ -23,25 +24,19 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import (
-    CIAccessTokenAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
+    WorkloadAccessTokenAuthentication,
 )
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import OrganizationMembership, Team, User
-from posthog.models.ci_trust_policy import (
-    CITrustPolicy,
-    CITrustPolicyRequest,
-    ci_trust_policy_grantable_scopes,
-    ci_trust_policy_request_url,
-    ci_trust_policy_scopes_not_grantable,
-)
-from posthog.oidc.ci_providers import (
-    get_ci_provider_by_issuer,
-    get_supported_ci_providers,
-    get_unsupported_ci_providers,
-    normalize_issuer,
+from posthog.models.workload_trust_policy import (
+    WorkloadTrustPolicy,
+    WorkloadTrustPolicyRequest,
+    workload_trust_policy_grantable_scopes,
+    workload_trust_policy_request_url,
+    workload_trust_policy_scopes_not_grantable,
 )
 from posthog.organization_caching import get_cached_organization_membership
 from posthog.permissions import (
@@ -50,9 +45,15 @@ from posthog.permissions import (
     get_organization_from_view,
     get_required_organization_membership,
 )
-from posthog.rate_limit import CITrustPolicyRequestBurstThrottle, CITrustPolicyRequestSustainedThrottle
+from posthog.rate_limit import WorkloadTrustPolicyRequestBurstThrottle, WorkloadTrustPolicyRequestSustainedThrottle
 from posthog.scopes import RISKY_SCOPE_WARNINGS
-from posthog.tasks.email import CITrustPolicyChange, send_ci_trust_policy_changed
+from posthog.tasks.email import WorkloadTrustPolicyChange, send_workload_trust_policy_changed
+from posthog.workload_identity.providers import (
+    get_supported_workload_providers,
+    get_unsupported_workload_providers,
+    get_workload_provider_by_issuer,
+    normalize_issuer,
+)
 
 # A policy matches claim values exactly, so a character that reads as a pattern is refused rather than
 # taken literally: an admin who types `acme/*` expects every repository to match, and none would.
@@ -69,7 +70,7 @@ def _validate_exact_value(value: str, field_label: str) -> str:
     return value
 
 
-def validate_ci_trust_conditions(attrs: dict[str, Any], *, partial_instance: Any | None = None) -> dict[str, Any]:
+def validate_workload_trust_conditions(attrs: dict[str, Any], *, partial_instance: Any | None = None) -> dict[str, Any]:
     """Shared by policies and policy requests, so both enforce the same conditions."""
 
     def current(field: str) -> Any:
@@ -92,16 +93,16 @@ class CIScopeListField(serializers.ListField):
 
     def to_internal_value(self, data: Any) -> list[str]:
         scopes = super().to_internal_value(data)
-        not_grantable = ci_trust_policy_scopes_not_grantable(scopes)
+        not_grantable = workload_trust_policy_scopes_not_grantable(scopes)
         if not_grantable:
             raise serializers.ValidationError(
-                f"These scopes can't be granted to CI jobs: {', '.join(not_grantable)}. "
-                "A CI token can't manage credentials or access, and can't use privileged or hidden scopes."
+                f"These scopes can't be granted to workloads: {', '.join(not_grantable)}. "
+                "A workload token can't outlive itself or change its own policy, and can't use privileged or hidden scopes."
             )
         return sorted(set(scopes))
 
 
-class CIConditionsSerializerMixin(serializers.Serializer):
+class WorkloadConditionsSerializerMixin(serializers.Serializer):
     issuer = serializers.CharField(
         max_length=255,
         help_text="The OIDC issuer of the CI provider, from the list of supported providers.",
@@ -130,12 +131,12 @@ class CIConditionsSerializerMixin(serializers.Serializer):
         help_text="The deployment environment the job must run in. Empty matches any environment.",
     )
 
-    def get_provider(self, instance: CITrustPolicy | CITrustPolicyRequest) -> str | None:
-        provider = get_ci_provider_by_issuer(instance.issuer)
+    def get_provider(self, instance: WorkloadTrustPolicy | WorkloadTrustPolicyRequest) -> str | None:
+        provider = get_workload_provider_by_issuer(instance.issuer)
         return provider.key if provider else None
 
     def validate_issuer(self, value: str) -> str:
-        provider = get_ci_provider_by_issuer(value)
+        provider = get_workload_provider_by_issuer(value)
         if provider is None:
             raise serializers.ValidationError("This issuer isn't a supported CI provider.")
         return normalize_issuer(provider.issuer)
@@ -153,7 +154,7 @@ class CIConditionsSerializerMixin(serializers.Serializer):
         return _validate_exact_value(value, "Environment")
 
 
-class CITrustPolicySerializer(CIConditionsSerializerMixin, serializers.ModelSerializer):
+class WorkloadTrustPolicySerializer(WorkloadConditionsSerializerMixin, serializers.ModelSerializer):
     name = serializers.CharField(max_length=200, help_text="A name that says what the policy is for.")
     scopes = CIScopeListField(
         help_text=(
@@ -167,7 +168,7 @@ class CITrustPolicySerializer(CIConditionsSerializerMixin, serializers.ModelSeri
     created_by = UserBasicSerializer(read_only=True, allow_null=True)
 
     class Meta:
-        model = CITrustPolicy
+        model = WorkloadTrustPolicy
         fields = [
             "id",
             "name",
@@ -186,13 +187,13 @@ class CITrustPolicySerializer(CIConditionsSerializerMixin, serializers.ModelSeri
         read_only_fields = ["id", "provider", "created_by", "created_at", "updated_at"]
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        attrs = validate_ci_trust_conditions(attrs, partial_instance=self.instance)
+        attrs = validate_workload_trust_conditions(attrs, partial_instance=self.instance)
         team = cast(Team, self.context["get_team"]())
         conditions = {
             field: attrs.get(field, getattr(self.instance, field, ""))
             for field in ("issuer", "repository_id", "ref", "environment")
         }
-        clash = CITrustPolicy.objects.filter(**conditions)
+        clash = WorkloadTrustPolicy.objects.filter(**conditions)
         if self.instance is not None:
             clash = clash.exclude(pk=self.instance.pk)
         if clash.exists():
@@ -200,44 +201,44 @@ class CITrustPolicySerializer(CIConditionsSerializerMixin, serializers.ModelSeri
         attrs["team"] = team
         return attrs
 
-    def create(self, validated_data: dict[str, Any]) -> CITrustPolicy:
+    def create(self, validated_data: dict[str, Any]) -> WorkloadTrustPolicy:
         try:
             return super().create(validated_data)
         except IntegrityError:
             # Two writes with the same conditions can both pass the check in `validate`.
             raise serializers.ValidationError(DUPLICATE_POLICY_MESSAGE)
 
-    def update(self, instance: CITrustPolicy, validated_data: dict[str, Any]) -> CITrustPolicy:
+    def update(self, instance: WorkloadTrustPolicy, validated_data: dict[str, Any]) -> WorkloadTrustPolicy:
         try:
             return super().update(instance, validated_data)
         except IntegrityError:
             raise serializers.ValidationError(DUPLICATE_POLICY_MESSAGE)
 
 
-class CIProviderClaimsSerializer(serializers.Serializer):
+class WorkloadProviderClaimsSerializer(serializers.Serializer):
     repository = serializers.CharField(help_text="Claim that carries the repository's full name.")
     repository_id = serializers.CharField(help_text="Claim that carries the repository's immutable ID.")
     ref = serializers.CharField(allow_null=True, help_text="Claim that carries the git ref, or null.")
     environment = serializers.CharField(allow_null=True, help_text="Claim that carries the environment, or null.")
 
 
-class CIProviderSerializer(serializers.Serializer):
+class WorkloadProviderSerializer(serializers.Serializer):
     key = serializers.CharField(help_text="Stable identifier of the provider.")
     name = serializers.CharField(help_text="Display name of the provider.")
     issuer = serializers.CharField(help_text="OIDC issuer a policy for this provider uses.")
     docs_url = serializers.CharField(help_text="Where to read how to set the provider up.")
-    claims = CIProviderClaimsSerializer(help_text="Which token claims a policy matches on.")
+    claims = WorkloadProviderClaimsSerializer(help_text="Which token claims a policy matches on.")
 
 
-class UnsupportedCIProviderSerializer(serializers.Serializer):
+class UnsupportedWorkloadProviderSerializer(serializers.Serializer):
     key = serializers.CharField(help_text="Stable identifier of the provider.")
     name = serializers.CharField(help_text="Display name of the provider.")
     reason = serializers.CharField(help_text="Why the provider can't be used.")
 
 
-class CIProvidersResponseSerializer(serializers.Serializer):
-    supported = CIProviderSerializer(many=True, help_text="Providers a policy can trust.")
-    unsupported = UnsupportedCIProviderSerializer(many=True, help_text="Known providers that can't be trusted.")
+class WorkloadProvidersResponseSerializer(serializers.Serializer):
+    supported = WorkloadProviderSerializer(many=True, help_text="Providers a policy can trust.")
+    unsupported = UnsupportedWorkloadProviderSerializer(many=True, help_text="Known providers that can't be trusted.")
     grantable_scopes = serializers.ListField(
         child=serializers.CharField(), help_text="Every scope a policy's ceiling may hold."
     )
@@ -248,28 +249,30 @@ class CIProvidersResponseSerializer(serializers.Serializer):
 
 
 def notify_admins_of_policy_change(
-    team_id: int, policy_id: str, name: str, change: CITrustPolicyChange, actor_user_id: int | None
+    team_id: int, policy_id: str, name: str, change: WorkloadTrustPolicyChange, actor_user_id: int | None
 ) -> None:
     # The change already happened, so a broker outage must not turn it into an error response.
     transaction.on_commit(
-        lambda: send_ci_trust_policy_changed.delay(team_id, policy_id, name, change, actor_user_id), robust=True
+        lambda: send_workload_trust_policy_changed.delay(team_id, policy_id, name, change, actor_user_id), robust=True
     )
 
 
-class DenyCIAccessToken(BasePermission):
-    """A CI token can never reach a policy or a request, not even to read, so it can't widen its own policy."""
+class DenyWorkloadAccessToken(BasePermission):
+    """A workload token can never reach a policy or a request, not even to read, so it can't widen its own policy."""
 
-    message = "CI tokens can't use CI trust policy endpoints."
+    message = "Workload tokens can't use workload trust policy endpoints."
 
     def has_permission(self, request: Request, view: APIView) -> bool:
-        return not isinstance(request.successful_authenticator, CIAccessTokenAuthentication)
+        return not isinstance(request.successful_authenticator, WorkloadAccessTokenAuthentication)
 
 
 class NotImpersonatedWritePermission(BasePermission):
     """A policy is a standing credential that acts as the owner, so staff impersonating a member can read
     policies but not change them, or ask for them."""
 
-    message = "CI trust policies act as the organization owner, so they can't be changed while impersonating a user."
+    message = (
+        "Workload trust policies act as the organization owner, so they can't be changed while impersonating a user."
+    )
 
     def has_permission(self, request: Request, view: APIView) -> bool:
         return request.method in SAFE_METHODS or not is_impersonated(request)
@@ -279,7 +282,7 @@ class BrowserSessionWritePermission(BasePermission):
     """Writes need a browser session. Every token type gets a 403, because a token can only ask for a
     policy, which an admin then approves in the browser."""
 
-    message = "CI trust policies can only be changed in the PostHog app, by an organization admin."
+    message = "Workload trust policies can only be changed in the PostHog app, by an organization admin."
 
     def has_permission(self, request: Request, view: APIView) -> bool:
         if request.method in SAFE_METHODS:
@@ -288,13 +291,13 @@ class BrowserSessionWritePermission(BasePermission):
 
 
 @extend_schema(extensions={"x-product": "core"})
-class CITrustPolicyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "ci_trust_policy"
-    queryset = CITrustPolicy.objects.unscoped()
-    serializer_class = CITrustPolicySerializer
+class WorkloadTrustPolicyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "workload_trust_policy"
+    queryset = WorkloadTrustPolicy.objects.unscoped()
+    serializer_class = WorkloadTrustPolicySerializer
     lookup_field = "id"
     permission_classes = [
-        DenyCIAccessToken,
+        DenyWorkloadAccessToken,
         BrowserSessionWritePermission,
         NotImpersonatedWritePermission,
         TimeSensitiveActionPermission,
@@ -302,7 +305,7 @@ class CITrustPolicyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     ]
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        return CITrustPolicy.objects.all().select_related("created_by").order_by("-created_at")
+        return WorkloadTrustPolicy.objects.all().select_related("created_by").order_by("-created_at")
 
     def perform_create(self, serializer: serializers.BaseSerializer) -> None:
         policy = serializer.save(created_by=self.request.user)
@@ -312,15 +315,15 @@ class CITrustPolicyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         policy = serializer.save()
         notify_admins_of_policy_change(self.team_id, str(policy.pk), policy.name, "updated", self.request.user.pk)
 
-    def perform_destroy(self, instance: CITrustPolicy) -> None:
+    def perform_destroy(self, instance: WorkloadTrustPolicy) -> None:
         policy_id, name = str(instance.pk), instance.name
         instance.delete()
         notify_admins_of_policy_change(self.team_id, policy_id, name, "deleted", self.request.user.pk)
 
-    @extend_schema(responses={200: CIProvidersResponseSerializer})
-    @action(methods=["GET"], detail=False, required_scopes=["ci_trust_policy:read"], pagination_class=None)
+    @extend_schema(responses={200: WorkloadProvidersResponseSerializer})
+    @action(methods=["GET"], detail=False, required_scopes=["workload_trust_policy:read"], pagination_class=None)
     def providers(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        grantable = ci_trust_policy_grantable_scopes()
+        grantable = workload_trust_policy_grantable_scopes()
         payload = {
             "supported": [
                 {
@@ -330,21 +333,21 @@ class CITrustPolicyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "docs_url": provider.docs_url,
                     "claims": {
                         "repository": provider.claims.repository,
-                        "repository_id": provider.claims.repository_id,
+                        "repository_id": provider.pinned_claim,
                         "ref": provider.claims.ref,
                         "environment": provider.claims.environment,
                     },
                 }
-                for provider in get_supported_ci_providers()
+                for provider in get_supported_workload_providers()
             ],
             "unsupported": [
                 {"key": provider.key, "name": provider.name, "reason": provider.reason}
-                for provider in get_unsupported_ci_providers()
+                for provider in get_unsupported_workload_providers()
             ],
             "grantable_scopes": sorted(grantable),
             "risky_scopes": {scope: warning for scope, warning in RISKY_SCOPE_WARNINGS.items() if scope in grantable},
         }
-        return Response(CIProvidersResponseSerializer(payload).data)
+        return Response(WorkloadProvidersResponseSerializer(payload).data)
 
 
 def requested_via(request: Request) -> tuple[str, bool | None]:
@@ -363,7 +366,7 @@ def requested_via(request: Request) -> tuple[str, bool | None]:
     return "an API token", None
 
 
-class CITrustPolicyRequestSerializer(CIConditionsSerializerMixin, serializers.ModelSerializer):
+class WorkloadTrustPolicyRequestSerializer(WorkloadConditionsSerializerMixin, serializers.ModelSerializer):
     name = serializers.CharField(max_length=200, help_text="The name the policy gets once approved.")
     provider_name = serializers.SerializerMethodField(help_text="The display name of the CI provider, or null.")
     scopes = CIScopeListField(help_text="The scopes the policy's tokens would carry.")
@@ -383,7 +386,7 @@ class CITrustPolicyRequestSerializer(CIConditionsSerializerMixin, serializers.Mo
     policy_id = serializers.UUIDField(read_only=True, allow_null=True, help_text="The policy created on approval.")
 
     class Meta:
-        model = CITrustPolicyRequest
+        model = WorkloadTrustPolicyRequest
         fields = [
             "id",
             "name",
@@ -437,39 +440,41 @@ class CITrustPolicyRequestSerializer(CIConditionsSerializerMixin, serializers.Mo
             "resolved_at": {"help_text": "When an admin approved or rejected the request."},
         }
 
-    def get_provider_name(self, policy_request: CITrustPolicyRequest) -> str | None:
-        provider = get_ci_provider_by_issuer(policy_request.issuer)
+    def get_provider_name(self, policy_request: WorkloadTrustPolicyRequest) -> str | None:
+        provider = get_workload_provider_by_issuer(policy_request.issuer)
         return provider.name if provider else None
 
-    @extend_schema_field(serializers.ChoiceField(choices=CITrustPolicyRequest.Status.choices))
-    def get_status(self, policy_request: CITrustPolicyRequest) -> str:
+    @extend_schema_field(serializers.ChoiceField(choices=WorkloadTrustPolicyRequest.Status.choices))
+    def get_status(self, policy_request: WorkloadTrustPolicyRequest) -> str:
         return policy_request.effective_status
 
     @extend_schema_field(serializers.DictField(child=serializers.CharField()))
-    def get_risky_scopes(self, policy_request: CITrustPolicyRequest) -> dict[str, str]:
+    def get_risky_scopes(self, policy_request: WorkloadTrustPolicyRequest) -> dict[str, str]:
         return {scope: RISKY_SCOPE_WARNINGS[scope] for scope in policy_request.scopes if scope in RISKY_SCOPE_WARNINGS}
 
-    def get_approval_url(self, policy_request: CITrustPolicyRequest) -> str:
-        return ci_trust_policy_request_url(policy_request.team_id, str(policy_request.pk))
+    def get_approval_url(self, policy_request: WorkloadTrustPolicyRequest) -> str:
+        return workload_trust_policy_request_url(policy_request.team_id, str(policy_request.pk))
 
-    def get_can_approve(self, policy_request: CITrustPolicyRequest) -> bool:
+    def get_can_approve(self, policy_request: WorkloadTrustPolicyRequest) -> bool:
         return bool(self.context["can_approve"])
 
-    def get_approvers(self, policy_request: CITrustPolicyRequest) -> list[str]:
+    def get_approvers(self, policy_request: WorkloadTrustPolicyRequest) -> list[str]:
         return [] if self.context["can_approve"] else self.context["approvers"]()
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        return validate_ci_trust_conditions(attrs)
+        return validate_workload_trust_conditions(attrs)
 
 
-class CITrustPolicyRequestResolutionPermission(BasePermission):
+class WorkloadTrustPolicyRequestResolutionPermission(BasePermission):
     """Approving or rejecting a request needs an organization admin or owner in a browser session. Asking
     for a policy is open to every member, so the check applies to the resolving actions only."""
 
-    message = "Only an organization admin or owner can approve or reject a CI trust policy request, in the PostHog app."
+    message = (
+        "Only an organization admin or owner can approve or reject a workload trust policy request, in the PostHog app."
+    )
 
     def has_permission(self, request: Request, view: APIView) -> bool:
-        if getattr(view, "action", None) not in CITrustPolicyRequestViewSet.RESOLVING_ACTIONS:
+        if getattr(view, "action", None) not in WorkloadTrustPolicyRequestViewSet.RESOLVING_ACTIONS:
             return True
         if not isinstance(request.successful_authenticator, SessionAuthentication):
             return False
@@ -477,17 +482,17 @@ class CITrustPolicyRequestResolutionPermission(BasePermission):
         return membership.level >= OrganizationMembership.Level.ADMIN
 
 
-def resolve_ci_trust_policy_request(
+def resolve_workload_trust_policy_request(
     *, team_id: int, request_id: str, approve: bool, resolver: User, policy_serializer_context: dict[str, Any]
-) -> CITrustPolicyRequest:
+) -> WorkloadTrustPolicyRequest:
     """Approve or reject a pending request. Approving creates the policy from the request's own values,
     checked again against today's rules, in the same transaction that marks the request approved."""
     with transaction.atomic():
-        policy_request = CITrustPolicyRequest.objects.select_for_update().get(pk=request_id, team_id=team_id)
-        if policy_request.effective_status != CITrustPolicyRequest.Status.PENDING:
+        policy_request = WorkloadTrustPolicyRequest.objects.select_for_update().get(pk=request_id, team_id=team_id)
+        if policy_request.effective_status != WorkloadTrustPolicyRequest.Status.PENDING:
             raise serializers.ValidationError(f"This request is {policy_request.effective_status} and can't change.")
         if approve:
-            policy_serializer = CITrustPolicySerializer(
+            policy_serializer = WorkloadTrustPolicySerializer(
                 data={
                     field: getattr(policy_request, field)
                     for field in ("name", "issuer", "repository", "repository_id", "ref", "environment", "scopes")
@@ -497,7 +502,7 @@ def resolve_ci_trust_policy_request(
             policy_serializer.is_valid(raise_exception=True)
             policy_request.policy = policy_serializer.save(created_by=resolver)
         policy_request.status = (
-            CITrustPolicyRequest.Status.APPROVED if approve else CITrustPolicyRequest.Status.REJECTED
+            WorkloadTrustPolicyRequest.Status.APPROVED if approve else WorkloadTrustPolicyRequest.Status.REJECTED
         )
         policy_request.resolved_by = resolver
         policy_request.resolved_at = timezone.now()
@@ -506,7 +511,7 @@ def resolve_ci_trust_policy_request(
 
 
 @extend_schema(extensions={"x-product": "core"})
-class CITrustPolicyRequestViewSet(
+class WorkloadTrustPolicyRequestViewSet(
     TeamAndOrgViewSetMixin,
     mixins.CreateModelMixin,
     mixins.RetrieveModelMixin,
@@ -515,25 +520,29 @@ class CITrustPolicyRequestViewSet(
 ):
     RESOLVING_ACTIONS = frozenset({"approve", "reject"})
 
-    scope_object = "ci_trust_policy_request"
-    queryset = CITrustPolicyRequest.objects.unscoped()
-    serializer_class = CITrustPolicyRequestSerializer
+    scope_object = "workload_trust_policy_request"
+    queryset = WorkloadTrustPolicyRequest.objects.unscoped()
+    serializer_class = WorkloadTrustPolicyRequestSerializer
     lookup_field = "id"
     permission_classes = [
-        DenyCIAccessToken,
+        DenyWorkloadAccessToken,
         NotImpersonatedWritePermission,
         TimeSensitiveActionPermission,
-        CITrustPolicyRequestResolutionPermission,
+        WorkloadTrustPolicyRequestResolutionPermission,
     ]
     # Asking for a policy grants nothing, so it never needs a fresh login. Approving and rejecting do.
     time_sensitive_exclude_actions = ["create"]
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        return CITrustPolicyRequest.objects.all().select_related("requested_by", "resolved_by").order_by("-created_at")
+        return (
+            WorkloadTrustPolicyRequest.objects.all()
+            .select_related("requested_by", "resolved_by")
+            .order_by("-created_at")
+        )
 
     def get_throttles(self) -> list[Any]:
         if self.action == "create":
-            return [CITrustPolicyRequestBurstThrottle(), CITrustPolicyRequestSustainedThrottle()]
+            return [WorkloadTrustPolicyRequestBurstThrottle(), WorkloadTrustPolicyRequestSustainedThrottle()]
         return super().get_throttles()
 
     def get_serializer_context(self) -> dict[str, Any]:
@@ -566,7 +575,7 @@ class CITrustPolicyRequestViewSet(
 
     def _resolve(self, approve: bool) -> Response:
         policy_request = self.get_object()
-        resolved = resolve_ci_trust_policy_request(
+        resolved = resolve_workload_trust_policy_request(
             team_id=policy_request.team_id,
             request_id=str(policy_request.pk),
             approve=approve,
@@ -579,12 +588,12 @@ class CITrustPolicyRequestViewSet(
             )
         return Response(self.get_serializer(resolved).data)
 
-    @extend_schema(request=None, responses={200: CITrustPolicyRequestSerializer})
-    @action(methods=["POST"], detail=True, required_scopes=["ci_trust_policy_request:write"])
+    @extend_schema(request=None, responses={200: WorkloadTrustPolicyRequestSerializer})
+    @action(methods=["POST"], detail=True, required_scopes=["workload_trust_policy_request:write"])
     def approve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return self._resolve(approve=True)
 
-    @extend_schema(request=None, responses={200: CITrustPolicyRequestSerializer})
-    @action(methods=["POST"], detail=True, required_scopes=["ci_trust_policy_request:write"])
+    @extend_schema(request=None, responses={200: WorkloadTrustPolicyRequestSerializer})
+    @action(methods=["POST"], detail=True, required_scopes=["workload_trust_policy_request:write"])
     def reject(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return self._resolve(approve=False)

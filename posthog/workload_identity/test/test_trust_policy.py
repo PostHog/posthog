@@ -10,22 +10,23 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.email import CUSTOMER_IO_TEMPLATE_ID_MAP, WORKFLOWS_TEMPLATE_ID_MAP
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.ci_trust_policy import CITrustPolicy, CITrustPolicyRequest
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.tasks.email import send_ci_trust_policy_changed
+from posthog.models.workload_trust_policy import WorkloadTrustPolicy, WorkloadTrustPolicyRequest
+from posthog.tasks.email import send_workload_trust_policy_changed
 from posthog.tasks.test.utils_email_tests import mock_email_messages
-from posthog.test.ci_trust_fixtures import FAKE_CI_ISSUER, with_fake_ci_provider
+from posthog.workload_identity.test.fixtures import FAKE_WORKLOAD_ISSUER, with_fake_workload_provider
 
 
 def _payload(**overrides: Any) -> dict[str, Any]:
     return {
         "name": "Production deploys",
-        "issuer": FAKE_CI_ISSUER,
+        "issuer": FAKE_WORKLOAD_ISSUER,
         "repository": "acme/web",
         "repository_id": "1234",
         "ref": "refs/heads/main",
@@ -48,7 +49,7 @@ def use_token(test: APIBaseTest, kind: str, oauth_scope: str) -> None:
             organization=test.organization,
             user=test.user,
         )
-        token = f"pha_ci_trust_test_{application.pk}"
+        token = f"pha_workload_trust_test_{application.pk}"
         OAuthAccessToken.objects.create(
             user=test.user,
             application=application,
@@ -60,22 +61,22 @@ def use_token(test: APIBaseTest, kind: str, oauth_scope: str) -> None:
     test.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 
 
-@with_fake_ci_provider()
-class TestCITrustPolicyAPI(APIBaseTest):
+@with_fake_workload_provider()
+class TestWorkloadTrustPolicyAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.url = f"/api/projects/{self.team.id}/ci_trust_policies/"
+        self.url = f"/api/projects/{self.team.id}/workload_trust_policies/"
 
     def _set_level(self, level: OrganizationMembership.Level) -> None:
         self.organization_membership.level = level
         self.organization_membership.save()
 
-    def _create_policy(self, team: Team | None = None, **overrides: Any) -> CITrustPolicy:
+    def _create_policy(self, team: Team | None = None, **overrides: Any) -> WorkloadTrustPolicy:
         fields = {**_payload(), **overrides}
-        return CITrustPolicy.objects.for_team((team or self.team).id).create(team=team or self.team, **fields)
+        return WorkloadTrustPolicy.objects.for_team((team or self.team).id).create(team=team or self.team, **fields)
 
     def _use_token(self, kind: str) -> None:
-        use_token(self, kind, "ci_trust_policy:read ci_trust_policy:write")
+        use_token(self, kind, "workload_trust_policy:read workload_trust_policy:write")
 
     @parameterized.expand(
         [
@@ -135,7 +136,7 @@ class TestCITrustPolicyAPI(APIBaseTest):
         assert create_response.status_code == status.HTTP_403_FORBIDDEN
         assert patch_response.status_code == status.HTTP_403_FORBIDDEN
         assert delete_response.status_code == status.HTTP_403_FORBIDDEN
-        assert CITrustPolicy.objects.for_team(self.team.id).count() == 1
+        assert WorkloadTrustPolicy.objects.for_team(self.team.id).count() == 1
 
     @parameterized.expand(
         [
@@ -148,7 +149,7 @@ class TestCITrustPolicyAPI(APIBaseTest):
             ("unknown_scope", {"scopes": ["not_a_thing:read"]}, "scopes"),
             ("privileged_scope", {"scopes": ["llm_gateway:read"]}, "scopes"),
             ("credential_scope", {"scopes": ["project:write"]}, "scopes"),
-            ("own_policy_scope", {"scopes": ["ci_trust_policy:read"]}, "scopes"),
+            ("own_policy_scope", {"scopes": ["workload_trust_policy:read"]}, "scopes"),
             ("agent_run_scope", {"scopes": ["task:write"]}, "scopes"),
             ("app_token_scope", {"scopes": ["streamlit_app:read"]}, "scopes"),
         ]
@@ -160,13 +161,13 @@ class TestCITrustPolicyAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == field
-        assert not CITrustPolicy.objects.for_team(self.team.id).exists()
+        assert not WorkloadTrustPolicy.objects.for_team(self.team.id).exists()
 
     def test_impersonated_sessions_can_read_but_not_change_policies(self) -> None:
         self._set_level(OrganizationMembership.Level.OWNER)
         policy = self._create_policy()
 
-        with patch("posthog.oidc.ci_trust_policy.is_impersonated", return_value=True):
+        with patch("posthog.workload_identity.trust_policy.is_impersonated", return_value=True):
             list_response = self.client.get(self.url)
             create_response = self.client.post(self.url, _payload(ref="refs/heads/other"), format="json")
             patch_response = self.client.patch(f"{self.url}{policy.id}/", {"enabled": False}, format="json")
@@ -176,7 +177,7 @@ class TestCITrustPolicyAPI(APIBaseTest):
         assert create_response.status_code == status.HTTP_403_FORBIDDEN
         assert patch_response.status_code == status.HTTP_403_FORBIDDEN
         assert delete_response.status_code == status.HTTP_403_FORBIDDEN
-        assert CITrustPolicy.objects.for_team(self.team.id).count() == 1
+        assert WorkloadTrustPolicy.objects.for_team(self.team.id).count() == 1
 
     def test_rejects_a_second_policy_with_the_same_conditions(self) -> None:
         self._set_level(OrganizationMembership.Level.ADMIN)
@@ -195,7 +196,7 @@ class TestCITrustPolicyAPI(APIBaseTest):
 
         assert response.json()["results"] == []
 
-    @patch("posthog.oidc.ci_trust_policy.send_ci_trust_policy_changed")
+    @patch("posthog.workload_identity.trust_policy.send_workload_trust_policy_changed")
     def test_every_change_is_logged_and_emailed_to_admins(self, mock_send: MagicMock) -> None:
         self._set_level(OrganizationMembership.Level.ADMIN)
 
@@ -207,7 +208,7 @@ class TestCITrustPolicyAPI(APIBaseTest):
             self.client.delete(f"{self.url}{policy_id}/")
 
         activities = list(
-            ActivityLog.objects.filter(scope="CITrustPolicy", item_id=policy_id)
+            ActivityLog.objects.filter(scope="WorkloadTrustPolicy", item_id=policy_id)
             .order_by("created_at")
             .values_list("activity", flat=True)
         )
@@ -216,7 +217,7 @@ class TestCITrustPolicyAPI(APIBaseTest):
         assert {call.args[4] for call in mock_send.delay.call_args_list} == {self.user.id}
 
 
-class TestSendCITrustPolicyChangedEmail(APIBaseTest):
+class TestSendWorkloadTrustPolicyChangedEmail(APIBaseTest):
     @patch("posthog.tasks.email.EmailMessage")
     def test_emails_every_active_admin_and_owner(self, MockEmailMessage: MagicMock) -> None:
         set_instance_setting("EMAIL_HOST", "fake_host")
@@ -234,28 +235,31 @@ class TestSendCITrustPolicyChangedEmail(APIBaseTest):
         other_org = Organization.objects.create(name="Other")
         User.objects.create_and_join(other_org, "outsider@example.com", None, level=OrganizationMembership.Level.OWNER)
 
-        send_ci_trust_policy_changed(self.team.id, "policy-id", "Production deploys", "created", self.user.id)
+        send_workload_trust_policy_changed(self.team.id, "policy-id", "Production deploys", "created", self.user.id)
 
         assert len(sent) == 1
         assert sorted(recipient["raw_email"] for recipient in sent[0].to) == sorted(
             [self.user.email, "admin@example.com"]
         )
         assert "Production deploys" in sent[0].html_body
+        assert sent[0].use_http is True
+        assert sent[0].template_name in CUSTOMER_IO_TEMPLATE_ID_MAP
+        assert sent[0].template_name in WORKFLOWS_TEMPLATE_ID_MAP
 
 
-@with_fake_ci_provider()
-class TestCITrustPolicyRequestAPI(APIBaseTest):
+@with_fake_workload_provider()
+class TestWorkloadTrustPolicyRequestAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         cache.clear()
-        self.url = f"/api/projects/{self.team.id}/ci_trust_policy_requests/"
+        self.url = f"/api/projects/{self.team.id}/workload_trust_policy_requests/"
 
     def _set_level(self, level: OrganizationMembership.Level) -> None:
         self.organization_membership.level = level
         self.organization_membership.save()
 
-    def _create_request(self, **overrides: Any) -> CITrustPolicyRequest:
-        return CITrustPolicyRequest.objects.for_team(self.team.id).create(
+    def _create_request(self, **overrides: Any) -> WorkloadTrustPolicyRequest:
+        return WorkloadTrustPolicyRequest.objects.for_team(self.team.id).create(
             team=self.team, requested_by=self.user, **{**_payload(), **overrides}
         )
 
@@ -274,7 +278,7 @@ class TestCITrustPolicyRequestAPI(APIBaseTest):
         )
         owner.last_name = "Owner"
         owner.save()
-        use_token(self, "oauth_token", "ci_trust_policy_request:write")
+        use_token(self, "oauth_token", "workload_trust_policy_request:write")
         OAuthApplication.objects.filter(name="Test app").update(is_verified=is_verified, is_first_party=is_first_party)
 
         response = self.client.post(self.url, _payload(), format="json")
@@ -286,8 +290,8 @@ class TestCITrustPolicyRequestAPI(APIBaseTest):
         assert body["approvers"] == ["Olive Owner"]
         assert body["requested_via"] == "Test app"
         assert body["requested_via_verified"] is expected_verified
-        assert body["approval_url"].endswith(f"/project/{self.team.id}/ci-trust-policy-requests/{body['id']}")
-        assert not CITrustPolicy.objects.for_team(self.team.id).exists()
+        assert body["approval_url"].endswith(f"/project/{self.team.id}/workload-trust-policy-requests/{body['id']}")
+        assert not WorkloadTrustPolicy.objects.for_team(self.team.id).exists()
 
     def test_admin_sees_they_can_approve_and_the_risky_scopes(self) -> None:
         self._set_level(OrganizationMembership.Level.ADMIN)
@@ -301,16 +305,16 @@ class TestCITrustPolicyRequestAPI(APIBaseTest):
 
     def test_a_token_minted_while_impersonating_cannot_ask_for_a_policy(self) -> None:
         staff = User.objects.create_user(email="staff@example.com", password=None, first_name="Staff", is_staff=True)
-        use_token(self, "oauth_token", "ci_trust_policy_request:write")
+        use_token(self, "oauth_token", "workload_trust_policy_request:write")
         OAuthAccessToken.objects.filter(user=self.user).update(impersonated_by=staff)
 
         response = self.client.post(self.url, _payload(), format="json")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert not CITrustPolicyRequest.objects.for_team(self.team.id).exists()
+        assert not WorkloadTrustPolicyRequest.objects.for_team(self.team.id).exists()
 
     def test_creating_a_request_needs_the_request_scope(self) -> None:
-        use_token(self, "oauth_token", "ci_trust_policy:read")
+        use_token(self, "oauth_token", "workload_trust_policy:read")
 
         response = self.client.post(self.url, _payload(), format="json")
 
@@ -336,30 +340,30 @@ class TestCITrustPolicyRequestAPI(APIBaseTest):
         self._set_level(level)
         policy_request = self._create_request()
         if token_kind:
-            use_token(self, token_kind, "ci_trust_policy_request:write")
+            use_token(self, token_kind, "workload_trust_policy_request:write")
 
         response = self.client.post(f"{self.url}{policy_request.id}/approve/")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         policy_request.refresh_from_db()
-        assert policy_request.status == CITrustPolicyRequest.Status.PENDING
-        assert not CITrustPolicy.objects.for_team(self.team.id).exists()
+        assert policy_request.status == WorkloadTrustPolicyRequest.Status.PENDING
+        assert not WorkloadTrustPolicy.objects.for_team(self.team.id).exists()
 
     @parameterized.expand([("approve",), ("reject",)])
     def test_impersonated_sessions_cannot_resolve_requests(self, resolution: str) -> None:
         self._set_level(OrganizationMembership.Level.OWNER)
         policy_request = self._create_request()
 
-        with patch("posthog.oidc.ci_trust_policy.is_impersonated", return_value=True):
+        with patch("posthog.workload_identity.trust_policy.is_impersonated", return_value=True):
             read_response = self.client.get(f"{self.url}{policy_request.id}/")
             response = self.client.post(f"{self.url}{policy_request.id}/{resolution}/")
 
         assert read_response.status_code == status.HTTP_200_OK
         assert response.status_code == status.HTTP_403_FORBIDDEN
         policy_request.refresh_from_db()
-        assert policy_request.status == CITrustPolicyRequest.Status.PENDING
+        assert policy_request.status == WorkloadTrustPolicyRequest.Status.PENDING
 
-    @patch("posthog.oidc.ci_trust_policy.send_ci_trust_policy_changed")
+    @patch("posthog.workload_identity.trust_policy.send_workload_trust_policy_changed")
     def test_admin_approves_their_own_request_which_creates_the_policy(self, mock_send: MagicMock) -> None:
         self._set_level(OrganizationMembership.Level.ADMIN)
         policy_request = self._create_request()
@@ -368,7 +372,7 @@ class TestCITrustPolicyRequestAPI(APIBaseTest):
             response = self.client.post(f"{self.url}{policy_request.id}/approve/")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        policy = CITrustPolicy.objects.for_team(self.team.id).get()
+        policy = WorkloadTrustPolicy.objects.for_team(self.team.id).get()
         assert response.json()["status"] == "approved"
         assert response.json()["policy_id"] == str(policy.id)
         assert (policy.repository_id, policy.ref, sorted(policy.scopes), policy.created_by_id) == (
@@ -379,7 +383,7 @@ class TestCITrustPolicyRequestAPI(APIBaseTest):
         )
         assert [call.args[3] for call in mock_send.delay.call_args_list] == ["created"]
         assert list(
-            ActivityLog.objects.filter(scope="CITrustPolicyRequest", item_id=str(policy_request.id))
+            ActivityLog.objects.filter(scope="WorkloadTrustPolicyRequest", item_id=str(policy_request.id))
             .order_by("created_at")
             .values_list("activity", flat=True)
         ) == ["created", "approved"]
@@ -391,7 +395,7 @@ class TestCITrustPolicyRequestAPI(APIBaseTest):
         response = self.client.post(f"{self.url}{policy_request.id}/reject/")
 
         assert response.json()["status"] == "rejected"
-        assert not CITrustPolicy.objects.for_team(self.team.id).exists()
+        assert not WorkloadTrustPolicy.objects.for_team(self.team.id).exists()
 
     @parameterized.expand([("expired",), ("already_rejected",)])
     def test_a_request_that_is_not_pending_cannot_be_approved(self, case: str) -> None:
@@ -407,7 +411,7 @@ class TestCITrustPolicyRequestAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert status_shown == ("expired" if case == "expired" else "rejected")
-        assert not CITrustPolicy.objects.for_team(self.team.id).exists()
+        assert not WorkloadTrustPolicy.objects.for_team(self.team.id).exists()
 
     def test_requests_are_rate_limited_per_user_and_project(self) -> None:
         for _ in range(10):

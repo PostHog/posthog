@@ -15,20 +15,20 @@ from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 from posthog.scopes import UNPRIVILEGED_SCOPES
 
-# A policy can grant any unprivileged scope except the ones that let a CI token outlive itself or widen
-# its own access. Risky scopes that stay grantable carry a warning from `RISKY_SCOPE_WARNINGS`.
-# - `ci_trust_policy` and `ci_trust_policy_request` would let a CI job change the policy behind its token.
+# A policy can grant any unprivileged scope except the ones that let a workload token outlive itself or
+# widen its own access. Risky scopes that stay grantable carry a warning from `RISKY_SCOPE_WARNINGS`.
+# - `workload_trust_policy` and `workload_trust_policy_request` would let a workload change the policy behind its token.
 # - `task:write` starts an agent run from a prompt the caller writes, with its own longer-lived owner token.
 #   `conversation:write` (PostHog AI can create such a task), `signal_scout:write` and
 #   `business_knowledge:write` start the same kind of run.
 # - `project:write` lets a token rotate the project's secret token.
 # - `streamlit_app` returns a one-hour OAuth token to connect to a running app.
-CI_TRUST_POLICY_DENIED_SCOPES: frozenset[str] = frozenset(
+WORKLOAD_TRUST_POLICY_DENIED_SCOPES: frozenset[str] = frozenset(
     {
-        "ci_trust_policy:read",
-        "ci_trust_policy:write",
-        "ci_trust_policy_request:read",
-        "ci_trust_policy_request:write",
+        "workload_trust_policy:read",
+        "workload_trust_policy:write",
+        "workload_trust_policy_request:read",
+        "workload_trust_policy_request:write",
         "business_knowledge:write",
         "conversation:write",
         "project:write",
@@ -40,35 +40,37 @@ CI_TRUST_POLICY_DENIED_SCOPES: frozenset[str] = frozenset(
 )
 
 
-def ci_trust_policy_grantable_scopes() -> frozenset[str]:
-    return UNPRIVILEGED_SCOPES - CI_TRUST_POLICY_DENIED_SCOPES
+def workload_trust_policy_grantable_scopes() -> frozenset[str]:
+    return UNPRIVILEGED_SCOPES - WORKLOAD_TRUST_POLICY_DENIED_SCOPES
 
 
-def ci_trust_policy_scopes_not_grantable(scopes: Iterable[str]) -> list[str]:
-    grantable = ci_trust_policy_grantable_scopes()
+def workload_trust_policy_scopes_not_grantable(scopes: Iterable[str]) -> list[str]:
+    grantable = workload_trust_policy_grantable_scopes()
     return sorted({scope for scope in scopes if scope not in grantable})
 
 
-def ci_trust_policies_settings_url(team_id: int) -> str:
-    return f"{settings.SITE_URL}/project/{team_id}/settings/environment-ci-trust-policies"
+def workload_trust_policies_settings_url(team_id: int) -> str:
+    return f"{settings.SITE_URL}/project/{team_id}/settings/environment-trusted-workloads"
 
 
-def ci_trust_policy_request_url(team_id: int, request_id: str) -> str:
-    return f"{settings.SITE_URL}/project/{team_id}/ci-trust-policy-requests/{request_id}"
+def workload_trust_policy_request_url(team_id: int, request_id: str) -> str:
+    return f"{settings.SITE_URL}/project/{team_id}/workload-trust-policy-requests/{request_id}"
 
 
-def ci_trust_policy_version(policy: CITrustPolicy) -> str:
+def workload_trust_policy_version(policy: WorkloadTrustPolicy) -> str:
     """Changes on every save, so a token minted before an admin narrowed or disabled the policy stops
     matching it."""
     return str(int(policy.updated_at.timestamp() * 1_000_000))
 
 
-def ci_trust_policy_active_cache_key(policy_id: str) -> str:
-    return f"ci_trust_policy_active:{policy_id}"
+def workload_trust_policy_active_cache_key(policy_id: str) -> str:
+    return f"workload_trust_policy_active:{policy_id}"
 
 
-class CITrustPolicy(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
-    """Lets CI jobs of one repository exchange their OIDC token for a short-lived project token.
+class WorkloadTrustPolicy(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
+    """Lets a workload, such as the CI jobs of one repository, exchange its OIDC token for a short-lived
+    project token. Azure calls this a federated identity credential, AWS a role trust policy, Google
+    Cloud a workload identity provider, and PyPI and npm trusted publishing.
 
     An empty `ref` or `environment` matches any value. The repository is always pinned, by name and
     by its immutable id.
@@ -96,7 +98,7 @@ class CITrustPolicy(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         constraints = [
             models.UniqueConstraint(
                 fields=["team", "issuer", "repository_id", "ref", "environment"],
-                name="posthog_unique_ci_trust_policy_conditions",
+                name="posthog_unique_workload_trust_policy_conditions",
             ),
         ]
 
@@ -111,24 +113,24 @@ class CITrustPolicy(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         return result
 
     def _forget_active_state(self, policy_id: str | None = None) -> None:
-        # CI token authentication caches whether a policy is active. Dropping the entry after the commit
+        # Workload token authentication caches whether a policy is active. Dropping the entry after the commit
         # makes a disable or delete take effect on the next request rather than when the entry expires.
-        key = ci_trust_policy_active_cache_key(policy_id or str(self.pk))
+        key = workload_trust_policy_active_cache_key(policy_id or str(self.pk))
         transaction.on_commit(lambda: cache.delete(key))
 
     def __str__(self) -> str:
-        return f"CITrustPolicy(team={self.team_id}, name={self.name!r})"
+        return f"WorkloadTrustPolicy(team={self.team_id}, name={self.name!r})"
 
 
-CI_TRUST_POLICY_REQUEST_LIFETIME = timedelta(days=7)
+WORKLOAD_TRUST_POLICY_REQUEST_LIFETIME = timedelta(days=7)
 
 
 def _default_request_expiry() -> datetime:
-    return timezone.now() + CI_TRUST_POLICY_REQUEST_LIFETIME
+    return timezone.now() + WORKLOAD_TRUST_POLICY_REQUEST_LIFETIME
 
 
-class CITrustPolicyRequest(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
-    """A member's request for a CI trust policy. It grants nothing until an organization admin or owner
+class WorkloadTrustPolicyRequest(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
+    """A member's request for a workload trust policy. It grants nothing until an organization admin or owner
     approves it in the browser, which creates the policy.
 
     The requested conditions never change after creation, so the admin approves exactly what they saw.
@@ -173,7 +175,7 @@ class CITrustPolicyRequest(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         related_name="+",
     )
     resolved_at = models.DateTimeField(null=True, blank=True)
-    policy = models.ForeignKey(CITrustPolicy, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    policy = models.ForeignKey(WorkloadTrustPolicy, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -186,4 +188,4 @@ class CITrustPolicyRequest(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         return self.status
 
     def __str__(self) -> str:
-        return f"CITrustPolicyRequest(team={self.team_id}, repository={self.repository!r}, status={self.status})"
+        return f"WorkloadTrustPolicyRequest(team={self.team_id}, repository={self.repository!r}, status={self.status})"

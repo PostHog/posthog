@@ -5,11 +5,11 @@ so they are built here rather than separately.
 """
 
 from posthog.api import id_jag
-from posthog.api.oauth.ci_token_exchange import TOKEN_EXCHANGE_GRANT_TYPE
 from posthog.api.oauth.claims import OIDC_CLAIMS
 from posthog.dataclasses import frozen
 from posthog.models.oauth import TokenEndpointAuthMethod
 from posthog.scopes import get_oauth_scopes_supported, get_scope_descriptions
+from posthog.workload_identity.token_exchange import TOKEN_EXCHANGE_GRANT_TYPE
 
 type Document = dict[str, object]
 

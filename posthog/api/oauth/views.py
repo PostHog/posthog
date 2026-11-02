@@ -44,7 +44,6 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from posthog.api import id_jag
-from posthog.api.oauth import ci_token_exchange
 from posthog.api.oauth.cimd import (
     CIMD_THROTTLE_CLASSES,
     CIMDFetchError,
@@ -104,6 +103,7 @@ from posthog.security.url_validation import has_ambiguous_authority
 from posthog.user_permissions import UserPermissions
 from posthog.utils import absolute_uri, get_instance_region, get_trusted_client_ip, render_template
 from posthog.views import login_required
+from posthog.workload_identity import token_exchange as workload_token_exchange
 
 from products.access_control.backend.facade.api import user_organizations_use_access_controls
 from products.security.backend.facade.api import access_refused as security_access_refused
@@ -2198,23 +2198,23 @@ class OAuthTokenView(TokenView):
     def _handle_token_exchange_grant(self, request) -> JsonResponse:
         """CI OIDC token exchange (RFC 8693). A CI job has no client registration, so the grant takes no
         client authentication: the OIDC token, checked against a trust policy, is the only credential."""
-        grant_type = ci_token_exchange.TOKEN_EXCHANGE_GRANT_TYPE
+        grant_type = workload_token_exchange.TOKEN_EXCHANGE_GRANT_TYPE
         try:
-            issued = ci_token_exchange.exchange_ci_token(
+            issued = workload_token_exchange.exchange_workload_token(
                 subject_token=request.POST.get("subject_token") or "",
                 subject_token_type=request.POST.get("subject_token_type") or "",
                 resource=request.POST.get("resource") or "",
             )
-        except ci_token_exchange.CIExchangeError as e:
-            logger.info("ci_token_exchange_rejected", error_code=e.code.value)
+        except workload_token_exchange.WorkloadExchangeError as e:
+            logger.info("workload_token_exchange_rejected", error_code=e.code.value)
             self._capture_token_rejected(grant_type, "", e.code.value)
             return JsonResponse(e.body(), status=e.http_status)
         except (OperationalError, RedisError) as e:
-            logger.warning("ci_token_exchange_unavailable", error=str(e))
+            logger.warning("workload_token_exchange_unavailable", error=str(e))
             return _temporarily_unavailable_response()
 
         posthoganalytics.capture(
-            distinct_id=f"ci_trust_policy:{issued.policy_id}",
+            distinct_id=f"workload_trust_policy:{issued.policy_id}",
             event="oauth_token_issued",
             properties={
                 "grant_type": grant_type,
@@ -2227,7 +2227,7 @@ class OAuthTokenView(TokenView):
         return JsonResponse(
             {
                 "access_token": issued.access_token,
-                "issued_token_type": ci_token_exchange.ISSUED_TOKEN_TYPE,
+                "issued_token_type": workload_token_exchange.ISSUED_TOKEN_TYPE,
                 "token_type": "Bearer",
                 "expires_in": issued.expires_in_seconds,
                 "scope": " ".join(issued.scopes),
@@ -2273,7 +2273,7 @@ class OAuthTokenView(TokenView):
 
         if grant_type == id_jag.JWT_BEARER_GRANT_TYPE:
             return self._handle_jwt_bearer_grant(request)
-        if grant_type == ci_token_exchange.TOKEN_EXCHANGE_GRANT_TYPE:
+        if grant_type == workload_token_exchange.TOKEN_EXCHANGE_GRANT_TYPE:
             return self._handle_token_exchange_grant(request)
 
         client_id = request.POST.get("client_id", "")
