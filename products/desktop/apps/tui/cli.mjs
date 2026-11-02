@@ -28,7 +28,12 @@ const server = await createServer({
   root: dirname(fileURLToPath(import.meta.url)),
   appType: "custom",
   customLogger: logger,
-  server: { middlewareMode: true, ws: false },
+  // The commit hook rebuilds every dependency's dist; reloading on that tore a running local chat down mid-turn.
+  server: {
+    middlewareMode: true,
+    ws: false,
+    watch: { ignored: ["**/dist/**"] },
+  },
 });
 const runner = createServerModuleRunner(server.environments.ssr, {
   hmr: { logger: false },

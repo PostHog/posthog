@@ -39,7 +39,7 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 
 | Module | Owns |
 | --- | --- |
-| `cli.mjs`, `main.tsx` | Vite module runner, hot reload, terminal setup and teardown. A load that fails shows its error and keeps the process (and its local agents) alive; Enter tries again, and so does the next change to the code |
+| `cli.mjs`, `main.tsx` | Vite module runner, hot reload, terminal setup and teardown. A load that fails shows its error and keeps the process (and its local agents) alive; Enter tries again, and so does the next change to the code. A dependency's rebuilt `dist/` is not watched: the commit hook's agent build tore a local chat down mid-turn |
 | `layout.ts` | Workspaces (splits only), the one main view, focus, new chats (`newChat`, `newChatIn`), persistence to one file per account, `~/.config/posthog-tui/layout.<account>.json` |
 | `dividers.ts` | Split cell sizes and places, and the joined glyphs of the pane dividers and the sidebar's edge |
 | `banner.ts` | What an empty chat shows above its composer: the model it starts on, who pays, and where it runs, from the pane's place, `/billing`, pi's starting model or the user's own `~/.claude/settings.json` |
