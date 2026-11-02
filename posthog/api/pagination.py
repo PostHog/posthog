@@ -138,6 +138,14 @@ class CappedCountLimitOffsetPagination(PrecountedLimitOffsetPagination):
         return paginated
 
 
+def _serialize_rows(view: "GenericAPIView", rows: list[Any], serializer_class: type[BaseSerializer] | None) -> Any:
+    """Serialize a facade page the way the view serializes its own rows, unless the caller names a serializer."""
+    if serializer_class is None:
+        # `get_serializer` keeps a view's own override of how it builds the serializer.
+        return view.get_serializer(rows, many=True).data
+    return serializer_class(rows, many=True, context=view.get_serializer_context()).data
+
+
 class FacadeLimitOffsetPagination(BoundedLimitOffsetPagination):
     """Builds the standard limit/offset response from a page that a facade read in SQL.
 
@@ -163,9 +171,7 @@ class FacadeLimitOffsetPagination(BoundedLimitOffsetPagination):
         page = fetch(PageRequest(limit=limit, offset=self.offset))
         self.count = page.count
 
-        serializer_class = serializer_class or view.get_serializer_class()
-        serializer = serializer_class(page.results, many=True, context=view.get_serializer_context())
-        return self.get_paginated_response(serializer.data)
+        return self.get_paginated_response(_serialize_rows(view, page.results, serializer_class))
 
 
 def _reversed_ordering(ordering: tuple[str, ...]) -> tuple[str, ...]:
@@ -427,9 +433,7 @@ class FacadeCursorPagination(StableCursorPagination):
         assert rows is not None
         self.count_rows = lambda: fetched[-1].count
 
-        serializer_class = serializer_class or view.get_serializer_class()
-        serializer = serializer_class(rows, many=True, context=view.get_serializer_context())
-        return self.get_paginated_response(serializer.data)
+        return self.get_paginated_response(_serialize_rows(view, rows, serializer_class))
 
 
 def facade_page_response[T](
