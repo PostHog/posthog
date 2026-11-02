@@ -25,6 +25,9 @@ function emptyRouteSettings(config: SandboxEmailSenderConfig): string[] {
 export type SandboxEmailBlockReason = 'switch_off' | 'recipient_not_member' | 'recipient_unverified' | 'check_failed'
 
 const BLOCKED_EVENT_WINDOW_SECONDS = 3600
+// The send is already skipped when this runs, and the worker's batch waits for it, so a stalled
+// store must not hold the invocation open.
+const BLOCKED_EVENT_TIMEOUT_MS = 1000
 
 export class SandboxEmailSender {
     public readonly canSend: boolean
@@ -50,6 +53,26 @@ export class SandboxEmailSender {
     }
 
     public async captureBlocked(
+        teamId: number,
+        isTest: boolean,
+        reason: SandboxEmailBlockReason,
+        blockedRecipientCount: number
+    ): Promise<void> {
+        let timer: NodeJS.Timeout | undefined
+        const deadline = new Promise<void>((resolve) => {
+            timer = setTimeout(() => {
+                logger.warn('Gave up capturing a sandbox email event: the event store did not answer', { teamId })
+                resolve()
+            }, BLOCKED_EVENT_TIMEOUT_MS)
+        })
+        try {
+            await Promise.race([this.captureBlockedEvent(teamId, isTest, reason, blockedRecipientCount), deadline])
+        } finally {
+            clearTimeout(timer)
+        }
+    }
+
+    private async captureBlockedEvent(
         teamId: number,
         isTest: boolean,
         reason: SandboxEmailBlockReason,
