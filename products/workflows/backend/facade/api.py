@@ -70,6 +70,7 @@ __all__ = [
     "filter_hog_flow_references_by_access_level",
     "get_email_sending_state",
     "get_email_sending_tier_limits",
+    "get_viewable_workflow_ids",
     "get_hog_flows_referencing_template_input_keys",
     "list_owned_workflow_health",
     "max_email_sending_tier",
@@ -219,6 +220,16 @@ def get_workflow_names(*, team_id: int, workflow_ids: Iterable[str]) -> dict[str
     return {
         str(pk): (name or "")
         for pk, name in HogFlow.objects.filter(team_id=team_id, id__in=list(workflow_ids)).values_list("id", "name")
+    }
+
+
+def get_viewable_workflow_ids(*, team_id: int, user_access_control: UserAccessControl) -> set[str]:
+    """The ids, as strings, of the team's workflows the reader may view."""
+    return {
+        str(pk)
+        for pk in user_access_control.filter_queryset_by_access_level(
+            HogFlow.objects.filter(team_id=team_id)
+        ).values_list("id", flat=True)
     }
 
 

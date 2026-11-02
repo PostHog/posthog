@@ -8,12 +8,15 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.models import Team
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership, Team
 from posthog.test.persons import create_person
 from posthog.uuidt import UUIDT
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_EVENTS_DATA_TABLE
 from products.messaging.backend.models.message_template import MessageTemplate
+from products.workflows.backend.models import HogFlow
 
 # `run_failed` is the failure the whole run writes, which ranks below the email step's own failure.
 RANK = {
@@ -38,7 +41,7 @@ NOW = datetime(2026, 6, 15, 12, 0, 0, tzinfo=UTC)
 class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
-        self.workflow_id = str(UUIDT())
+        self.workflow_id = str(HogFlow.objects.create(team=self.team, name="Password reset").id)
         self.template = MessageTemplate.objects.create(
             team=self.team, name="Password reset", transactional_hog_flow_id=self.workflow_id
         )
@@ -230,3 +233,30 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json() == {"recipients": 3, "converted": 1, "revenue": 30.0, "median_hours_to_convert": 5.0}
+
+    def test_hides_the_sends_of_a_workflow_the_user_cannot_view(self, _flag):
+        restricted = str(HogFlow.objects.create(team=self.team, name="Payroll").id)
+        visible_id = self._send(20, "jane@example.com", [("sent", 1, "")])
+        hidden_id = self._send(10, "boss@example.com", [("sent", 1, "")], workflow_id=restricted)
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="hog_flow",
+            resource_id=restricted,
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+
+        listed = self.client.get(self._url()).json()["results"]
+        detail = self.client.get(self._url(f"{hidden_id}/"))
+        results = self.client.get(self._url("results/"), {"workflow_id": restricted, "event": "purchase"})
+
+        assert [r["message_id"] for r in listed] == [visible_id]
+        assert detail.status_code == status.HTTP_404_NOT_FOUND
+        assert results.status_code == status.HTTP_404_NOT_FOUND

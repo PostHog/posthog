@@ -1,5 +1,5 @@
 from dataclasses import asdict
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from drf_spectacular.openapi import AutoSchema
@@ -13,6 +13,7 @@ from rest_framework.response import Response
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.models import User
 
 from products.messaging.backend.facade.contracts import (
     EmailDeliveryStatus,
@@ -27,6 +28,7 @@ from products.messaging.backend.facade.transactional_email_log import (
     list_transactional_emails,
     transactional_email_results,
     transactional_email_stats,
+    viewable_workflow_ids,
 )
 from products.messaging.backend.presentation.views.message_templates import require_transactional_email_api
 
@@ -190,6 +192,10 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         super().initial(request, *args, **kwargs)
         require_transactional_email_api(self.team)
 
+    def _workflow_ids(self) -> set[str]:
+        # Sends inherit the access of the workflow behind their email.
+        return viewable_workflow_ids(self.team_id, self.user_access_control)
+
     @validated_request(
         query_serializer=TransactionalEmailLogListQuerySerializer,
         responses={200: OpenApiResponse(response=TransactionalEmailLogListSerializer)},
@@ -208,6 +214,7 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             date_to=query.get("date_to"),
             limit=query["limit"],
             offset=query["offset"],
+            workflow_ids=self._workflow_ids(),
         )
         return Response(
             TransactionalEmailLogListSerializer(
@@ -236,7 +243,7 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             message_id = UUID(str(pk))
         except ValueError:
             raise NotFound()
-        detail = get_transactional_email(self.team_id, message_id)
+        detail = get_transactional_email(self.team_id, message_id, workflow_ids=self._workflow_ids())
         if detail is None:
             raise NotFound()
         data = {
@@ -265,12 +272,16 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             EmailStatsGroupBy(query["group_by"]),
             date_from=query.get("date_from"),
             date_to=query.get("date_to"),
+            workflow_ids=self._workflow_ids(),
         )
         return Response(TransactionalEmailStatsSerializer({"results": [asdict(row) for row in rows]}).data)
 
     @validated_request(
         query_serializer=TransactionalEmailResultsQuerySerializer,
-        responses={200: OpenApiResponse(response=TransactionalEmailResultsSerializer)},
+        responses={
+            200: OpenApiResponse(response=TransactionalEmailResultsSerializer),
+            404: OpenApiResponse(description="The project has no such workflow, or the user may not view it."),
+        },
         summary="Get what happened after a transactional email",
         description="Of the people a transactional email was sent to, count those who did an event within a window "
         "after their first send, and add up the revenue on those events.",
@@ -278,9 +289,13 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(detail=False, methods=["GET"])
     def results(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         query = request.validated_query_data
+        workflow_id = str(query["workflow_id"])
+        if workflow_id not in self._workflow_ids():
+            raise NotFound()
         outcome = transactional_email_results(
             self.team,
-            str(query["workflow_id"]),
+            cast(User, request.user),
+            workflow_id,
             query["event"],
             window_days=query["window_days"],
             revenue_property=query.get("revenue_property") or None,

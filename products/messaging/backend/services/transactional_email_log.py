@@ -5,7 +5,7 @@ sending domain, and opens and clicks add rows of their own. The delivery status 
 delivery row, so an open never hides a bounce.
 """
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from datetime import UTC, datetime, timedelta
 from statistics import median
 from typing import Any, cast
@@ -17,8 +17,9 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.models import Team
+from posthog.models import Team, User
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.messaging.backend.facade.contracts import (
     EmailDeliveryStatus,
     EmailLogEventKind,
@@ -35,6 +36,7 @@ from products.messaging.backend.models.email_status_sql import (
     EMAIL_STATUS_RETENTION_DAYS,
 )
 from products.messaging.backend.models.message_template import MessageTemplate
+from products.workflows.backend.facade.api import get_viewable_workflow_ids
 from products.workflows.backend.facade.message_assets import (
     fetch_first_email_sends,
     fetch_message_assets_for_invocations,
@@ -47,6 +49,8 @@ _CLOCK_SKEW = timedelta(minutes=5)
 MAX_CONVERSION_WINDOW_DAYS = 30
 # The results read at most this many recipients, newest sends first.
 MAX_RESULTS_RECIPIENTS = 10_000
+# A person's later events still count toward revenue, up to this many.
+MAX_EVENTS_PER_PERSON = 1_000
 
 _ENGAGEMENT = "(" + ", ".join(f"'{status}'" for status in EMAIL_ENGAGEMENT_STATUSES) + ")"
 
@@ -65,10 +69,16 @@ _MESSAGE_COLUMNS = f"""
 """.strip()
 
 
+def viewable_workflow_ids(team_id: int, user_access_control: UserAccessControl) -> set[str]:
+    """The workflows, and so the transactional emails, whose sends the reader may see."""
+    return get_viewable_workflow_ids(team_id=team_id, user_access_control=user_access_control)
+
+
 def _window(date_from: datetime | None, date_to: datetime | None) -> tuple[datetime, datetime]:
     now = datetime.now(UTC)
     start = max(date_from or now - timedelta(days=7), now - RETENTION)
-    end = min(date_to or now, now) + _CLOCK_SKEW
+    # The send API stamps a message with its own clock, so "now" reaches a little ahead. A given end stays exact.
+    end = min(date_to, now + _CLOCK_SKEW) if date_to else now + _CLOCK_SKEW
     return start, end
 
 
@@ -133,8 +143,12 @@ def list_transactional_emails(
     date_to: datetime | None = None,
     limit: int = 50,
     offset: int = 0,
+    workflow_ids: Collection[str] | None = None,
 ) -> tuple[list[TransactionalEmailLogEntry], bool]:
-    """A page of the project's sends, newest first, and whether more follow."""
+    """A page of the project's sends, newest first, and whether more follow. `workflow_ids` limits the sends to the
+    workflows the reader may view, and None reads them all."""
+    if workflow_ids is not None and not workflow_ids:
+        return [], False
     start, end = _window(date_from, date_to)
     where = ["team_id = %(team_id)s", "created_at >= %(start)s", "created_at < %(end)s"]
     having = ["delivery_status != ''"]
@@ -157,6 +171,9 @@ def list_transactional_emails(
     if workflow_id:
         having.append("message_function_id = %(workflow_id)s")
         params["workflow_id"] = workflow_id
+    if workflow_ids is not None:
+        having.append("message_function_id IN %(workflow_ids)s")
+        params["workflow_ids"] = list(workflow_ids)
 
     rows = _execute(
         team_id,
@@ -175,8 +192,11 @@ def list_transactional_emails(
     return _build_entries(team_id, rows[:limit]), has_more
 
 
-def get_transactional_email(team_id: int, message_id: UUID) -> TransactionalEmailLogDetail | None:
-    """One send with every status it went through, or None when the project has no send with this id."""
+def get_transactional_email(
+    team_id: int, message_id: UUID, *, workflow_ids: Collection[str] | None = None
+) -> TransactionalEmailLogDetail | None:
+    """One send with every status it went through, or None when the project has no send with this id, or the reader
+    may not view its workflow."""
     # A message id starts with the time it was queued, so the partition scan stays to that day.
     queued_ms = int.from_bytes(message_id.bytes[:6], "big")
     now = datetime.now(UTC)
@@ -192,7 +212,7 @@ def get_transactional_email(team_id: int, message_id: UUID) -> TransactionalEmai
         params,
     )
     entries = _build_entries(team_id, rows)
-    if not entries:
+    if not entries or (workflow_ids is not None and entries[0].workflow_id not in workflow_ids):
         return None
     entry = entries[0]
 
@@ -229,9 +249,17 @@ def transactional_email_stats(
     *,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
+    workflow_ids: Collection[str] | None = None,
 ) -> list[TransactionalEmailStatsRow]:
     """How many sends reached each status, per template or per sending domain, busiest first."""
+    if workflow_ids is not None and not workflow_ids:
+        return []
     start, end = _window(date_from, date_to)
+    params: dict[str, Any] = {"start": start, "end": end}
+    access = ""
+    if workflow_ids is not None:
+        access = "AND message_function_id IN %(workflow_ids)s"
+        params["workflow_ids"] = list(workflow_ids)
     group_column = "message_function_id" if group_by == EmailStatsGroupBy.TEMPLATE else "message_sending_domain"
     rows = _execute(
         team_id,
@@ -251,12 +279,12 @@ def transactional_email_stats(
             WHERE team_id = %(team_id)s AND created_at >= %(start)s AND created_at < %(end)s
             GROUP BY message_id
         )
-        WHERE delivery_status != '' AND group_key != ''
+        WHERE delivery_status != '' AND group_key != '' {access}
         GROUP BY group_key
         ORDER BY sent + failed DESC, group_key
         LIMIT 200
         """,
-        {"start": start, "end": end},
+        params,
     )
     templates = (
         _templates_by_workflow(team_id, [row[0] for row in rows]) if group_by == EmailStatsGroupBy.TEMPLATE else {}
@@ -287,6 +315,7 @@ def transactional_email_stats(
 
 def transactional_email_results(
     team: Team,
+    user: User | None,
     workflow_id: str,
     event: str,
     *,
@@ -305,22 +334,24 @@ def transactional_email_results(
         return TransactionalEmailResults(recipients=0, converted=0, revenue=0.0, median_hours_to_convert=None)
 
     # The same person can be reached under several distinct ids, so the send and the conversion meet on the person.
-    person_by_distinct_id = _persons_for_distinct_ids(team, list(sends))
+    person_by_distinct_id = _persons_for_distinct_ids(team, user, list(sends))
     first_send: dict[str, datetime] = {}
     for distinct_id, sent_at in sends.items():
         person = person_by_distinct_id.get(distinct_id, f"distinct:{distinct_id}")
         first_send[person] = min(first_send.get(person, sent_at), sent_at)
 
-    conversions = _conversion_events(team, event, revenue_property, list(sends), start, end + window)
+    conversions = _conversion_events(team, user, event, revenue_property, list(sends), start, end + window)
     converted_at: dict[str, datetime] = {}
     revenue = 0.0
-    for person_id, distinct_id, timestamp, value in conversions:
-        person = person_id or f"distinct:{distinct_id}"
+    for person, events in conversions.items():
         sent_at = first_send.get(person)
-        if sent_at is None or not (sent_at <= timestamp <= sent_at + window):
+        if sent_at is None:
             continue
-        converted_at[person] = min(converted_at.get(person, timestamp), timestamp)
-        revenue += value or 0.0
+        for timestamp, value in events:
+            if not (sent_at <= timestamp <= sent_at + window):
+                continue
+            converted_at[person] = min(converted_at.get(person, timestamp), timestamp)
+            revenue += value or 0.0
 
     hours = [(converted_at[person] - first_send[person]).total_seconds() / 3600 for person in converted_at]
     return TransactionalEmailResults(
@@ -331,11 +362,16 @@ def transactional_email_results(
     )
 
 
-def _persons_for_distinct_ids(team: Team, distinct_ids: list[str]) -> dict[str, str]:
+def _persons_for_distinct_ids(team: Team, user: User | None, distinct_ids: list[str]) -> dict[str, str]:
     response = execute_hogql_query(
-        "SELECT distinct_id, toString(person_id) FROM person_distinct_ids WHERE distinct_id IN {distinct_ids}",
+        """
+        SELECT distinct_id, toString(person_id) FROM person_distinct_ids
+        WHERE distinct_id IN {distinct_ids}
+        LIMIT {limit}
+        """,
         team=team,
-        placeholders={"distinct_ids": ast.Constant(value=distinct_ids)},
+        user=user,
+        placeholders={"distinct_ids": ast.Constant(value=distinct_ids), "limit": ast.Constant(value=len(distinct_ids))},
         query_type="transactional_email_results_persons",
         workload=Workload.ONLINE,
     )
@@ -344,12 +380,14 @@ def _persons_for_distinct_ids(team: Team, distinct_ids: list[str]) -> dict[str, 
 
 def _conversion_events(
     team: Team,
+    user: User | None,
     event: str,
     revenue_property: str | None,
     distinct_ids: list[str],
     start: datetime,
     end: datetime,
-) -> list[tuple[str, str, datetime, float | None]]:
+) -> dict[str, list[tuple[datetime, float | None]]]:
+    """The time and revenue of each person's conversion events, grouped per person so the row limit counts people."""
     revenue: ast.Expr = (
         ast.Call(
             name="toFloatOrNull",
@@ -360,25 +398,29 @@ def _conversion_events(
     )
     response = execute_hogql_query(
         """
-        SELECT toString(person_id), distinct_id, timestamp, {revenue}
+        SELECT toString(person_id), groupArray({per_person})(tuple(timestamp, {revenue}))
         FROM events
         WHERE event = {event}
           AND timestamp >= {start} AND timestamp < {end}
           AND person_id IN (SELECT person_id FROM person_distinct_ids WHERE distinct_id IN {distinct_ids})
-        LIMIT 100000
+        GROUP BY person_id
+        LIMIT {limit}
         """,
         team=team,
+        user=user,
         placeholders={
             "revenue": revenue,
             "event": ast.Constant(value=event),
             "start": ast.Constant(value=start),
             "end": ast.Constant(value=end),
             "distinct_ids": ast.Constant(value=distinct_ids),
+            "per_person": ast.Constant(value=MAX_EVENTS_PER_PERSON),
+            "limit": ast.Constant(value=len(distinct_ids)),
         },
         query_type="transactional_email_results_conversions",
         workload=Workload.ONLINE,
     )
-    return [
-        (person_id, distinct_id, timestamp.astimezone(UTC), value)
-        for person_id, distinct_id, timestamp, value in response.results or []
-    ]
+    return {
+        person_id: [(timestamp.astimezone(UTC), value) for timestamp, value in events]
+        for person_id, events in response.results or []
+    }
