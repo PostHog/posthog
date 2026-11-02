@@ -1208,11 +1208,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     // Only a query with a regex filter waits for the RE2 engine.
                     const regexPatterns = getRegexFilterPatterns(query)
                     if (regexPatterns.length > 0) {
-                        if (await hasInvalidRegexPattern(regexPatterns)) {
-                            return null
-                        }
+                        const hasInvalidPattern = await hasInvalidRegexPattern(regexPatterns)
+                        // A newer load may have started during the engine load. This one must not touch its request.
+                        breakpoint()
                         // A cancel during the engine load finds no request to abort yet.
-                        if (values.queryCancelled) {
+                        if (hasInvalidPattern || values.queryCancelled) {
                             return null
                         }
                     }

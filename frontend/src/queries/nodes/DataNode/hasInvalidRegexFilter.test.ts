@@ -1,3 +1,5 @@
+import * as regexp from 'lib/utils/regexp'
+
 import { getRegexFilterPatterns, hasInvalidRegexPattern } from './hasInvalidRegexFilter'
 
 const nestedQuery = (operator: string, value: unknown): Record<string, unknown> => ({
@@ -44,5 +46,11 @@ describe('hasInvalidRegexFilter', () => {
 
         expect(patterns).toEqual(expectedPatterns)
         expect(await hasInvalidRegexPattern(patterns)).toBe(expectedInvalid)
+    })
+
+    it('lets the query run when the RE2 engine fails to load', async () => {
+        jest.spyOn(regexp, 'loadRE2').mockRejectedValueOnce(new Error('Failed to fetch dynamically imported module'))
+
+        expect(await hasInvalidRegexPattern(['(?=lookahead)'])).toBe(false)
     })
 })
