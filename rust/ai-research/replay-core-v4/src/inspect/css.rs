@@ -348,16 +348,25 @@ fn font_descriptor(descriptor: &str, face: usize) -> Option<DeclarationKind> {
     }
 }
 
-/// A comment can come before the at-keyword, so only the end of the prelude is compared.
+/// Only the at-keyword, with whitespace and comments around it, opens a font face. A selector such as `.\@font-face` holds an escaped `@`, and the image URLs of its rule must still be named.
 fn is_font_face_prelude(prelude: &str) -> bool {
-    const AT_KEYWORD: &[u8] = b"@font-face";
-    let bytes = prelude.trim_end().as_bytes();
-    let Some(start) = bytes.len().checked_sub(AT_KEYWORD.len()) else {
-        return false;
-    };
-    bytes[start..].eq_ignore_ascii_case(AT_KEYWORD)
-        && (start == 0
-            || !matches!(bytes[start - 1], b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_' | b'-'))
+    let mut rest = prelude;
+    let mut keyword = None;
+    loop {
+        rest = rest.trim_start();
+        if let Some(comment) = rest.strip_prefix("/*") {
+            rest = comment.find("*/").map_or("", |end| &comment[end + 2..]);
+        } else if keyword.is_none() && !rest.is_empty() {
+            let end = rest
+                .find(|c: char| c.is_ascii_whitespace() || c == '/')
+                .unwrap_or(rest.len());
+            keyword = Some(&rest[..end]);
+            rest = &rest[end..];
+        } else {
+            break;
+        }
+    }
+    rest.is_empty() && keyword.is_some_and(|keyword| keyword.eq_ignore_ascii_case("@font-face"))
 }
 
 fn declaration_end(bytes: &[u8], start: usize, brace_depth: usize) -> usize {
@@ -863,6 +872,8 @@ mod tests {
             "@font-face{src:url(https://cdn.example.com/nameless.woff2)}",
             "@font-face{font-family:Self;src:url(/fonts/self.woff2)}",
             ".a{font-family:Inter;src:url(https://cdn.example.com/not-a-face.woff2);background:url(https://cdn.example.com/a.png)}",
+            ".\\@font-face{src:url(https://cdn.example.com/escaped.woff2);background:url(https://cdn.example.com/escaped.png)}",
+            "@font-face/* trailing */{font-family:Trail;src:url(https://cdn.example.com/trail.woff2)}",
         );
         assert_eq!(
             found(css, Some("https://app.example.com/")),
@@ -874,6 +885,8 @@ mod tests {
                 "resolved font https://app.example.com/fonts/self.woff2",
                 "rewrite url(/fonts/self.woff2) => url(\"https://app.example.com/fonts/self.woff2\") dropping []",
                 "image https://cdn.example.com/a.png",
+                "image https://cdn.example.com/escaped.png",
+                "font https://cdn.example.com/trail.woff2 Some(\"Trail\")",
             ]
         );
     }
