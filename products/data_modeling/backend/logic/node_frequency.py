@@ -253,16 +253,34 @@ class FrequencyGraph:
     best_effort_source_ids: set[str]  # sources treated as STREAMING but not guaranteed
     names: dict[str, str]  # node id -> display name, so a bound can name what set it
     identities: dict[str, NodeIdentity]  # node id -> the resource its name belongs to
+    managed_node_ids: set[str]  # nodes whose target the managed viewset provider declares
+
+
+def provider_cadence_source_id(managed_node_id: str) -> str:
+    """The source a managed view's readers see in its place, syncing at the provider's cadence."""
+    return f"{managed_node_id}:provider-cadence"
 
 
 def build_frequency_graph(dag: DAG) -> FrequencyGraph:
     """Extract the freshness graph for a DAG: schedulable nodes, edges, targets, source floors."""
     nodes = list(Node.objects.filter(dag=dag).exclude(saved_query__deleted=True))
+    managed_node_ids = {
+        str(node_id)
+        for node_id in Node.objects.filter(dag=dag, saved_query__managed_viewset__isnull=False).values_list(
+            "id", flat=True
+        )
+    }
     edges = [
         (str(source_id), str(target_id))
         for source_id, target_id in Edge.objects.filter(dag=dag)
         .exclude(NON_SCHEDULING_EDGES)
         .values_list("source_id", "target_id")
+    ]
+    managed_reader_edges = [
+        (str(source_id), str(target_id))
+        for source_id, target_id in Edge.objects.filter(NON_SCHEDULING_EDGES, dag=dag).values_list(
+            "source_id", "target_id"
+        )
     ]
 
     schedulable = {str(node.id) for node in nodes if node.type in SAVED_QUERY_NODE_TYPES}
@@ -278,6 +296,19 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
 
     source_nodes = [node for node in nodes if node.type == NodeType.TABLE]
     source_intervals, best_effort = resolve_source_intervals(source_nodes)
+    names = {str(node.id): node.name for node in nodes}
+    identities = {str(node.id): node_identity(node) for node in nodes}
+
+    # A reader never sets a managed view's cadence, but it cannot be fresher than that cadence either.
+    for managed_id, reader_id in managed_reader_edges:
+        cadence = declared_targets.get(managed_id)
+        if cadence is None or managed_id not in names:
+            continue
+        source_id = provider_cadence_source_id(managed_id)
+        source_intervals[source_id] = cadence
+        names[source_id] = names[managed_id]
+        identities[source_id] = identities[managed_id]
+        edges.append((source_id, reader_id))
 
     return FrequencyGraph(
         nodes=schedulable,
@@ -286,8 +317,9 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
         declared_anchors=declared_anchors,
         source_intervals=source_intervals,
         best_effort_source_ids=best_effort,
-        names={str(node.id): node.name for node in nodes},
-        identities={str(node.id): node_identity(node) for node in nodes},
+        names=names,
+        identities=identities,
+        managed_node_ids=managed_node_ids,
     )
 
 

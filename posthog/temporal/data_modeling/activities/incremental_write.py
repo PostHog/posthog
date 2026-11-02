@@ -21,10 +21,12 @@ stays on delta-rs.
 """
 
 import json
+import shutil
 import sqlite3
 import weakref
+import threading
 from collections.abc import Iterator
-from contextlib import ExitStack
+from contextlib import ExitStack, suppress
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, Optional
@@ -38,7 +40,13 @@ import pyarrow.compute as pc
 # the keys move to a local SQLite index, so a huge materialization cannot OOM the worker. Peak memory
 # of the in-memory check is about this state plus one slice, and a worker runs many activities at
 # once, so the budget has to stay a small share of a pod.
-MAX_UNIQUE_KEY_CHECK_BYTES = 1024 * 1024 * 1024
+MAX_UNIQUE_KEY_CHECK_BYTES = 256 * 1024 * 1024
+
+# The spilled index shares the worker's temporary disk with every other activity on it. Past this
+# size, or once that disk has less than the reserve free, the check fails the run loudly rather than
+# filling the disk under its neighbours.
+MAX_UNIQUE_KEY_SPILL_BYTES = 4 * 1024 * 1024 * 1024
+MIN_FREE_SPILL_DISK_BYTES = 2 * 1024 * 1024 * 1024
 
 # A materialization batch is about 100 MB, so a narrow key-only table sends ~12M rows at once, and the
 # group-by hash table for that many rows dwarfs the stored keys. Checking in slices keeps that bounded.
@@ -47,6 +55,10 @@ UNIQUE_KEY_CHECK_SLICE_ROWS = 1_000_000
 
 class IncrementalWriteError(Exception):
     """A batch cannot be safely upserted. Carries a message meant for the run's error field."""
+
+
+class _TrackerClosed(Exception):
+    """The run closed the tracker while a check was still running on its thread."""
 
 
 class SchemaDriftError(IncrementalWriteError):
@@ -114,7 +126,12 @@ class UniqueKeyTracker:
     hide it. A per-batch check cannot see a duplicate split across batches — deltalite would turn
     it into an update, silently — so the distinct keys seen so far are carried across ``check``
     calls. Only key columns are retained, and a local SQLite index takes over when they exceed the
-    memory budget. SQLite keeps its index on disk, so initial builds need no row-count limit.
+    memory budget. The index has its own disk budget, and hitting it fails the run loudly rather
+    than quietly skipping verification.
+
+    The caller must ``close`` the tracker when the run ends, including on cancellation. A check runs
+    on an executor thread that cancelling the caller does not stop, so ``close`` also tells a running
+    check to stop at its next chunk.
 
     In memory, each call groups only the new batch, then probes the stored keys with a hash join whose
     build side is that small grouped batch. The stored keys are kept as a list of per-batch chunks and
@@ -128,18 +145,36 @@ class UniqueKeyTracker:
         self._seen_chunks: list[pa.Table] = []
         self._seen_bytes = 0
         self._spill: sqlite3.Connection | None = None
+        self._spill_directory: Path | None = None
         self._resources = ExitStack()
         # Checks run on executor threads, so cleanup cannot depend on which thread releases the tracker.
         self._cleanup = weakref.finalize(self, self._resources.close)
+        self._running = threading.Lock()
+        self._closed = threading.Event()
 
     def close(self) -> None:
-        self._cleanup()
+        """Remove the spilled index. Safe to call from any thread, and while a check is running."""
+        self._closed.set()
+        if self._running.acquire(blocking=False):
+            try:
+                self._cleanup()
+            finally:
+                self._running.release()
+        elif self._spill is not None:
+            # The running check removes the index when it stops. This only cuts its insert short.
+            with suppress(sqlite3.ProgrammingError):
+                self._spill.interrupt()
+
+    def _raise_if_closed(self) -> None:
+        if self._closed.is_set():
+            raise _TrackerClosed()
 
     def _check_disk(self, keys: pa.Table) -> None:
-        assert self._spill is not None
+        assert self._spill is not None and self._spill_directory is not None
 
         def rows() -> Iterator[tuple[str]]:
             for batch in keys.to_batches(max_chunksize=8192):
+                self._raise_if_closed()
                 columns = batch.to_pydict().values()
                 for row in zip(*columns, strict=True):
                     # Arrow groups positive and negative zero together. JSON otherwise preserves
@@ -156,10 +191,23 @@ class UniqueKeyTracker:
                 "a key appears more than once in this run's result. Add the columns that tell those rows apart."
             ) from error
 
+        (page_count,) = self._spill.execute("PRAGMA page_count").fetchone()
+        (page_size,) = self._spill.execute("PRAGMA page_size").fetchone()
+        if (
+            page_count * page_size > MAX_UNIQUE_KEY_SPILL_BYTES
+            or shutil.disk_usage(self._spill_directory).free < MIN_FREE_SPILL_DISK_BYTES
+        ):
+            raise IncrementalWriteError(
+                "This query returns too many unique keys to verify. Reduce the rows the query returns, or "
+                "turn off incremental materialization for this view to fall back to a full refresh."
+            )
+
     def _start_spill(self) -> None:
-        directory = self._resources.enter_context(TemporaryDirectory(prefix="posthog-materialization-keys-"))
+        self._spill_directory = Path(
+            self._resources.enter_context(TemporaryDirectory(prefix="posthog-materialization-keys-"))
+        )
         # Each check is awaited before the next starts, but asyncio.to_thread may choose another thread.
-        self._spill = sqlite3.connect(Path(directory) / "keys.sqlite3", check_same_thread=False)
+        self._spill = sqlite3.connect(self._spill_directory / "keys.sqlite3", check_same_thread=False)
         self._resources.callback(self._spill.close)
         # The index is discarded with the run, so journaling and fsync buy nothing.
         self._spill.execute("PRAGMA journal_mode=OFF")
@@ -180,8 +228,14 @@ class UniqueKeyTracker:
                 f"Update the incremental configuration to match the query's columns."
             )
         assert_no_null_keys(batch, tuple(self._columns))
-        for offset in range(0, max(batch.num_rows, 1), UNIQUE_KEY_CHECK_SLICE_ROWS):
-            self._check_slice(batch.slice(offset, UNIQUE_KEY_CHECK_SLICE_ROWS))
+        try:
+            with self._running:
+                for offset in range(0, max(batch.num_rows, 1), UNIQUE_KEY_CHECK_SLICE_ROWS):
+                    self._raise_if_closed()
+                    self._check_slice(batch.slice(offset, UNIQUE_KEY_CHECK_SLICE_ROWS))
+        finally:
+            if self._closed.is_set():
+                self.close()
 
     def _check_slice(self, batch: pa.RecordBatch) -> None:
         keys = pa.Table.from_batches([batch]).select(self._columns)

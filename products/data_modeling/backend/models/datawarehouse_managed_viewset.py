@@ -25,11 +25,9 @@ from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTMode
 
 from products.data_modeling.backend.facade.managed_viewset_hooks import get_expected_views_provider
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
-from products.data_modeling.backend.logic.freshness import UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError
 from products.data_modeling.backend.logic.incremental import parse_incremental_config
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_modeling.backend.models.node import Node, NodeType
 from products.revenue_analytics.backend.views.schemas import SCHEMAS as REVENUE_ANALYTICS_SCHEMAS
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
@@ -87,7 +85,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         # Deferred: schedule_reconcile pulls in temporalio; a module-level import would drag it onto django.setup()
         from products.data_modeling.backend.logic.saved_query_dag_sync import sync_saved_query_to_dag  # noqa: PLC0415
         from products.data_modeling.backend.logic.schedule_reconcile import (  # noqa: PLC0415 keeps temporalio off django.setup()
-            apply_saved_query_frequency_target,
+            apply_managed_view_frequency_targets,
             maybe_reconcile_dag,
         )
 
@@ -156,6 +154,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         views_updated = 0
         saved_queries_to_schedule: list[DataWarehouseSavedQuery] = []
         saved_queries_to_sync: list[DataWarehouseSavedQuery] = []
+        frequency_targets: dict[str, timedelta | None] = {}
         orphaned_views_to_revert: list[DataWarehouseSavedQuery] = []
 
         # Keep this transaction short: persist DB changes only. The post-commit work
@@ -179,6 +178,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                     name=view.name, team=self.team, managed_viewset=self
                 ).first()
                 if saved_query:
+                    saved_query.managed_viewset = self
                     created = False
                 else:
                     saved_query = DataWarehouseSavedQuery(
@@ -192,11 +192,10 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 # Do NOT use get_columns because it runs the query, and these are possibly heavy
                 saved_query.query = view.query
                 saved_query.set_columns(view.columns)
-                # A non-materialized view is computed at query time — no sync schedule, and it never
-                # enters the schedule list below.
                 saved_query.external_tables = external_tables_by_view[view.name]
                 saved_query.is_materialized = view.materialized
-                saved_query.sync_frequency_interval = view.sync_frequency if view.materialized else None
+                # The cadence goes straight onto the DAG node below, not through this one-shot field.
+                saved_query.sync_frequency_interval = None
                 saved_query.incremental_config = incremental_config_by_view[view.name]
 
                 if created:
@@ -217,6 +216,8 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                         ]
                     )
                 saved_queries_to_sync.append(saved_query)
+                # A non-materialized view is computed at query time, so it has no cadence and no schedule.
+                frequency_targets[str(saved_query.id)] = view.sync_frequency if view.materialized else None
                 if view.materialized:
                     saved_queries_to_schedule.append(saved_query)
 
@@ -254,24 +255,13 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                         view_name=saved_query.name,
                         error=str(e),
                     )
+            # After every node exists, so the whole batch lands together.
+            apply_managed_view_frequency_targets(self.team_id, frequency_targets)
 
-        cadence_rejected: list[DataWarehouseSavedQuery] = []
         for saved_query in saved_queries_to_schedule:
             try:
+                # Carries no interval, so this only puts a brand-new DAG onto cadence tiers.
                 saved_query.schedule_materialization(reconcile=False)
-            except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as e:
-                # A cadence the view's sources cannot feed. Left materialized the view would have a
-                # table nothing ever builds, so it falls back to query time until the cadence fits.
-                logger.warning(
-                    "managed_view_cadence_rejected",
-                    team_id=self.team_id,
-                    view_name=saved_query.name,
-                    error=str(e),
-                )
-                saved_query.is_materialized = False
-                saved_query.sync_frequency_interval = None
-                saved_query.save(update_fields=["is_materialized", "sync_frequency_interval", "updated_at"])
-                cadence_rejected.append(saved_query)
             except Exception as e:
                 capture_exception(e, {"managed_viewset_id": self.id, "view_name": saved_query.name})
                 logger.warning(
@@ -282,12 +272,6 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 )
 
         if saved_queries_to_sync:
-            for saved_query in cadence_rejected:
-                apply_saved_query_frequency_target(saved_query, None, reconcile=False)
-            if cadence_rejected:
-                Node.objects.filter(
-                    team_id=self.team_id, saved_query_id__in=[view.id for view in cadence_rejected]
-                ).update(type=NodeType.VIEW)
             maybe_reconcile_dag(dag)
 
         views_deleted = 0

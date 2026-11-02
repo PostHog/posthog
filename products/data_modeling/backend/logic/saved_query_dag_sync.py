@@ -48,6 +48,8 @@ def materializes(saved_query: "DataWarehouseSavedQuery") -> bool:
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
     if saved_query.origin == DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET:
+        # TODO: drop this branch once the Revenue Analytics provider declares `materialized` per view
+        # instead of hardcoding True. Every managed view can then be judged on `is_materialized`.
         viewset = saved_query.managed_viewset
         if viewset is None or viewset.kind == DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS:
             return saved_query.table_id is not None

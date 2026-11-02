@@ -8,6 +8,7 @@ from parameterized import parameterized
 from products.data_modeling.backend.logic.freshness import (
     STREAMING,
     UnsatisfiableFrequencyError,
+    all_source_floor_bounds,
     all_source_floors,
     compute_effective_cadences,
     validate_declared_target,
@@ -146,8 +147,10 @@ class TestBuildFrequencyGraph(BaseTest):
         floor = all_source_floors(graph.edges, graph.source_intervals).get(str(matview.id), STREAMING)
         self.assertEqual(floor, STREAMING)
 
-    @parameterized.expand([("user_reader", False, H12), ("managed_reader", True, M15)])
-    def test_only_a_managed_reader_pulls_a_managed_view_to_its_cadence(self, _name, reader_is_managed, expected):
+    @parameterized.expand([("user_reader", False, H12, H12), ("managed_reader", True, M15, STREAMING)])
+    def test_only_a_managed_reader_pulls_a_managed_view_to_its_cadence(
+        self, _name, reader_is_managed, expected, reader_floor
+    ):
         dag = DAG.get_or_create_default(self.team)
         viewset = DataWarehouseManagedViewSet.objects.create(
             team=self.team, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
@@ -168,6 +171,10 @@ class TestBuildFrequencyGraph(BaseTest):
         )
 
         self.assertEqual(effective[str(managed_view.id)], expected)
+        floors = all_source_floor_bounds(graph.edges, graph.source_intervals)
+        self.assertEqual(floors[str(reader.id)].value, reader_floor)
+        if not reader_is_managed:
+            self.assertEqual(graph.names[floors[str(reader.id)].blocker], "revenue_view")
 
     def test_imported_source_floor_makes_a_tighter_descendant_unsatisfiable(self):
         dag = DAG.get_or_create_default(self.team)

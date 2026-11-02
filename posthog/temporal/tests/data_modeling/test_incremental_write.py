@@ -5,21 +5,27 @@ detection logic itself, where the cheap edge cases live (composite keys, the byt
 column missing from the output).
 """
 
+import json
+import tempfile
+from pathlib import Path
+from typing import Any
+
 import pytest
 from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
-import numpy as np
 import pyarrow as pa
-import pyarrow.compute as pc
 
 from posthog.temporal.data_modeling.activities.incremental_write import (
     MAX_UNIQUE_KEY_CHECK_BYTES,
+    MAX_UNIQUE_KEY_SPILL_BYTES,
     IncrementalWriteError,
     UniqueKeyTracker,
     upsert_batch,
 )
+
+_MODULE = "posthog.temporal.data_modeling.activities.incremental_write"
 
 _spill_modes = pytest.mark.parametrize("max_bytes", [1, MAX_UNIQUE_KEY_CHECK_BYTES], ids=["disk", "memory"])
 
@@ -122,12 +128,48 @@ def test_spilling_preserves_keys_from_earlier_batches() -> None:
     tracker.close()
 
 
-def test_the_cap_admits_a_seven_million_key_uuid_run() -> None:
-    sample = 10_000
-    ids = pa.array(np.arange(sample, dtype=np.int64))
-    uuid_sized = pa.table({"id": pc.utf8_lpad(pc.cast(ids, pa.string()), width=36, padding="0")})
+@pytest.mark.parametrize(
+    "spill_bytes,free_reserve",
+    [pytest.param(1, 0, id="index_budget"), pytest.param(MAX_UNIQUE_KEY_SPILL_BYTES, 1 << 62, id="free_disk")],
+)
+def test_the_spilled_index_fails_loudly_past_its_disk_budget(spill_bytes: int, free_reserve: int) -> None:
+    tracker = UniqueKeyTracker(("id",), max_bytes=1)
+    with (
+        patch(f"{_MODULE}.MAX_UNIQUE_KEY_SPILL_BYTES", spill_bytes),
+        patch(f"{_MODULE}.MIN_FREE_SPILL_DISK_BYTES", free_reserve),
+        pytest.raises(IncrementalWriteError, match="too many unique keys to verify"),
+    ):
+        tracker.check(_batch([1, 2], ["a", "b"]))
+    tracker.close()
 
-    assert uuid_sized.nbytes * (7_000_000 // sample) <= MAX_UNIQUE_KEY_CHECK_BYTES
+
+def test_closing_removes_the_spilled_index(tmp_path: Path) -> None:
+    with patch.object(tempfile, "tempdir", str(tmp_path)):
+        tracker = UniqueKeyTracker(("id",), max_bytes=1)
+        tracker.check(_batch([1], ["a"]))
+    assert list(tmp_path.iterdir())
+
+    tracker.close()
+
+    assert not list(tmp_path.iterdir())
+
+
+def test_closing_during_a_check_stops_it_and_removes_the_index(tmp_path: Path) -> None:
+    with patch.object(tempfile, "tempdir", str(tmp_path)):
+        tracker = UniqueKeyTracker(("id",), max_bytes=1)
+        tracker.check(_batch([0], ["a"]))
+    dumps = json.dumps
+
+    def close_mid_insert(*args: Any, **kwargs: Any) -> str:
+        tracker.close()
+        return dumps(*args, **kwargs)
+
+    ids = list(range(1, 20_000))
+    with patch(f"{_MODULE}.json.dumps", side_effect=close_mid_insert), pytest.raises(Exception) as raised:
+        tracker.check(_batch(ids, ["x"] * len(ids)))
+
+    assert not isinstance(raised.value, IncrementalWriteError)
+    assert not list(tmp_path.iterdir())
 
 
 @pytest.mark.parametrize(
