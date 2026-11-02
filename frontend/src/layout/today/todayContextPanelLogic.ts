@@ -151,7 +151,7 @@ export interface todayContextPanelLogicMeta {
         floatingActiveTab: (floatingTab: SidePanelTab, enabledTabs: SidePanelTab[]) => SidePanelTab
         canUndock: (activeTab: SidePanelTab, onAiPage: boolean) => boolean
         activeTab: (docked: boolean, selectedTab: SidePanelTab | null, floatingActiveTab: SidePanelTab) => SidePanelTab
-        fullScreenUrl: (activeTab: SidePanelTab, selectedNotebook: string, myTicketsUrl: string | null) => string | null
+        fullScreenUrl: (activeTab: SidePanelTab, selectedNotebook: string, arg: string | null) => string | null
     }
 }
 
