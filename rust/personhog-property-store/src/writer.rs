@@ -12,7 +12,7 @@ use slatedb::db_cache::DbCache;
 use slatedb::manifest::VersionedManifest;
 use slatedb::object_store::path::Path as ObjectPath;
 use slatedb::object_store::{ObjectStore, ObjectStoreExt, PutPayload};
-use slatedb::{CloseReason, Db, ErrorKind, WriteBatch};
+use slatedb::{CloseReason, Db, ErrorKind, FilterPolicy, WriteBatch};
 use tokio::sync::{Mutex, Notify};
 
 use crate::encoding::{encode_key, encode_value, StoredProperties};
@@ -78,6 +78,7 @@ pub struct PropertyWriter {
     prefix: String,
     shards: u32,
     settings: Settings,
+    filter_policies: Vec<Arc<dyn FilterPolicy>>,
     cache: Arc<dyn DbCache>,
     memtable_flush: Option<Duration>,
     full_compaction: Option<Duration>,
@@ -116,6 +117,7 @@ impl PropertyWriter {
             prefix: config.prefix.clone(),
             shards: config.shards.max(1),
             settings: engine::settings(config),
+            filter_policies: engine::filter_policies(config),
             cache: engine::shared_cache(config),
             memtable_flush: config.memtable_flush_interval(),
             full_compaction: config.full_compaction_interval(),
@@ -376,6 +378,7 @@ impl PropertyWriter {
                 Arc::clone(&self.object_store),
             )
             .with_settings(self.settings.clone())
+            .with_filter_policies(self.filter_policies.clone())
             .with_db_cache(Arc::clone(&self.cache), u64::from(shard))
             .with_merge_operator(Arc::new(KeepNewest))
             .with_metrics_recorder(metrics.recorder())

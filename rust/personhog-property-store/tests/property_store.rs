@@ -168,6 +168,29 @@ async fn only_an_open_shard_without_the_person_reads_as_missing() {
     writer.close().await;
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn an_owned_partitions_shards_stay_open_until_it_is_released() {
+    let dir = tempfile::tempdir().unwrap();
+    let writer = assigned_writer(&dir, 1).await;
+    let config = PropertyStoreConfig {
+        reader_idle_secs: 1,
+        ..config()
+    };
+    let reader = PropertyReader::new(&config, store(&dir));
+    reader.open_partition(0, 2).await.unwrap();
+    let unowned = (1..)
+        .find(|&person_id| shard_for(7, person_id, SHARDS) % 2 == 1)
+        .unwrap();
+    reader.get(7, unowned).await.unwrap();
+
+    tokio::time::sleep(Duration::from_millis(1100)).await;
+    assert_eq!(reader.close_idle().await, 2);
+    reader.release_partition(0, 2);
+    assert_eq!(reader.close_idle().await, 0);
+    reader.close().await;
+    writer.close().await;
+}
+
 #[test]
 fn shards_must_divide_evenly_into_changelog_partitions() {
     let dir = tempfile::tempdir().unwrap();

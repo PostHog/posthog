@@ -71,6 +71,12 @@ pub struct PropertyStoreConfig {
     #[envconfig(from = "PROPERTY_STORE_MAX_UNFLUSHED_BYTES", default = "8388608")]
     pub max_unflushed_bytes: usize,
 
+    #[envconfig(from = "PROPERTY_STORE_MIN_FILTER_KEYS", default = "1")]
+    pub min_filter_keys: u32,
+
+    #[envconfig(from = "PROPERTY_STORE_FILTER_BITS_PER_KEY", default = "10")]
+    pub filter_bits_per_key: u32,
+
     /// Bounds the write-ahead log a reopen or reader replays. 0 disables.
     #[envconfig(from = "PROPERTY_STORE_MEMTABLE_FLUSH_SECS", default = "60")]
     pub memtable_flush_secs: u64,

@@ -26,6 +26,7 @@ struct SlotState {
     reader: Option<OpenReader>,
     opening: bool,
     failure: Option<String>,
+    held: bool,
 }
 
 /// Opens on its own task, so a timed-out read never cancels a slow open.
@@ -151,19 +152,44 @@ impl PropertyReader {
         partition: u32,
         partitions: u32,
     ) -> Result<(), PropertyStoreError> {
-        let shards = (partition..self.shards).step_by(partitions.max(1) as usize);
-        join_all(shards.map(|shard| async move {
-            match tokio::time::timeout(self.read_timeout, self.reader(shard)).await {
-                Ok(opened) => opened.map(drop),
-                Err(_) => Err(PropertyStoreError::ShardUnavailable {
-                    shard,
-                    reason: "the open timed out".to_string(),
+        self.hold(partition, partitions, true);
+        let opened: Result<(), PropertyStoreError> = join_all(
+            self.partition_shards(partition, partitions)
+                .map(|shard| async move {
+                    match tokio::time::timeout(self.read_timeout, self.reader(shard)).await {
+                        Ok(opened) => opened.map(drop),
+                        Err(_) => Err(PropertyStoreError::ShardUnavailable {
+                            shard,
+                            reason: "the open timed out".to_string(),
+                        }),
+                    }
                 }),
-            }
-        }))
+        )
         .await
         .into_iter()
-        .collect()
+        .collect();
+        if opened.is_err() {
+            self.hold(partition, partitions, false);
+        }
+        opened
+    }
+
+    pub fn release_partition(&self, partition: u32, partitions: u32) {
+        self.hold(partition, partitions, false);
+    }
+
+    fn partition_shards(&self, partition: u32, partitions: u32) -> impl Iterator<Item = u32> {
+        (partition..self.shards).step_by(partitions.max(1) as usize)
+    }
+
+    fn hold(&self, partition: u32, partitions: u32, held: bool) {
+        for shard in self.partition_shards(partition, partitions) {
+            self.slot(shard)
+                .state
+                .lock()
+                .expect("reader slot lock poisoned")
+                .held = held;
+        }
     }
 
     pub async fn get_fresh(
@@ -288,20 +314,20 @@ impl PropertyReader {
         })
     }
 
-    pub async fn close_idle(&self) {
+    pub async fn close_idle(&self) -> usize {
         let mut idle = Vec::new();
-        let mut open = 0;
+        let mut still_open = 0;
         for (shard, slot) in self.slots.lock().expect("readers lock poisoned").iter() {
             let mut state = slot.state.lock().expect("reader slot lock poisoned");
             match state.reader.as_ref() {
-                Some(reader) if reader.last_read.elapsed() >= self.idle => {
+                Some(reader) if !state.held && reader.last_read.elapsed() >= self.idle => {
                     idle.push((*shard, state.reader.take().expect("checked above")));
                 }
-                Some(_) => open += 1,
+                Some(_) => still_open += 1,
                 None => {}
             }
         }
-        gauge!("personhog_property_store_open_readers").set(f64::from(open));
+        gauge!("personhog_property_store_open_readers").set(still_open as f64);
         for (shard, open) in idle {
             counter!("personhog_property_store_readers_closed_total", "reason" => "idle")
                 .increment(1);
@@ -310,6 +336,7 @@ impl PropertyReader {
                 tracing::debug!(shard, error = %e, "closing idle property store reader failed");
             }
         }
+        still_open
     }
 
     pub async fn close(&self) {

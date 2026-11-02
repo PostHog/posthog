@@ -35,6 +35,17 @@ pub enum PropertyStoreError {
     ShardUnavailable { shard: u32, reason: String },
 }
 
+/// SlateDB reports object-store requests in seconds, which the default millisecond ladder cannot resolve.
+pub const OBJECT_STORE_REQUEST_DURATION: &str = "slatedb_object_store_request_duration_seconds";
+pub const OBJECT_STORE_REQUEST_BUCKETS_SECONDS: &[f64] = &[
+    0.002, 0.005, 0.01, 0.02, 0.03, 0.05, 0.075, 0.1, 0.15, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
+];
+
+pub const READ_LATENCY_BUCKETS_MS: &[f64] = &[
+    1.0, 2.5, 5.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 75.0, 100.0, 125.0, 150.0, 200.0, 250.0,
+    300.0, 400.0, 500.0, 750.0, 1000.0, 2000.0, 5000.0,
+];
+
 /// A shard count that is a multiple of the partition count maps every shard to one partition.
 pub fn shard_for(team_id: i64, person_id: i64, shards: u32) -> u32 {
     personhog_common::partitioning::person_hash(team_id, person_id) % shards

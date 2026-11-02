@@ -8,7 +8,7 @@ use metrics::Label;
 use slatedb::config::{CompactionWorkerOptions, CompactorOptions, Settings};
 use slatedb::db_cache::foyer::{FoyerCache, FoyerCacheOptions};
 use slatedb::db_cache::{DbCache, SplitCache};
-use slatedb::{MergeOperator, MergeOperatorError};
+use slatedb::{BloomFilterPolicy, FilterPolicy, MergeOperator, MergeOperatorError};
 use slatedb_common::metrics::{CounterFn, GaugeFn, HistogramFn, MetricsRecorder, UpDownCounterFn};
 
 use crate::encoding::version_of;
@@ -62,10 +62,16 @@ const COMPACTION_FETCH_BYTES: usize = 256 * 1024;
 /// Two, so routine L0 compaction keeps draining flushes during a full compaction.
 const SHARD_COMPACTIONS: usize = 2;
 
+/// The writer and its compactor must build SSTs with the same filters.
+pub(crate) fn filter_policies(config: &PropertyStoreConfig) -> Vec<Arc<dyn FilterPolicy>> {
+    vec![Arc::new(BloomFilterPolicy::new(config.filter_bits_per_key))]
+}
+
 pub(crate) fn settings(config: &PropertyStoreConfig) -> Settings {
     Settings {
         l0_sst_size_bytes: config.l0_sst_bytes,
         max_unflushed_bytes: config.max_unflushed_bytes,
+        min_filter_keys: config.min_filter_keys,
         manifest_poll_interval: WRITER_MANIFEST_POLL,
         compression_codec: config.compression.codec(),
         compactor_options: Some(CompactorOptions {
@@ -74,6 +80,7 @@ pub(crate) fn settings(config: &PropertyStoreConfig) -> Settings {
                 max_concurrent_compactions: SHARD_COMPACTIONS,
                 max_fetch_tasks: 1,
                 bytes_to_fetch: COMPACTION_FETCH_BYTES,
+                min_filter_keys: config.min_filter_keys,
                 ..CompactionWorkerOptions::default()
             }),
             ..CompactorOptions::default()
