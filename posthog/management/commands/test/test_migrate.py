@@ -1,10 +1,19 @@
+from types import SimpleNamespace
+
 from unittest.mock import MagicMock
 
 from django.core.management.base import CommandError
 from django.db import NotSupportedError, OperationalError
 from django.test import SimpleTestCase
 
-from posthog.management.commands.migrate import UNSUPPORTED_DATABASE_EXIT_CODE, check_database_version
+from parameterized import parameterized
+
+from posthog.management.commands.migrate import (
+    UNSUPPORTED_DATABASE_EXIT_CODE,
+    check_database_version,
+    find_partly_applied_squashes,
+    replaced_by_squash,
+)
 
 
 def fake_connection(error: Exception) -> MagicMock:
@@ -29,3 +38,36 @@ class TestCheckDatabaseVersion(SimpleTestCase):
 
         with self.assertRaises(OperationalError):
             check_database_version(fake_connection(error))
+
+
+class TestFindPartlyAppliedSquashes(SimpleTestCase):
+    LOADER = SimpleNamespace(
+        disk_migrations={
+            ("app", "0001_a"): SimpleNamespace(replaces=[]),
+            ("app", "0002_b"): SimpleNamespace(replaces=[]),
+            ("app", "0003_c"): SimpleNamespace(replaces=[]),
+            ("app", "0001_squash_2026_09_07_initial"): SimpleNamespace(replaces=[("app", "0001_a"), ("app", "0002_b")]),
+            ("app", "0001_squash_2026_11_02_initial"): SimpleNamespace(
+                replaces=[("app", "0001_squash_2026_09_07_initial"), ("app", "0003_c")]
+            ),
+        }
+    )
+
+    @parameterized.expand(
+        [
+            ("fresh", set(), []),
+            ("at_the_floor", {("app", "0001_a"), ("app", "0002_b"), ("app", "0003_c")}, []),
+            (
+                "inside_the_new_range",
+                {("app", "0001_a"), ("app", "0002_b")},
+                ["app.0001_squash_2026_11_02_initial"],
+            ),
+            (
+                "inside_the_old_range",
+                {("app", "0001_a")},
+                ["app.0001_squash_2026_09_07_initial", "app.0001_squash_2026_11_02_initial"],
+            ),
+        ]
+    )
+    def test_flags_only_databases_that_stopped_inside_a_squash(self, _name, applied, expected):
+        assert find_partly_applied_squashes(replaced_by_squash(self.LOADER), applied) == expected

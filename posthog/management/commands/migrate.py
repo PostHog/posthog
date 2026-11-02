@@ -12,11 +12,13 @@ that have different migrations applied.
 from __future__ import annotations
 
 import os
+import re
 import sys
 import time
 import shutil
 import warnings
 import subprocess
+from collections.abc import Collection, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -25,6 +27,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.core.management.commands.migrate import Command as DjangoMigrateCommand
 from django.db import DEFAULT_DB_ALIAS, NotSupportedError
+from django.db.migrations.loader import MigrationLoader
 from django.db.migrations.recorder import MigrationRecorder
 
 from posthog.cloud_utils import is_ci
@@ -227,6 +230,70 @@ def check_database_version(connection: BaseDatabaseWrapper) -> None:
         ) from exc
 
 
+# A database migrated at this commit, or at any later one, has applied every migration
+# that a squash in this tree replaces, so Django never needs a squash's fallback path.
+# Move it to the base commit of each new squash.
+MIGRATION_FLOOR_COMMIT = "5739878eb80f10d5e04b464cbc8335041fdaf89c"
+
+SQUASH_INITIAL = re.compile(r"^0001_squash_\d{4}_\d{2}_\d{2}_initial$")
+
+
+def find_partly_applied_squashes(
+    replaced_by_squash: Mapping[tuple[str, str], Collection[tuple[str, str]]],
+    applied: Collection[tuple[str, str]],
+) -> list[str]:
+    """Return the squashes that have some, but not all, of their replaced migrations applied."""
+    partly_applied = []
+    for (app_label, name), replaced in replaced_by_squash.items():
+        hits = [key in applied for key in replaced]
+        if any(hits) and not all(hits):
+            partly_applied.append(f"{app_label}.{name}")
+    return sorted(partly_applied)
+
+
+def replaced_by_squash(loader: MigrationLoader) -> dict[tuple[str, str], set[tuple[str, str]]]:
+    """Map each squash initial to the original migrations it stands for.
+
+    A squash can replace an older squash, so follow `replaces` down to the original files.
+    Those are the names a database recorded when it ran the original history.
+    """
+
+    def originals(key: tuple[str, str]) -> set[tuple[str, str]]:
+        migration = loader.disk_migrations.get(key)
+        if migration is None or not migration.replaces:
+            return {key}
+        return {original for replaced in migration.replaces for original in originals(tuple(replaced))}
+
+    return {
+        key: originals(key)
+        for key, migration in loader.disk_migrations.items()
+        if migration.replaces and SQUASH_INITIAL.match(key[1])
+    }
+
+
+def check_migration_history_is_supported(connection: BaseDatabaseWrapper) -> None:
+    """Stop with upgrade steps when the database stopped before the migration floor.
+
+    Such a database would run original migration files that the squash tool edited to break
+    dependency cycles, so their order is no longer guaranteed and a run can fail half way.
+    """
+    loader = MigrationLoader(connection, ignore_no_migrations=True)
+    stranded = find_partly_applied_squashes(replaced_by_squash(loader), loader.applied_migrations or {})
+    if not stranded:
+        return
+    raise CommandError(
+        "This database stopped migrating before the oldest history this release supports. "
+        f"These squashes are only partly applied: {', '.join(stranded)}.\n\n"
+        "No migration ran, so the database is unchanged. Upgrade in two steps:\n"
+        f"  1. Run migrations on PostHog at commit {MIGRATION_FLOOR_COMMIT}.\n"
+        f"     In a dev checkout: git checkout {MIGRATION_FLOOR_COMMIT} && ./bin/migrate\n"
+        f"     On a Docker Compose deployment: set POSTHOG_APP_TAG={MIGRATION_FLOOR_COMMIT} and deploy.\n"
+        "  2. Return to this release and migrate again.\n\n"
+        "A local dev database can start over instead: hogli dev:reset deletes its data.",
+        returncode=UNSUPPORTED_DATABASE_EXIT_CODE,
+    )
+
+
 class Command(DjangoMigrateCommand):
     """Extended migrate command with caching and orphan detection."""
 
@@ -277,6 +344,7 @@ class Command(DjangoMigrateCommand):
         connection = connections[database]
 
         check_database_version(connection)
+        check_migration_history_is_supported(connection)
 
         # Check for orphaned migrations before proceeding
         if not skip_orphan_check and not options.get("check_unapplied"):
