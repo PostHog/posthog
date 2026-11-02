@@ -13,8 +13,11 @@ state, bounded: a group missing for `ABSENT_RESOLVE_AFTER` while the team's inge
 resolves, which no lag that leaves the team fresh explains, and which frees its slot under
 `max_instances`. A series whose value is not a number always keeps its group's state.
 
-This reads and decides. It writes nothing, so a retried attempt reads the same due checks and makes
-the same decisions. The platform records the outcomes in its own activity.
+A check never reads behind the instant its configuration last read, because a breach between the
+two instants would read as recovery. A check behind that floor waits for a later tick.
+
+This reads and decides. It writes only the read floors, which a retried attempt reads at, not
+behind, so it makes the same decisions. The platform records the outcomes in its own activity.
 """
 
 import json
@@ -80,6 +83,7 @@ from products.metrics.backend.alerts.freshness import (
     fetch_metrics_freshness,
     fetch_partition_checkpoint,
 )
+from products.metrics.backend.alerts.read_floor import raise_read_floors, read_floors
 from products.metrics.backend.alerts.source_config import MetricsPlatformAlertCondition, MetricsPlatformAlertConfig
 from products.metrics.backend.alerts.wording import alert_url
 from products.metrics.backend.promql import PromQLQueryError, snuffle_payload
@@ -169,9 +173,17 @@ def _evaluate_admitted(
         checkpoint=checkpoint,
         newest_point=None if checkpoint is not None else _read_instant(fetch_metrics_freshness, team),
     )
+    floors = read_floors(team.id, [str(check.id) for check in checks])
     deadline = started_at + BATCH_QUERY_BUDGET_SECONDS
     decided: list[Decision] = []
+    reads: dict[str, datetime] = {}
+    behind_floor = 0
     for check in checks:
+        at = reach.evaluation_time(check.next_check_at or cutoff)
+        floor = floors.get(str(check.id))
+        if floor is not None and at < floor:
+            behind_floor += 1
+            continue
         remaining = deadline - time.monotonic()
         if remaining < MIN_QUERY_SECONDS:
             break
@@ -179,14 +191,32 @@ def _evaluate_admitted(
             _evaluate(
                 team,
                 check,
-                at=reach.evaluation_time(check.next_check_at or cutoff),
+                at=at,
                 now=cutoff,
                 reach=reach,
                 query_seconds=min(MAX_QUERY_SECONDS, remaining),
                 muted=_in_quiet_hours(check, cutoff, team.timezone),
             )
         )
-    evaluation = _collect(decided, team_id=team.id, slot=slot, past_budget=len(checks) - len(decided))
+        reads[str(check.id)] = at
+    evaluation = _collect(
+        decided,
+        team_id=team.id,
+        slot=slot,
+        past_budget=len(checks) - len(decided) - behind_floor,
+        behind_floor=behind_floor,
+    )
+    # Only a recorded verdict sets a floor. A failed query read nothing, and a check cut from the
+    # payload keeps its due time.
+    raise_read_floors(
+        team.id,
+        {
+            key: reads[key]
+            for outcome in evaluation.outcomes
+            if outcome.failure is None and (key := str(outcome.configuration_id)) in reads
+        },
+        now=cutoff,
+    )
     safe_record(record_batch_duration, SOURCE.value, int((time.monotonic() - started_at) * 1000))
     return evaluation
 
@@ -464,8 +494,11 @@ def _request(
     )
 
 
-def _collect(decided: Sequence[Decision], *, team_id: int, slot: str, past_budget: int) -> SourceBatchEvaluation:
-    """The batch, held to one payload. A check past the query budget or the payload keeps its due time."""
+def _collect(
+    decided: Sequence[Decision], *, team_id: int, slot: str, past_budget: int, behind_floor: int
+) -> SourceBatchEvaluation:
+    """The batch, held to one payload. A check past the query budget or the payload, or behind its
+    read floor, keeps its due time."""
     outcomes: list[PlatformAlertOutcome] = []
     deliveries: list[AlertDeliveryRequest] = []
     deferred = 0
@@ -479,9 +512,15 @@ def _collect(decided: Sequence[Decision], *, team_id: int, slot: str, past_budge
         outcomes.append(outcome)
         if delivery is not None:
             deliveries.append(delivery)
-    if past_budget or deferred:
+    omitted = past_budget + deferred + behind_floor
+    if omitted:
         logger.warning(
-            "Deferred metrics alert checks", team_id=team_id, slot=slot, past_budget=past_budget, over_payload=deferred
+            "Deferred metrics alert checks",
+            team_id=team_id,
+            slot=slot,
+            past_budget=past_budget,
+            over_payload=deferred,
+            behind_floor=behind_floor,
         )
-        safe_record(increment_checks_deferred, SOURCE.value, past_budget + deferred)
-    return SourceBatchEvaluation(outcomes=tuple(outcomes), deliveries=tuple(deliveries), omitted=past_budget + deferred)
+        safe_record(increment_checks_deferred, SOURCE.value, omitted)
+    return SourceBatchEvaluation(outcomes=tuple(outcomes), deliveries=tuple(deliveries), omitted=omitted)

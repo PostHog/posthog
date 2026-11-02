@@ -287,7 +287,7 @@ class TestMetricsAlertEvaluation(APIBaseTest):
 
         assert self._kinds(self._evaluate()) == {}
 
-        self.freshness.return_value = self.due_at - timedelta(seconds=30)
+        self.freshness.return_value = self.due_at
         resolved = self._evaluate()
 
         assert self._kinds(resolved) == {"a": AlertEventKind.RESOLVED}
@@ -311,6 +311,26 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         self.snuffle.return_value = _response(200, _vector(({"group": "b"}, "NaN")))
 
         assert self._kinds(self._evaluate()) == {"a": AlertEventKind.RESOLVED}
+
+    def test_a_check_behind_its_last_read_waits_until_ingestion_passes_it(self) -> None:
+        self.freshness.return_value = self.due_at
+        self.snuffle.return_value = _response(200, _vector(({"group": "a"}, "2000")))
+        first = self._evaluate()
+
+        assert self._kinds(first) == {"a": AlertEventKind.FIRING}
+
+        last_read = self.due_at
+        self._next_check(first)
+        self.checkpoint.return_value = last_read + CHECKPOINT_EVAL_DELAY - timedelta(seconds=15)
+        deferred = self._evaluate_batch()
+
+        assert (deferred.outcomes, deferred.omitted) == ((), 1)
+
+        self.checkpoint.return_value = self.due_at
+        self.snuffle.return_value = _response(200, _vector(({"group": "a"}, "10")))
+
+        assert self._kinds(self._evaluate()) == {"a": AlertEventKind.RESOLVED}
+        assert self.snuffle.call_args.kwargs["data"]["time"] == str((self.due_at - CHECKPOINT_EVAL_DELAY).timestamp())
 
     def test_a_firing_held_back_by_a_mute_is_not_announced_on_a_value_with_no_number(self) -> None:
         self.snuffle.return_value = _response(200, _vector(({"group": "a"}, "2000")))
