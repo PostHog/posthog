@@ -4,14 +4,39 @@ import UrlPattern from 'url-pattern'
 import { markBootPhase } from 'lib/utils/bootTiming'
 import { pathFromWindowToRoutes, urlPatternOptions } from 'lib/utils/kea-router'
 import { appScenes } from 'scenes/appScenes'
+import { getBootstrappedHomepage, homepageTargetPathname } from 'scenes/sceneLogic'
 import { redirects, routes } from 'scenes/scenes'
+import { urls } from 'scenes/urls'
 
 function matchesRoute(pattern: string, path: string): boolean {
     const staticPrefix = pattern.split(/[:*(]/)[0]
     return path.startsWith(staticPrefix) && new UrlPattern(pattern, urlPatternOptions).match(path) !== null
 }
 
-/** The scene that sceneLogic opens for `pathname`, or null when a redirect handles it or no route matches. */
+function routePath(target: string): string {
+    return pathFromWindowToRoutes(target.split(/[?#]/)[0])
+}
+
+/** Follows at most one redirect or homepage hop, so a redirect loop cannot recurse. */
+function sceneForRoutePath(path: string, followRedirects: boolean): string | null {
+    // sceneLogic sends `/` to the homepage, so the root resolves the same way as `/home`.
+    const homePath = urls.projectHomepage()
+    const matchPath = path === '/' ? homePath : path
+    const redirect = Object.entries(redirects).find(([pattern]) => matchesRoute(pattern, matchPath))
+    if (redirect) {
+        const [, target] = redirect
+        // A function target builds its path from the request's params and query, which the boot does not resolve.
+        return followRedirects && typeof target === 'string' ? sceneForRoutePath(routePath(target), false) : null
+    }
+    const homepage = followRedirects && matchPath === homePath ? getBootstrappedHomepage() : null
+    if (homepage) {
+        return sceneForRoutePath(routePath(homepageTargetPathname(homepage)), false)
+    }
+    const route = Object.entries(routes).find(([pattern]) => matchesRoute(pattern, matchPath))
+    return route ? route[1][0] : null
+}
+
+/** The scene that sceneLogic opens for `pathname`, or null when it cannot be known before the router runs. */
 export function sceneForPathname(pathname: string): string | null {
     let path: string
     try {
@@ -19,11 +44,7 @@ export function sceneForPathname(pathname: string): string | null {
     } catch {
         return null
     }
-    if (path === '/' || Object.keys(redirects).some((pattern) => matchesRoute(pattern, path))) {
-        return null
-    }
-    const route = Object.entries(routes).find(([pattern]) => matchesRoute(pattern, path))
-    return route ? route[1][0] : null
+    return sceneForRoutePath(path, true)
 }
 
 /**
