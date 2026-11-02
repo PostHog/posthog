@@ -61893,6 +61893,12 @@ export namespace Schemas {
       StrikingDistance: 'striking_distance',
     } as const;
 
+    export interface MarketingAnalyticsRecommendationStep {
+      /** Text to paste into Google Ads at this step, such as a campaign name or a keyword in match type syntax. */
+      copyValue?: string | null;
+      text: string;
+    }
+
     export interface MarketingAnalyticsRecommendation {
       action: string;
       /** The campaign a search term recommendation applies to, when it applies to one. */
@@ -61905,6 +61911,8 @@ export namespace Schemas {
       level: MarketingAnalyticsRecommendationLevel;
       reason: string;
       rule: MarketingAnalyticsRecommendationRule;
+      /** How to apply the recommendation in Google Ads, in order. Empty when the rule has no steps yet. */
+      steps?: MarketingAnalyticsRecommendationStep[] | null;
       /** The campaign name or the search term the recommendation is about. */
       subject: string;
     }
