@@ -47,6 +47,7 @@ Then each image becomes an `[image N]` marker and each PDF a `[file N]` marker i
 The attachment labels sent next to the transcript sit outside the 150,000-character limit, but they are bounded: at most 20 attachments, plus one summary line for the rest.
 PDFs reach only OpenAI, Anthropic and Gemini judges, up to 10 MB each.
 WAV and MP3 audio becomes an `[audio N]` marker and reaches Gemini judges and OpenAI audio models, always inline.
+MP4, MPEG, QuickTime and WebM video becomes a `[video N]` marker and reaches Gemini judges only, up to 15 MB each.
 Attachments a judge can't read take none of its 20 slots, and one summary line counts them.
 
 Generation evaluation and LLM tagger user prompts repair UTF-16 surrogate sequences after sampling.
