@@ -3451,11 +3451,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 customConfirmationMessage = values.currentTeam?.feature_flag_confirmation_message
             }
 
+            const shouldDisplayConfirmation = featureFlagConfirmationEnabled || dependentFlags.length > 0
             // Releasing an existing flag to everyone is always confirmed, whatever the team setting says.
-            const releasesToEveryone = !!updatedFlag.id && flagWentLive(originalFlag, updatedFlag as FeatureFlagType)
-
-            const shouldDisplayConfirmation =
-                featureFlagConfirmationEnabled || dependentFlags.length > 0 || releasesToEveryone
+            const releasesToEveryone = flagWentLive(originalFlag, updatedFlag as FeatureFlagType)
 
             const confirmationShown = checkFeatureFlagConfirmation(
                 originalFlag,

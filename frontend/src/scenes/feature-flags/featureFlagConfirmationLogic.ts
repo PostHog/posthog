@@ -119,7 +119,7 @@ export function checkFeatureFlagConfirmation(
     releasesToEveryone = false
 ): boolean {
     // Check if confirmation is needed
-    const needsConfirmation = !!updatedFlag.id && shouldDisplayConfirmation
+    const needsConfirmation = !!updatedFlag.id && (shouldDisplayConfirmation || releasesToEveryone)
 
     if (needsConfirmation) {
         const changes = detectFeatureFlagChanges(originalFlag, updatedFlag)
