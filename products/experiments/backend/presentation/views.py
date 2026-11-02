@@ -1574,10 +1574,11 @@ class EnterpriseExperimentsViewSet(
                 type=str,
                 location=OpenApiParameter.QUERY,
                 description=(
-                    "Fingerprint of the metric configuration. Available alongside metric_uuid on "
-                    "each metric in the experiment's metrics array."
+                    "Ignored. The server derives the metric's calculation key from the experiment's current "
+                    "settings. Accepted so that existing clients keep working."
                 ),
-                required=True,
+                required=False,
+                deprecated=True,
             ),
         ],
     )
@@ -1585,15 +1586,12 @@ class EnterpriseExperimentsViewSet(
     def timeseries_results(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment = self.get_object()
         metric_uuid = request.query_params.get("metric_uuid")
-        fingerprint = request.query_params.get("fingerprint")
 
         if not metric_uuid:
             raise ValidationError("metric_uuid query parameter is required")
-        if not fingerprint:
-            raise ValidationError("fingerprint query parameter is required")
 
         service = ExperimentService(team=self.team, user=request.user)
-        return Response(service.get_timeseries_results(experiment, metric_uuid=metric_uuid, fingerprint=fingerprint))
+        return Response(service.get_timeseries_results(experiment, metric_uuid=metric_uuid))
 
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def recalculate_timeseries(self, request: Request, *args: Any, **kwargs: Any) -> Response:

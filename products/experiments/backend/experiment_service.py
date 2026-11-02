@@ -92,10 +92,11 @@ from products.experiments.backend.logic.timeseries_text import ExperimentTimeser
 from products.experiments.backend.metric_calculation.config import (
     ExperimentCalculationSettings,
     build_primary_calculation_configs,
+    get_metric_calculation_config,
     saved_metric_calculation_keys,
     stamp_calculation_keys,
 )
-from products.experiments.backend.metric_calculation.results import MetricResultStore
+from products.experiments.backend.metric_calculation.results import DailyTimeseries, MetricResultStore
 from products.experiments.backend.metric_resolution import MetricRole
 from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
 from products.experiments.backend.metric_validation import (
@@ -4586,14 +4587,13 @@ class ExperimentService:
     # Timeseries
     # ------------------------------------------------------------------
 
-    def get_timeseries_results(
-        self,
-        experiment: Experiment,
-        *,
-        metric_uuid: str,
-        fingerprint: str,
-    ) -> dict:
-        """Retrieve timeseries results for an experiment-metric combination."""
+    def get_timeseries_results(self, experiment: Experiment, *, metric_uuid: str) -> dict:
+        """Retrieve timeseries results for an experiment-metric combination.
+
+        The calculation key comes from the metric's current calculation config, never from the client, so the chart
+        shows the rows of the current settings. `MetricResultStore.timeseries` says which row a day without such a row
+        shows.
+        """
         project_tz = ZoneInfo(experiment.team.timezone) if experiment.team.timezone else ZoneInfo("UTC")
 
         if not experiment.start_date:
@@ -4612,8 +4612,12 @@ class ExperimentService:
         for experiment_date in experiment_dates:
             timeseries[experiment_date.isoformat()] = None
 
-        stored = MetricResultStore(experiment_id=experiment.id).timeseries(
-            metric_uuid, fingerprint, timezone=project_tz
+        # A metric that no longer resolves on the experiment has no key, so it reads as a series with no rows.
+        calculation_config = get_metric_calculation_config(experiment, metric_uuid)
+        stored = (
+            MetricResultStore(experiment_id=experiment.id).timeseries(calculation_config, timezone=project_tz)
+            if calculation_config is not None
+            else DailyTimeseries(by_day={}, earliest=None, latest=None)
         )
 
         completed_count = 0
@@ -4656,14 +4660,18 @@ class ExperimentService:
         else:
             overall_status = "partial"
 
-        active_recalculation = ExperimentTimeseriesRecalculation.objects.filter(
-            experiment=experiment,
-            fingerprint=fingerprint,
-            status__in=[
-                ExperimentTimeseriesRecalculation.Status.PENDING,
-                ExperimentTimeseriesRecalculation.Status.IN_PROGRESS,
-            ],
-        ).first()
+        active_recalculation = (
+            ExperimentTimeseriesRecalculation.objects.filter(
+                experiment=experiment,
+                fingerprint=calculation_config.calculation_key(),
+                status__in=[
+                    ExperimentTimeseriesRecalculation.Status.PENDING,
+                    ExperimentTimeseriesRecalculation.Status.IN_PROGRESS,
+                ],
+            ).first()
+            if calculation_config is not None
+            else None
+        )
 
         response = {
             "experiment_id": experiment.id,

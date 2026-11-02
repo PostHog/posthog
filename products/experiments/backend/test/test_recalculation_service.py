@@ -39,6 +39,7 @@ from products.experiments.backend.recalculation import (
     request_recalculation,
     request_recalculation_without_age_limit,
 )
+from products.experiments.backend.test.utils import patch_calculation_key_version
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -629,6 +630,10 @@ class TestRecalculationService(BaseTest):
 @pytest.mark.django_db(transaction=True)
 @time_machine.travel("2026-09-01T12:00:00Z", tick=False)
 class TestTimeseriesColdStartPayload(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.enterContext(patch_calculation_key_version(2))
+
     def _flag(self, key: str) -> FeatureFlag:
         return FeatureFlag.objects.create(
             team=self.team,
@@ -715,13 +720,20 @@ class TestTimeseriesColdStartPayload(BaseTest):
         payload = build_timeseries_cold_start_payload(exp)
         assert (payload is not None) == included
 
-    def test_config_fingerprint_mismatch_yields_no_point(self):
-        exp = self._experiment("ts-drift", ["m1"])
-        # Store a point under a stale fingerprint, then change config so the recomputed fp won't match.
+    @parameterized.expand(
+        [
+            # An exclusion changes both keys, so neither the current nor the version 1 key finds the point.
+            ("excluded_variants", {"excluded_variants": ["test"]}),
+            # The version 1 key ignores the credible interval, but the point carries the current key of the old
+            # settings, so the version 1 fallback does not find it either.
+            ("credible_interval", {"stats_config": {"bayesian": {"ci_level": 0.9}}}),
+        ]
+    )
+    def test_a_settings_edit_after_the_point_yields_no_point(self, _name: str, changes: dict) -> None:
+        exp = self._experiment(f"ts-drift-{_name}", ["m1"])
         self._timeseries_point(exp, "m1", timezone.now() - timedelta(hours=1), {"ok": True})
-        exp.exposure_criteria = {"filterTestAccounts": True}
-        exp.save()
-        assert build_timeseries_cold_start_payload(exp) is None
+        Experiment.objects.filter(pk=exp.pk).update(**changes)
+        assert build_timeseries_cold_start_payload(Experiment.objects.get(pk=exp.pk)) is None
 
 
 @pytest.mark.django_db(transaction=True)

@@ -5642,6 +5642,40 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             metric_type = metric["metric_type"]
             self.assertEqual(metric["fingerprint"], expected_updated_fingerprints[metric_type])
 
+    @parameterized.expand([("stale_client_fingerprint", "&fingerprint=" + "0" * 64), ("no_client_fingerprint", "")])
+    def test_timeseries_results_reads_the_key_of_the_current_settings(self, _name: str, fingerprint_param: str) -> None:
+        start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="chart-key-flag")
+        experiment = Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            feature_flag=flag,
+            name="Chart key",
+            start_date=start,
+            end_date=start + timedelta(hours=12),
+            metrics=[{"kind": "ExperimentMetric", "metric_type": "mean", "uuid": "m1"}],
+        )
+        calculation_config = get_metric_calculation_config(experiment, "m1")
+        assert calculation_config is not None
+        ExperimentMetricResult.objects.create(
+            experiment=experiment,
+            metric_uuid="m1",
+            fingerprint=calculation_config.calculation_key(),
+            query_from=start,
+            query_to=start + timedelta(days=1),
+            status=ExperimentMetricResult.Status.COMPLETED,
+            result={"variant_results": []},
+            completed_at=start + timedelta(days=1),
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/experiments/{experiment.id}/timeseries_results/?metric_uuid=m1"
+            f"{fingerprint_param}"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["timeseries"] == {start.date().isoformat(): {"variant_results": []}}
+
     def test_creating_draft_experiment_sets_status_draft(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
