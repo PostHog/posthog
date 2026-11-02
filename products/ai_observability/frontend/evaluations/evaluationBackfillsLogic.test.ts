@@ -6,6 +6,7 @@ import posthog from 'posthog-js'
 import { ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -431,7 +432,7 @@ describe('evaluationBackfillsLogic', () => {
         await expectLogic(logic).toDispatchActions(['requestEstimateSuccess'])
 
         const body = estimateMock.mock.calls[estimateMock.mock.calls.length - 1][2]
-        expect(body.window_start).toEqual(dayjs().tz(timezone).startOf('day').subtract(7, 'day').toISOString())
+        expect(body.window_start).toEqual(dateStringToDayJs('-7d', timezone)?.toISOString())
         expect(Math.abs(dayjs(body.window_end).diff(dayjs(), 'second'))).toBeLessThan(5)
     })
 
