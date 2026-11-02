@@ -815,6 +815,10 @@ def _is_authentication_failure(e: Exception) -> bool:
 _REJECTED_LOGIN_RETRY_POLICY = RetryPolicy(max_attempts=3, delay=5, exceptions=_is_authentication_failure)
 
 
+MUTATION_POLL_INITIAL_SECONDS = 0.5
+MUTATION_POLL_MAX_SECONDS = 15.0
+
+
 @dataclass
 class MutationWaiter:
     table: str
@@ -848,8 +852,12 @@ class MutationWaiter:
             return all(statuses.values())
 
     def wait(self, client: Client) -> None:
+        # A small mutation finishes in well under a second, so the poll starts short. It backs off
+        # to MUTATION_POLL_MAX_SECONDS so that a long mutation does not flood system.mutations.
+        delay = MUTATION_POLL_INITIAL_SECONDS
         while not self.is_done(client):
-            time.sleep(15.0)
+            time.sleep(delay)
+            delay = min(delay * 2, MUTATION_POLL_MAX_SECONDS)
 
 
 @dataclass
