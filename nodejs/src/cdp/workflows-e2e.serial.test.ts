@@ -5072,7 +5072,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             pagesProcessed: number
             pendingTerminal?: string
         }
-        expect(state.cursor).toBeNull()
+        expect(state.cursor).toBeNull() // never advanced
         expect(state.totalEnqueued).toBe(0)
         expect(state.pagesProcessed).toBe(0)
         expect(state.pendingTerminal).toBeUndefined()
@@ -5200,7 +5200,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         }, 20000)
 
         expect(statusPuts[0]).toEqual({ status: 'failed' })
-        expect(fetchAttempts).toBe(1)
+        expect(fetchAttempts).toBe(1) // one more retry consumed the last attempt budget
 
         // No children enqueued — the resolver bailed before ever returning a page
         const children = await cyclotronPool.query(
