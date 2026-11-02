@@ -326,6 +326,11 @@ class TestClassify(BaseTest):
                 FreshnessReason.UNSUPPORTED_BOUND,
             ),
             (
+                "utc_day_as_datetime_plus_integer_seconds",
+                "select count() from events where timestamp >= toDateTime(today()) + 3600",
+                FreshnessReason.UNSUPPORTED_BOUND,
+            ),
+            (
                 "utc_day_as_datetime_minus_hours",
                 "select count() from events where timestamp >= subtractHours(toDateTime(today()), 1)",
                 FreshnessReason.UNSUPPORTED_BOUND,
