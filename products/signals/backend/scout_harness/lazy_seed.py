@@ -792,6 +792,15 @@ def scout_skill_origin(skill_name: str, metadata: dict | None) -> Literal["canon
     return "canonical" if is_harness_seeded and skill_name in canonical_skill_names() else "custom"
 
 
+def registered_scout_skill_origin(team_id: int, skill_name: str) -> Literal["canonical", "custom"] | None:
+    skill = (
+        LLMSkill.objects.filter(team_id=team_id, name=skill_name, is_latest=True, deleted=False)
+        .values("metadata")
+        .first()
+    )
+    return scout_skill_origin(skill_name, skill["metadata"]) if skill is not None else None
+
+
 def _compute_canonical_hash(canonical: CanonicalSkill) -> str:
     """Stable content fingerprint for a canonical skill on disk.
 

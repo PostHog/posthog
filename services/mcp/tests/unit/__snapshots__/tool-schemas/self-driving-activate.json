@@ -1,0 +1,16 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "expected_activation_mode": {
+            "description": "Activation mode from the preview the user approved. A changed mode returns a new preview without activating.\n\n* `standard` - Standard\n* `github_optional` - GitHub optional",
+            "enum": ["standard", "github_optional"],
+            "type": "string"
+        },
+        "expected_automatic_implementation": {
+            "description": "Automatic pull request posture from the preview the user approved. A changed posture returns a new preview without activating.",
+            "type": "boolean"
+        }
+    },
+    "required": ["expected_activation_mode", "expected_automatic_implementation"],
+    "type": "object"
+}

@@ -1475,6 +1475,126 @@ export interface InboxOnboardingStateApi {
     completed_at: string | null
 }
 
+/**
+ * * `standard` - Standard
+ * * `github_optional` - GitHub optional
+ */
+export type SelfDrivingActivationModeEnumApi =
+    (typeof SelfDrivingActivationModeEnumApi)[keyof typeof SelfDrivingActivationModeEnumApi]
+
+export const SelfDrivingActivationModeEnumApi = {
+    Standard: 'standard',
+    GithubOptional: 'github_optional',
+} as const
+
+export interface SelfDrivingActivateApi {
+    /** Activation mode from the preview the user approved. A changed mode returns a new preview without activating.
+     *
+     * * `standard` - Standard
+     * * `github_optional` - GitHub optional */
+    expected_activation_mode: SelfDrivingActivationModeEnumApi
+    /** Automatic pull request posture from the preview the user approved. A changed posture returns a new preview without activating. */
+    expected_automatic_implementation: boolean
+}
+
+/**
+ * * `not_started` - Not started
+ * * `in_progress` - In progress
+ * * `completed` - Completed
+ */
+export type SelfDrivingActivationStateEnumApi =
+    (typeof SelfDrivingActivationStateEnumApi)[keyof typeof SelfDrivingActivationStateEnumApi]
+
+export const SelfDrivingActivationStateEnumApi = {
+    NotStarted: 'not_started',
+    InProgress: 'in_progress',
+    Completed: 'completed',
+} as const
+
+export interface SelfDrivingActivationBlockerApi {
+    /** Stable reason that activation is unavailable. */
+    code: string
+    /** What prevents activation and how to continue. */
+    message: string
+    /** Whether retrying later can resolve the blocker. */
+    retryable: boolean
+    /**
+     * Where to resolve the blocker, when available.
+     * @nullable
+     */
+    url: string | null
+}
+
+export interface SelfDrivingActivationScoutApi {
+    /** The canonical scout standard activation enables. */
+    skill_name: string
+    /** Rolling scout interval, when no cron schedule is set. */
+    run_interval_minutes: number
+    /**
+     * Project-local cron schedule, when configured.
+     * @nullable
+     */
+    run_cron_schedule: string | null
+}
+
+export interface SelfDrivingActivationPreviewApi {
+    /** Whether onboarding has started or completed.
+     *
+     * * `not_started` - Not started
+     * * `in_progress` - In progress
+     * * `completed` - Completed */
+    state: SelfDrivingActivationStateEnumApi
+    /** Whether this user and credential can complete standard quick activation now. */
+    can_activate: boolean
+    /** Conditions to resolve before activation. */
+    blockers: SelfDrivingActivationBlockerApi[]
+    /** Project whose onboarding and native sources activation changes. */
+    requested_project_id: number
+    /** Parent project that owns the scout fleet. */
+    canonical_project_id: number
+    /** Server-selected activation mode to confirm when activating.
+     *
+     * * `standard` - Standard
+     * * `github_optional` - GitHub optional */
+    activation_mode: SelfDrivingActivationModeEnumApi
+    /**
+     * Whether standard activation enables automatic pull requests. Null means policy could not be read.
+     * @nullable
+     */
+    automatic_implementation: boolean | null
+    /** Lowest priority eligible for automatic implementation.
+     *
+     * * `P0` - P0
+     * * `P1` - P1
+     * * `P2` - P2
+     * * `P3` - P3
+     * * `P4` - P4 */
+    implementation_priority: AutonomyPriorityEnumApi
+    /** Available native signal sources standard activation enables. */
+    sources: InboxOnboardingSourceApi[]
+    /** Existing enabled replay scanners whose findings activation enables. */
+    scanner_ids: string[]
+    /** General scout schedule selected for activation. */
+    general_scout: SelfDrivingActivationScoutApi
+    /** Changes and project scope to explain before asking the user to activate. */
+    setup_description: string
+    /** Organization billing page for the existing plan and limits. */
+    billing_url: string
+    /** Billing context to show before activation. This is not a price quote. */
+    billing_description: string
+    /** Self-Driving inbox and setup URL. */
+    inbox_url: string
+    /** Background work dispatch state after activation. */
+    jobs: InboxOnboardingJobsApi | null
+    /** First investigation progress, when available. */
+    first_report: FirstReportStateApi | null
+    /**
+     * Why an activation request was refused, when present.
+     * @nullable
+     */
+    error_code: string | null
+}
+
 export interface PauseStateResponseApi {
     /**
      * The timestamp the pipeline is paused until, or null if not paused/not running.

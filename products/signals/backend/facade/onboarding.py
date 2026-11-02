@@ -8,6 +8,7 @@ from django.db.models import F
 from django.utils import timezone
 
 from posthog.cloud_utils import is_cloud
+from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
@@ -19,6 +20,7 @@ from products.replay_vision.backend.facade.api import signal_emitting_scanner_id
 from products.signals.backend.first_report_completion import first_report_completion_notifications_enabled
 from products.signals.backend.first_report_experiment import (
     FIRST_REPORT_SCOUT_VARIANTS,
+    FirstReportExperiment,
     resolve_first_report_experiment,
 )
 from products.signals.backend.first_report_notification import register_first_report_notification
@@ -37,6 +39,7 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.onboarding_analytics import InboxOnboardingAnalytics
 from products.signals.backend.onboarding_completion import InboxOnboardingReconciler
+from products.signals.backend.onboarding_quick import QuickActivationPlan, preview_quick_activation
 from products.signals.backend.onboarding_scouts import InboxOnboardingScouts
 from products.signals.backend.onboarding_state import is_quick_setup
 from products.signals.backend.report_content_gates import team_first_report_email_enabled
@@ -53,6 +56,13 @@ class InboxOnboardingValidationError(ValueError):
 
 class InboxOnboardingPermissionError(PermissionError):
     pass
+
+
+@frozen
+class OnboardingCompletion:
+    pilot: bool
+    withheld_skills: frozenset[str]
+    experiment: FirstReportExperiment | None
 
 
 def onboarding_source_products() -> Sequence[tuple[str, str | Promise]]:
@@ -85,6 +95,15 @@ class InboxOnboarding:
         self.team_id = team.id
         self.user = user
         self.authorize_scouts = authorize_scouts
+
+    def activation(self, scopes: Sequence[str] | None) -> QuickActivationPlan:
+        return preview_quick_activation(self.team, self.user, scopes)
+
+    def retry_activation_jobs(self) -> None:
+        self.authorize_scouts(True)
+        config = SignalTeamConfig.objects.get(team_id=self.team_id)
+        if (config.onboarding or {}).get("completed_at"):
+            transaction.on_commit(lambda: self._enqueue_activation_jobs(config))
 
     def _state(self, config: SignalTeamConfig) -> dict[str, Any]:
         state = config.onboarding or {}
@@ -187,6 +206,13 @@ class InboxOnboarding:
             self._enqueue_activation_jobs(config)
             return self._state(config)
 
+        preparation = self.prepare_completion(draft)
+        self.complete_prepared(draft, preparation)
+        config.refresh_from_db()
+        return self._state(config)
+
+    def prepare_completion(self, draft: dict[str, Any]) -> OnboardingCompletion:
+        self.authorize_scouts(True)
         pilot = self._validate_pilot(draft)
         if pilot and self.team.parent_team_id:
             if not UserAccessControl(user=self.user, team=self.team.parent_team).check_access_level_for_resource(
@@ -202,15 +228,29 @@ class InboxOnboarding:
             ):
                 raise InboxOnboardingValidationError("Quick activation requires the general scout.")
 
-        if draft["suggestions"]:
-            if not InboxOnboardingReconciler.scouts_can_emit(self.team.parent_team_id or self.team_id):
-                raise InboxOnboardingValidationError(
-                    "Scout findings are disabled. Enable the scout source before activating."
-                )
-
         if not pilot and not InboxOnboardingReconciler(self.team_id).has_repository():
             raise InboxOnboardingValidationError("Connect GitHub with access to at least one repository.")
 
+        scout_team_id = self.team.parent_team_id or self.team_id
+        resume_operational_scouts = (
+            scout_team_id == self.team_id
+            or bool(draft["suggestions"])
+            or any(source["source_product"] == "signals_scout" for source in draft["sources"])
+        )
+        return OnboardingCompletion(
+            pilot=pilot,
+            withheld_skills=frozenset(withheld_skills_for_team(scout_team_id))
+            if resume_operational_scouts
+            else frozenset(),
+            experiment=resolve_first_report_experiment(self.team.parent_team or self.team),
+        )
+
+    def _validate_persisted_choices(self, draft: dict[str, Any]) -> None:
+        scout_team_id = self.team.parent_team_id or self.team_id
+        if draft["suggestions"] and not InboxOnboardingReconciler.scouts_can_emit(scout_team_id):
+            raise InboxOnboardingValidationError(
+                "Scout findings are disabled. Enable the scout source before activating."
+            )
         selected_source = False
         for source in draft["sources"]:
             source_team_id = (
@@ -243,20 +283,24 @@ class InboxOnboarding:
         if not (selected_source or draft["scanner_ids"] or draft["suggestions"]):
             raise InboxOnboardingValidationError("Select at least one usable signal source or scout.")
 
+    def complete_prepared(self, draft: dict[str, Any], preparation: OnboardingCompletion) -> None:
+        # Repository and rollout checks run before callers lock the configuration they apply.
+        self.authorize_scouts(True)
+        config = get_or_create_team_extension(self.team, SignalTeamConfig)
         scout_team_id = self.team.parent_team_id or self.team_id
+        self._validate_persisted_choices(draft)
         resume_operational_scouts = (
             scout_team_id == self.team_id
             or bool(draft["suggestions"])
             or any(source["source_product"] == "signals_scout" for source in draft["sources"])
         )
-        withheld = withheld_skills_for_team(scout_team_id) if resume_operational_scouts else set()
-        experiment = resolve_first_report_experiment(self.team.parent_team or self.team)
+        experiment = preparation.experiment
         user = self.user
         with transaction.atomic():
             config = SignalTeamConfig.objects.select_for_update().get(team_id=self.team_id, pk=config.pk)
             state = config.onboarding or {}
             if not state.get("completed_at"):
-                if pilot and (parent_team := self.team.parent_team) is not None:
+                if preparation.pilot and (parent_team := self.team.parent_team) is not None:
                     parent_config = get_or_create_team_extension(parent_team, SignalTeamConfig)
                     SignalTeamConfig.objects.filter(pk=parent_config.pk, team_id=scout_team_id).update(
                         autostart_enabled=False, updated_at=timezone.now()
@@ -269,7 +313,7 @@ class InboxOnboarding:
                     "completed_at": timezone.now().isoformat(),
                     "activated_by": user.pk,
                 }
-                quick = pilot or is_quick_setup(config.onboarding)
+                quick = preparation.pilot or is_quick_setup(config.onboarding)
                 config.onboarding["jobs"] = {
                     "scout": "pending" if experiment or quick else "skipped",
                     "recommendations": "pending" if quick else "skipped",
@@ -281,10 +325,11 @@ class InboxOnboarding:
                 )
                 register_first_report_notification(team=self.team, user=user)
                 if resume_operational_scouts:
-                    InboxOnboardingScouts.resume(scout_team_id, withheld, lambda: self.authorize_scouts(True))
+                    InboxOnboardingScouts.resume(
+                        scout_team_id, set(preparation.withheld_skills), lambda: self.authorize_scouts(True)
+                    )
                 transaction.on_commit(lambda: self._report_completion(user, config), robust=True)
                 transaction.on_commit(lambda: self._enqueue_activation_jobs(config))
-        return self._state(config)
 
     def _enqueue_activation_jobs(self, config: SignalTeamConfig) -> None:
         state = config.onboarding or {}

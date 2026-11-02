@@ -206,6 +206,7 @@ export class ToolDomainExtractor {
         'destroy',
         'run',
         'accept',
+        'activate',
         'archive',
         'calculate',
         'cancel',

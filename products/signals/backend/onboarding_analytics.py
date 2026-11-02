@@ -2,10 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import posthoganalytics
-
-from posthog.event_usage import groups
-
+from products.signals.backend.onboarding_pricing import onboarding_usage_based_pricing
 from products.signals.backend.onboarding_state import setup_mode
 
 if TYPE_CHECKING:
@@ -17,21 +14,12 @@ if TYPE_CHECKING:
 class InboxOnboardingAnalytics:
     @staticmethod
     def pricing_flag(config: SignalTeamConfig, user: User | None) -> bool | None:
-        try:
-            result = posthoganalytics.feature_enabled(
-                "self-driving-ubp",
-                str(user.distinct_id if user else config.team.uuid),
-                groups=groups(team=config.team),
-                send_feature_flag_events=False,
-            )
-            return result if isinstance(result, bool) else None
-        except Exception:
-            # A lookup failure must not put this project in the legacy-pricing cohort.
-            return None
+        return onboarding_usage_based_pricing(config.team, user)
 
     @classmethod
     def properties(cls, config: SignalTeamConfig, user: User | None = None) -> dict[str, object]:
-        draft = (config.onboarding or {}).get("draft") or {}
+        state = config.onboarding or {}
+        draft = state.get("draft") or {}
         return {
             **({"activation_mode": draft["activation_mode"]} if draft.get("activation_mode") else {}),
             "project_id": config.team_id,
@@ -39,6 +27,7 @@ class InboxOnboardingAnalytics:
             "inbox_client": "cloud",
             "setup_mode": setup_mode(config.onboarding or {}),
             "self_driving_ubp": cls.pricing_flag(config, user),
+            **({"entrypoint": state["entrypoint"]} if state.get("entrypoint") else {}),
         }
 
     @classmethod

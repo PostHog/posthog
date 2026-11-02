@@ -18,7 +18,11 @@ vi.mock('@/lib/posthog', async () => {
 })
 
 import { GuidanceEngine } from '@/hono/guidance/engine'
-import { MCP_GUIDANCE_REPLAY_VISION_FLAG, MCP_GUIDANCE_SQL_SCHEMA_FLAG } from '@/hono/guidance/rules'
+import {
+    MCP_GUIDANCE_REPLAY_VISION_FLAG,
+    MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG,
+    MCP_GUIDANCE_SQL_SCHEMA_FLAG,
+} from '@/hono/guidance/rules'
 import { InstructionsBuilder } from '@/hono/instructions'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
@@ -161,4 +165,81 @@ describe('ToolExecutor guidance notices', () => {
             'sql-failures-to-schema',
         ])
     })
+
+    it.each([
+        ['direct', false, false],
+        ['exec', false, false],
+        ['exec', true, false],
+        ['direct', false, true],
+        ['exec', true, true],
+    ])(
+        'preserves %s issue results with activation guidance (json=%s, readiness failure=%s)',
+        async (mode, json, fails) => {
+            const issueId = '019a0000-0000-7000-8000-000000000001'
+            const issue = {
+                ...makeTool('query-error-tracking-issue', () => ({ id: issueId })),
+                schema: z.object({ issueId: z.uuid() }),
+            }
+            const tools = [
+                issue,
+                ...['self-driving-activation-get', 'self-driving-activate'].map((name) => makeTool(name, () => ({}))),
+            ]
+            vi.spyOn(catalog, 'getToolByName').mockImplementation((name) => {
+                const tool = tools.find((candidate) => candidate.name === name)
+                return tool
+                    ? { build: () => tool, meta: undefined, rawInputSchema: undefined, definition: undefined }
+                    : undefined
+            })
+            const executor = new ToolExecutor(
+                catalog,
+                new InstructionsBuilder(''),
+                undefined,
+                new GuidanceEngine(makeGuidanceRedis())
+            )
+            const state = makeToolExecutorState(tools, {
+                useSingleExec: mode === 'exec',
+                suppressAnalytics: false,
+                aiConsentGiven: true,
+                toolFeatureFlags: { [MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG]: true },
+            })
+            const readiness = vi.fn().mockResolvedValue({ state: 'not_started', can_activate: true })
+            if (fails) {
+                vi.spyOn(console, 'warn').mockImplementation(() => {})
+                readiness.mockRejectedValue(new Error('readiness unavailable'))
+            }
+            state.context.api.request = readiness
+            state.context.stateManager.getProjectId = vi.fn().mockResolvedValue('2')
+            const capture = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
+            const params = {
+                name: mode === 'exec' ? 'exec' : issue.name,
+                arguments:
+                    mode === 'exec'
+                        ? { command: `call ${json ? '--json ' : ''}${issue.name} ${JSON.stringify({ issueId })}` }
+                        : { issueId },
+            }
+            const first = (await executor.handleToolCall(params, state)) as SqlResult
+            const second = (await executor.handleToolCall(params, state)) as SqlResult
+            await new Promise((resolve) => setImmediate(resolve))
+
+            if (fails) {
+                expect(first.isError).not.toBe(true)
+                expect(first.content).toEqual(second.content)
+                expect(first.content.some((item) => item.text?.includes('self-driving-activation-get'))).toBe(false)
+                expect(capture.mock.calls[0]?.[0].properties?.mcp_guidance_rule).toBeUndefined()
+                return
+            }
+            expect(first.content[json ? 1 : 0]?.text).toContain('self-driving-activation-get')
+            expect(first.content).toHaveLength(second.content.length + 1)
+            expect(first.content[json ? 0 : 1]).toEqual(second.content[0])
+            if (json) {
+                expect(JSON.parse(first.content[0]?.text ?? '')).toEqual({ id: issueId })
+            }
+            expect(readiness).toHaveBeenCalledTimes(1)
+            expect(capture.mock.calls[0]?.[0].properties).toMatchObject({
+                mcp_guidance_rule: 'error-tracking-sd-activation',
+                mcp_guidance_outcome: 'shown',
+            })
+            expect(capture.mock.calls[1]?.[0].properties?.mcp_guidance_rule).toBeUndefined()
+        }
+    )
 })

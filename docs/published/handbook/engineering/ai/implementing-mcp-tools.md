@@ -146,6 +146,22 @@ The server does not capture the prompt text separately.
 This collection trial changes no tool results and adds no recommendations or elicitation.
 Evaluate intent against independently recorded abstract task goals, checking invented goals, identifying details, and appropriate uncertainty.
 
+## Self-driving activation guidance
+
+The `self-driving-mcp-activation-tools` flag exposes `self-driving-activation-get` and `self-driving-activate` after their backend routes deploy. Keep this tool rollout independent of `mcp-guidance-error-tracking-sd-activation`, which controls the contextual suggestion experiment. Both experiment groups need the same tools.
+
+After a successful `query-error-tracking-issue` call, eligible external user sessions can receive a suggestion to activate Self-driving. The server checks the backend activation preview with a one-second overall deadline. It suggests activation only for a project that has not started setup and can activate; completed, blocked, and unfinished guided setups receive no pitch. A failed readiness check leaves the issue result unchanged. The agent reads the preview, explains its `setup_description` (including any parent-project effects), automatic pull request setting and billing terms, and asks the user before activating. The activation tool checks that the previewed settings still match before applying them.
+
+The suggestion appears at most once per client-carried conversation or transport session, across projects. A client without either handle can receive it on every eligible call. A newly minted handle does not establish a session until the client echoes it, but the server remembers an offer made on its minting call so echoing it does not repeat the offer. Wrapper `sessionId` hints do not establish this identity. No per-user cooldown or dismissal tool is used.
+
+The guidance engine delivers a text block alongside the original result, including in exec mode. A JSON call retains its JSON result as the first block. Existing `mcp_guidance_rule` and `mcp_guidance_outcome` properties distinguish a suggestion sent to the agent (`shown`) from an eligible control call (`flag_off`); neither means the customer saw or accepted an offer. Activation is a separate backend outcome. This flow uses no native elicitation dialog.
+
+Measure the experiment from existing events:
+
+- Assign the guidance flag consistently by organization. Start each project's observation window at its first `$mcp_tool_call` with `mcp_guidance_rule=error-tracking-sd-activation` and outcome `shown` or `flag_off`. Compare distinct projects, keeping repeated handleless calls from inflating the denominator, and account for the shared organization assignment when estimating uncertainty. Join product events through the `project` group UUID; the numeric project ID is a different identifier.
+- Measure onboarding completion within 14 days using `self-driving onboarding completed`, counting completion through any surface. Its `entrypoint=mcp_error_tracking` identifies activation through these tools and is a mechanism breakdown, not a restriction on the outcome. Within the same window, report the share of projects that both activate and have a successful `Inbox report action` or `Inbox report action completed` (`outcome=success`), or `Inbox report feedback` with `sentiment=positive`. Report opens and successful MCP `inbox-reports-retrieve` calls are separate consumption measures; a retrieve does not prove a person read the report. Compare only projects whose full observation window has elapsed.
+- Break down exposure and conversion by `$mcp_client_name`, `$mcp_mode`, and session handling. A transport session is identified by `$mcp_session_id`; for conversation-only clients, repeated use of the same `$mcp_conversation_id` establishes reuse, while a newly minted ID alone does not. Monitor issue-call error rate (`$mcp_is_error`), p50/p95 `$mcp_duration_ms`, and `output_tokens` against the pre-experiment baseline as well as control. Readiness lookup time and delivered guidance text are included in these call measurements.
+
 ## Interview recruitment with URL elicitation
 
 > [!CAUTION]
