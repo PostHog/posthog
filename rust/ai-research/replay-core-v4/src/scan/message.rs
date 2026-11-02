@@ -10,8 +10,9 @@ use super::cv::Expansion;
 /// The one `cv` version the player decompresses (`decompressEvent`). It leaves an event with any other as it is.
 pub const CV_VERSION: &str = "2024-10";
 
-/// A window ID is a UUID from posthog-js, so a much longer one is not real.
-pub const MAX_WINDOW_ID_BYTES: usize = 1024;
+/// A window ID is a UUID from posthog-js, so a much longer one is not real. Each moment in an index row repeats the ID,
+/// and JSON can write one byte as six, so this value keeps a row under the producer's message limit.
+pub const MAX_WINDOW_ID_BYTES: usize = 128;
 
 /// The timestamps a JavaScript `Date` holds, in milliseconds either side of 1970. A timestamp past them is not a real
 /// time, and the index's integer columns must stay in the range JavaScript reads exactly.
