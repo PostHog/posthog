@@ -177,6 +177,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                             filters={queryFilters}
                             colorOf={modelColorOf}
                             rowLabels={modelRowLabelMap}
+                            fillHeight
                         />
                     )}
                 </TwoColumns>
@@ -192,7 +193,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         interval={interval}
                         colorOf={labColorOf}
                     />
-                    <HarnessBarChart rows={harnessRows} loading={harnessRowsLoading} theme={theme} />
+                    <HarnessBarChart rows={harnessRows} loading={harnessRowsLoading} theme={theme} fillHeight />
                 </TwoColumns>
             </Section>
 

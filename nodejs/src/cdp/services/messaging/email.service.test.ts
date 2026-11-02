@@ -347,12 +347,20 @@ describe('EmailService', () => {
             })
         })
         describe('from overrides', () => {
+            const maxLengthEmail = `${'a'.repeat(242)}@posthog.com`
+
             it.each<[string, { email?: string; name?: string }, string, string]>([
                 [
                     'address on the verified domain',
                     { email: 'community@posthog.com' },
                     '"Test User" <community@posthog.com>',
                     'community@posthog.com',
+                ],
+                [
+                    'address at the maximum length',
+                    { email: maxLengthEmail },
+                    `"Test User" <${maxLengthEmail}>`,
+                    maxLengthEmail,
                 ],
                 [
                     'address with different domain casing',
@@ -390,13 +398,19 @@ describe('EmailService', () => {
                 expect(sentCommand.input.FeedbackForwardingEmailAddress).toBe(expectedFeedback)
             })
 
-            it.each([
+            it.each<[string, string, string?]>([
                 ['an address on an unverified domain', 'someone@evil.com'],
                 ['an address on a subdomain of the verified domain', 'someone@sub.posthog.com'],
                 ['a list of addresses', 'a@posthog.com, b@posthog.com'],
                 ['an RFC-822 formatted address', '"Name" <a@posthog.com>'],
                 ['a value that is not an email address', 'not-an-email'],
-            ])('discards %s and sends from the integration sender', async (_desc, email) => {
+                [
+                    'an address longer than the maximum length',
+                    `${'a'.repeat(243)}@posthog.com`,
+                    '254 characters or fewer',
+                ],
+                ['an overlong value that is not an email address', 'a'.repeat(255), '254 characters or fewer'],
+            ])('discards %s and sends from the integration sender', async (_desc, email, expectedWarning = email) => {
                 invocation.queueParameters = createEmailParams({
                     from: { integrationId: 1, email },
                 })
@@ -407,7 +421,9 @@ describe('EmailService', () => {
                 expect(result.error).toBeUndefined()
                 const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
                 expect(sentCommand.input.FromEmailAddress).toBe('"Test User" <test@posthog.com>')
-                expect(result.logs.some((log) => log.level === 'warn' && log.message.includes(email))).toBe(true)
+                expect(result.logs.some((log) => log.level === 'warn' && log.message.includes(expectedWarning))).toBe(
+                    true
+                )
             })
         })
         describe('email sending', () => {

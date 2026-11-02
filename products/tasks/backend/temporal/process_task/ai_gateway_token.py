@@ -97,6 +97,7 @@ MINTABLE_PRODUCTS = frozenset(
     {
         "posthog_ai",
         "account_audit",
+        "onboarding",
         "background_agents",
         "posthog_code",
         "review_hog",
