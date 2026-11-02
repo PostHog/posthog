@@ -197,6 +197,9 @@ def _get_offset_rows(
         rows = data.get("data") or []
         if not rows:
             break
+        if config.snapshot_key is not None:
+            snapshot = data.get(config.snapshot_key) or {}
+            rows = [{**snapshot, **row} for row in rows]
 
         yield rows
 
@@ -207,6 +210,11 @@ def _get_offset_rows(
             break
 
         offset += len(rows)
+        if config.max_offset is not None and offset > config.max_offset:
+            # A full refresh that stops here would replace the table without the rows past the cap.
+            raise OpenRouterPageCapError(
+                f"OpenRouter: {config.name} has rows past the maximum offset {config.max_offset} the API accepts"
+            )
         # Save AFTER yielding so a crash re-yields the last page (merge dedupes on the primary key).
         resumable_source_manager.save_state(OpenRouterResumeConfig(offset=offset))
     else:

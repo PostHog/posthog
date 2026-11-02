@@ -7,8 +7,8 @@ from functools import reduce
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import OuterRef, Prefetch, Q, QuerySet, Subquery
 
-from posthog.api.pagination import stable_queryset_ordering
 from posthog.models.user import User
+from posthog.queryset_paging import stable_queryset_ordering
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team

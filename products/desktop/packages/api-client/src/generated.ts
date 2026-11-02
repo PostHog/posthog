@@ -6850,7 +6850,13 @@ export namespace Schemas {
         widget: DashboardPatchWidgetOpenApi;
     }>;
     export type DashboardTileBasic = {
+        /**
+         * ID of the dashboard tile.
+         */
         id: number;
+        /**
+         * ID of the dashboard the tile sits on.
+         */
         dashboard_id: number;
         deleted?: (boolean | null) | undefined;
     };
@@ -10063,6 +10069,7 @@ export namespace Schemas {
      * * `metric_event_not_ingested` - Metric Event Not Ingested
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
+     * * `metric_all_zero` - Metric All Zero
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `exposure_filter_on_dynamic_cohort` - Exposure Filter On Dynamic Cohort
      * * `exposure_filter_excludes_events` - Exposure Filter Excludes Events
@@ -10089,6 +10096,7 @@ export namespace Schemas {
         | "metric_event_not_ingested"
         | "metric_cannot_compile"
         | "metric_calculation_failed"
+        | "metric_all_zero"
         | "exposure_criteria_cannot_match"
         | "exposure_filter_on_dynamic_cohort"
         | "exposure_filter_excludes_events"
@@ -10145,6 +10153,7 @@ export namespace Schemas {
          * * `metric_event_not_ingested` - Metric Event Not Ingested
          * * `metric_cannot_compile` - Metric Cannot Compile
          * * `metric_calculation_failed` - Metric Calculation Failed
+         * * `metric_all_zero` - Metric All Zero
          * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
          * * `exposure_filter_on_dynamic_cohort` - Exposure Filter On Dynamic Cohort
          * * `exposure_filter_excludes_events` - Exposure Filter Excludes Events
@@ -10211,6 +10220,7 @@ export namespace Schemas {
      * * `metric_event_not_ingested` - Metric Event Not Ingested
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
+     * * `metric_all_zero` - Metric All Zero
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `exposure_filters` - Exposure Filters
      * * `early_significance` - Early Significance
@@ -10234,6 +10244,7 @@ export namespace Schemas {
         | "metric_event_not_ingested"
         | "metric_cannot_compile"
         | "metric_calculation_failed"
+        | "metric_all_zero"
         | "exposure_criteria_cannot_match"
         | "exposure_filters"
         | "early_significance"
@@ -10270,6 +10281,7 @@ export namespace Schemas {
          * * `metric_event_not_ingested` - Metric Event Not Ingested
          * * `metric_cannot_compile` - Metric Cannot Compile
          * * `metric_calculation_failed` - Metric Calculation Failed
+         * * `metric_all_zero` - Metric All Zero
          * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
          * * `exposure_filters` - Exposure Filters
          * * `early_significance` - Early Significance
@@ -20174,6 +20186,7 @@ export namespace Schemas {
      * * `business_knowledge` - Business Knowledge
      * * `metrics_import` - Metrics Import
      * * `knowledge_writer` - Knowledge Writer
+     * * `context_layer` - Context Layer
      */
     export type TaskOriginProductEnum =
         | "onboarding"
@@ -20202,7 +20215,8 @@ export namespace Schemas {
         | "space_setup"
         | "business_knowledge"
         | "metrics_import"
-        | "knowledge_writer";
+        | "knowledge_writer"
+        | "context_layer";
     /**
      * * `default` - default
      * * `acceptEdits` - acceptEdits
@@ -23436,7 +23450,8 @@ export namespace Endpoints {
                     | "space_setup"
                     | "business_knowledge"
                     | "metrics_import"
-                    | "knowledge_writer";
+                    | "knowledge_writer"
+                    | "context_layer";
                 hog_flow_id: string;
                 internal: "true" | "false" | "all";
                 limit: number;
@@ -23451,6 +23466,7 @@ export namespace Endpoints {
                 search: string;
                 sources: Array<
                     | "autoresearch"
+                    | "context_layer"
                     | "error_tracking"
                     | "eval_clusters"
                     | "experiments"
