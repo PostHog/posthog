@@ -7,6 +7,7 @@ import { createRoot } from 'react-dom/client'
 import { type WorkflowData, WorkflowView } from 'products/workflows/mcp/apps'
 
 import { AppWrapper } from '../components/AppWrapper'
+import { parseToolResultContent } from '../hooks/useToolResult'
 
 function WorkflowApp(): JSX.Element {
     return (
@@ -23,9 +24,7 @@ function WorkflowContent({ workflow, app }: { workflow: WorkflowData; app: App |
         }
         try {
             const result = await app.callServerTool({ name: 'workflows-get', arguments: { id: workflow.id } })
-            return result.isError || !result.structuredContent
-                ? null
-                : (result.structuredContent as unknown as WorkflowData)
+            return result.isError ? null : parseToolResultContent<WorkflowData>(result.structuredContent, result._meta)
         } catch {
             return null
         }
