@@ -62,7 +62,11 @@ Text and attached report IDs are saved separately for each task, each report dis
 the new-chat composer. Native drafts use encrypted device storage, scoped to the account,
 host and project, with at most 50 drafts per project. Changes save after 400 ms of idle time
 and flush when the composer closes or the app backgrounds. Opening a saved chat restores its
-draft after storage loads.
+draft after storage loads. If a save fails, the composer keeps the text and shows an unsaved-draft
+notice with **Retry save**. The notice stays until saving succeeds. When saved messages reach the
+device limit, remove a queued message to free space, then retry before closing the chat.
+Close and background saves use the same storage checks; a failed save leaves previously saved
+messages intact.
 `mobile_chat_draft_restored` is captured with `text_length` and `report_count` when the restored draft has text.
 
 A successful send clears the submitted text. A failed send keeps it, and a delayed completion

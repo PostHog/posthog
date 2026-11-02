@@ -155,7 +155,7 @@ export class DraftStore {
             }
             const unsent = this.pending.get(`${scope}:${key}`)?.message
             const drafts = await this.read(scope)
-            await this.write(scope, key, { ...drafts[key], draft, ...(unsent ? { unsent } : {}) }, drafts)
+            await this.write(scope, key, { ...drafts[key], draft, unsent }, drafts)
         })
     }
 

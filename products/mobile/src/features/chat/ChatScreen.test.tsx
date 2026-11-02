@@ -68,6 +68,9 @@ function mockReadyChat(): { session: ReturnType<typeof useSession>; draft: Retur
         ready: true,
         queue: { rows: [], hold: null },
         queuePending: false,
+        draftError: undefined,
+        draftSaving: false,
+        retrySave: jest.fn(async () => undefined),
         queueError: undefined,
         dismissQueueError: jest.fn(),
         updateQueue: jest.fn(async () => true),
@@ -80,6 +83,24 @@ function mockReadyChat(): { session: ReturnType<typeof useSession>; draft: Retur
 }
 
 describe('chat send preparation', () => {
+    test('keeps an unsaved draft notice visible and disables retry while saving', () => {
+        const { draft } = mockReadyChat()
+        draft.draftError = 'Draft not saved. Remove a queued message before saving more.'
+        const view = render(<ChatScreen source={{ entry: 'compose', origin: null }} onBack={jest.fn()} />)
+        expect(screen.getByDisplayValue('First message')).toBeTruthy()
+        expect(screen.getByText(draft.draftError)).toBeTruthy()
+        fireEvent.press(screen.getByTestId('chat-draft-retry'))
+        expect(draft.retrySave).toHaveBeenCalledTimes(1)
+        draft.draftSaving = true
+        view.rerender(<ChatScreen source={{ entry: 'compose', origin: null }} onBack={jest.fn()} />)
+        expect(screen.getByText('Saving…')).toBeTruthy()
+        fireEvent.press(screen.getByTestId('chat-draft-retry'))
+        expect(draft.retrySave).toHaveBeenCalledTimes(1)
+        draft.draftSaving = false
+        draft.draftError = undefined
+        view.rerender(<ChatScreen source={{ entry: 'compose', origin: null }} onBack={jest.fn()} />)
+        expect(screen.queryByTestId('chat-draft-retry')).toBeNull()
+    })
     test.each(['new', 'close', 'unmount'])('a prepared message does not send after %s', async (transition) => {
         let finishStorage!: (settle: (sent: boolean) => Promise<void>) => void
         const beginSend = jest.fn(
@@ -96,6 +117,9 @@ describe('chat send preparation', () => {
             ready: true,
             queue: { rows: [], hold: null },
             queuePending: false,
+            draftError: undefined,
+            draftSaving: false,
+            retrySave: jest.fn(async () => undefined),
             queueError: undefined,
             dismissQueueError: jest.fn(),
             updateQueue: jest.fn(async () => true),
@@ -155,6 +179,9 @@ describe('chat send preparation', () => {
             ready: true,
             queue: { rows: [{ id: 'queued-1', text: 'Wait for me', attachments: [] }], hold: null },
             queuePending: false,
+            draftError: undefined,
+            draftSaving: false,
+            retrySave: jest.fn(async () => undefined),
             queueError: undefined,
             dismissQueueError: jest.fn(),
             updateQueue,

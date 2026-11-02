@@ -66,6 +66,28 @@ describe('chat draft persistence', () => {
         expect(await restarted.load('project', 'task:1')).toBeNull()
     })
 
+    it.each(['read', 'write'])(
+        'clears a stale accepted-send marker on autosave after a failed settlement %s',
+        async (failure) => {
+            const storage = memoryStorage()
+            const store = new DraftStore(storage)
+            const queued = queueReducer(EMPTY_QUEUE, queueActions.enqueue('Queued follow-up'))
+            await store.saveQueue('project', 'task:1', queued)
+            const settle = await store.beginSend('project', 'task:1', draft('Accepted'))
+            if (failure === 'read') {
+                jest.spyOn(storage, 'getItem').mockRejectedValueOnce(new Error('Read failed'))
+            } else {
+                jest.spyOn(storage, 'setItem').mockRejectedValueOnce(new Error('Write failed'))
+            }
+            await expect(settle(true)).rejects.toThrow()
+            await store.save('project', 'task:1', draft('New typing'))
+            await store.save('project', 'task:1', draft(''))
+            const restarted = new DraftStore(storage)
+            expect(await restarted.load('project', 'task:1')).toBeNull()
+            expect((await restarted.loadQueue('project', 'task:1')).rows[0]?.text).toBe('Queued follow-up')
+        }
+    )
+
     it('moves pending sends to the created task without redirecting the next new chat', async () => {
         const store = new DraftStore(memoryStorage())
         const settle = await store.beginSend('project', 'new-chat', draft('First'))

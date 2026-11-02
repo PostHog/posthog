@@ -1,4 +1,5 @@
 import { act, renderHook, waitFor } from '@testing-library/react-native'
+import { AppState } from 'react-native'
 
 const mockAuth = { signedIn: true, host: 'https://example.com', user: { uuid: 'user-1' }, projectId: 1 }
 let mockStorageUnavailable = false
@@ -34,7 +35,7 @@ jest.mock('./draftPersistence', () => {
 })
 
 import { chatDrafts } from './draftPersistence'
-import { canDrain, queueActions } from './messageQueue'
+import { canDrain, EMPTY_QUEUE, queueActions, queueReducer } from './messageQueue'
 import { useChatDraft } from './useChatDraft'
 
 beforeEach(async () => {
@@ -57,6 +58,60 @@ describe('chat draft persistence', () => {
         expect(reopened.result.current.draft).toEqual({ text: 'Draft', reportIds: ['report-1', 'report-2'] })
         reopened.unmount()
     })
+
+    it.each(['debounce', 'background', 'close'])(
+        'handles composer quota failures during %s without replacing saved queues',
+        async (trigger) => {
+            jest.useFakeTimers()
+            const subscription = jest.mocked(AppState.addEventListener)
+            const savedQueue = queueReducer(EMPTY_QUEUE, queueActions.enqueue('x'.repeat(120 * 1024)))
+            await chatDrafts.saveQueue('scope-1', 'task:queued', savedQueue)
+            const before = mockValues.get('scope-1')
+            const hook = renderHook(() => useChatDraft('task-1', undefined))
+            await waitFor(() => expect(hook.result.current.ready).toBe(true))
+            const text = 'y'.repeat(10 * 1024)
+            act(() => hook.result.current.change({ text, reportIds: [] }))
+            await act(async () => {
+                if (trigger === 'close') hook.unmount()
+                else if (trigger === 'background') subscription.mock.calls.at(-1)?.[1]('background')
+                else jest.advanceTimersByTime(400)
+                await chatDrafts.loadQueue('scope-1', 'task:queued')
+            })
+            expect(mockValues.get('scope-1')).toBe(before)
+            expect(await chatDrafts.load('scope-1', 'task:task-1')).toBeNull()
+            if (trigger !== 'close') {
+                expect(hook.result.current.draft.text).toBe(text)
+                expect(hook.result.current.draftError).toContain('Draft not saved.')
+                expect(hook.result.current.draftError).toContain('Remove a queued message')
+                expect(hook.result.current.draftSaving).toBe(false)
+                await act(async () => {
+                    await hook.result.current.retrySave()
+                })
+                expect(hook.result.current.draftError).toBeDefined()
+                await chatDrafts.saveQueue('scope-1', 'task:queued', EMPTY_QUEUE)
+                let finish!: () => void
+                mockWriteGate = new Promise<void>((resolve) => {
+                    finish = resolve
+                })
+                let retry!: Promise<void>
+                act(() => {
+                    retry = hook.result.current.retrySave()
+                })
+                expect(hook.result.current.draftSaving).toBe(true)
+                expect(hook.result.current.draftError).toBeDefined()
+                await act(async () => {
+                    finish()
+                    await retry
+                })
+                expect(hook.result.current.draftError).toBeUndefined()
+                expect(hook.result.current.draftSaving).toBe(false)
+                expect(hook.result.current.draft.text).toBe(text)
+                expect((await chatDrafts.load('scope-1', 'task:task-1'))?.text).toBe(text)
+                hook.unmount()
+            }
+            jest.useRealTimers()
+        }
+    )
 
     it('keeps text typed while sending and follows task adoption without consuming the next new-chat slot', async () => {
         const hook = renderHook(({ taskId }: { taskId: string | null }) => useChatDraft(taskId, undefined), {

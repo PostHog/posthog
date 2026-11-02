@@ -360,7 +360,7 @@ export function ChatScreen({
         setAttachOpen(false)
         void attachments.pick(source).finally(() => input.current?.focus())
     }
-    const notice = composerDraft.queueError ?? attachments.notice ?? session.notice
+    const notice = composerDraft.draftError ?? composerDraft.queueError ?? attachments.notice ?? session.notice
     const dismissNotice = (): void => {
         if (composerDraft.queueError) {
             composerDraft.dismissQueueError()
@@ -655,6 +655,8 @@ export function ChatScreen({
                                         pending={session.isSending}
                                         onAnswer={(answerInput) => void session.answer(answerInput)}
                                         onDismissNotice={dismissNotice}
+                                        onRetryNotice={composerDraft.draftError ? composerDraft.retrySave : undefined}
+                                        noticePending={composerDraft.draftSaving}
                                     />
                                     {/* A pending decision has its own reply field, so it replaces the composer, as on the web. */}
                                     {session.decision ? null : (
