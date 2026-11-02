@@ -6,6 +6,9 @@ from uuid import UUID
 from django.db import models, transaction
 from django.utils import timezone
 
+from posthog.integrations import IntegrationManager
+from posthog.models.integration import SANDBOX_EMAIL_PROVIDER
+
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.workflows.backend.facade.contracts import WorkflowActor, WorkflowSummary
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
@@ -37,7 +40,43 @@ def is_convertible_to_broadcast(flow: HogFlow) -> bool:
     config = trigger.get("config") or {}
     if config.get("type") != BROADCAST_TRIGGER_TYPE or (config.get("filters") or {}).get("audience_type") == "accounts":
         return False
+    if _sender_ids(_email_sender(email)) & _sandbox_sender_ids(flow.team_id):
+        return False
     return _joins_in_order(flow, trigger.get("id"), email.get("id"), exit_step.get("id"))
+
+
+def _email_sender(email_step: dict) -> object:
+    """The step's stored `from` value. Drafts save leniently, so any level can hold another type."""
+    value: object = email_step
+    for key in ("config", "inputs", "email", "value", "from"):
+        value = value.get(key) if isinstance(value, dict) else None
+    return value
+
+
+def _sender_ids(sender: object) -> set[str]:
+    """The integrations a `from` value sends from, as the worker picks them: a non-empty rotation replaces `integrationId`.
+
+    Ids are compared as strings, since stored ids can be ints, floats or strings.
+    """
+    if not isinstance(sender, dict):
+        return set()
+    rotation = sender.get("integrationIds")
+    ids = rotation if isinstance(rotation, list) and rotation else [sender.get("integrationId")]
+    return {_integration_id_key(integration_id) for integration_id in ids if integration_id is not None}
+
+
+def _integration_id_key(integration_id: object) -> str:
+    if isinstance(integration_id, float) and integration_id.is_integer():
+        return str(int(integration_id))
+    return str(integration_id)
+
+
+def _sandbox_sender_ids(team_id: int) -> set[str]:
+    """Broadcasts can't send through the sandbox sender, so a workflow that uses it stays a workflow."""
+    return {
+        str(sender.id)
+        for sender in IntegrationManager.email.credentials.list(team_id, where={"provider": SANDBOX_EMAIL_PROVIDER})
+    }
 
 
 def _joins_in_order(flow: HogFlow, trigger_id: object, email_id: object, exit_id: object) -> bool:
@@ -58,6 +97,15 @@ def _step_count(step_type: str) -> models.Func:
         output_field=models.JSONField(),
     )
     return models.Func(steps, function="jsonb_array_length", output_field=models.IntegerField())
+
+
+def _email_sender_value() -> models.Func:
+    return models.Func(
+        models.F("actions"),
+        _json_path('$[*] ? (@.type == "function_email").config.inputs.email.value.from'),
+        function="jsonb_path_query_first",
+        output_field=models.JSONField(),
+    )
 
 
 def _step_id(step_type: str) -> models.Func:
@@ -91,6 +139,7 @@ def list_broadcast_conversion_candidates(
             _exit_count=_step_count("exit"),
             _trigger_id=_step_id("trigger"),
             _email_id=_step_id("function_email"),
+            _email_sender=_email_sender_value(),
             _exit_id=_step_id("exit"),
             _account_audience=models.Func(
                 models.F("actions"),
@@ -111,6 +160,7 @@ def list_broadcast_conversion_candidates(
         .only("id", "team_id", "name", "status", "edges", "created_by")
         .order_by("-updated_at", "id")
     )
+    sandbox_sender_ids = _sandbox_sender_ids(team_id)
     found: list[HogFlow] = []
     offset = 0
     while len(found) < limit:
@@ -118,7 +168,12 @@ def list_broadcast_conversion_candidates(
         if not page:
             break
         offset += len(page)
-        page = [flow for flow in page if _joins_in_order(flow, flow._trigger_id, flow._email_id, flow._exit_id)]
+        page = [
+            flow
+            for flow in page
+            if _joins_in_order(flow, flow._trigger_id, flow._email_id, flow._exit_id)
+            and not _sender_ids(flow._email_sender) & sandbox_sender_ids
+        ]
         if user_access_control is not None:
             # Converting needs editor access, so a workflow the caller can only view is not offered.
             user_access_control.preload_object_access_controls(cast("list[models.Model]", page))

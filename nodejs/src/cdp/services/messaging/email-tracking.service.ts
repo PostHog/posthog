@@ -25,6 +25,7 @@ import { EmailSuppressionService } from './email-suppression.service'
 import { escapeHtml } from './helpers/escape-html'
 import { SES_LINK_INDEX_TAG, SesWebhookHandler } from './helpers/ses'
 import { EmailTrackingCodeSigner, trackingCodeFormatCounter } from './helpers/tracking-code'
+import { SandboxEmailSender } from './sandbox-email-sender'
 
 export const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==', 'base64')
 const LINK_REGEX =
@@ -285,10 +286,15 @@ export class EmailTrackingService {
         private teamWorkflowsConfigService: TeamWorkflowsConfigService,
         private trackingCodeSigner: EmailTrackingCodeSigner,
         private emailSuppressionService: EmailSuppressionService,
+        private sandboxEmailSender: SandboxEmailSender,
         private emailStatusService: EmailStatusService | null = null
     ) {
         const allowedTopicArns = (process.env.SES_ALLOWED_SNS_TOPIC_ARNS ?? '').split(',')
-        this.sesWebhookHandler = new SesWebhookHandler(this.trackingCodeSigner, allowedTopicArns)
+        this.sesWebhookHandler = new SesWebhookHandler(
+            this.trackingCodeSigner,
+            allowedTopicArns,
+            this.sandboxEmailSender.config.configurationSetName
+        )
     }
 
     public async trackMetric({
@@ -498,6 +504,7 @@ export class EmailTrackingService {
                 hardBounceRecipients,
                 complainedRecipients,
                 deliveredRecipients,
+                sandboxDeliveries,
                 emailStatusUpdates,
             } = await this.sesWebhookHandler.handleWebhook({
                 body: parseJSON(req.body),
@@ -601,11 +608,24 @@ export class EmailTrackingService {
                 emailTrackingErrorsCounter.inc({ error_type: 'suppression_update_failed', source: 'ses' })
             }
 
+            await this.captureSandboxDeliveries(sandboxDeliveries || [])
+
             return { status, message: body as string }
         } catch (error) {
             emailTrackingErrorsCounter.inc({ error_type: error.name || 'unknown' })
             logger.error('[EmailService] handleWebhook: SES webhook error', { error })
             throw error
+        }
+    }
+
+    private async captureSandboxDeliveries(
+        deliveries: { teamId: string; isTest: boolean; recipientCount: number }[]
+    ): Promise<void> {
+        for (const { teamId, isTest, recipientCount } of deliveries) {
+            const parsedTeamId = Number(teamId)
+            if (Number.isSafeInteger(parsedTeamId) && parsedTeamId > 0) {
+                await this.sandboxEmailSender.captureDelivered(parsedTeamId, isTest, recipientCount)
+            }
         }
     }
 

@@ -24,6 +24,21 @@ Only workflows that send email are subject to the tiers; SMS, push, and webhook 
 
 ## Configuration
 
+### Sandbox sender provisioning
+
+The `workflows-sandbox-sender` flag enables a PostHog-managed email integration per project through `POST /api/projects/:project_id/integrations/email_sandbox_sender/`.
+The endpoint requires `integration:write` and project membership. Repeated requests keep the same integration and refresh its display name from the organization name.
+Set `WORKFLOWS_SANDBOX_SENDER_DOMAIN`, `SES_SANDBOX_FROM_ADDRESS`, and `SES_SANDBOX_TENANT_NAME` in Django; any empty value leaves the endpoint unavailable.
+The worker sends from the same `SES_SANDBOX_FROM_ADDRESS`, so set it once for Django and the worker. The address the UI shows is then the address the worker sends from.
+Workflow email steps and test sends offer it as a sender.
+Users cannot edit, verify, or remove the managed integration, or register their own integration on the shared domain.
+The managed integration is excluded from project SES tenant migration, identity cleanup, and the reputation page's domain breakdown.
+Deploy the schema, recipient restrictions, daily caps, and tenant pause checks first. Configure the shared SES route, then enable `WORKFLOWS_SANDBOX_SENDER_ENABLED` on the worker and CDP API. Enable `workflows-sandbox-sender` last so provisioning and sender selection follow delivery readiness.
+The sandbox sender is available only in workflow email steps and test sends. Broadcasts, destinations, sender rotation, custom From values, and Reply-To overrides are rejected. Unchanged stored sender settings remain editable.
+Saves check the sandbox sender only while `workflows-sandbox-sender` is on for the project, so projects without the flag skip the integration lookup.
+
+### Sending tiers
+
 Two sides read their own env vars because the worker never reads Django settings.
 Set them together; drift means the UI describes limits the worker does not apply, or the reverse.
 
@@ -47,6 +62,7 @@ None of them are wired there yet; the charts change is part of turning the rollo
 
 In order: staff suspension or an AWS-paused tenant drops to tier 0; a dirty 7-day window, a workflow auto-pause, or a HIGH tenant reputation impact demotes one tier (at most once per cooldown, anchored on the last rate demotion); a tier above 0 with zero sends for the decay period drops one step per period; promotion needs the dwell served, real use of the tier (at least the use ratio of the daily cap on the minimum number of separate days, counted only after the tier anchor), a clean 30-day window, and a clean tenant reputation.
 Rates only count on a meaningful denominator; below the complaint floor, the absolute complaint backstop still applies, including in windows with no sends.
+Sandbox sender sends never count as sends: the sweep subtracts `email_sandbox_sent` from `email_sent` per day, floored at zero. Their bounces and complaints still count.
 Pinned teams never move automatically.
 
 While the tier is enforced, the sweep notifies teams it moved: a rate demotion sends an in-app notification plus an email to project admins, and an earned promotion sends an in-app notification only.
@@ -74,3 +90,34 @@ Decay, suspension drops, admin recomputes, and the backfill stay silent.
   A send denied because the limiter itself failed keeps the shorter token bucket cadence, at most 5 to 10 minutes.
 - Gmail provides no per-message feedback loop, so complaint rates (ours and AWS's) cannot see Gmail complaints at all.
 - The `HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS` allowlist elevates a team to the top tier in Django only: the UI, the admin, and the batch audience cap show top-tier numbers, but the worker's send-time buckets read the stored tier. An allowlisted team below the top tier is therefore throttled at its stored tier while being told otherwise, and its shadow-mode delay counts overstate real impact. Before enforcing, pin each allowlisted team at the top tier from the Django admin and empty the allowlist, rather than plumbing the list into the worker.
+
+### Sandbox delivery
+
+The worker sends through a `sandbox` email integration only when `WORKFLOWS_SANDBOX_SENDER_ENABLED` is on and `SES_SANDBOX_TENANT_NAME`, `SES_SANDBOX_CONFIGURATION_SET`, and `SES_SANDBOX_FROM_ADDRESS` are set.
+Otherwise every send through it skips with a reason in the run log and a `workflows sandbox email blocked` event with reason `switch_off`.
+Every To, CC, and BCC address must belong to an active member of the team's active organization with a verified email address.
+Membership snapshots expire within one minute, and the worker checks recipients again right before delivery.
+A failed or stale membership check skips the send and lists the blocked addresses in the run log.
+The blocked event fires at most once an hour per team, reason, and send kind (workflow or test).
+A send that passes every check goes out through the fixed SES tenant, configuration set, and From address, whatever the step's custom sender and Reply-To say.
+Sandbox sends skip the team's tier budget, click and open tracking, and unsubscribe headers, because they reach only members of the sending organization.
+The worker parses and normalizes the HTML, then appends a footer that names the sender and the organization ID.
+It overrides root clipping and visibility styles and keeps the template's typography, so malformed markup may render differently from an own-domain send.
+A template whose HTML cannot keep the footer fails the send.
+The visible footer is best effort across email clients and template CSS; the signed tracking header still attributes the message.
+Right before delivery, every sandbox send, test sends included, claims a daily allowance per project (`WORKFLOWS_SANDBOX_DAILY_TEAM_CAP`, one token per recipient copy) and per recipient address across the organization (`WORKFLOWS_SANDBOX_DAILY_RECIPIENT_CAP`).
+The allowances are token buckets that refill their capacity over 24 hours, not calendar-day counters.
+A reached allowance skips the send instead of delaying it. A limiter error, or an empty or invalid cap value, skips every sandbox send.
+The worker checks members after the claim and gives the claim back when that check skips the send.
+An SES throttle response also gives the claim back before the delivery retry. Returns are deduplicated, and Valkey ignores a return that arrives more than five minutes after it was issued.
+Test sends run inline in the CDP API, so a sandbox-enabled CDP API opens the SES Valkey pool (`SES_RATE_LIMITER_VALKEY_*`) for the allowances. Without it, every sandbox test send skips.
+Every sandbox send, test sends included, skips while the shared sandbox SES tenant is paused (`DISABLED`), or when the pause state cannot be read. A tenant Django has never synced counts as open, and SES enforces its own state.
+The worker checks the pause again after the daily allowance claim and gives the claim back when the pause blocks delivery.
+Django mirrors the tenant named by `SES_SANDBOX_TENANT_NAME` into `SandboxSenderTenantState` from the SES tenant-state webhook and the daily reconciliation, without emailing project admins. Set the same `SES_SANDBOX_TENANT_NAME` on Django web, Celery, and the worker.
+A committed state change reaches the workers through the `reload-sandbox-sender-state` message. Own-sender sends do not read this state.
+Each delivered send emits a `workflows sandbox email sent` event.
+Test sends never record `email_sent`, so they do not count toward the sending tier.
+A successful live sandbox send records `email_sandbox_sent` next to `email_sent`, so the workflow's metrics still show it.
+The sending tier subtracts `email_sandbox_sent` from `email_sent` per day, and the team's sending allowance per workflow, both floored at zero. Sandbox bounces and complaints still count.
+The CDP API's SES webhook captures `workflows sandbox email delivered` for a delivery on `SES_SANDBOX_CONFIGURATION_SET`, test sends included. Without that setting on the CDP API, the event never fires.
+Deploy this metric to the worker and Django before live workflow sends use the switch in production.

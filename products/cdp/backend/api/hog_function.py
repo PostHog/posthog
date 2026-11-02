@@ -195,6 +195,16 @@ def snapshot_hog_function_content(hog_function: HogFunction) -> dict:
     return snapshot
 
 
+def _stored_input_values(instance: Optional[HogFunction]) -> list[dict]:
+    """Stored input values, so a save that leaves an email value unchanged, such as disabling the function, keeps working."""
+    stored_inputs = instance.inputs if instance and isinstance(instance.inputs, dict) else {}
+    return [
+        entry["value"]
+        for entry in stored_inputs.values()
+        if isinstance(entry, dict) and isinstance(entry.get("value"), dict)
+    ]
+
+
 def _named_warehouse_tables(entries: Any) -> list[Any]:
     """The warehouse tables a filters blob actually names, ignoring the picker's placeholder row.
 
@@ -632,6 +642,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         ):
             raise serializers.ValidationError({"filters": "Select the materialized view to trigger on."})
         self.context["encrypted_inputs"] = instance.encrypted_inputs if instance else {}
+        self.context["existing_email_values"] = _stored_input_values(instance)
 
         template = None
         if data["template_id"]:

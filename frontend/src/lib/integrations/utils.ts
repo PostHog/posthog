@@ -141,6 +141,11 @@ export const ICONS: Record<IntegrationKind, any> = {
 // surface, so invert them in dark mode (`dark:invert`) wherever the integration icon is rendered.
 export const DARK_MODE_INVERT_ICON_KINDS = new Set<IntegrationKind>(['apns', 'apple-ads', 'github'])
 
+export const isSandboxEmailSender = (integration: { kind: string; config?: unknown }): boolean =>
+    integration.kind === 'email' && (integration.config as { provider?: unknown } | undefined)?.provider === 'sandbox'
+
+export const SANDBOX_EMAIL_SENDER_NOTE = 'Delivers only to verified members of your organization.'
+
 export const getIntegrationNameFromKind = (kind: string): string => {
     switch (kind) {
         case 'google-pubsub':

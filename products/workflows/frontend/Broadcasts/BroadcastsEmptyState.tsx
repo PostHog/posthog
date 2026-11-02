@@ -14,7 +14,7 @@ import { newBroadcastAgentLogic } from './newBroadcastAgentLogic'
 
 /** The Broadcasts tab before the first broadcast: set up a verified sender first, then write one. */
 export function BroadcastsEmptyState(): JSX.Element {
-    const { integrations } = useValues(integrationsLogic)
+    const { userManagedIntegrations: integrations } = useValues(integrationsLogic)
     const { startNewBroadcast } = useActions(newBroadcastAgentLogic)
     const editorDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Workflow,

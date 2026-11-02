@@ -13,7 +13,7 @@ import structlog
 
 from posthog.api.app_metrics2 import fetch_app_metric_totals_by_source, fetch_app_metric_totals_by_team_and_source
 from posthog.integrations import IntegrationManager
-from posthog.models.integration import Integration
+from posthog.models.integration import SANDBOX_EMAIL_PROVIDER, Integration
 
 from products.workflows.backend.facade.contracts import (
     EMAIL_HEALTH_METRIC_NAMES,
@@ -23,6 +23,7 @@ from products.workflows.backend.facade.contracts import (
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.providers.ses import SESProvider
 from products.workflows.backend.services.email_sending_attribution import fold_email_totals_by_flow
+from products.workflows.backend.services.email_sending_tier import SANDBOX_SENT_METRIC, SENT_METRIC, own_sends
 from products.workflows.backend.utils.email_sending_tiers import max_email_sending_tier, resolve_team_email_sending_tier
 
 logger = structlog.get_logger(__name__)
@@ -90,9 +91,9 @@ def team_email_sending_allowance(team_id: int) -> EmailSendingAllowance:
 
 def _team_email_sends_since(team_id: int, after: datetime) -> int:
     totals = fetch_app_metric_totals_by_team_and_source(
-        app_source="hog_flow", name=["email_sent"], after=after, team_ids=[team_id]
+        app_source="hog_flow", name=[SENT_METRIC, SANDBOX_SENT_METRIC], after=after, team_ids=[team_id]
     )
-    return sum(counts.get("email_sent", 0) for counts in totals.get(team_id, {}).values())
+    return sum(own_sends(counts) for counts in totals.get(team_id, {}).values())
 
 
 AWS_TENANT_REPUTATION_CACHE_SECONDS = 5 * 60
@@ -219,6 +220,7 @@ def verified_email_domains(*, team_id: int) -> list[str]:
             for domain in (
                 (row.config or {}).get("domain")
                 for row in IntegrationManager.email.credentials.list(team_id, where={"verified": True})
+                if (row.config or {}).get("provider") != SANDBOX_EMAIL_PROVIDER
             )
             if domain
         )

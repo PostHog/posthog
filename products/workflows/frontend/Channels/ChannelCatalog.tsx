@@ -1,6 +1,6 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
@@ -11,7 +11,9 @@ import { CATALOG_CHANNELS, CATALOG_GRID_CLASS } from './channelSummary'
 
 /** Every channel a workflow can send through, with whether this project has it set up. */
 export function ChannelCatalog(): JSX.Element {
-    const { channels, activeCount, integrationsLoadFailed } = useValues(channelCatalogLogic)
+    const { channels, activeCount, integrationsLoadFailed, integrationsLoading, integrationsLoadError } =
+        useValues(channelCatalogLogic)
+    const { loadIntegrations } = useActions(channelCatalogLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -26,13 +28,37 @@ export function ChannelCatalog(): JSX.Element {
                 )}
             </div>
             {channels ? (
-                <div className={CATALOG_GRID_CLASS}>
-                    {channels.map((channel) => (
-                        <ChannelCatalogCard key={channel.kind} channel={channel} disabledReason={restrictedReason} />
-                    ))}
-                </div>
+                <>
+                    {integrationsLoadFailed && (
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-secondary">
+                            <span>Couldn't refresh your channels. Showing the last loaded connections.</span>
+                            <LemonButton
+                                size="xsmall"
+                                type="tertiary"
+                                onClick={loadIntegrations}
+                                loading={integrationsLoading}
+                            >
+                                Try again
+                            </LemonButton>
+                        </div>
+                    )}
+                    <div className={CATALOG_GRID_CLASS}>
+                        {channels.map((channel) => (
+                            <ChannelCatalogCard
+                                key={channel.kind}
+                                channel={channel}
+                                disabledReason={restrictedReason}
+                            />
+                        ))}
+                    </div>
+                </>
             ) : integrationsLoadFailed ? (
-                <LemonBanner type="error">Couldn't load your channels. Refresh the page to try again.</LemonBanner>
+                <LemonBanner
+                    type="error"
+                    action={{ children: 'Try again', onClick: loadIntegrations, loading: integrationsLoading }}
+                >
+                    {integrationsLoadError || "Couldn't load your channels."}
+                </LemonBanner>
             ) : (
                 <div className={CATALOG_GRID_CLASS}>
                     {CATALOG_CHANNELS.map((kind) => (

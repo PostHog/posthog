@@ -1,6 +1,7 @@
 from datetime import timedelta
 
-from posthog.test.base import BaseTest
+import time_machine
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
 from django.test import SimpleTestCase, override_settings
@@ -9,6 +10,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.test.fixtures import create_app_metric2
 
 from products.workflows.backend.management.commands.backfill_workflows_email_sending_tiers import (
     Command as BackfillCommand,
@@ -20,6 +22,7 @@ from products.workflows.backend.services.email_sending_tier import (
     TeamSendingHistory,
     TierDecision,
     apply_tier_decision,
+    build_sending_histories,
     decide_tier,
     highest_qualifying_tier,
     recompute_email_sending_tier_for_team,
@@ -468,6 +471,96 @@ class TestRecomputeEmailSendingTiers(BaseTest):
         self._run({self.team.id: history(team_id=self.team.id, sent=sum(used.values()), daily_sends=used)})
 
         assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == tier
+
+
+@time_machine.travel("2026-10-05T12:00:00Z", tick=False)
+@override_settings(**TIER_SETTINGS)
+class TestSandboxSendsInTierHistory(ClickhouseTestMixin, BaseTest):
+    def _record_metrics(self, *, days_ago: int, **counts: int) -> None:
+        for metric_name, count in counts.items():
+            if count:
+                create_app_metric2(
+                    team_id=self.team.pk,
+                    app_source="hog_flow",
+                    metric_kind="email",
+                    metric_name=metric_name,
+                    count=count,
+                    timestamp=timezone.now() - timedelta(days=days_ago),
+                )
+
+    def _record_sends(self, *, days_ago: int, sent: int, sandbox_sent: int) -> None:
+        self._record_metrics(days_ago=days_ago, email_sent=sent, email_sandbox_sent=sandbox_sent)
+
+    @parameterized.expand(
+        [
+            ("no sends decay", 1, 0, 0, 0, "inactive"),
+            ("only sandbox sends decay like no sends", 1, 600, 600, 0, "inactive"),
+            ("sandbox sends do not lift own sends over the use bar", 0, 600, 300, 0, "tier_not_used_enough"),
+            ("own sends over the use bar still promote", 0, 900, 300, 1, "clean_and_used"),
+        ]
+    )
+    def test_only_own_sends_count_toward_tier_history(
+        self, _name: str, current_tier: int, sent: int, sandbox_sent: int, expected_tier: int, expected_reason: str
+    ) -> None:
+        TeamWorkflowsConfig.objects.update_or_create(
+            team=self.team,
+            defaults={
+                "email_sending_tier": current_tier,
+                "email_sending_tier_updated_at": timezone.now() - timedelta(days=40),
+            },
+        )
+        for days_ago in (1, 2):
+            self._record_sends(days_ago=days_ago, sent=sent, sandbox_sent=sandbox_sent)
+
+        decision = recompute_email_sending_tier_for_team(self.team.id)
+
+        assert decision is not None
+        assert (decision.new_tier, decision.reason) == (expected_tier, expected_reason)
+        assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == expected_tier
+
+    @parameterized.expand(
+        [
+            (
+                "sandbox excess on one day does not erase own sends of another day",
+                {
+                    1: {"email_sent": 100, "email_sandbox_sent": 300},
+                    2: {"email_sent": 200, "email_sandbox_sent": 50},
+                },
+                {2: 150},
+                0,
+                0,
+            ),
+            (
+                "bounces and complaints of sandbox sends still count",
+                {1: {"email_sent": 50, "email_sandbox_sent": 50, "email_bounced_hard": 2, "email_blocked": 1}},
+                {},
+                2,
+                1,
+            ),
+        ]
+    )
+    def test_sandbox_subtraction_is_per_day_and_keeps_feedback(
+        self,
+        _name: str,
+        metrics_by_days_ago: dict[int, dict[str, int]],
+        expected_daily_sends_by_days_ago: dict[int, int],
+        expected_hard_bounced: int,
+        expected_complained: int,
+    ) -> None:
+        for days_ago, counts in metrics_by_days_ago.items():
+            self._record_metrics(days_ago=days_ago, **counts)
+
+        history = build_sending_histories(after=timezone.now() - timedelta(days=30), team_ids=[self.team.pk])[
+            self.team.pk
+        ]
+
+        expected_daily_sends = {
+            (timezone.now() - timedelta(days=days_ago)).strftime("%Y-%m-%d"): count
+            for days_ago, count in expected_daily_sends_by_days_ago.items()
+        }
+        assert history.daily_sends == expected_daily_sends
+        assert history.sent == sum(expected_daily_sends.values())
+        assert (history.hard_bounced, history.complained) == (expected_hard_bounced, expected_complained)
 
 
 @override_settings(**TIER_SETTINGS)

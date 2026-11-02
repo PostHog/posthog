@@ -127,6 +127,7 @@ from products.cdp.backend.presentation.serializers import (
     InputsSchemaSerializer,
     InputsSerializer,
     require_viewer_access_to_added_actions,
+    validate_sandbox_email_sender,
 )
 from products.cohorts.backend.facade.api import get_cohort_ref
 from products.messaging.backend.facade.categories import MessageCategoryMissing, get_category
@@ -1128,14 +1129,14 @@ def _has_exact_string_filter(filters: dict, key: str) -> bool:
     return False
 
 
-def _existing_email_from_by_action(instance: WorkflowEditState) -> dict[str, list[dict]]:
-    """Stored email sender overrides keyed by action id, live and draft variants both kept.
+def _existing_email_values_by_action(instance: WorkflowEditState) -> dict[str, list[tuple[str | None, dict]]]:
+    """Stored email inputs keyed by action id, live and draft variants both kept.
 
     Which variant a save should be compared against depends on how the request routes (a
     builder save targets the draft, a raw API write targets live), so validation grandfathers
     a value matching either - both are values already stored on the workflow.
     """
-    result: dict[str, list[dict]] = {}
+    result: dict[str, list[tuple[str | None, dict]]] = {}
     draft = instance.draft if isinstance(instance.draft, dict) else {}
     for actions in (instance.actions, draft.get("actions")):
         for stored_action in actions or []:
@@ -1144,8 +1145,8 @@ def _existing_email_from_by_action(instance: WorkflowEditState) -> dict[str, lis
             email_input = ((stored_action.get("config") or {}).get("inputs") or {}).get("email")
             value = email_input.get("value") if isinstance(email_input, dict) else None
             from_value = value.get("from") if isinstance(value, dict) else None
-            if isinstance(from_value, dict):
-                result.setdefault(stored_action["id"], []).append(from_value)
+            if isinstance(value, dict) and isinstance(from_value, dict):
+                result.setdefault(stored_action["id"], []).append((stored_action.get("type"), value))
     return result
 
 
@@ -2186,6 +2187,25 @@ class HogFlowActionSerializer(serializers.Serializer):
                 inputs = data.get("config", {}).get("inputs", {})
                 if template_id == _FIXED_TEMPLATE_IDS["function_push"]:
                     _fill_default_push_title(inputs, input_schema)
+                existing_emails = (self.context.get("existing_action_emails") or {}).get(data.get("id")) or []
+                input_context = {
+                    **self.context,
+                    "workflow_action_type": data.get("type"),
+                    "existing_email_values": [
+                        email
+                        for action_type, email in existing_emails
+                        if action_type == "function_email" and data.get("type") == "function_email"
+                    ],
+                    # Request-scoped: a drip sequence's steps share senders, and the actions
+                    # list validates one action at a time (mirrors _message_template_cache).
+                    "email_integration_cache": self.context.setdefault("_email_integration_cache", {}),
+                    "sandbox_sender_enabled_cache": self.context.setdefault("_sandbox_sender_enabled_cache", {}),
+                }
+                for schema in input_schema or []:
+                    if schema.get("type") in {"email", "native_email"} and isinstance(inputs, dict):
+                        email_input = inputs.get(schema["key"])
+                        if isinstance(email_input, dict):
+                            validate_sandbox_email_sender(email_input.get("value"), input_context)
 
                 function_config_serializer = HogFlowConfigFunctionInputsSerializer(
                     data={
@@ -2193,6 +2213,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                         "inputs": inputs,
                     },
                     context={
+                        **input_context,
                         "function_type": template.type,
                         "is_dwh_source": self.context.get("is_dwh_source", False),
                         # The existing (decrypted) secret inputs for this action, so a resent
@@ -2203,14 +2224,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                         # sender address is checked against the integration's verified domain at
                         # save time, while an unchanged stored value is grandfathered.
                         "get_team": self.context.get("get_team"),
-                        "existing_email_from": (self.context.get("existing_action_email_from") or {}).get(
-                            data.get("id")
-                        ),
-                        # Request-scoped: a drip sequence's steps share senders, and the actions
-                        # list validates one action at a time (mirrors _message_template_cache).
-                        "email_integration_domain_cache": self.context.setdefault(
-                            "_email_integration_domain_cache", {}
-                        ),
+                        "existing_email_from": [email["from"] for _, email in existing_emails],
                     },
                 )
 
@@ -3497,6 +3511,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # When used as a nested field (the `configuration` override on test invocations) DRF never
         # binds `self.instance`, so fall back to the flow passed in via context so recovery still works.
         instance = cast(Optional[WorkflowEditState], self.instance) or self.context.get("instance")
+        self.context["workflow_origin_product"] = instance.origin_product if instance else data.get("origin_product")
 
         # Who a "Create AI task" step runs as: the existing creator for an update, or the
         # requesting user for a brand-new flow (matches the `created_by` a create() actually
@@ -3618,7 +3633,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             # Stored sender overrides, keyed by action id, so child action validation only holds
             # newly written custom sender addresses to the verified-domain rule. Draft wins over
             # live for the same reason as secrets: it is the value the client last saw.
-            self.context["existing_action_email_from"] = _existing_email_from_by_action(instance)
+            self.context["existing_action_emails"] = _existing_email_values_by_action(instance)
             # Live "Run scout" notes, so only a new or changed note needs skill editor access.
             self.context["live_run_scout_notes"] = _live_run_scout_notes_by_action(instance)
 

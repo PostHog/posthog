@@ -1,3 +1,9 @@
+import { router } from 'kea-router'
+
+import { LemonDialog } from '@posthog/lemon-ui'
+
+import { urls } from 'scenes/urls'
+
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -6,7 +12,7 @@ import { integrationsList } from 'products/integrations/frontend/generated/api'
 import { hogFlowsEmailSendingSuspensionRetrieve } from 'products/workflows/frontend/generated/api'
 
 import { MessageAudience, MessageAudienceDestination } from './messageAudience'
-import { loadMessageAudienceWarnings } from './messageAudienceWarnings'
+import { loadMessageAudienceWarnings, openMessageAudience } from './messageAudienceWarnings'
 
 jest.mock('products/cohorts/frontend/generated/api', () => ({ cohortsRetrieve: jest.fn() }))
 jest.mock('products/integrations/frontend/generated/api', () => ({ integrationsList: jest.fn() }))
@@ -17,13 +23,14 @@ const LIST_MATCHING = '"Signups" is still matching people. You can launch when i
 
 const verified = { kind: 'email', config: { verified: true } }
 const unverified = { kind: 'email', config: { verified: false } }
+const sandbox = { kind: 'email', config: { provider: 'sandbox', verified: true } }
 const matchingList = { name: 'Signups', is_static: true, is_calculating: true, last_calculation: null }
 const audience: MessageAudience = {
     source: 'cohort',
     properties: [{ key: 'id', type: PropertyFilterType.Cohort, value: 7, operator: PropertyOperator.In }],
 }
 
-describe('loadMessageAudienceWarnings', () => {
+describe('messageAudienceWarnings', () => {
     beforeEach(() => {
         initKeaTests()
     })
@@ -50,6 +57,26 @@ describe('loadMessageAudienceWarnings', () => {
             destination: 'broadcast',
             senders: [unverified],
             expected: ["Verify the sender's domain before sending"],
+        },
+        ...(['broadcast', 'workflow'] as const).map((destination) => ({
+            case: `only the sandbox sender (${destination})`,
+            destination,
+            senders: [sandbox],
+            expected: [
+                'The sandbox sender only delivers to verified members of your organization. Set up your own email sender to reach this audience.',
+            ],
+        })),
+        {
+            case: 'an unverified own sender beside the sandbox sender',
+            destination: 'broadcast',
+            senders: [sandbox, unverified],
+            expected: ["Verify the sender's domain before sending"],
+        },
+        {
+            case: 'a verified own sender beside the sandbox sender',
+            destination: 'broadcast',
+            senders: [sandbox, verified],
+            expected: [],
         },
         {
             case: 'unverified senders on the first of several pages',
@@ -103,5 +130,20 @@ describe('loadMessageAudienceWarnings', () => {
         } finally {
             jest.useRealTimers()
         }
+    })
+
+    it('offers to set up email when only the sandbox sender exists', async () => {
+        jest.mocked(hogFlowsEmailSendingSuspensionRetrieve).mockResolvedValue({
+            email_sending_suspended: false,
+        } as never)
+        jest.mocked(integrationsList).mockResolvedValue({ count: 1, results: [sandbox], next: null } as never)
+        const openDialog = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+
+        await openMessageAudience(audience, 'workflow')
+        const secondaryButton = openDialog.mock.calls[0][0].secondaryButton
+        secondaryButton?.onClick?.({} as never)
+
+        expect(secondaryButton?.children).toEqual('Set up email')
+        expect(router.values.location.pathname).toContain(urls.workflows('channels'))
     })
 })

@@ -11,7 +11,7 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.models import Team
 from posthog.models.integration import Integration
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -85,6 +85,28 @@ class TestEmailReputationAPI(APIBaseTest):
             "email_sending_suspended_at": None,
             "email_sending_suspension_reason": "",
         }
+
+    def test_sending_allowance_leaves_out_sandbox_sends(self):
+        sends_by_source = {
+            self.team.id: {"flow-a": {"email_sent": 1, "email_sandbox_sent": 3}, "flow-b": {"email_sent": 2}}
+        }
+
+        def requested_metrics(*, name: list[str], **_kwargs: object) -> dict[int, dict[str, dict[str, int]]]:
+            return {
+                team_id: {
+                    source: {metric: count for metric, count in counts.items() if metric in name}
+                    for source, counts in sources.items()
+                }
+                for team_id, sources in sends_by_source.items()
+            }
+
+        with patch(
+            "products.workflows.backend.services.email_health.fetch_app_metric_totals_by_team_and_source",
+            side_effect=requested_metrics,
+        ):
+            allowance = self._get_reputation({})["sending_allowance"]
+        assert allowance["emails_sent_last_hour"] == 2
+        assert allowance["emails_sent_last_day"] == 2
 
     @parameterized.expand(
         [
@@ -351,14 +373,19 @@ class TestEmailReputationAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("sibling verified on the same domain", True, ["mail.example.com"]),
-            ("sibling not verified yet", False, []),
+            ("sibling verified on the same domain", True, ["mail.example.com"], "ses"),
+            ("sibling not verified yet", False, [], "ses"),
+            ("legacy sender without a provider", True, ["mail.example.com"], None),
         ]
     )
     def test_reputation_endpoint_names_domains_a_sibling_project_also_sends_from(
-        self, _name: str, sibling_verified: bool, expected: list[str]
-    ):
+        self, _name: str, sibling_verified: bool, expected: list[str], provider: str | None
+    ) -> None:
         self._verify_sending_domain()
+        if provider is None:
+            Integration.objects.filter(team=self.team, kind="email", integration_id="mail.example.com").update(
+                config={"domain": "mail.example.com", "verified": True}
+            )
         sibling = Team.objects.create(organization=self.organization, name="Sibling")
         Integration.objects.create(
             team=sibling,
@@ -370,6 +397,35 @@ class TestEmailReputationAPI(APIBaseTest):
         body = self._get_reputation({}, isp_metrics=[])
 
         assert body["isp_shared_domains"] == expected
+
+    def test_reputation_endpoint_leaves_the_sandbox_sender_out_of_the_breakdown(self) -> None:
+        other_team = Team.objects.create(organization=Organization.objects.create(name="Other"), name="Other")
+        for team in (self.team, other_team):
+            Integration.objects.create(
+                team=team,
+                kind="email",
+                integration_id="posthog-sandbox",
+                config={"domain": "sandbox.example.com", "provider": "sandbox", "verified": True},
+            )
+
+        body = self._get_reputation(
+            {},
+            isp_metrics=[
+                IspSendingMetrics(
+                    isp="Gmail",
+                    emails_sent=900,
+                    delivery_rate=0.97,
+                    bounce_rate=0.01,
+                    transient_bounce_rate=0.0,
+                    complaint_rate=None,
+                    complaint_base=0,
+                )
+            ],
+        )
+
+        assert body["isps"] == []
+        assert body["isp_shared_domains"] == []
+        assert body["isp_withheld_domains"] == []
 
     def test_reputation_endpoint_omits_domains_only_this_project_sends_from(self):
         self._verify_sending_domain()

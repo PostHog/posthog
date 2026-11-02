@@ -7,6 +7,8 @@ import { expectLogic } from 'kea-test-utils'
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import apiReal, { ApiError } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -76,6 +78,100 @@ describe('integrationsLogic', () => {
     afterEach(() => {
         jest.useRealTimers()
         jest.restoreAllMocks()
+    })
+
+    describe('sandbox email sender', () => {
+        const sandboxSender: IntegrationType = {
+            id: 9,
+            kind: 'email',
+            display_name: 'Acme via PostHog <sandbox@example.com>',
+            icon_url: '',
+            config: {
+                provider: 'sandbox',
+                email: 'sandbox@example.com',
+                domain: 'example.com',
+                name: 'Acme via PostHog',
+                verified: true,
+            },
+            created_at: '2026-08-18T00:00:00Z',
+        }
+        const ownSender: IntegrationType = {
+            id: 10,
+            kind: 'email',
+            display_name: 'Acme <hello@acme.example.com>',
+            icon_url: '',
+            config: { provider: 'ses', email: 'hello@acme.example.com', domain: 'acme.example.com', verified: true },
+            created_at: '2026-08-18T00:00:00Z',
+        }
+        afterEach(() => {
+            featureFlagLogic.actions.setFeatureFlags([], {})
+        })
+
+        const enableFlag = (): void => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER], {
+                [FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER]: true,
+            })
+        }
+
+        it.each([
+            [
+                'with an API detail',
+                { detail: 'Could not load senders. Try again.' },
+                'Could not load senders. Try again.',
+            ],
+            ['without an API detail', '<html>Bad gateway</html>', null],
+        ])(
+            'retains a failed integrations load %s without treating the unresolved list as empty',
+            async (_name, body, expectedError) => {
+                useMocks({ get: { '/api/projects/:team_id/integrations/': () => [502, body] } })
+                logic.actions.clearIntegrations()
+                await expectLogic(logic, () => logic.actions.loadIntegrations()).toDispatchActions([
+                    'loadIntegrationsFailure',
+                ])
+                expect(logic.values.integrations).toBeNull()
+                expect(logic.values.integrationsLoadFailed).toBe(true)
+                expect(logic.values.integrationsLoadError).toBe(expectedError)
+
+                useMocks({ get: { '/api/projects/:team_id/integrations/': { results: [] } } })
+                await expectLogic(logic, () => logic.actions.loadIntegrations()).toDispatchActions([
+                    'loadIntegrationsSuccess',
+                ])
+                expect(logic.values.integrationsLoadFailed).toBe(false)
+                expect(logic.values.integrationsLoadError).toBeNull()
+            }
+        )
+
+        it.each([
+            { flagState: 'on', flag: true, expectedSandbox: expect.objectContaining({ id: sandboxSender.id }) },
+            { flagState: 'off', flag: false, expectedSandbox: null },
+        ])(
+            'keeps the sandbox row out of the own-sender lists and exposes it only with the flag $flagState',
+            async ({ flag, expectedSandbox }) => {
+                if (flag) {
+                    enableFlag()
+                }
+                integrationsPayload = [sandboxSender, ownSender]
+
+                await expectLogic(logic, () => {
+                    logic.actions.loadIntegrations()
+                })
+                    .toDispatchActions(['loadIntegrationsSuccess'])
+                    .toMatchValues({
+                        sandboxEmailSender: expectedSandbox,
+                        ownEmailIntegrations: [expect.objectContaining({ id: ownSender.id })],
+                        userManagedIntegrations: [expect.objectContaining({ id: ownSender.id })],
+                        domainGroupedEmailIntegrations: [
+                            {
+                                domain: 'acme.example.com',
+                                integrations: [expect.objectContaining({ id: ownSender.id })],
+                            },
+                        ],
+                    })
+                expect(logic.values.getIntegrationsByKind(['email'])).toEqual([
+                    expect.objectContaining({ id: ownSender.id }),
+                ])
+            }
+        )
     })
 
     describe('GitHub discovery freshness', () => {
