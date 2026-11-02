@@ -47,7 +47,6 @@ class QuantileQueryBuilder:
 
         # Metric validation rejects these. The checks guard stored or ad-hoc queries that skip it.
         if self._b.breakdowns:
-            # The runner sums breakdown rows to get the overall row, and quantiles cannot be summed.
             raise ExposedHogQLError("Breakdowns are not supported for percentile metrics yet.")
         if not metric.source.math_property:
             raise ExposedHogQLError("A percentile metric needs a numeric property to measure.")

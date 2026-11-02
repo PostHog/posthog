@@ -276,8 +276,6 @@ def aggregate_variants_across_breakdowns(
 
 @frozen
 class VariantQuantile:
-    """The quantile of one variant and the outer-interval bounds chosen for it."""
-
     quantile: float
     bounds: QuantileBounds
 

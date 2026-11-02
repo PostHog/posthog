@@ -52,12 +52,10 @@ P90_OF_APP_READY = ExperimentQuantileMetric(
 
 
 def _quantile_grid(quantile: float, lower: float, upper: float) -> list[float]:
-    """The quantile_grid column of one variant, with the same bounds at every grid size."""
     return [quantile, *[bound for _ in QUANTILE_N_STAR_GRID for bound in (lower, upper)]]
 
 
 def _distinct_bounds_grid(tied_positions: tuple[int, ...] = ()) -> list[float]:
-    """A quantile_grid with bounds (10j + 1, 10j + 2) at grid position j, or (10j + 1, 10j + 1) where tied."""
     grid: list[float] = [99]
     for j in range(len(QUANTILE_N_STAR_GRID)):
         grid.extend([10 * j + 1, 10 * j + (1 if j in tied_positions else 2)])
@@ -1245,7 +1243,6 @@ class TestQuantileExperimentResult:
             else cast(ExperimentVariantResultBayesian, variant).credible_interval
         )
         assert interval is not None
-        # The absolute effect is 1 - 0.
         assert interval[0] < 1 < interval[1]
 
     def test_frequentist_result_rejects_sequential_testing(self) -> None:
