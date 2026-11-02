@@ -1137,13 +1137,15 @@ class OAuthValidator(OAuth2Validator):
                 token_type="refresh_token" if rt else "access_token",
             )
             return
+        # A rotating family holds every access token of one login, so revoking it ends only that
+        # login. A token already rotated away still ends its family: during the grace period it can
+        # still refresh.
+        if rt and self._is_dynamic_client(request) and self.rotate_refresh_token(request):
+            revoke_oauth_refresh_family(rt)
+            return
+        # A non-rotating token can't be traced to its access tokens, so the whole connection goes.
         if rt and rt.revoked is None and self._is_dynamic_client(request):
-            # A rotating family holds every access token of one login, so revoking it ends only
-            # that login. A non-rotating token can't be traced to its access tokens.
-            if self.rotate_refresh_token(request):
-                revoke_oauth_refresh_family(rt)
-            else:
-                revoke_oauth_session(refresh_token=rt)
+            revoke_oauth_session(refresh_token=rt)
             return
         return super().revoke_token(token, token_type_hint, request, *args, **kwargs)
 
