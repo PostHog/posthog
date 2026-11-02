@@ -2143,9 +2143,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             return None
         return [series.custom_name for series in query.series]
 
-    def _query_has_series_custom_names(self) -> bool:
+    def _cached_results_need_custom_name_patch(self, results_have_custom_names: bool) -> bool:
+        # A named trends formula row sets results_have_custom_names, but _series_custom_names skips formulas,
+        # so that flag alone must not force the results off the raw-bytes path.
         custom_names = self._series_custom_names()
-        return custom_names is not None and any(name is not None for name in custom_names)
+        if custom_names is None:
+            return False
+        return results_have_custom_names or any(name is not None for name in custom_names)
 
     @property
     def _limit_context_aliased_for_cache(self) -> LimitContext:
@@ -2265,19 +2269,16 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # payload. Only safe when the caller opted in AND validation of the parsed results
             # wouldn't add protection (the response class types them as plain data — for
             # model-typed results, e.g. retention, validating a `[]` placeholder would bypass
-            # the schema-drift check that triggers recomputation) AND neither the query nor
-            # the cached results carry custom series names — otherwise
-            # apply_series_custom_names below must be able to patch the parsed results.
+            # the schema-drift check that triggers recomputation) AND apply_series_custom_names
+            # below has no series name to patch into the parsed results.
             split_candidate = entry
             if split_candidate is None:
                 cached_response_candidate = None
             else:
                 cached_response_candidate = split_candidate.header
                 if split_candidate.results_bytes is not None:
-                    if (
-                        response_results_contain_models(CachedResponse)
-                        or split_candidate.results_have_custom_names
-                        or self._query_has_series_custom_names()
+                    if response_results_contain_models(CachedResponse) or self._cached_results_need_custom_name_patch(
+                        split_candidate.results_have_custom_names
                     ):
                         cached_response_candidate["results"] = orjson.loads(split_candidate.results_bytes)
                     else:

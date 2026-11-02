@@ -286,6 +286,7 @@ def _series_dict(
         "count": float(sum(data)),
         "label": "All events" if series_label is None else series_label,
         "order": order,
+        "custom_name": series.custom_name,
     }
 
 

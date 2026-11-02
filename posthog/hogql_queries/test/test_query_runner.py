@@ -1767,17 +1767,18 @@ class TestSeriesCustomNameCaching(BaseTest):
 
     @parameterized.expand(
         [
-            ("trends", TrendsQueryRunner, TrendsQuery, TrendsQueryResponse, {}, None, "Renamed"),
-            ("stickiness", StickinessQueryRunner, StickinessQuery, StickinessQueryResponse, {}, None, "Renamed"),
-            ("lifecycle", LifecycleQueryRunner, LifecycleQuery, LifecycleQueryResponse, {}, None, "Renamed"),
+            ("trends", TrendsQueryRunner, TrendsQuery, TrendsQueryResponse, {}, None, "Renamed", False),
+            ("stickiness", StickinessQueryRunner, StickinessQuery, StickinessQueryResponse, {}, None, "Renamed", False),
+            ("lifecycle", LifecycleQueryRunner, LifecycleQuery, LifecycleQueryResponse, {}, None, "Renamed", False),
             (
-                "trends_formula_keeps_the_formula_name",
+                "trends_formula_keeps_the_formula_name_and_serves_raw",
                 TrendsQueryRunner,
                 TrendsQuery,
                 TrendsQueryResponse,
                 {"trendsFilter": TrendsFilter(formulaNodes=[TrendsFormulaNode(formula="A", custom_name="Total")])},
                 "Total",
                 "Total",
+                True,
             ),
         ]
     )
@@ -1790,6 +1791,7 @@ class TestSeriesCustomNameCaching(BaseTest):
         query_kwargs: dict[str, Any],
         cached_custom_name: str | None,
         expected_custom_name: str,
+        served_raw: bool,
     ) -> None:
         cached_rows = [{"order": 0, "custom_name": cached_custom_name, "data": [1]}]
         with mock.patch.object(runner_class, "calculate", return_value=response_class(results=cached_rows)):
@@ -1807,7 +1809,10 @@ class TestSeriesCustomNameCaching(BaseTest):
         assert isinstance(
             response, CachedTrendsQueryResponse | CachedStickinessQueryResponse | CachedLifecycleQueryResponse
         )
-        assert [row["custom_name"] for row in response.results] == [expected_custom_name]
+        raw_results = runner.raw_cached_results_bytes
+        assert (raw_results is not None) == served_raw
+        results = json.loads(raw_results) if raw_results is not None else response.results
+        assert [row["custom_name"] for row in results] == [expected_custom_name]
 
 
 class TestSharedInsightsExecutionMode(BaseTest):
