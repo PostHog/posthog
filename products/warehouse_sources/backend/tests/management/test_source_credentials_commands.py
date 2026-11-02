@@ -255,7 +255,7 @@ class TestBackfillWarehouseSourceCredentials(_CredentialsCommandTestCase):
 
         self._run("backfill_warehouse_source_credentials", "--execute", "--source-type", "Postgres")
 
-        assert [row.id for row in self._rows()] == [int(self._reference(postgres))]
+        assert [row.id for row in self._rows()] == [int(self._reference(postgres) or 0)]
         assert self._reference(stripe) is None
 
     def test_unreadable_job_inputs_and_deleted_sources_are_skipped(self) -> None:
@@ -267,7 +267,7 @@ class TestBackfillWarehouseSourceCredentials(_CredentialsCommandTestCase):
 
         assert "skipped_unreadable=1" in output
         assert "created=1" in output
-        assert [row.id for row in self._rows()] == [int(self._reference(good))]
+        assert [row.id for row in self._rows()] == [int(self._reference(good) or 0)]
         assert self._reference(deleted) is None
 
     def test_a_rotation_after_the_batch_read_is_not_overwritten(self) -> None:
