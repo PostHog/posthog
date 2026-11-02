@@ -27,7 +27,10 @@ describe('prefetchPlan', () => {
         ['a short list is not overrun', 3, 1, 2, ['r1', 'r2']],
         ['only closed rows are visible', 10, 2, 1, []],
     ])('prefetchWindow: %s', (_name, length, firstVisible, lastVisible, expected) => {
-        expect(prefetchWindow(ids(length), firstVisible, lastVisible)).toEqual(expected)
+        const rows = prefetchRows(ids(length).map((reportId) => ({ reportId, state: 'open' })))
+        const visible =
+            firstVisible === null || lastVisible === null ? null : { first: firstVisible, last: lastVisible }
+        expect(prefetchWindow(rows, visible)).toEqual(expected)
     })
 
     test('prefetchRows skips done and dismissed rows and maps list rows onto the remaining ids', () => {
@@ -38,6 +41,7 @@ describe('prefetchPlan', () => {
             { reportId: 'd', state: 'snoozed' },
         ])
         expect(rows).toEqual({ ids: ['b', 'd'], idIndexByRow: [-1, 0, 0, 1] })
+        expect(prefetchWindow(rows, { first: 2, last: 3 })).toEqual(['d'])
     })
 
     test('queue runs an id once while it is pending or running, and again after its run settles', async () => {

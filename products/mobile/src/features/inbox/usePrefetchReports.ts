@@ -95,13 +95,7 @@ export function usePrefetchReports(items: InboxItem[] | undefined, focused: bool
     const [visible, setVisible] = useState<{ first: number; last: number; scopeKey: string } | null>(null)
     const rows = useMemo(() => prefetchRows(items ?? []), [items])
     const currentVisible = visible?.scopeKey === scopeKey ? visible : null
-    const first = currentVisible
-        ? currentVisible.first === 0
-            ? 0
-            : (rows.idIndexByRow[currentVisible.first - 1] ?? -1) + 1
-        : null
-    const last = currentVisible ? (rows.idIndexByRow[currentVisible.last] ?? -1) : null
-    const ids = prefetchWindow(rows.ids, first, last)
+    const ids = prefetchWindow(rows, currentVisible)
     const idsKey = ids.join(',')
     const idsRef = useRef(ids)
     idsRef.current = ids

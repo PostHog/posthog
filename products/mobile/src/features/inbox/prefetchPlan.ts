@@ -23,13 +23,11 @@ export function prefetchRows(items: readonly Pick<InboxItem, 'reportId' | 'state
     return { ids, idIndexByRow }
 }
 
-export function prefetchWindow(
-    ids: readonly string[],
-    firstVisibleIndex: number | null,
-    lastVisibleIndex: number | null
-): string[] {
-    if (firstVisibleIndex === null || lastVisibleIndex === null || lastVisibleIndex < firstVisibleIndex) return []
-    return ids.slice(Math.max(0, firstVisibleIndex), lastVisibleIndex + PREFETCH_LOOKAHEAD + 1)
+export function prefetchWindow(rows: PrefetchRows, visible: { first: number; last: number } | null): string[] {
+    if (!visible) return []
+    const first = visible.first === 0 ? 0 : (rows.idIndexByRow[visible.first - 1] ?? -1) + 1
+    const last = rows.idIndexByRow[visible.last] ?? -1
+    return last < first ? [] : rows.ids.slice(first, last + PREFETCH_LOOKAHEAD + 1)
 }
 
 export interface PrefetchQueue {
