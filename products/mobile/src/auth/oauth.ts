@@ -1,6 +1,7 @@
 import { AuthRequest, type AuthSessionResult, makeRedirectUri } from 'expo-auth-session'
 import { Platform } from 'react-native'
 
+import { TransportError, transport } from '@/api/transport'
 import { appScheme } from '@/lib/environment'
 
 import type { SessionTokens } from './tokens'
@@ -128,6 +129,15 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: numbe
     }
 }
 
+async function readTokenBody(response: Response): Promise<unknown> {
+    try {
+        return await transport(() => response.json())
+    } catch (error) {
+        if (error instanceof TransportError) throw new OAuthError('network')
+        throw error
+    }
+}
+
 async function readOAuthError(response: Response): Promise<{ error?: string; description?: string }> {
     try {
         const body = (await response.json()) as Record<string, unknown>
@@ -214,7 +224,7 @@ export async function authorize({ host, clientId }: { host: string; clientId: st
         }
         throw new OAuthError(response.status >= 500 ? 'server' : 'rejected', description ?? error)
     }
-    const body: unknown = await response.json()
+    const body = await readTokenBody(response)
     if (!isTokenResponse(body)) {
         throw new OAuthError('rejected', 'The token response had no access token.')
     }
@@ -251,7 +261,7 @@ export async function refreshTokens({
             `Token refresh failed with ${response.status}`
         )
     }
-    const body: unknown = await response.json()
+    const body = await readTokenBody(response)
     if (!isTokenResponse(body)) {
         throw new OAuthError('rejected', 'The token response had no access token.')
     }
