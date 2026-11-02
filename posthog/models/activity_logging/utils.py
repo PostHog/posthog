@@ -34,9 +34,9 @@ SCOUT_CLIENT_PREFIX = "scout:"
 # Prefixes only the server may write. The activity log tells a reader that a tag carrying one of
 # them comes from the authenticated request rather than from the client, so the two kinds of tag
 # must not share a name.
-# Set by `CIAccessTokenAuthentication` from the repository the CI token's OIDC claims named.
-CI_CLIENT_PREFIX = "ci:"
-SERVER_DERIVED_CLIENT_PREFIXES = (SCOUT_CLIENT_PREFIX, CI_CLIENT_PREFIX)
+# Set by `WorkloadAccessTokenAuthentication` from the repository the workload token's OIDC claims named.
+WORKLOAD_CLIENT_PREFIX = "workload:"
+SERVER_DERIVED_CLIENT_PREFIXES = (SCOUT_CLIENT_PREFIX, WORKLOAD_CLIENT_PREFIX)
 
 
 DeclaredCredentialType = Literal[
@@ -46,7 +46,7 @@ DeclaredCredentialType = Literal[
     "project_secret_key",
     "team_secret_token",
     "id_jag",
-    "oidc_ci",
+    "oidc_workload",
     "internal_jwt",
     "service_jwt",
     "internal_api_secret",

@@ -14,7 +14,6 @@ from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.utils import get_token
 from posthog.auth import (
-    CIAccessTokenAuthentication,
     DelegatedOAuthAccessTokenAuthentication,
     DelegatedPersonalAPIKeyAuthentication,
     IDJagAccessTokenAuthentication,
@@ -25,6 +24,7 @@ from posthog.auth import (
     SessionAuthentication,
     SharingAccessTokenAuthentication,
     SharingPasswordProtectedAuthentication,
+    WorkloadAccessTokenAuthentication,
 )
 from posthog.clickhouse.query_tagging import get_team_query_tags, tag_queries
 from posthog.models.organization import Organization
@@ -309,11 +309,11 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         else:
             # These are tenant boundaries, not authorization levels. Views that shape their own
             # permission chain cannot remove them.
-            # A CI token acts as an owner, who may pass a view's own checks (a staff owner passes staff
+            # A workload token acts as an owner, who may pass a view's own checks (a staff owner passes staff
             # bypasses), so its policy's scopes and project are enforced whatever chain the view builds.
             ci_token_boundary = (
                 [APIScopePermission()]
-                if isinstance(self.request.successful_authenticator, CIAccessTokenAuthentication)
+                if isinstance(self.request.successful_authenticator, WorkloadAccessTokenAuthentication)
                 else []
             )
             return [
@@ -374,8 +374,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                 # rejected before its own authenticator could run. IDJagAccessTokenAuthentication
                 # has a strict `typ == "at+jwt"` precheck and cleanly defers for other JWTs.
                 IDJagAccessTokenAuthentication,
-                # Same reason as ID-JAG: a CI access token is an RS256 JWT that JwtAuthentication would reject.
-                CIAccessTokenAuthentication,
+                # Same reason as ID-JAG: a workload access token is an RS256 JWT that JwtAuthentication would reject.
+                WorkloadAccessTokenAuthentication,
                 DelegatedPersonalAPIKeyAuthentication,
                 DelegatedOAuthAccessTokenAuthentication,
                 JwtAuthentication,

@@ -5,10 +5,11 @@ import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon
 
 import { ScopeAccessRow } from 'lib/components/ScopeAccessRow/ScopeAccessRow'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { riskyScopeWarning } from 'lib/scopes'
 
-import { ciTrustPoliciesLogic } from './ciTrustPoliciesLogic'
+import { workloadTrustPoliciesLogic } from './workloadTrustPoliciesLogic'
 
-export function CITrustPolicyModal(): JSX.Element {
+export function WorkloadTrustPolicyModal(): JSX.Element {
     const {
         editingPolicyId,
         editingPolicyChanged,
@@ -17,16 +18,16 @@ export function CITrustPolicyModal(): JSX.Element {
         scopeRows,
         scopeLevels,
         scopeSearchTerm,
-    } = useValues(ciTrustPoliciesLogic)
+    } = useValues(workloadTrustPoliciesLogic)
     const { setEditingPolicyId, submitEditingPolicy, setScopeLevel, setScopeSearchTerm } =
-        useActions(ciTrustPoliciesLogic)
+        useActions(workloadTrustPoliciesLogic)
 
     const isNew = editingPolicyId === 'new'
 
     return (
-        <Form logic={ciTrustPoliciesLogic} formKey="editingPolicy">
+        <Form logic={workloadTrustPoliciesLogic} formKey="editingPolicy">
             <LemonModal
-                title={isNew ? 'Create CI trust policy' : 'Edit CI trust policy'}
+                title={isNew ? 'Add trusted workload' : 'Edit trusted workload'}
                 isOpen={!!editingPolicyId}
                 onClose={() => setEditingPolicyId(null)}
                 width="40rem"
@@ -42,9 +43,9 @@ export function CITrustPolicyModal(): JSX.Element {
                             loading={isEditingPolicySubmitting}
                             disabledReason={!editingPolicyChanged ? 'No changes to save' : undefined}
                             onClick={submitEditingPolicy}
-                            data-attr="ci-trust-policy-save"
+                            data-attr="workload-trust-policy-save"
                         >
-                            {isNew ? 'Create policy' : 'Save'}
+                            {isNew ? 'Add trusted workload' : 'Save'}
                         </LemonButton>
                     </>
                 }
@@ -102,7 +103,7 @@ export function CITrustPolicyModal(): JSX.Element {
                     <LemonField
                         name="scopes"
                         label="Scopes"
-                        help="Every token from this policy gets these scopes. Scopes that manage credentials or access aren't available."
+                        help="Every token from this policy gets these scopes. Scopes that would let a token outlive itself aren't available."
                     >
                         <div className="w-full">
                             <LemonInput
@@ -124,12 +125,17 @@ export function CITrustPolicyModal(): JSX.Element {
                                                 key,
                                                 label,
                                                 value: scopeLevels[key] ?? 'none',
+                                                warning: riskyScopeWarning(
+                                                    key,
+                                                    scopeLevels[key] ?? 'none',
+                                                    providers?.risky_scopes ?? {}
+                                                ),
                                                 disabledReasons: {
                                                     read: disabledActions.includes('read')
-                                                        ? 'Not available for CI tokens'
+                                                        ? 'Not available for workload tokens'
                                                         : undefined,
                                                     write: disabledActions.includes('write')
-                                                        ? 'Not available for CI tokens'
+                                                        ? 'Not available for workload tokens'
                                                         : undefined,
                                                 },
                                             }}

@@ -13,7 +13,7 @@ from rest_framework.request import Request
 from posthog import cloud_utils
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.utils import validate_authorized_url_wildcards
-from posthog.auth import CIAccessTokenAuthentication
+from posthog.auth import WorkloadAccessTokenAuthentication
 from posthog.constants import AvailableFeature
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import is_impersonated
@@ -63,8 +63,8 @@ from . import (
 tracer = trace.get_tracer(__name__)
 
 
-# Credentials a project response carries that outlive a CI token: the project secret token and its backup,
-# the heatmaps screenshot secret, and the 7-day live events token. A CI token acts as the organization owner,
+# Credentials a project response carries that outlive a workload token: the project secret token and its backup,
+# the heatmaps screenshot secret, and the 7-day live events token. A workload token acts as the organization owner,
 # so without this a CI job could read one and keep access after its token expires. The public project token
 # (`api_token`) stays.
 TEAM_SECRET_FIELDS_HIDDEN_FROM_CI_TOKENS = (
@@ -77,7 +77,7 @@ TEAM_SECRET_FIELDS_HIDDEN_FROM_CI_TOKENS = (
 
 def hide_team_secrets_from_ci_tokens(representation: dict[str, Any], request: Request | None) -> dict[str, Any]:
     # The page-load path passes a plain Django request, which has no authenticator.
-    if isinstance(getattr(request, "successful_authenticator", None), CIAccessTokenAuthentication):
+    if isinstance(getattr(request, "successful_authenticator", None), WorkloadAccessTokenAuthentication):
         for field in TEAM_SECRET_FIELDS_HIDDEN_FROM_CI_TOKENS:
             representation.pop(field, None)
     return representation

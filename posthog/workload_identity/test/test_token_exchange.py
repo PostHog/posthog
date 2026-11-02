@@ -13,17 +13,17 @@ from oauth2_provider.utils import jwk_from_pem
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.oauth.ci_token_exchange import TOKEN_EXCHANGE_GRANT_TYPE
 from posthog.api.oauth.cimd import CIMDFetchError
-from posthog.auth import CIAccessTokenAuthentication
+from posthog.auth import WorkloadAccessTokenAuthentication
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.ci_trust_policy import CITrustPolicy, CITrustPolicyRequest
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.models.workload_trust_policy import WorkloadTrustPolicy, WorkloadTrustPolicyRequest
 from posthog.settings.utils import generate_rsa_private_key_pem
 from posthog.test.authentication_checks import covers_authentication
-from posthog.test.ci_trust_fixtures import FAKE_CI_ISSUER, with_fake_ci_provider
+from posthog.workload_identity.test.fixtures import FAKE_WORKLOAD_ISSUER, with_fake_workload_provider
+from posthog.workload_identity.token_exchange import TOKEN_EXCHANGE_GRANT_TYPE
 
 from products.annotations.backend.models import Annotation
 
@@ -43,7 +43,7 @@ def _jwks() -> dict[str, Any]:
 def _oidc_token(*, signing_key: str = _CI_PROVIDER_KEY_PEM, **overrides: Any) -> str:
     now = int(time.time())
     claims = {
-        "iss": FAKE_CI_ISSUER,
+        "iss": FAKE_WORKLOAD_ISSUER,
         "aud": _SITE_URL,
         "iat": now,
         "exp": now + 300,
@@ -59,7 +59,7 @@ def _oidc_token(*, signing_key: str = _CI_PROVIDER_KEY_PEM, **overrides: Any) ->
     return jwt.encode(claims, signing_key, algorithm="RS256", headers={"kid": _CI_KEY_ID})
 
 
-@with_fake_ci_provider()
+@with_fake_workload_provider()
 @override_settings(SITE_URL=_SITE_URL, OIDC_RSA_PRIVATE_KEY=_POSTHOG_KEY_PEM)
 class TestCITokenExchange(APIBaseTest):
     def setUp(self) -> None:
@@ -74,18 +74,18 @@ class TestCITokenExchange(APIBaseTest):
         self.organization_membership.save()
         self.policy = self._create_policy()
 
-    def _create_policy(self, team: Team | None = None, **overrides: Any) -> CITrustPolicy:
+    def _create_policy(self, team: Team | None = None, **overrides: Any) -> WorkloadTrustPolicy:
         target = team or self.team
         fields: dict[str, Any] = {
             "name": "Production deploys",
-            "issuer": FAKE_CI_ISSUER,
+            "issuer": FAKE_WORKLOAD_ISSUER,
             "repository": "acme/web",
             "repository_id": "1234",
             "ref": "refs/heads/main",
             "scopes": ["annotation:write"],
             **overrides,
         }
-        return CITrustPolicy.objects.for_team(target.id).create(team=target, **fields)
+        return WorkloadTrustPolicy.objects.for_team(target.id).create(team=target, **fields)
 
     def _exchange(self, subject_token: str | None = None, **overrides: str) -> Any:
         self.client.logout()
@@ -107,7 +107,7 @@ class TestCITokenExchange(APIBaseTest):
         self.client.logout()
         return getattr(self.client, method)(path, data or {}, format="json", HTTP_AUTHORIZATION=f"Bearer {token}")
 
-    @covers_authentication(CIAccessTokenAuthentication)
+    @covers_authentication(WorkloadAccessTokenAuthentication)
     def test_token_acts_as_the_oldest_owner_with_the_policy_ceiling(self) -> None:
         newer_owner = User.objects.create_and_join(
             self.organization, "newer-owner@example.com", None, level=OrganizationMembership.Level.OWNER
@@ -133,15 +133,16 @@ class TestCITokenExchange(APIBaseTest):
         annotation = Annotation.objects.get(pk=created.json()["id"], team_id=self.team.id)
         assert annotation.created_by_id == self.user.id != newer_owner.id
         entry = ActivityLog.objects.filter(scope="Annotation", item_id=str(annotation.pk)).get()
-        assert (entry.credential_type, entry.credential_id) == ("oidc_ci", str(self.policy.pk))
-        assert entry.client == "ci:acme/web"
+        assert (entry.credential_type, entry.credential_id) == ("oidc_workload", str(self.policy.pk))
+        assert entry.client == "workload:acme/web"
         assert entry.detail is not None
         assert entry.detail["trigger"] == {
-            "job_type": "ci",
+            "job_type": "workload",
             "job_id": "987",
             "payload": {
                 "provider": "fake_ci",
                 "provider_name": "Fake CI",
+                "actor_label": "acme/web · deploy.yml run 987",
                 "repository": "acme/web",
                 "workflow": "deploy.yml",
                 "run_id": "987",
@@ -156,24 +157,24 @@ class TestCITokenExchange(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("unknown_issuer", {"iss": "https://token.ci.example.org"}, {}, "ci_issuer_not_allowed"),
-            ("wrong_audience", {"aud": "https://other.example.com"}, {}, "ci_token_invalid"),
-            ("expired", {"exp": int(time.time()) - 120, "iat": int(time.time()) - 600}, {}, "ci_token_invalid"),
-            ("recreated_repository", {"repository_id": "5678"}, {}, "ci_no_matching_policy"),
-            ("renamed_repository", {"repository": "acme/other"}, {}, "ci_no_matching_policy"),
-            ("other_ref", {"ref": "refs/heads/feature"}, {}, "ci_no_matching_policy"),
+            ("unknown_issuer", {"iss": "https://token.ci.example.org"}, {}, "workload_issuer_not_allowed"),
+            ("wrong_audience", {"aud": "https://other.example.com"}, {}, "workload_token_invalid"),
+            ("expired", {"exp": int(time.time()) - 120, "iat": int(time.time()) - 600}, {}, "workload_token_invalid"),
+            ("recreated_repository", {"repository_id": "5678"}, {}, "workload_no_matching_policy"),
+            ("renamed_repository", {"repository": "acme/other"}, {}, "workload_no_matching_policy"),
+            ("other_ref", {"ref": "refs/heads/feature"}, {}, "workload_no_matching_policy"),
             (
                 "unknown_project",
                 {},
                 {"resource": f"{_SITE_URL}/api/projects/999999999"},
-                "ci_no_matching_policy",
+                "workload_no_matching_policy",
             ),
-            ("bad_resource", {}, {"resource": "https://evil.example.com/api/projects/1"}, "ci_invalid_request"),
+            ("bad_resource", {}, {"resource": "https://evil.example.com/api/projects/1"}, "workload_invalid_request"),
             (
                 "unsupported_token_type",
                 {},
                 {"subject_token_type": "urn:ietf:params:oauth:token-type:refresh_token"},
-                "ci_invalid_request",
+                "workload_invalid_request",
             ),
         ]
     )
@@ -196,12 +197,12 @@ class TestCITokenExchange(APIBaseTest):
 
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.json()
         assert response.json()["error"] == "temporarily_unavailable"
-        assert response.json()["error_code"] == "ci_provider_unavailable"
+        assert response.json()["error_code"] == "workload_provider_unavailable"
 
     def test_exchange_refuses_a_token_signed_by_another_key(self) -> None:
         response = self._exchange(_oidc_token(signing_key=_OTHER_KEY_PEM))
 
-        assert response.json()["error_code"] == "ci_token_invalid"
+        assert response.json()["error_code"] == "workload_token_invalid"
 
     def test_exchange_matches_only_policies_of_the_named_project(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other")
@@ -210,14 +211,22 @@ class TestCITokenExchange(APIBaseTest):
 
         response = self._exchange()
 
-        assert response.json()["error_code"] == "ci_no_matching_policy"
+        assert response.json()["error_code"] == "workload_no_matching_policy"
+
+    def test_an_environment_id_reads_like_a_project_without_a_policy(self) -> None:
+        environment = Team.objects.create(organization=self.organization, project=self.project, name="Staging")
+
+        response = self._exchange(resource=f"{_SITE_URL}/api/projects/{environment.id}")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["error_code"] == "workload_no_matching_policy"
 
     def test_exchange_points_to_a_pending_request(self) -> None:
         self.policy.delete()
-        pending = CITrustPolicyRequest.objects.for_team(self.team.id).create(
+        pending = WorkloadTrustPolicyRequest.objects.for_team(self.team.id).create(
             team=self.team,
             name="Production deploys",
-            issuer=FAKE_CI_ISSUER,
+            issuer=FAKE_WORKLOAD_ISSUER,
             repository="acme/web",
             repository_id="1234",
             ref="refs/heads/main",
@@ -226,8 +235,8 @@ class TestCITokenExchange(APIBaseTest):
 
         body = self._exchange().json()
 
-        assert body["error_code"] == "ci_policy_request_pending"
-        assert body["approval_url"] == f"{_SITE_URL}/project/{self.team.id}/ci-trust-policy-requests/{pending.pk}"
+        assert body["error_code"] == "workload_policy_request_pending"
+        assert body["approval_url"] == f"{_SITE_URL}/project/{self.team.id}/workload-trust-policy-requests/{pending.pk}"
 
     def test_the_most_specific_matching_policy_wins(self) -> None:
         self._create_policy(environment="production", scopes=["error_tracking:write"])
@@ -299,15 +308,15 @@ class TestCITokenExchange(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("list_policies", "get", "ci_trust_policies/"),
-            ("list_providers", "get", "ci_trust_policies/providers/"),
-            ("create_policy", "post", "ci_trust_policies/"),
-            ("list_requests", "get", "ci_trust_policy_requests/"),
-            ("create_request", "post", "ci_trust_policy_requests/"),
-            ("approve_request", "post", "ci_trust_policy_requests/00000000-0000-0000-0000-000000000001/approve/"),
+            ("list_policies", "get", "workload_trust_policies/"),
+            ("list_providers", "get", "workload_trust_policies/providers/"),
+            ("create_policy", "post", "workload_trust_policies/"),
+            ("list_requests", "get", "workload_trust_policy_requests/"),
+            ("create_request", "post", "workload_trust_policy_requests/"),
+            ("approve_request", "post", "workload_trust_policy_requests/00000000-0000-0000-0000-000000000001/approve/"),
         ]
     )
-    def test_ci_tokens_cannot_reach_trust_policy_endpoints(self, _name: str, method: str, path: str) -> None:
+    def test_workload_tokens_cannot_reach_trust_policy_endpoints(self, _name: str, method: str, path: str) -> None:
         token = self._access_token()
 
         response = self._call(method, f"/api/projects/{self.team.id}/{path}", token)
@@ -315,7 +324,16 @@ class TestCITokenExchange(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         assert "WWW-Authenticate" not in response
 
-    def test_project_read_hides_secrets_from_ci_tokens_but_not_personal_api_keys(self) -> None:
+    def test_workload_tokens_cannot_use_the_owners_mcp_server_installations(self) -> None:
+        self.policy.scopes = ["project:read"]
+        self.policy.save()
+        token = self._access_token()
+
+        response = self._call("get", f"/api/environments/{self.team.id}/mcp_server_installations/", token)
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    def test_project_read_hides_secrets_from_workload_tokens_but_not_personal_api_keys(self) -> None:
         self.team.secret_api_token = "phs_example_team_secret"
         self.team.save()
         self.policy.scopes = ["project:read"]
@@ -326,14 +344,14 @@ class TestCITokenExchange(APIBaseTest):
             user=self.user, label="pat", secure_value=hash_key_value(personal_key), scopes=["project:read"]
         )
 
-        ci_body = self._call("get", f"/api/projects/{self.team.id}/", token).json()
+        workload_body = self._call("get", f"/api/projects/{self.team.id}/", token).json()
         pat_body = self._call("get", f"/api/projects/{self.team.id}/", personal_key).json()
 
-        assert ci_body["api_token"] == self.team.api_token
+        assert workload_body["api_token"] == self.team.api_token
         assert not {
             "secret_api_token",
             "secret_api_token_backup",
             "heatmaps_screenshot_secret",
             "live_events_token",
-        } & set(ci_body)
+        } & set(workload_body)
         assert pat_body["secret_api_token"] == "phs_example_team_secret"

@@ -128,6 +128,20 @@ export function scopeMatchesSearch(scope: ScopeSearchFields, searchTerm: string)
     return tokens.every((token) => haystack.includes(token))
 }
 
+/**
+ * The warning a scope picker row shows for a risky scope at the picked level. The backend owns the list of
+ * risky scopes and their wording. Write access includes read, so a write pick also shows the read warning.
+ */
+export const riskyScopeWarning = (
+    scopeObject: string,
+    level: ScopeAccessLevel,
+    riskyScopes: Record<string, string>
+): string | undefined => {
+    const actions: APIScopeAction[] = level === 'write' ? ['write', 'read'] : level === 'read' ? ['read'] : []
+    const warnings = actions.map((action) => riskyScopes[`${scopeObject}:${action}`]).filter(Boolean)
+    return warnings.length > 0 ? `Add with care: ${warnings.join(' ')}` : undefined
+}
+
 // Scopes whose write action also writes a feature flag as a side effect (survey targeting flag,
 // early access feature linked flag), so they imply `feature_flag:write`. Single source of truth for
 // both the picker warning (attached below) and the auto-select in personalAPIKeysLogic, so the rule
@@ -152,16 +166,16 @@ export const API_SCOPES: APIScope[] = [
     { key: 'business_knowledge', objectName: 'Business knowledge', objectPlural: 'business knowledge' },
     { key: 'canvas', objectName: 'Canvas', objectPlural: 'canvases' },
     {
-        key: 'ci_trust_policy',
-        objectName: 'CI trust policy',
-        objectPlural: 'CI trust policies',
+        key: 'workload_trust_policy',
+        objectName: 'Workload trust policy',
+        objectPlural: 'workload trust policies',
         disabledActions: ['write'],
     },
     {
-        key: 'ci_trust_policy_request',
-        objectName: 'CI trust policy request',
-        objectPlural: 'CI trust policy requests',
-        info: 'Write access lets the key ask an organization admin for a CI trust policy. A request grants nothing until an admin approves it.',
+        key: 'workload_trust_policy_request',
+        objectName: 'Workload trust policy request',
+        objectPlural: 'workload trust policy requests',
+        info: 'Write access lets the key ask an organization admin for a workload trust policy. A request grants nothing until an admin approves it.',
     },
     { key: 'cohort', objectName: 'Cohort', objectPlural: 'cohorts' },
     { key: 'comment', objectName: 'Comment', objectPlural: 'comments' },
@@ -674,8 +688,8 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'organization',
             'organization_member',
             'project',
-            'ci_trust_policy',
-            'ci_trust_policy_request',
+            'workload_trust_policy',
+            'workload_trust_policy_request',
             'user',
             'billing',
             'access_control',

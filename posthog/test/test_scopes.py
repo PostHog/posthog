@@ -6,8 +6,6 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.models.ci_trust_policy import CI_TRUST_POLICY_DENIED_SCOPES
-from posthog.models.ci_trust_policy_scopes import CI_TRUST_POLICY_ALLOWED_SCOPES
 from posthog.scopes import (
     ALL_SCOPES,
     ALWAYS_ALLOWED_SCOPES,
@@ -19,6 +17,7 @@ from posthog.scopes import (
     OAUTH_SCOPES_HIDDEN,
     PRIVILEGED_SCOPES,
     PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION,
+    RISKY_SCOPE_WARNINGS,
     UNPRIVILEGED_SCOPES,
     clamp_scopes_to_ceiling,
     downgrade_scopes_to_read_only,
@@ -554,17 +553,8 @@ class TestProjectSecretAPIKeyScopeParity(SimpleTestCase):
         assert frontend_scopes == backend_scopes
 
 
-class TestCITrustPolicyScopeClassification(SimpleTestCase):
-    def test_every_grantable_scope_is_classified_for_ci_trust_policies(self) -> None:
-        unclassified = sorted(UNPRIVILEGED_SCOPES - CI_TRUST_POLICY_ALLOWED_SCOPES - CI_TRUST_POLICY_DENIED_SCOPES)
-        in_both = sorted(CI_TRUST_POLICY_ALLOWED_SCOPES & CI_TRUST_POLICY_DENIED_SCOPES)
-        stale = sorted(CI_TRUST_POLICY_ALLOWED_SCOPES - UNPRIVILEGED_SCOPES)
+class TestRiskyScopeWarnings(SimpleTestCase):
+    def test_every_risky_scope_warning_names_a_grantable_scope(self) -> None:
+        stale = sorted(set(RISKY_SCOPE_WARNINGS) - UNPRIVILEGED_SCOPES)
 
-        assert not unclassified, (
-            f"Decide whether a CI job may hold {unclassified}. A CI token acts as the organization owner. "
-            "Add each scope to CI_TRUST_POLICY_ALLOWED_SCOPES (posthog/models/ci_trust_policy_scopes.py) if it "
-            "neither mints nor rotates a credential nor manages access, otherwise to CI_TRUST_POLICY_DENIED_SCOPES "
-            "(posthog/models/ci_trust_policy.py)."
-        )
-        assert not in_both, f"{in_both} are both allowed and denied for CI trust policies. Keep one."
-        assert not stale, f"{stale} are allowed for CI trust policies but no longer grantable. Remove them."
+        assert not stale, f"{stale} have a risky-scope warning but are no longer grantable. Remove them."

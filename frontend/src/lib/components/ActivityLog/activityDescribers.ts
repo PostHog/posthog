@@ -9,13 +9,13 @@ export type ActivityDescriberLoader = () => Promise<Describer>
 const coreActivityDescribers: Partial<Record<ActivityScope, ActivityDescriberLoader>> = {
     [ActivityScope.BILLING]: () =>
         import('scenes/billing/activityDescriptions').then((m) => m.billingActivityDescriber),
-    [ActivityScope.CI_TRUST_POLICY]: () =>
-        import('scenes/settings/project/ciTrustPolicyActivityDescriptions').then(
-            (m) => m.ciTrustPolicyActivityDescriber
+    [ActivityScope.WORKLOAD_TRUST_POLICY]: () =>
+        import('scenes/settings/project/workloadTrustPolicyActivityDescriptions').then(
+            (m) => m.workloadTrustPolicyActivityDescriber
         ),
-    [ActivityScope.CI_TRUST_POLICY_REQUEST]: () =>
-        import('scenes/settings/project/ciTrustPolicyActivityDescriptions').then(
-            (m) => m.ciTrustPolicyRequestActivityDescriber
+    [ActivityScope.WORKLOAD_TRUST_POLICY_REQUEST]: () =>
+        import('scenes/settings/project/workloadTrustPolicyActivityDescriptions').then(
+            (m) => m.workloadTrustPolicyRequestActivityDescriber
         ),
     [ActivityScope.INSTANCE_SETTING]: () =>
         import('./activityDescriptions/instanceSettingActivityDescriber').then(

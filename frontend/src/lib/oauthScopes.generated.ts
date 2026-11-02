@@ -40,10 +40,6 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'business_knowledge:write',
     'canvas:read',
     'canvas:write',
-    'ci_trust_policy:read',
-    'ci_trust_policy:write',
-    'ci_trust_policy_request:read',
-    'ci_trust_policy_request:write',
     'cohort:read',
     'cohort:write',
     'comment:read',
@@ -244,6 +240,10 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'web_analytics:write',
     'webhook:read',
     'webhook:write',
+    'workload_trust_policy:read',
+    'workload_trust_policy:write',
+    'workload_trust_policy_request:read',
+    'workload_trust_policy_request:write',
 ] as const
 
 export type OAuthScope = (typeof OAUTH_SCOPES_SUPPORTED)[number]

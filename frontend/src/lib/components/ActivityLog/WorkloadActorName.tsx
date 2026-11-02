@@ -2,18 +2,18 @@ import { Link } from 'lib/lemon-ui/Link'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
-import { CIAttribution, ciActorLabel } from './parseCIAttribution'
+import { WorkloadAttribution, workloadActorLabel } from './parseWorkloadAttribution'
 
-/** The CI job that made a change, in place of the organization owner its token acts as. */
-export function CIActorName({
+/** The workload that made a change, in place of the organization owner its token acts as. */
+export function WorkloadActorName({
     attribution,
     teamId,
 }: {
-    attribution: CIAttribution
+    attribution: WorkloadAttribution
     /** The entry's project, which can differ from the current one in the organization audit log. */
     teamId?: number | null
 }): JSX.Element {
-    const label = ciActorLabel(attribution)
+    const label = workloadActorLabel(attribution)
     return (
         <span className="ph-no-capture">
             {attribution.runUrl ? (
@@ -27,7 +27,7 @@ export function CIActorName({
                 <>
                     <span>, through trust policy </span>
                     <Link
-                        to={addProjectIdIfMissing(urls.settings('environment-ci-trust-policies'), teamId ?? undefined)}
+                        to={addProjectIdIfMissing(urls.settings('environment-trusted-workloads'), teamId ?? undefined)}
                     >
                         <em>{attribution.policyName}</em>
                     </Link>

@@ -297,17 +297,17 @@ export const NarrowAcrossProducts: Story = {
     ],
 }
 
-export const CIJobChange: Story = {
+export const WorkloadChange: Story = {
     args: {
         logItem: humanize(
             [
                 {
                     ...dashboardEvents[0],
-                    client: 'ci:acme/web',
+                    client: 'workload:acme/web',
                     detail: {
                         ...dashboardEvents[0].detail,
                         trigger: {
-                            job_type: 'ci',
+                            job_type: 'workload',
                             job_id: '1234',
                             payload: {
                                 provider_name: 'Example CI',

@@ -28,7 +28,7 @@ class AccessMethod(StrEnum):
     OAUTH = "oauth"
     SHARING_TOKEN = "sharing_token"
     ID_JAG = "id_jag"
-    OIDC_CI = "oidc_ci"
+    OIDC_WORKLOAD = "oidc_workload"
     PROJECT_SECRET_API_KEY = "project_secret_api_key"
     TEAM_SECRET_TOKEN = "team_secret_token"
 

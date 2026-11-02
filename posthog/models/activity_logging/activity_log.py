@@ -102,8 +102,8 @@ ActivityScope = Literal[
     "PersonalAPIKey",
     "ProjectSecretAPIKey",
     "OAuthApplication",
-    "CITrustPolicy",
-    "CITrustPolicyRequest",
+    "WorkloadTrustPolicy",
+    "WorkloadTrustPolicyRequest",
     "User",
     "Action",
     "AccountView",
@@ -1461,9 +1461,9 @@ def _handle_activity_log_transaction(
 # The frontend matches on this job type to render the job id as a link to a sandbox task.
 # Product triggers (`hog_flow`, `canvas_action`) carry job ids that point elsewhere.
 AGENT_TRIGGER_JOB_TYPE = "agent"
-# A row written with a CI access token. The frontend shows the CI job as the actor instead of the
+# A row written with a workload access token. The frontend shows the CI job as the actor instead of the
 # organization owner the token acts as. `job_id` is the CI run id.
-CI_TRIGGER_JOB_TYPE = "ci"
+WORKLOAD_TRIGGER_JOB_TYPE = "workload"
 
 
 def agent_trigger() -> Optional[Trigger]:

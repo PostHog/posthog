@@ -105,8 +105,8 @@ rules:
                               |BatchImport
                               |BriefConfig
                               |ButtonTile
-                              |CITrustPolicy
-                              |CITrustPolicyRequest
+                              |WorkloadTrustPolicy
+                              |WorkloadTrustPolicyRequest
                               |Canvas
                               |CanvasBuild
                               |CanvasHomePreference
@@ -615,8 +615,8 @@ rules:
                         |BatchImport
                         |BriefConfig
                         |ButtonTile
-                        |CITrustPolicy
-                        |CITrustPolicyRequest
+                        |WorkloadTrustPolicy
+                        |WorkloadTrustPolicyRequest
                         |Canvas
                         |CanvasBuild
                         |CanvasHomePreference

@@ -2,13 +2,14 @@ import { Meta, StoryObj } from '@storybook/react'
 
 import { useStorybookMocks } from '~/mocks/browser'
 
-import { CITrustPolicyRequestScene } from './CITrustPolicyRequestScene'
+import { WorkloadTrustPolicyRequestScene } from './WorkloadTrustPolicyRequestScene'
 
 const meta: Meta = {
-    title: 'Scenes-Other/CI trust policy request',
-    component: CITrustPolicyRequestScene,
+    title: 'Scenes-Other/Trusted workload request',
+    component: WorkloadTrustPolicyRequestScene,
     parameters: {
         mockDate: '2026-10-02T10:00:00Z',
+        layout: 'fullscreen',
         testOptions: { snapshotBrowsers: [] },
     },
 }
@@ -26,9 +27,12 @@ const policyRequest = {
     repository_id: '123456',
     ref: 'refs/heads/main',
     environment: '',
-    scopes: ['annotation:write', 'error_tracking:write'],
+    scopes: ['annotation:write', 'error_tracking:write', 'organization_member:write'],
+    risky_scopes: {
+        'organization_member:write': 'Invites and removes organization members and changes their roles.',
+    },
     status: 'pending',
-    approval_url: 'http://localhost:8010/project/1/ci-trust-policy-requests/request-1',
+    approval_url: 'http://localhost:8010/project/1/workload-trust-policy-requests/request-1',
     requested_by: { id: 2, uuid: 'requester', first_name: 'Riley', last_name: 'Member', email: 'riley@example.com' },
     requested_via: 'hog',
     requested_via_verified: true,
@@ -42,10 +46,10 @@ const policyRequest = {
 function renderWith(overrides: Record<string, unknown>): JSX.Element {
     useStorybookMocks({
         get: {
-            '/api/projects/:team_id/ci_trust_policy_requests/:id/': { ...policyRequest, ...overrides },
+            '/api/projects/:team_id/workload_trust_policy_requests/:id/': { ...policyRequest, ...overrides },
         },
     })
-    return <CITrustPolicyRequestScene id="request-1" />
+    return <WorkloadTrustPolicyRequestScene id="request-1" />
 }
 
 export const PendingForAnAdmin: Story = {

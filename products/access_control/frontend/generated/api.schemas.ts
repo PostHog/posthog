@@ -59,8 +59,6 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `billing` - billing
  * * `business_knowledge` - business_knowledge
  * * `canvas` - canvas
- * * `ci_trust_policy` - ci_trust_policy
- * * `ci_trust_policy_request` - ci_trust_policy_request
  * * `cohort` - cohort
  * * `comment` - comment
  * * `conversation` - conversation
@@ -165,6 +163,8 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `webhook` - webhook
  * * `wizard_session` - wizard_session
  * * `wizard_run` - wizard_run
+ * * `workload_trust_policy` - workload_trust_policy
+ * * `workload_trust_policy_request` - workload_trust_policy_request
  */
 export type ScopeObjectEnumApi = (typeof ScopeObjectEnumApi)[keyof typeof ScopeObjectEnumApi]
 
@@ -183,8 +183,6 @@ export const ScopeObjectEnumApi = {
     Billing: 'billing',
     BusinessKnowledge: 'business_knowledge',
     Canvas: 'canvas',
-    CiTrustPolicy: 'ci_trust_policy',
-    CiTrustPolicyRequest: 'ci_trust_policy_request',
     Cohort: 'cohort',
     Comment: 'comment',
     Conversation: 'conversation',
@@ -289,6 +287,8 @@ export const ScopeObjectEnumApi = {
     Webhook: 'webhook',
     WizardSession: 'wizard_session',
     WizardRun: 'wizard_run',
+    WorkloadTrustPolicy: 'workload_trust_policy',
+    WorkloadTrustPolicyRequest: 'workload_trust_policy_request',
 } as const
 
 /**
@@ -330,8 +330,6 @@ export interface ProjectAccessSourceApi {
      * * `billing` - billing
      * * `business_knowledge` - business_knowledge
      * * `canvas` - canvas
-     * * `ci_trust_policy` - ci_trust_policy
-     * * `ci_trust_policy_request` - ci_trust_policy_request
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
@@ -435,7 +433,9 @@ export interface ProjectAccessSourceApi {
      * * `web_analytics` - web_analytics
      * * `webhook` - webhook
      * * `wizard_session` - wizard_session
-     * * `wizard_run` - wizard_run */
+     * * `wizard_run` - wizard_run
+     * * `workload_trust_policy` - workload_trust_policy
+     * * `workload_trust_policy_request` - workload_trust_policy_request */
     source_resource: ScopeObjectEnumApi
     /**
      * The deciding rule's object id, when it is an object-level rule (e.g. the source a table inherits from).
@@ -497,8 +497,6 @@ export interface AccessControlObjectRuleApi {
      * * `billing` - billing
      * * `business_knowledge` - business_knowledge
      * * `canvas` - canvas
-     * * `ci_trust_policy` - ci_trust_policy
-     * * `ci_trust_policy_request` - ci_trust_policy_request
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
@@ -602,7 +600,9 @@ export interface AccessControlObjectRuleApi {
      * * `web_analytics` - web_analytics
      * * `webhook` - webhook
      * * `wizard_session` - wizard_session
-     * * `wizard_run` - wizard_run */
+     * * `wizard_run` - wizard_run
+     * * `workload_trust_policy` - workload_trust_policy
+     * * `workload_trust_policy_request` - workload_trust_policy_request */
     resource: ScopeObjectEnumApi
     /** The object's primary key. */
     resource_id: string
@@ -889,8 +889,6 @@ export interface AccessControlObjectRuleResourceApi {
      * * `billing` - billing
      * * `business_knowledge` - business_knowledge
      * * `canvas` - canvas
-     * * `ci_trust_policy` - ci_trust_policy
-     * * `ci_trust_policy_request` - ci_trust_policy_request
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
@@ -994,7 +992,9 @@ export interface AccessControlObjectRuleResourceApi {
      * * `web_analytics` - web_analytics
      * * `webhook` - webhook
      * * `wizard_session` - wizard_session
-     * * `wizard_run` - wizard_run */
+     * * `wizard_run` - wizard_run
+     * * `workload_trust_policy` - workload_trust_policy
+     * * `workload_trust_policy_request` - workload_trust_policy_request */
     resource: ScopeObjectEnumApi
     /** The levels an object rule on this resource type accepts, lowest first. */
     available_access_levels: string[]
@@ -1178,8 +1178,6 @@ export interface ResolvedAccessApi {
      * * `billing` - billing
      * * `business_knowledge` - business_knowledge
      * * `canvas` - canvas
-     * * `ci_trust_policy` - ci_trust_policy
-     * * `ci_trust_policy_request` - ci_trust_policy_request
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
@@ -1283,7 +1281,9 @@ export interface ResolvedAccessApi {
      * * `web_analytics` - web_analytics
      * * `webhook` - webhook
      * * `wizard_session` - wizard_session
-     * * `wizard_run` - wizard_run */
+     * * `wizard_run` - wizard_run
+     * * `workload_trust_policy` - workload_trust_policy
+     * * `workload_trust_policy_request` - workload_trust_policy_request */
     source_resource: ScopeObjectEnumApi
     /**
      * The deciding rule's object id, when it is an object-level rule (e.g. the source a table inherits from).

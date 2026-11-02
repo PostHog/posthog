@@ -3,6 +3,7 @@ import hmac
 import time
 import logging
 import functools
+import dataclasses
 from abc import abstractmethod
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, ClassVar, Optional, TypedDict, Union
@@ -39,21 +40,14 @@ from posthog.helpers.verified_domain_enforcement import enforce_verified_domain
 from posthog.ingress.verify.schemes import hmac_sha256_signature, signatures_match
 from posthog.internal_api_secret import usable_internal_api_secrets
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt, get_oidc_verification_keys
-from posthog.models.activity_logging.activity_log import CI_TRIGGER_JOB_TYPE, Trigger
+from posthog.models.activity_logging.activity_log import WORKLOAD_TRIGGER_JOB_TYPE, Trigger
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CLIENT_MAX_LENGTH,
-    CI_CLIENT_PREFIX,
+    WORKLOAD_CLIENT_PREFIX,
     ActivityCredentialMixin,
     DeclaredCredentialType,
     activity_storage,
     record_agent_intent,
-)
-from posthog.models.ci_trust_policy import (
-    CITrustPolicy,
-    ci_trust_policies_settings_url,
-    ci_trust_policy_active_cache_key,
-    ci_trust_policy_grantable_scopes,
-    ci_trust_policy_version,
 )
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
 from posthog.models.organization import Organization, OrganizationMembership
@@ -74,6 +68,13 @@ from posthog.models.utils import (
     hash_key_value,
 )
 from posthog.models.webauthn_credential import WebauthnCredential
+from posthog.models.workload_trust_policy import (
+    WorkloadTrustPolicy,
+    workload_trust_policies_settings_url,
+    workload_trust_policy_active_cache_key,
+    workload_trust_policy_grantable_scopes,
+    workload_trust_policy_version,
+)
 from posthog.passkey import verify_passkey_authentication_response
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
 from posthog.shared_link_user import SharedLinkUser
@@ -806,37 +807,37 @@ class IDJagAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
         return self.keyword
 
 
-# The `typ` header of a CI access token. A distinct value keeps the ID-JAG authenticator, which
+# The `typ` header of a workload access token. A distinct value keeps the ID-JAG authenticator, which
 # only takes `at+jwt`, from ever accepting one, and lets this class skip every other JWT.
-CI_ACCESS_TOKEN_TYPE = "posthog-ci+jwt"
-CI_TRUST_POLICY_ACTIVE_CACHE_SECONDS = 10
+WORKLOAD_ACCESS_TOKEN_TYPE = "posthog-workload+jwt"
+WORKLOAD_TRUST_POLICY_ACTIVE_CACHE_SECONDS = 10
 
 
 @frozen
-class VerifiedCIAccessToken:
+class VerifiedWorkloadAccessToken:
     user: User
     organization_id: str
     team_id: int
     policy_id: str
     policy_name: str
     scopes: list[str]
-    ci_claims: dict[str, str]
+    workload_claims: dict[str, str]
 
 
-class CIAccessTokenAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
+class WorkloadAccessTokenAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
     """
     Authenticates API requests made with the short-lived token a CI job gets by exchanging its
-    provider's OIDC token under a CI trust policy (`posthog.api.oauth.ci_token_exchange`).
+    provider's OIDC token under a workload trust policy (`posthog.workload_identity.token_exchange`).
 
     The token is a stateless JWT signed with the OIDC key. It acts as the organization owner the
     exchange resolved, pinned to one project and to the policy's scope ceiling. Every request checks
     that the owner is still an owner and that the policy is still enabled and unchanged since the token
     was minted, so disabling or editing a policy cuts its tokens off within
-    `CI_TRUST_POLICY_ACTIVE_CACHE_SECONDS`.
+    `WORKLOAD_TRUST_POLICY_ACTIVE_CACHE_SECONDS`.
     """
 
     keyword = "Bearer"
-    activity_credential_type = "oidc_ci"
+    activity_credential_type = "oidc_workload"
 
     scopes: list[str]
     organization_id: str
@@ -845,46 +846,48 @@ class CIAccessTokenAuthentication(ActivityCredentialMixin, authentication.BaseAu
 
     @classmethod
     def is_ci_token(cls, token: str) -> bool:
-        return _is_signed_jwt_of_type(token, CI_ACCESS_TOKEN_TYPE)
+        return _is_signed_jwt_of_type(token, WORKLOAD_ACCESS_TOKEN_TYPE)
 
     def insufficient_scope_error(self, view: Any, required_scopes: list[str], missing_scopes: list[str]) -> Exception:
-        """What `APIScopePermission` raises when this token lacks a scope. A CI token always gets the
+        """What `APIScopePermission` raises when this token lacks a scope. A workload token always gets the
         standard challenge, because hog reads the scopes from it to tell the user what to add to the
         trust policy. A scope no policy may grant gets a plain 403 instead, so the user is never told to
         add something an admin cannot add."""
-        not_grantable = set(missing_scopes) - ci_trust_policy_grantable_scopes()
+        not_grantable = set(missing_scopes) - workload_trust_policy_grantable_scopes()
         if not_grantable:
             return PermissionDenied(
-                f"CI tokens can't use this endpoint: it needs {', '.join(sorted(not_grantable))}, "
-                "which a CI trust policy can't grant."
+                f"Workload tokens can't use this endpoint: it needs {', '.join(sorted(not_grantable))}, "
+                "which a workload trust policy can't grant."
             )
         return InsufficientScope(
-            f"This CI token's trust policy doesn't grant {', '.join(missing_scopes)}. "
+            f"This workload token's trust policy doesn't grant {', '.join(missing_scopes)}. "
             "Ask an organization admin to add the missing scopes to the policy.",
             required_scopes=required_scopes,
-            extra={"missing_scopes": missing_scopes, "policy_url": ci_trust_policies_settings_url(self.team_id)},
+            extra={"missing_scopes": missing_scopes, "policy_url": workload_trust_policies_settings_url(self.team_id)},
         )
 
     @staticmethod
     def _active_policy_version(team_id: int, policy_id: str) -> str:
         """The enabled policy's version, or an empty string when it is disabled or gone."""
-        cache_key = ci_trust_policy_active_cache_key(policy_id)
+        cache_key = workload_trust_policy_active_cache_key(policy_id)
         # The cache only spares a query, so a cache outage falls back to the database.
         cached = get_safe_cache(cache_key)
         if cached is not None:
             return cached
         # The exchange only mints tokens for a project's own team, so the id is already canonical.
-        policy = CITrustPolicy.objects.for_team(team_id, canonical=True).filter(pk=policy_id, enabled=True).first()
-        version = ci_trust_policy_version(policy) if policy else ""
-        safe_cache_set(cache_key, version, CI_TRUST_POLICY_ACTIVE_CACHE_SECONDS)
+        policy = (
+            WorkloadTrustPolicy.objects.for_team(team_id, canonical=True).filter(pk=policy_id, enabled=True).first()
+        )
+        version = workload_trust_policy_version(policy) if policy else ""
+        safe_cache_set(cache_key, version, WORKLOAD_TRUST_POLICY_ACTIVE_CACHE_SECONDS)
         return version
 
     @classmethod
-    def verify_access_token(cls, token: str) -> VerifiedCIAccessToken:
+    def verify_access_token(cls, token: str) -> VerifiedWorkloadAccessToken:
         verification_keys = get_oidc_verification_keys()
         site_url = (settings.SITE_URL or "").rstrip("/")
         if not verification_keys or not site_url:
-            raise AuthenticationFailed(detail="CI access tokens are not configured on this server.")
+            raise AuthenticationFailed(detail="Workload access tokens are not configured on this server.")
 
         claims = None
         for verification_key in verification_keys:
@@ -905,20 +908,20 @@ class CIAccessTokenAuthentication(ActivityCredentialMixin, authentication.BaseAu
             except jwt.InvalidSignatureError:
                 continue
             except jwt.ExpiredSignatureError:
-                raise AuthenticationFailed(detail="CI access token has expired. Exchange a new OIDC token.")
+                raise AuthenticationFailed(detail="Workload access token has expired. Exchange a new OIDC token.")
             except jwt.PyJWTError:
-                raise AuthenticationFailed(detail="CI access token is invalid.")
+                raise AuthenticationFailed(detail="Workload access token is invalid.")
         if claims is None:
-            raise AuthenticationFailed(detail="CI access token is invalid.")
+            raise AuthenticationFailed(detail="Workload access token is invalid.")
 
         team_id = claims["team_id"]
         if not isinstance(team_id, int):
-            raise AuthenticationFailed(detail="CI access token is invalid.")
+            raise AuthenticationFailed(detail="Workload access token is invalid.")
         policy_id = str(claims["policy_id"])
         active_version = cls._active_policy_version(team_id, policy_id)
         if not active_version or active_version != str(claims.get("policy_version") or ""):
             raise AuthenticationFailed(
-                detail="The CI trust policy behind this token was changed, disabled or deleted. Exchange a new OIDC token."
+                detail="The workload trust policy behind this token was changed, disabled or deleted. Exchange a new OIDC token."
             )
 
         # The token acts as an owner, so it stops working as soon as that user leaves the
@@ -934,67 +937,81 @@ class CIAccessTokenAuthentication(ActivityCredentialMixin, authentication.BaseAu
             .first()
         )
         if membership is None:
-            raise AuthenticationFailed(detail="The organization owner this CI token acts as is no longer an owner.")
+            raise AuthenticationFailed(
+                detail="The organization owner this workload token acts as is no longer an owner."
+            )
 
-        raw_ci_claims = claims.get("ci")
-        ci_claims = raw_ci_claims if isinstance(raw_ci_claims, dict) else {}
-        return VerifiedCIAccessToken(
+        raw_workload_claims = claims.get("workload")
+        workload_claims = raw_workload_claims if isinstance(raw_workload_claims, dict) else {}
+        return VerifiedWorkloadAccessToken(
             user=membership.user,
             organization_id=str(claims["org_id"]),
             team_id=team_id,
             policy_id=policy_id,
             policy_name=str(claims.get("policy_name") or ""),
             scopes=str(claims["scope"]).split(),
-            ci_claims={str(key): str(value) for key, value in ci_claims.items()},
+            workload_claims={str(key): str(value) for key, value in workload_claims.items()},
         )
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
-        with tracer.start_as_current_span("posthog.auth.oidc_ci"):
+        with tracer.start_as_current_span("posthog.auth.oidc_workload"):
             token = _bearer_token(request)
             if not token or not self.is_ci_token(token):
                 return None
 
             verified = self.verify_access_token(token)
-            refuse_blocked_account(request, verified.user, call_site="oidc_ci_token", impersonated=False)
+            refuse_blocked_account(request, verified.user, call_site="oidc_workload_token", impersonated=False)
             self.scopes = verified.scopes
             self.organization_id = verified.organization_id
             self.team_id = verified.team_id
             self.policy_id = verified.policy_id
 
-            tag_authentication(user_id=verified.user.pk, team_id=verified.team_id, access_method=AccessMethod.OIDC_CI)
+            tag_authentication(
+                user_id=verified.user.pk, team_id=verified.team_id, access_method=AccessMethod.OIDC_WORKLOAD
+            )
             self.record_activity_actor(verified.user, verified.policy_id)
-            self._record_ci_job(verified)
+            self._record_workload(verified)
             return verified.user, None
 
     @staticmethod
-    def _record_ci_job(verified: VerifiedCIAccessToken) -> None:
-        """Put the CI job on every activity row this request writes, so the row renders a CI actor
-        after the token is gone, and can be filtered by the client tag."""
+    def _record_workload(verified: VerifiedWorkloadAccessToken) -> None:
+        """Put the workload on every activity row this request writes, so the row names the workload as
+        the actor after the token is gone, and can be filtered by the client tag."""
         if not activity_storage.is_request_scoped():
             return
-        claims = verified.ci_claims
+        claims = verified.workload_claims
         repository = claims.get("repository", "")
         if repository:
-            activity_storage.set_client(f"{CI_CLIENT_PREFIX}{repository}"[:ACTIVITY_LOG_CLIENT_MAX_LENGTH])
+            activity_storage.set_client(f"{WORKLOAD_CLIENT_PREFIX}{repository}"[:ACTIVITY_LOG_CLIENT_MAX_LENGTH])
 
-        def ci_trigger() -> Trigger:
+        def workload_trigger() -> Trigger:
             # Deferred because `posthog.api.oauth` imports its views, which import this module.
-            from posthog.api.oauth.ci_providers import get_ci_provider_by_key  # noqa: PLC0415
+            from posthog.workload_identity.providers import (  # noqa: PLC0415
+                WorkloadClaimMapping,
+                get_workload_provider_by_key,
+            )
 
             provider_key = claims.get("provider", "")
-            provider = get_ci_provider_by_key(provider_key)
+            provider = get_workload_provider_by_key(provider_key)
             run_id = claims.get("run_id", "")
             run_url = (
                 provider.run_url_template.format(repository=repository, run_id=run_id)
                 if provider and provider.run_url_template and repository and run_id
                 else None
             )
+            label_fields = {
+                field.name: str(claims.get(field.name) or "") for field in dataclasses.fields(WorkloadClaimMapping)
+            }
+            actor_label = (provider.actor_label_template.format_map(label_fields) if provider else repository).strip(
+                " ·"
+            )
             return Trigger(
-                job_type=CI_TRIGGER_JOB_TYPE,
+                job_type=WORKLOAD_TRIGGER_JOB_TYPE,
                 job_id=run_id,
                 payload={
                     "provider": provider_key,
                     "provider_name": provider.name if provider else provider_key,
+                    "actor_label": actor_label,
                     "repository": repository,
                     "workflow": claims.get("workflow", ""),
                     "run_id": run_id,
@@ -1007,7 +1024,7 @@ class CIAccessTokenAuthentication(ActivityCredentialMixin, authentication.BaseAu
                 },
             )
 
-        activity_storage.set_verified_trigger_resolver(ci_trigger)
+        activity_storage.set_verified_trigger_resolver(workload_trigger)
 
     def authenticate_header(self, request) -> str:
         return self.keyword

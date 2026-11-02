@@ -1,10 +1,12 @@
 import type { ActivityLogItem } from './humanizeActivity'
 
-// Matches CI_TRIGGER_JOB_TYPE in posthog/models/activity_logging/activity_log.py.
-const CI_TRIGGER_JOB_TYPE = 'ci'
+// Matches WORKLOAD_TRIGGER_JOB_TYPE in posthog/models/activity_logging/activity_log.py.
+const WORKLOAD_TRIGGER_JOB_TYPE = 'workload'
 
-export interface CIAttribution {
+export interface WorkloadAttribution {
     providerName: string
+    /** How the provider names the workload, for example "acme/web · deploy.yml run 1234". */
+    actorLabel: string | null
     repository: string
     workflow: string | null
     runId: string | null
@@ -17,10 +19,10 @@ function stringField(payload: Record<string, unknown>, key: string): string | nu
     return typeof value === 'string' && value ? value : null
 }
 
-/** The CI job that made the change, when the row was written with a CI access token. */
-export function parseCIAttribution(logItem: Pick<ActivityLogItem, 'detail'>): CIAttribution | null {
+/** The workload that made the change, when the row was written with a workload access token. */
+export function parseWorkloadAttribution(logItem: Pick<ActivityLogItem, 'detail'>): WorkloadAttribution | null {
     const trigger = logItem.detail?.trigger
-    if (trigger?.job_type !== CI_TRIGGER_JOB_TYPE) {
+    if (trigger?.job_type !== WORKLOAD_TRIGGER_JOB_TYPE) {
         return null
     }
     const payload = (trigger.payload ?? {}) as Record<string, unknown>
@@ -30,7 +32,8 @@ export function parseCIAttribution(logItem: Pick<ActivityLogItem, 'detail'>): CI
     }
     const runUrl = stringField(payload, 'run_url')
     return {
-        providerName: stringField(payload, 'provider_name') ?? stringField(payload, 'provider') ?? 'CI',
+        providerName: stringField(payload, 'provider_name') ?? stringField(payload, 'provider') ?? 'Workload',
+        actorLabel: stringField(payload, 'actor_label'),
         repository,
         workflow: stringField(payload, 'workflow'),
         runId: stringField(payload, 'run_id'),
@@ -41,7 +44,10 @@ export function parseCIAttribution(logItem: Pick<ActivityLogItem, 'detail'>): CI
 }
 
 /** For example "GitHub Actions · acme/web · deploy.yml run 1234". */
-export function ciActorLabel(attribution: CIAttribution): string {
+export function workloadActorLabel(attribution: WorkloadAttribution): string {
+    if (attribution.actorLabel) {
+        return `${attribution.providerName} · ${attribution.actorLabel}`
+    }
     const run = [attribution.workflow, attribution.runId ? `run ${attribution.runId}` : null].filter(Boolean).join(' ')
     return [attribution.providerName, attribution.repository, run].filter(Boolean).join(' · ')
 }

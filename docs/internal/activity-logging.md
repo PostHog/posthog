@@ -202,14 +202,14 @@ The request thread only appends to an in-process queue; a background thread writ
 When the payload also sets `mcp_render_enabled`, the activity summary build reads the buffer and renders one line per MCP session in the summary input.
 A failed read gives an empty section and sets `mcp_read_error` in the build's `inputs_used`; it never fails the build.
 
-### CI writes
+### Workload writes
 
-A row written with a CI access token (credential type `oidc_ci`) records the CI job on the row itself, so it renders after the token expires.
-When the product passes no trigger of its own, `log_activity` fills it with `Trigger(job_type="ci", job_id=<run id>, payload=...)`.
+A row written with a workload access token (credential type `oidc_workload`) records the workload on the row itself, so it renders after the token expires.
+When the product passes no trigger of its own, `log_activity` fills it with `Trigger(job_type="workload", job_id=<run id>, payload=...)`.
 The payload holds the provider, repository, workflow, run id and link, commit sha, ref, environment, and the trust policy's id and name.
-A CI trigger comes before an agent trigger, because the server verified the CI job and agent intent is a claim.
-The row also gets the server-derived client tag `ci:<repository>`, and the API drops an `x-posthog-client` header that claims the `ci:` prefix.
-The activity log names the CI job as the actor, linked to its run and its trust policy, instead of the organization owner the token acts as.
+A workload trigger comes before an agent trigger, because the server verified the workload and agent intent is a claim.
+The row also gets the server-derived client tag `workload:<repository>`, and the API drops an `x-posthog-client` header that claims the `workload:` prefix.
+The activity log names the workload as the actor, using its provider's actor label, linked to its run and its trust policy, instead of the organization owner the token acts as.
 Filter these rows with the client filter, or with a detail filter on `trigger.payload.repository`.
 
 ### Client IP
@@ -252,7 +252,7 @@ Unlike `client`, they are evidence of which credential made a change.
 | `project_secret_key`     | none                        | the key id                                                                                                               |
 | `team_secret_token`      | none                        | none                                                                                                                     |
 | `id_jag`                 | the token user              | the `client_id` claim                                                                                                    |
-| `oidc_ci`                | the owner the token acts as | the CI trust policy id                                                                                                   |
+| `oidc_workload`                | the owner the token acts as | the workload trust policy id                                                                                                   |
 | `internal_jwt`           | the token user              | none                                                                                                                     |
 | `service_jwt`            | none                        | the audience of the scoped service JWT                                                                                   |
 | `internal_api_secret`    | none                        | none                                                                                                                     |

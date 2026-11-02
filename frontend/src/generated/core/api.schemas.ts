@@ -4712,260 +4712,6 @@ export interface EventIngestionRestrictionApi {
     pipelines: IngestionPipelineEnumApi[]
 }
 
-export interface CITrustPolicyApi {
-    readonly id: string
-    /**
-     * A name that says what the policy is for.
-     * @maxLength 200
-     */
-    name: string
-    /**
-     * The OIDC issuer of the CI provider, from the list of supported providers.
-     * @maxLength 255
-     */
-    issuer: string
-    /**
-     * The key of the CI provider the issuer belongs to.
-     * @nullable
-     */
-    readonly provider: string | null
-    /**
-     * The repository's full name, for example `acme/web`. Matched exactly.
-     * @maxLength 255
-     */
-    repository: string
-    /**
-     * The repository's immutable ID from the CI provider. Matched together with the name, so a deleted and re-created repository with the same name does not match.
-     * @maxLength 100
-     */
-    repository_id: string
-    /**
-     * The git ref the job must run on, for example `refs/heads/main`. Empty matches any ref.
-     * @maxLength 255
-     */
-    ref?: string
-    /**
-     * The deployment environment the job must run in. Empty matches any environment.
-     * @maxLength 255
-     */
-    environment?: string
-    /**
-     * The scopes every token minted under this policy carries. Scopes that manage credentials or access are refused.
-     * @items.maxLength 100
-     */
-    scopes: string[]
-    /** Whether the policy can mint tokens. Disabling it cuts off its tokens. */
-    enabled?: boolean
-    readonly created_by: UserBasicApi | null
-    readonly created_at: string
-    readonly updated_at: string
-}
-
-export interface PaginatedCITrustPolicyListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: CITrustPolicyApi[]
-}
-
-export interface PatchedCITrustPolicyApi {
-    readonly id?: string
-    /**
-     * A name that says what the policy is for.
-     * @maxLength 200
-     */
-    name?: string
-    /**
-     * The OIDC issuer of the CI provider, from the list of supported providers.
-     * @maxLength 255
-     */
-    issuer?: string
-    /**
-     * The key of the CI provider the issuer belongs to.
-     * @nullable
-     */
-    readonly provider?: string | null
-    /**
-     * The repository's full name, for example `acme/web`. Matched exactly.
-     * @maxLength 255
-     */
-    repository?: string
-    /**
-     * The repository's immutable ID from the CI provider. Matched together with the name, so a deleted and re-created repository with the same name does not match.
-     * @maxLength 100
-     */
-    repository_id?: string
-    /**
-     * The git ref the job must run on, for example `refs/heads/main`. Empty matches any ref.
-     * @maxLength 255
-     */
-    ref?: string
-    /**
-     * The deployment environment the job must run in. Empty matches any environment.
-     * @maxLength 255
-     */
-    environment?: string
-    /**
-     * The scopes every token minted under this policy carries. Scopes that manage credentials or access are refused.
-     * @items.maxLength 100
-     */
-    scopes?: string[]
-    /** Whether the policy can mint tokens. Disabling it cuts off its tokens. */
-    enabled?: boolean
-    readonly created_by?: UserBasicApi | null
-    readonly created_at?: string
-    readonly updated_at?: string
-}
-
-export interface CIProviderClaimsApi {
-    /** Claim that carries the repository's full name. */
-    repository: string
-    /** Claim that carries the repository's immutable ID. */
-    repository_id: string
-    /**
-     * Claim that carries the git ref, or null.
-     * @nullable
-     */
-    ref: string | null
-    /**
-     * Claim that carries the environment, or null.
-     * @nullable
-     */
-    environment: string | null
-}
-
-export interface CIProviderApi {
-    /** Stable identifier of the provider. */
-    key: string
-    /** Display name of the provider. */
-    name: string
-    /** OIDC issuer a policy for this provider uses. */
-    issuer: string
-    /** Where to read how to set the provider up. */
-    docs_url: string
-    /** Which token claims a policy matches on. */
-    claims: CIProviderClaimsApi
-}
-
-export interface UnsupportedCIProviderApi {
-    /** Stable identifier of the provider. */
-    key: string
-    /** Display name of the provider. */
-    name: string
-    /** Why the provider can't be used. */
-    reason: string
-}
-
-export interface CIProvidersResponseApi {
-    /** Providers a policy can trust. */
-    supported: CIProviderApi[]
-    /** Known providers that can't be trusted. */
-    unsupported: UnsupportedCIProviderApi[]
-    /** Every scope a policy's ceiling may hold. */
-    grantable_scopes: string[]
-}
-
-export type CITrustPolicyRequestStatusEnumApi =
-    (typeof CITrustPolicyRequestStatusEnumApi)[keyof typeof CITrustPolicyRequestStatusEnumApi]
-
-export const CITrustPolicyRequestStatusEnumApi = {
-    Pending: 'pending',
-    Approved: 'approved',
-    Rejected: 'rejected',
-    Expired: 'expired',
-} as const
-
-export interface CITrustPolicyRequestApi {
-    readonly id: string
-    /**
-     * The name the policy gets once approved.
-     * @maxLength 200
-     */
-    name: string
-    /**
-     * The OIDC issuer of the CI provider, from the list of supported providers.
-     * @maxLength 255
-     */
-    issuer: string
-    /**
-     * The key of the CI provider the issuer belongs to.
-     * @nullable
-     */
-    readonly provider: string | null
-    /**
-     * The display name of the CI provider, or null.
-     * @nullable
-     */
-    readonly provider_name: string | null
-    /**
-     * The repository's full name, for example `acme/web`. Matched exactly.
-     * @maxLength 255
-     */
-    repository: string
-    /**
-     * The repository's immutable ID from the CI provider. Matched together with the name, so a deleted and re-created repository with the same name does not match.
-     * @maxLength 100
-     */
-    repository_id: string
-    /**
-     * The git ref the job must run on, for example `refs/heads/main`. Empty matches any ref.
-     * @maxLength 255
-     */
-    ref?: string
-    /**
-     * The deployment environment the job must run in. Empty matches any environment.
-     * @maxLength 255
-     */
-    environment?: string
-    /**
-     * The scopes the policy's tokens would carry.
-     * @items.maxLength 100
-     */
-    scopes: string[]
-    /** Where the request stands. A request expires after 7 days. */
-    readonly status: CITrustPolicyRequestStatusEnumApi
-    /** The link to send to an admin to approve the request. */
-    readonly approval_url: string
-    /** Whether the current user's role lets them approve the request, in the browser. */
-    readonly can_approve: boolean
-    /** Names of the organization admins and owners who can approve, when the current user cannot. */
-    readonly approvers: readonly string[]
-    readonly requested_by: UserBasicApi | null
-    /** The client the request came through, for example hog. */
-    readonly requested_via: string
-    /**
-     * Whether PostHog verified the OAuth app the request came through, or null for other clients.
-     * @nullable
-     */
-    readonly requested_via_verified: boolean | null
-    /** When the request was made. */
-    readonly created_at: string
-    /** When a pending request stops being approvable. */
-    readonly expires_at: string
-    readonly resolved_by: UserBasicApi | null
-    /**
-     * When an admin approved or rejected the request.
-     * @nullable
-     */
-    readonly resolved_at: string | null
-    /**
-     * The policy created on approval.
-     * @nullable
-     */
-    readonly policy_id: string | null
-}
-
-export interface PaginatedCITrustPolicyRequestListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: CITrustPolicyRequestApi[]
-}
-
 export interface SharePasswordApi {
     readonly id: number
     readonly created_at: string
@@ -5931,6 +5677,274 @@ export interface UploadedMediaUploadStartedApi {
     readonly form_fields: UploadedMediaUploadStartedApiFormFields
     /** Seconds before upload_url expires. */
     readonly expires_in: number
+}
+
+export interface WorkloadTrustPolicyApi {
+    readonly id: string
+    /**
+     * A name that says what the policy is for.
+     * @maxLength 200
+     */
+    name: string
+    /**
+     * The OIDC issuer of the CI provider, from the list of supported providers.
+     * @maxLength 255
+     */
+    issuer: string
+    /**
+     * The key of the CI provider the issuer belongs to.
+     * @nullable
+     */
+    readonly provider: string | null
+    /**
+     * The repository's full name, for example `acme/web`. Matched exactly.
+     * @maxLength 255
+     */
+    repository: string
+    /**
+     * The repository's immutable ID from the CI provider. Matched together with the name, so a deleted and re-created repository with the same name does not match.
+     * @maxLength 100
+     */
+    repository_id: string
+    /**
+     * The git ref the job must run on, for example `refs/heads/main`. Empty matches any ref.
+     * @maxLength 255
+     */
+    ref?: string
+    /**
+     * The deployment environment the job must run in. Empty matches any environment.
+     * @maxLength 255
+     */
+    environment?: string
+    /**
+     * The scopes every token minted under this policy carries. Scopes that manage credentials or access are refused.
+     * @items.maxLength 100
+     */
+    scopes: string[]
+    /** Whether the policy can mint tokens. Disabling it cuts off its tokens. */
+    enabled?: boolean
+    readonly created_by: UserBasicApi | null
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedWorkloadTrustPolicyListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: WorkloadTrustPolicyApi[]
+}
+
+export interface PatchedWorkloadTrustPolicyApi {
+    readonly id?: string
+    /**
+     * A name that says what the policy is for.
+     * @maxLength 200
+     */
+    name?: string
+    /**
+     * The OIDC issuer of the CI provider, from the list of supported providers.
+     * @maxLength 255
+     */
+    issuer?: string
+    /**
+     * The key of the CI provider the issuer belongs to.
+     * @nullable
+     */
+    readonly provider?: string | null
+    /**
+     * The repository's full name, for example `acme/web`. Matched exactly.
+     * @maxLength 255
+     */
+    repository?: string
+    /**
+     * The repository's immutable ID from the CI provider. Matched together with the name, so a deleted and re-created repository with the same name does not match.
+     * @maxLength 100
+     */
+    repository_id?: string
+    /**
+     * The git ref the job must run on, for example `refs/heads/main`. Empty matches any ref.
+     * @maxLength 255
+     */
+    ref?: string
+    /**
+     * The deployment environment the job must run in. Empty matches any environment.
+     * @maxLength 255
+     */
+    environment?: string
+    /**
+     * The scopes every token minted under this policy carries. Scopes that manage credentials or access are refused.
+     * @items.maxLength 100
+     */
+    scopes?: string[]
+    /** Whether the policy can mint tokens. Disabling it cuts off its tokens. */
+    enabled?: boolean
+    readonly created_by?: UserBasicApi | null
+    readonly created_at?: string
+    readonly updated_at?: string
+}
+
+/**
+ * What each grantable risky scope lets a token do, keyed by scope. Show it so people add the scope with care.
+ */
+export type WorkloadProvidersResponseApiRiskyScopes = { [key: string]: string }
+
+export interface WorkloadProviderClaimsApi {
+    /** Claim that carries the repository's full name. */
+    repository: string
+    /** Claim that carries the repository's immutable ID. */
+    repository_id: string
+    /**
+     * Claim that carries the git ref, or null.
+     * @nullable
+     */
+    ref: string | null
+    /**
+     * Claim that carries the environment, or null.
+     * @nullable
+     */
+    environment: string | null
+}
+
+export interface WorkloadProviderApi {
+    /** Stable identifier of the provider. */
+    key: string
+    /** Display name of the provider. */
+    name: string
+    /** OIDC issuer a policy for this provider uses. */
+    issuer: string
+    /** Where to read how to set the provider up. */
+    docs_url: string
+    /** Which token claims a policy matches on. */
+    claims: WorkloadProviderClaimsApi
+}
+
+export interface UnsupportedWorkloadProviderApi {
+    /** Stable identifier of the provider. */
+    key: string
+    /** Display name of the provider. */
+    name: string
+    /** Why the provider can't be used. */
+    reason: string
+}
+
+export interface WorkloadProvidersResponseApi {
+    /** Providers a policy can trust. */
+    supported: WorkloadProviderApi[]
+    /** Known providers that can't be trusted. */
+    unsupported: UnsupportedWorkloadProviderApi[]
+    /** Every scope a policy's ceiling may hold. */
+    grantable_scopes: string[]
+    /** What each grantable risky scope lets a token do, keyed by scope. Show it so people add the scope with care. */
+    risky_scopes: WorkloadProvidersResponseApiRiskyScopes
+}
+
+export type WorkloadTrustPolicyRequestStatusEnumApi =
+    (typeof WorkloadTrustPolicyRequestStatusEnumApi)[keyof typeof WorkloadTrustPolicyRequestStatusEnumApi]
+
+export const WorkloadTrustPolicyRequestStatusEnumApi = {
+    Pending: 'pending',
+    Approved: 'approved',
+    Rejected: 'rejected',
+    Expired: 'expired',
+} as const
+
+/**
+ * What each risky scope in the request lets a token do, keyed by scope. Show it before approving.
+ */
+export type WorkloadTrustPolicyRequestApiRiskyScopes = { [key: string]: string }
+
+export interface WorkloadTrustPolicyRequestApi {
+    readonly id: string
+    /**
+     * The name the policy gets once approved.
+     * @maxLength 200
+     */
+    name: string
+    /**
+     * The OIDC issuer of the CI provider, from the list of supported providers.
+     * @maxLength 255
+     */
+    issuer: string
+    /**
+     * The key of the CI provider the issuer belongs to.
+     * @nullable
+     */
+    readonly provider: string | null
+    /**
+     * The display name of the CI provider, or null.
+     * @nullable
+     */
+    readonly provider_name: string | null
+    /**
+     * The repository's full name, for example `acme/web`. Matched exactly.
+     * @maxLength 255
+     */
+    repository: string
+    /**
+     * The repository's immutable ID from the CI provider. Matched together with the name, so a deleted and re-created repository with the same name does not match.
+     * @maxLength 100
+     */
+    repository_id: string
+    /**
+     * The git ref the job must run on, for example `refs/heads/main`. Empty matches any ref.
+     * @maxLength 255
+     */
+    ref?: string
+    /**
+     * The deployment environment the job must run in. Empty matches any environment.
+     * @maxLength 255
+     */
+    environment?: string
+    /**
+     * The scopes the policy's tokens would carry.
+     * @items.maxLength 100
+     */
+    scopes: string[]
+    /** What each risky scope in the request lets a token do, keyed by scope. Show it before approving. */
+    readonly risky_scopes: WorkloadTrustPolicyRequestApiRiskyScopes
+    /** Where the request stands. A request expires after 7 days. */
+    readonly status: WorkloadTrustPolicyRequestStatusEnumApi
+    /** The link to send to an admin to approve the request. */
+    readonly approval_url: string
+    /** Whether the current user's role lets them approve the request, in the browser. */
+    readonly can_approve: boolean
+    /** Names of the organization admins and owners who can approve, when the current user cannot. */
+    readonly approvers: readonly string[]
+    readonly requested_by: UserBasicApi | null
+    /** The client the request came through, for example hog. */
+    readonly requested_via: string
+    /**
+     * Whether PostHog verified the OAuth app the request came through, or null for other clients.
+     * @nullable
+     */
+    readonly requested_via_verified: boolean | null
+    /** When the request was made. */
+    readonly created_at: string
+    /** When a pending request stops being approvable. */
+    readonly expires_at: string
+    readonly resolved_by: UserBasicApi | null
+    /**
+     * When an admin approved or rejected the request.
+     * @nullable
+     */
+    readonly resolved_at: string | null
+    /**
+     * The policy created on approval.
+     * @nullable
+     */
+    readonly policy_id: string | null
+}
+
+export interface PaginatedWorkloadTrustPolicyRequestListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: WorkloadTrustPolicyRequestApi[]
 }
 
 export interface LeakedKeyReportApi {
@@ -7198,28 +7212,6 @@ export type OrganizationsProjectsEventIngestionRestrictionsListParams = {
     search?: string
 }
 
-export type CiTrustPoliciesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type CiTrustPolicyRequestsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
 export type DataDeletionRequestsListParams = {
     /**
      * Number of results to return per page.
@@ -7509,6 +7501,28 @@ export type UploadedMediaCreateBody = {
     image: Blob
     /** Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). */
     purpose?: UploadedMediaCreateBodyPurpose
+}
+
+export type WorkloadTrustPoliciesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type WorkloadTrustPolicyRequestsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type UsersListParams = {

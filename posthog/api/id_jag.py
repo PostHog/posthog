@@ -552,7 +552,7 @@ def _construct_access_token(payload: dict[str, Any], token_type: str = ACCESS_TO
 
 def sign_access_token(payload: dict[str, Any], token_type: str = ACCESS_TOKEN_TYPE) -> str:
     """Sign an access token with the OIDC key. Shared by the ID-JAG token endpoint, the billing
-    token PostHog mints server-side and the CI token exchange, so all verify against the same JWKS.
+    token PostHog mints server-side and the workload token exchange, so all verify against the same JWKS.
     A token type other than `at+jwt` keeps a token from being accepted where an ID-JAG one is."""
     return _construct_access_token(payload, token_type)
 

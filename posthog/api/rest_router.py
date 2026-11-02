@@ -21,6 +21,7 @@ from posthog.api.sdk_health import SdkHealthViewSet
 from posthog.api.wizard import http as wizard
 from posthog.products import load_product_modules
 from posthog.settings import EE_AVAILABLE
+from posthog.workload_identity.trust_policy import WorkloadTrustPolicyRequestViewSet, WorkloadTrustPolicyViewSet
 
 from ee.api.quota_limits import QuotaLimitsViewSet
 from ee.api.vercel import vercel_installation, vercel_product, vercel_proxy, vercel_resource
@@ -85,7 +86,6 @@ from .event_filter_config import EventFilterConfigViewSet
 from .file_system import file_system, file_system_shortcut
 from .llm_prompt import LLMPromptViewSet
 from .oauth import OrganizationOAuthApplicationViewSet
-from .oauth.ci_trust_policy import CITrustPolicyRequestViewSet, CITrustPolicyViewSet
 from .organization_notification_locks import OrganizationNotificationLockViewSet
 from .session import SessionViewSet
 from .taxonomic_search_intent import SearchIntentViewSet
@@ -548,9 +548,9 @@ projects_router.register(
     ["team_id"],
 )
 
-projects_router.register(r"ci_trust_policies", CITrustPolicyViewSet, "project_ci_trust_policies", ["project_id"])
+projects_router.register(r"workload_trust_policies", WorkloadTrustPolicyViewSet, "project_workload_trust_policies", ["project_id"])
 projects_router.register(
-    r"ci_trust_policy_requests", CITrustPolicyRequestViewSet, "project_ci_trust_policy_requests", ["project_id"]
+    r"workload_trust_policy_requests", WorkloadTrustPolicyRequestViewSet, "project_workload_trust_policy_requests", ["project_id"]
 )
 
 projects_router.register(

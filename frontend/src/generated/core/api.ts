@@ -14,11 +14,6 @@ import type {
     CIMDVerificationTokenApi,
     CIMDVerificationTokenCreateApi,
     CIMDVerificationTokenWithValueApi,
-    CIProvidersResponseApi,
-    CITrustPolicyApi,
-    CITrustPolicyRequestApi,
-    CiTrustPoliciesListParams,
-    CiTrustPolicyRequestsListParams,
     CimdVerificationTokensListParams,
     ConnectedAppApi,
     DataDeletionPreviewApi,
@@ -68,8 +63,6 @@ import type {
     OrganizationsProjectsEventIngestionRestrictionsListParams,
     OrganizationsProjectsListParams,
     PaginatedCIMDVerificationTokenListApi,
-    PaginatedCITrustPolicyListApi,
-    PaginatedCITrustPolicyRequestListApi,
     PaginatedDataDeletionRequestListApi,
     PaginatedEnterprisePropertyDefinitionListApi,
     PaginatedExportedAssetListApi,
@@ -85,8 +78,9 @@ import type {
     PaginatedUploadedMediaListApi,
     PaginatedUserGitHubIntegrationListResponseListApi,
     PaginatedUserListApi,
+    PaginatedWorkloadTrustPolicyListApi,
+    PaginatedWorkloadTrustPolicyRequestListApi,
     PatchedCIMDVerificationTokenUpdateApi,
-    PatchedCITrustPolicyApi,
     PatchedEnterprisePropertyDefinitionApi,
     PatchedFileSystemApi,
     PatchedFileSystemShortcutApi,
@@ -96,6 +90,7 @@ import type {
     PatchedProjectBackwardCompatApi,
     PatchedProjectSecretAPIKeyApi,
     PatchedUserApi,
+    PatchedWorkloadTrustPolicyApi,
     ProductEnablementApi,
     ProductEnablementResultApi,
     ProjectApi,
@@ -141,6 +136,11 @@ import type {
     UsersLoginSessionsListParams,
     UsersProductIntroSeenPartialUpdate200,
     VerifyEmailRequestApi,
+    WorkloadProvidersResponseApi,
+    WorkloadTrustPoliciesListParams,
+    WorkloadTrustPolicyApi,
+    WorkloadTrustPolicyRequestApi,
+    WorkloadTrustPolicyRequestsListParams,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -1450,215 +1450,6 @@ export const organizationsProjectsSettingsAsOfRetrieve = async (
     return apiMutator<ProjectBackwardCompatApi>(getOrganizationsProjectsSettingsAsOfRetrieveUrl(organizationId, id), {
         ...options,
         method: 'GET',
-    })
-}
-
-export const getCiTrustPoliciesListUrl = (projectId: string, params?: CiTrustPoliciesListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/ci_trust_policies/?${stringifiedParams}`
-        : `/api/projects/${projectId}/ci_trust_policies/`
-}
-
-export const ciTrustPoliciesList = async (
-    projectId: string,
-    params?: CiTrustPoliciesListParams,
-    options?: RequestInit
-): Promise<PaginatedCITrustPolicyListApi> => {
-    return apiMutator<PaginatedCITrustPolicyListApi>(getCiTrustPoliciesListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getCiTrustPoliciesCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/ci_trust_policies/`
-}
-
-export const ciTrustPoliciesCreate = async (
-    projectId: string,
-    cITrustPolicyApi: NonReadonly<CITrustPolicyApi>,
-    options?: RequestInit
-): Promise<CITrustPolicyApi> => {
-    return apiMutator<CITrustPolicyApi>(getCiTrustPoliciesCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(cITrustPolicyApi),
-    })
-}
-
-export const getCiTrustPoliciesRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/ci_trust_policies/${id}/`
-}
-
-export const ciTrustPoliciesRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<CITrustPolicyApi> => {
-    return apiMutator<CITrustPolicyApi>(getCiTrustPoliciesRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getCiTrustPoliciesUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/ci_trust_policies/${id}/`
-}
-
-export const ciTrustPoliciesUpdate = async (
-    projectId: string,
-    id: string,
-    cITrustPolicyApi: NonReadonly<CITrustPolicyApi>,
-    options?: RequestInit
-): Promise<CITrustPolicyApi> => {
-    return apiMutator<CITrustPolicyApi>(getCiTrustPoliciesUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(cITrustPolicyApi),
-    })
-}
-
-export const getCiTrustPoliciesPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/ci_trust_policies/${id}/`
-}
-
-export const ciTrustPoliciesPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedCITrustPolicyApi?: NonReadonly<PatchedCITrustPolicyApi>,
-    options?: RequestInit
-): Promise<CITrustPolicyApi> => {
-    return apiMutator<CITrustPolicyApi>(getCiTrustPoliciesPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedCITrustPolicyApi),
-    })
-}
-
-export const getCiTrustPoliciesDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/ci_trust_policies/${id}/`
-}
-
-export const ciTrustPoliciesDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getCiTrustPoliciesDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-export const getCiTrustPoliciesProvidersRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/ci_trust_policies/providers/`
-}
-
-export const ciTrustPoliciesProvidersRetrieve = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<CIProvidersResponseApi> => {
-    return apiMutator<CIProvidersResponseApi>(getCiTrustPoliciesProvidersRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getCiTrustPolicyRequestsListUrl = (projectId: string, params?: CiTrustPolicyRequestsListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/ci_trust_policy_requests/?${stringifiedParams}`
-        : `/api/projects/${projectId}/ci_trust_policy_requests/`
-}
-
-export const ciTrustPolicyRequestsList = async (
-    projectId: string,
-    params?: CiTrustPolicyRequestsListParams,
-    options?: RequestInit
-): Promise<PaginatedCITrustPolicyRequestListApi> => {
-    return apiMutator<PaginatedCITrustPolicyRequestListApi>(getCiTrustPolicyRequestsListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getCiTrustPolicyRequestsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/ci_trust_policy_requests/`
-}
-
-export const ciTrustPolicyRequestsCreate = async (
-    projectId: string,
-    cITrustPolicyRequestApi: NonReadonly<CITrustPolicyRequestApi>,
-    options?: RequestInit
-): Promise<CITrustPolicyRequestApi> => {
-    return apiMutator<CITrustPolicyRequestApi>(getCiTrustPolicyRequestsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(cITrustPolicyRequestApi),
-    })
-}
-
-export const getCiTrustPolicyRequestsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/ci_trust_policy_requests/${id}/`
-}
-
-export const ciTrustPolicyRequestsRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<CITrustPolicyRequestApi> => {
-    return apiMutator<CITrustPolicyRequestApi>(getCiTrustPolicyRequestsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getCiTrustPolicyRequestsApproveCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/ci_trust_policy_requests/${id}/approve/`
-}
-
-export const ciTrustPolicyRequestsApproveCreate = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<CITrustPolicyRequestApi> => {
-    return apiMutator<CITrustPolicyRequestApi>(getCiTrustPolicyRequestsApproveCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-    })
-}
-
-export const getCiTrustPolicyRequestsRejectCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/ci_trust_policy_requests/${id}/reject/`
-}
-
-export const ciTrustPolicyRequestsRejectCreate = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<CITrustPolicyRequestApi> => {
-    return apiMutator<CITrustPolicyRequestApi>(getCiTrustPolicyRequestsRejectCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
     })
 }
 
@@ -3144,6 +2935,225 @@ export const uploadedMediaStartUploadCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(uploadedMediaStartUploadApi),
+    })
+}
+
+export const getWorkloadTrustPoliciesListUrl = (projectId: string, params?: WorkloadTrustPoliciesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/workload_trust_policies/?${stringifiedParams}`
+        : `/api/projects/${projectId}/workload_trust_policies/`
+}
+
+export const workloadTrustPoliciesList = async (
+    projectId: string,
+    params?: WorkloadTrustPoliciesListParams,
+    options?: RequestInit
+): Promise<PaginatedWorkloadTrustPolicyListApi> => {
+    return apiMutator<PaginatedWorkloadTrustPolicyListApi>(getWorkloadTrustPoliciesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWorkloadTrustPoliciesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workload_trust_policies/`
+}
+
+export const workloadTrustPoliciesCreate = async (
+    projectId: string,
+    workloadTrustPolicyApi: NonReadonly<WorkloadTrustPolicyApi>,
+    options?: RequestInit
+): Promise<WorkloadTrustPolicyApi> => {
+    return apiMutator<WorkloadTrustPolicyApi>(getWorkloadTrustPoliciesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(workloadTrustPolicyApi),
+    })
+}
+
+export const getWorkloadTrustPoliciesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/workload_trust_policies/${id}/`
+}
+
+export const workloadTrustPoliciesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<WorkloadTrustPolicyApi> => {
+    return apiMutator<WorkloadTrustPolicyApi>(getWorkloadTrustPoliciesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWorkloadTrustPoliciesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/workload_trust_policies/${id}/`
+}
+
+export const workloadTrustPoliciesUpdate = async (
+    projectId: string,
+    id: string,
+    workloadTrustPolicyApi: NonReadonly<WorkloadTrustPolicyApi>,
+    options?: RequestInit
+): Promise<WorkloadTrustPolicyApi> => {
+    return apiMutator<WorkloadTrustPolicyApi>(getWorkloadTrustPoliciesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(workloadTrustPolicyApi),
+    })
+}
+
+export const getWorkloadTrustPoliciesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/workload_trust_policies/${id}/`
+}
+
+export const workloadTrustPoliciesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedWorkloadTrustPolicyApi?: NonReadonly<PatchedWorkloadTrustPolicyApi>,
+    options?: RequestInit
+): Promise<WorkloadTrustPolicyApi> => {
+    return apiMutator<WorkloadTrustPolicyApi>(getWorkloadTrustPoliciesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedWorkloadTrustPolicyApi),
+    })
+}
+
+export const getWorkloadTrustPoliciesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/workload_trust_policies/${id}/`
+}
+
+export const workloadTrustPoliciesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getWorkloadTrustPoliciesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getWorkloadTrustPoliciesProvidersRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workload_trust_policies/providers/`
+}
+
+export const workloadTrustPoliciesProvidersRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<WorkloadProvidersResponseApi> => {
+    return apiMutator<WorkloadProvidersResponseApi>(getWorkloadTrustPoliciesProvidersRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWorkloadTrustPolicyRequestsListUrl = (
+    projectId: string,
+    params?: WorkloadTrustPolicyRequestsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/workload_trust_policy_requests/?${stringifiedParams}`
+        : `/api/projects/${projectId}/workload_trust_policy_requests/`
+}
+
+export const workloadTrustPolicyRequestsList = async (
+    projectId: string,
+    params?: WorkloadTrustPolicyRequestsListParams,
+    options?: RequestInit
+): Promise<PaginatedWorkloadTrustPolicyRequestListApi> => {
+    return apiMutator<PaginatedWorkloadTrustPolicyRequestListApi>(
+        getWorkloadTrustPolicyRequestsListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getWorkloadTrustPolicyRequestsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workload_trust_policy_requests/`
+}
+
+export const workloadTrustPolicyRequestsCreate = async (
+    projectId: string,
+    workloadTrustPolicyRequestApi: NonReadonly<WorkloadTrustPolicyRequestApi>,
+    options?: RequestInit
+): Promise<WorkloadTrustPolicyRequestApi> => {
+    return apiMutator<WorkloadTrustPolicyRequestApi>(getWorkloadTrustPolicyRequestsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(workloadTrustPolicyRequestApi),
+    })
+}
+
+export const getWorkloadTrustPolicyRequestsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/workload_trust_policy_requests/${id}/`
+}
+
+export const workloadTrustPolicyRequestsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<WorkloadTrustPolicyRequestApi> => {
+    return apiMutator<WorkloadTrustPolicyRequestApi>(getWorkloadTrustPolicyRequestsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWorkloadTrustPolicyRequestsApproveCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/workload_trust_policy_requests/${id}/approve/`
+}
+
+export const workloadTrustPolicyRequestsApproveCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<WorkloadTrustPolicyRequestApi> => {
+    return apiMutator<WorkloadTrustPolicyRequestApi>(getWorkloadTrustPolicyRequestsApproveCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getWorkloadTrustPolicyRequestsRejectCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/workload_trust_policy_requests/${id}/reject/`
+}
+
+export const workloadTrustPolicyRequestsRejectCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<WorkloadTrustPolicyRequestApi> => {
+    return apiMutator<WorkloadTrustPolicyRequestApi>(getWorkloadTrustPolicyRequestsRejectCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 
