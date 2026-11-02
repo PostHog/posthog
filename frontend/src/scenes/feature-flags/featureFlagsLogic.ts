@@ -687,14 +687,17 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                         refreshTreeItem('feature_flag', String(id))
                         // The response carries the restored key, not the one the delete renamed it to.
                         lemonToast.success(`${response.key} has been restored`)
-                        const updatedFlags = values.featureFlags.results.map((flag) =>
-                            flag.id === response.id ? response : flag
-                        )
-                        // Restore is only offered in the deleted view, which the restored flag now leaves.
+                        const cached = values.featureFlags
+                        // Restore is only offered in the deleted view, but the user can switch views while the
+                        // request is in flight. Only the deleted view loses the restored flag, so any other cached
+                        // list stays as it is, and the success listener refetches it.
+                        if (cached.filters?.deleted !== 'true') {
+                            return { ...cached, lastUpdatedFlagId: id }
+                        }
                         return {
-                            ...values.featureFlags,
-                            results: updatedFlags,
-                            count: Math.max(0, values.featureFlags.count - 1),
+                            ...cached,
+                            results: cached.results.map((flag) => (flag.id === response.id ? response : flag)),
+                            count: Math.max(0, cached.count - 1),
                             lastUpdatedFlagId: id,
                         }
                     } catch (e: any) {
@@ -923,6 +926,13 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         },
         resetFilters: () => {
             actions.setFeatureFlagsFilters({ ...DEFAULT_FILTERS, order: values.filters.order }, true)
+        },
+        restoreFeatureFlagSuccess: () => {
+            // The list switched away from the deleted view during the restore, and it may have loaded without the
+            // restored flag.
+            if (values.featureFlags.filters?.deleted !== 'true') {
+                actions.loadFeatureFlags()
+            }
         },
         loadFeatureFlagsSuccess: () => {
             if (values.featureFlags.results.length > 0) {

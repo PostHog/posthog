@@ -633,7 +633,7 @@ describe('restoreFeatureFlag', () => {
                                   count: 1,
                               },
                           ]
-                        : [200, { results: [], count: 0 }],
+                        : [200, { results: [{ id: 2, key: 'live-flag', deleted: false, active: true }], count: 1 }],
             },
             patch: {
                 '/api/projects/:projectId/feature_flags/:id': async ({ request }) => {
@@ -670,6 +670,33 @@ describe('restoreFeatureFlag', () => {
         expect(logic.values.featureFlagsUpdating[1]).toBeUndefined()
         expect(deleteFromTree).toHaveBeenCalledWith('feature_flag', '1')
         expect(refreshTreeItem).toHaveBeenCalledWith('feature_flag', '1')
+    })
+
+    // Regression guard: the restore used to take one off the count of whatever list was cached when it
+    // resolved, so leaving the deleted view mid-restore lowered the live list's total.
+    it('leaves a view loaded during the restore alone and refetches it', async () => {
+        logic.actions.setFeatureFlagsFilters({ deleted: 'true' }, true)
+        await expectLogic(logic).toDispatchActions(['loadFeatureFlagsSuccess'])
+        let finishRestore = (_flag: Partial<FeatureFlagType>): void => {}
+        jest.spyOn(api, 'update').mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    finishRestore = resolve
+                })
+        )
+
+        logic.actions.restoreFeatureFlag({ id: 1 })
+        logic.actions.setFeatureFlagsFilters({}, true)
+        await expectLogic(logic).toDispatchActions(['loadFeatureFlagsSuccess'])
+        expect(logic.values.count).toBe(1)
+
+        finishRestore({ id: 1, key: 'checkout-flag', deleted: false, active: true })
+        await expectLogic(logic).toDispatchActions(['restoreFeatureFlagSuccess'])
+
+        expect(logic.values.count).toBe(1)
+        expect(logic.values.displayedFlags.map((flag) => flag.id)).toEqual([2])
+        expect(logic.values.featureFlagsUpdating[1]).toBeUndefined()
+        await expectLogic(logic).toDispatchActions(['loadFeatureFlags', 'loadFeatureFlagsSuccess'])
     })
 
     it.each([
