@@ -205,7 +205,6 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     METRIC_ALL_ZERO = "metric_all_zero"
     EXPOSURE_CRITERIA_CANNOT_MATCH = "exposure_criteria_cannot_match"
     EXPOSURE_FILTER_ON_DYNAMIC_COHORT = "exposure_filter_on_dynamic_cohort"
-    EXPOSURE_FILTER_EXCLUDES_EVENTS = "exposure_filter_excludes_events"
     SRM = "srm", "Sample Ratio Mismatch"
     ZERO_EXPOSURES = "zero_exposures"
     TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
