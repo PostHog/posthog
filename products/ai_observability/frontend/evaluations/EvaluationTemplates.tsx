@@ -165,12 +165,7 @@ function TemplatePicker({ title, showBackButton = false, learnMoreUrl }: Templat
                 />
                 <div className="grid grid-cols-1 gap-2 @min-[36rem]/templates:grid-cols-2 @min-[60rem]/templates:grid-cols-3">
                     {templates.map((template) => (
-                        <TemplateCard
-                            key={template.key}
-                            template={template}
-                            onSelect={selectTemplate}
-                            missingProviderKey={requiresProviderKey}
-                        />
+                        <TemplateCard key={template.key} template={template} onSelect={selectTemplate} />
                     ))}
                 </div>
                 {tab === 'recommended' && (

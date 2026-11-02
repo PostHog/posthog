@@ -61,12 +61,7 @@ export function EvaluationQuickStart({
         <div className="flex flex-col gap-2">
             <div className="grid gap-2">
                 {quickStartTemplates.map((template) => (
-                    <TemplateCard
-                        key={template.key}
-                        template={template}
-                        onSelect={selectTemplate}
-                        missingProviderKey={requiresProviderKey}
-                    />
+                    <TemplateCard key={template.key} template={template} onSelect={selectTemplate} />
                 ))}
                 <ScratchTemplateCard onSelect={startFromScratch} />
             </div>
