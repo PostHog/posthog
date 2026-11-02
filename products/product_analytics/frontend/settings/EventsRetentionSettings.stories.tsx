@@ -34,14 +34,13 @@ const retentionMocks = ({
         organization_retention_months: organizationMonths,
         organization_delete_monthly: projectMonths === null && deleteMonthly,
         plan_retention_months: 36,
-        default_retention_months: 24,
         min_retention_months: 1,
         max_retention_months: 36,
         next_monthly_cleanup_on: '2026-11-03',
     }
     const project: EventsRetentionApi = {
         ...organization,
-        retention_months: projectMonths ?? organizationMonths ?? 24,
+        retention_months: projectMonths ?? organizationMonths ?? 36,
         retained_from: '2024-11-01',
         docs_url: 'https://posthog.com/docs/data/events-retention',
         project_retention_months: projectMonths,
@@ -75,7 +74,7 @@ export const ProjectUsingOrganizationWindow: Story = {
     decorators: [retentionMocks({ organizationMonths: 24 })],
 }
 
-export const ProjectUsingDefaultWindow: Story = {
+export const ProjectUsingPlanWindow: Story = {
     render: () => <ProjectEventsRetentionSetting />,
     decorators: [retentionMocks({})],
 }

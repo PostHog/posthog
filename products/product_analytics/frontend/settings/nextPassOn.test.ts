@@ -25,14 +25,14 @@ describe('nextPassOn', () => {
             '2027-02-03',
         ],
         [
-            'knows no date for a default window before admission',
+            'knows no date for the plan window before admission',
             { ...SCHEDULED, scheduled_pass_on: null },
             false,
             false,
             null,
         ],
         [
-            'deletes nothing past a default window the cleanup does not enforce',
+            'deletes nothing past the plan window when the cleanup does not enforce it',
             { ...SCHEDULED, default_window_deletes: false },
             false,
             true,

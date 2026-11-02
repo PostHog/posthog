@@ -47,7 +47,6 @@ def organization_events_retention(organization: Organization) -> OrganizationEve
         organization_months=config.default_events_retention_months if config else None,
         organization_delete_monthly=config.delete_monthly if config else False,
         plan_months=plan_months,
-        default_months=retention_window(plan_months, None),
         min_months=(config.min_events_retention_months if config else None) or 1,
         max_months=min(plan_months, staff_max) if staff_max else plan_months,
         next_cleanup_on=next_cleanup_on(),

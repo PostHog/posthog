@@ -13,7 +13,7 @@ import { EventsPassSchedule, nextPassOn } from './nextPassOn'
 export interface EventsRetentionFallback {
     months: number
     deleteMonthly: boolean
-    /** False when the fallback is the default window rather than one set in settings. */
+    /** False when the fallback is the plan's window rather than one set in settings. */
     isSet: boolean
 }
 

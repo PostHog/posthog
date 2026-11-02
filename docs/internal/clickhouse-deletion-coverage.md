@@ -330,14 +330,14 @@ Organization admins set the retention in project and organization settings, and 
 - `TeamEventsRetentionConfig` holds a team's own months, which must fall within its organization's range, and whether they delete monthly. Saving an organization range that excludes an existing team value fails until that team changes.
 - A team's set window is its own value, else its organization's default. Whether it deletes monthly comes from the same row as the months.
 - A window set to delete monthly is deleted at every run. Any other window waits for the team's pass, every 3 months.
-- A team with no set window uses 24 months, or its plan's window if that's shorter, once it is admitted. Until then its queries keep the plan's window.
+- A team with no set window uses its plan's window.
 - `Team.event_retention_months` is the plan's window, which billing sets. A window never deletes past it before the team's pass.
 - The Events retention page under Custom tools (`/admin/events-retention/`) lists every team that has a value of its own or belongs to an organization with a config.
   It shows each team's billing months (`Team.event_retention_months`), its effective retention, where that comes from, and the first month the cleanup keeps, 100 teams per page.
 
 `monthly_retention_events_cleanup_job` has six steps:
 
-- `update_plan_deletions` tracks each team's pass window in `TeamEventsPlanDeletion`: the set window or the 24-month default, never past the plan's window. It reads the teams that have a set window or where `should_enforce_events_retention` is true.
+- `update_plan_deletions` tracks each team's pass window in `TeamEventsPlanDeletion`: the set window, never past the plan's window, else the plan's window. It reads the teams that have a set window or where `should_enforce_events_retention` is true.
   - It admits new teams in organization order, then team order. A team whose first pass, 3 months out, would delete events takes one place in `max_new_plan_deletion_teams`. Any other team is admitted without counting.
   - A shorter window, from a downgrade or a change in Django admin, moves the team's next pass to at least 3 months out.
   - It writes all its changes in one transaction at the end, then hands on the teams whose pass is due.

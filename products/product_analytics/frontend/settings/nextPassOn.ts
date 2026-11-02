@@ -6,7 +6,7 @@ export type EventsPassSchedule = Pick<
 >
 
 export interface EventsRetentionDraft {
-    /** False while the default window applies, which the cleanup may not delete past yet. */
+    /** False while the plan's window applies, which the cleanup may not delete past yet. */
     isSet: boolean
     isShorter: boolean
 }

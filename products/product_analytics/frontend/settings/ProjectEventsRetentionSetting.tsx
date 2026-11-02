@@ -27,7 +27,7 @@ export function ProjectEventsRetentionSetting(): JSX.Element | null {
                   isSet: true,
               }
             : {
-                  months: projectRetention.default_retention_months,
+                  months: projectRetention.plan_retention_months,
                   deleteMonthly: false,
                   isSet: false,
               }

@@ -18,8 +18,6 @@ export function OrganizationEventsRetentionSetting(): JSX.Element | null {
         return null
     }
 
-    const defaultMonths = organizationRetention.default_retention_months
-
     return (
         <div>
             <p className="max-w-160 text-sm text-secondary mb-4">
@@ -31,7 +29,7 @@ export function OrganizationEventsRetentionSetting(): JSX.Element | null {
             <EventsRetentionWindowForm
                 retentionMonths={organizationRetention.organization_retention_months}
                 deleteMonthly={organizationRetention.organization_delete_monthly}
-                fallback={{ months: defaultMonths, deleteMonthly: false, isSet: false }}
+                fallback={{ months: organizationRetention.plan_retention_months, deleteMonthly: false, isSet: false }}
                 minMonths={organizationRetention.min_retention_months}
                 maxMonths={organizationRetention.max_retention_months}
                 planMonths={organizationRetention.plan_retention_months}

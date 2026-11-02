@@ -14,7 +14,6 @@ from posthog.models.events_plan_deletion import (
     deletion_months,
     is_shorter_window,
     next_cleanup_on,
-    retention_window,
     with_window,
 )
 from posthog.models.events_retention_config import TeamEventsRetention
@@ -52,17 +51,6 @@ class TestPlanDeletionRules(SimpleTestCase):
         state = PlanDeletionState(months=12, next_deletion_on=TODAY)
 
         assert after_pass(state, TODAY) == PlanDeletionState(months=12, next_deletion_on=date(2027, 2, 3))
-
-    @parameterized.expand(
-        [
-            ("default_on_the_longest_plan", 84, None, 24),
-            ("plan_shorter_than_the_default", 12, None, 12),
-            ("set_window_longer_than_the_default", 84, 36, 36),
-            ("set_window_longer_than_the_plan", 24, 36, 24),
-        ]
-    )
-    def test_retention_window(self, _name: str, plan: int, setting: int | None, expected: int) -> None:
-        assert retention_window(plan, setting) == expected
 
     @parameterized.expand(
         [

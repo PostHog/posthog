@@ -8,7 +8,7 @@ from django.db import models
 from dateutil.relativedelta import relativedelta
 
 from posthog.dataclasses import frozen
-from posthog.models.events_retention_config import DEFAULT_RETENTION_WINDOW_MONTHS, TeamEventsRetention
+from posthog.models.events_retention_config import TeamEventsRetention
 from posthog.models.team import Team
 
 PASS_INTERVAL_MONTHS = 3
@@ -62,8 +62,8 @@ def next_pass_on(today: date) -> date:
 
 
 def retention_window(plan_months: int, setting_months: int | None) -> int:
-    """The window a team's passes delete past: the one set in settings, else the default, never past the plan's."""
-    return min(plan_months, setting_months if setting_months is not None else DEFAULT_RETENTION_WINDOW_MONTHS)
+    """The window a team's passes delete past: the one set in settings, never past the plan's, else the plan's."""
+    return min(plan_months, setting_months) if setting_months is not None else plan_months
 
 
 def admitted(window_months: int, today: date) -> PlanDeletionState:

@@ -30,7 +30,7 @@ class OrganizationEventsRetentionSerializer(serializers.Serializer):
     organization_retention_months = serializers.IntegerField(
         read_only=True,
         allow_null=True,
-        help_text="The window, in months, that every project without its own window uses. Null while the organization uses the default window.",
+        help_text="The window, in months, that every project without its own window uses. Null while the organization keeps events for its plan's window.",
     )
     organization_delete_monthly = serializers.BooleanField(
         read_only=True,
@@ -39,10 +39,6 @@ class OrganizationEventsRetentionSerializer(serializers.Serializer):
     plan_retention_months = serializers.IntegerField(
         read_only=True,
         help_text="The longest window the organization's plan allows, in months.",
-    )
-    default_retention_months = serializers.IntegerField(
-        read_only=True,
-        help_text="The window, in months, that a project uses when neither it nor the organization sets one: 24 months, or the plan's window if that's shorter.",
     )
     min_retention_months = serializers.IntegerField(
         read_only=True,
@@ -104,7 +100,7 @@ class EventsRetentionSerializer(OrganizationEventsRetentionSerializer):
     )
     default_window_deletes = serializers.BooleanField(
         read_only=True,
-        help_text="Whether the cleanup deletes this project's events past the default window while no window is set.",
+        help_text="Whether the cleanup deletes this project's events past the plan's window while no window is set.",
     )
 
 
@@ -125,7 +121,6 @@ def _organization_fields(organization: OrganizationEventsRetention) -> dict[str,
         "organization_retention_months": organization.organization_months,
         "organization_delete_monthly": organization.organization_delete_monthly,
         "plan_retention_months": organization.plan_months,
-        "default_retention_months": organization.default_months,
         "min_retention_months": organization.min_months,
         "max_retention_months": organization.max_months,
         "next_monthly_cleanup_on": organization.next_cleanup_on,

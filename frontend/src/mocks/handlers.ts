@@ -116,7 +116,6 @@ export const defaultMocks: Mocks = {
             organization_retention_months: null,
             organization_delete_monthly: false,
             plan_retention_months: 84,
-            default_retention_months: 24,
             min_retention_months: 1,
             max_retention_months: 84,
             next_monthly_cleanup_on: '2026-11-03',

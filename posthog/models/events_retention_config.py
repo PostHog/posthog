@@ -12,9 +12,6 @@ from posthog.dataclasses import frozen
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 
-# Where neither the team nor its organization sets a window, once the team is admitted to plan-window deletion.
-DEFAULT_RETENTION_WINDOW_MONTHS = 24
-
 RETENTION_MONTHS_HELP = (
     "Events are deleted one calendar month at a time. A month is deleted only when every event in it is "
     "older than this many months. For example, with 13 months, the events of March 2025 are deleted on "
@@ -45,8 +42,8 @@ class OrganizationEventsRetentionConfig(models.Model):
         "posthog.Organization", on_delete=models.CASCADE, primary_key=True, db_constraint=False, related_name="+"
     )
     default_events_retention_months = _months_field(
-        "Applies to every team in the organization that has no value of its own. Leave empty to use 24 months, or "
-        f"the plan's window if that's shorter. {RETENTION_MONTHS_HELP}"
+        "Applies to every team in the organization that has no value of its own. Leave empty to use the plan's "
+        f"window. {RETENTION_MONTHS_HELP}"
     )
     delete_monthly = _delete_monthly_field("the default")
     min_events_retention_months = _months_field("The shortest retention a team in this organization may set.")

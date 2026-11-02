@@ -191,7 +191,6 @@ class OrganizationEventsRetention:
     organization_months: int | None
     organization_delete_monthly: bool
     plan_months: int
-    default_months: int
     min_months: int
     max_months: int
     next_cleanup_on: date

@@ -47126,7 +47126,7 @@ export namespace Schemas {
 
     export interface EventsRetention {
       /**
-         * The window, in months, that every project without its own window uses. Null while the organization uses the default window.
+         * The window, in months, that every project without its own window uses. Null while the organization keeps events for its plan's window.
          * @nullable
          */
       readonly organization_retention_months: number | null;
@@ -47134,8 +47134,6 @@ export namespace Schemas {
       readonly organization_delete_monthly: boolean;
       /** The longest window the organization's plan allows, in months. */
       readonly plan_retention_months: number;
-      /** The window, in months, that a project uses when neither it nor the organization sets one: 24 months, or the plan's window if that's shorter. */
-      readonly default_retention_months: number;
       /** The shortest window an admin can set, in months. */
       readonly min_retention_months: number;
       /** The longest window an admin can set, in months. Never longer than the plan's window. */
@@ -47178,7 +47176,7 @@ export namespace Schemas {
       readonly scheduled_pass_on: string | null;
       /** The earliest cleanup every 3 months for a window that is set or made shorter today. */
       readonly first_pass_on: string;
-      /** Whether the cleanup deletes this project's events past the default window while no window is set. */
+      /** Whether the cleanup deletes this project's events past the plan's window while no window is set. */
       readonly default_window_deletes: boolean;
     }
 
@@ -76935,7 +76933,7 @@ export namespace Schemas {
 
     export interface OrganizationEventsRetention {
       /**
-         * The window, in months, that every project without its own window uses. Null while the organization uses the default window.
+         * The window, in months, that every project without its own window uses. Null while the organization keeps events for its plan's window.
          * @nullable
          */
       readonly organization_retention_months: number | null;
@@ -76943,8 +76941,6 @@ export namespace Schemas {
       readonly organization_delete_monthly: boolean;
       /** The longest window the organization's plan allows, in months. */
       readonly plan_retention_months: number;
-      /** The window, in months, that a project uses when neither it nor the organization sets one: 24 months, or the plan's window if that's shorter. */
-      readonly default_retention_months: number;
       /** The shortest window an admin can set, in months. */
       readonly min_retention_months: number;
       /** The longest window an admin can set, in months. Never longer than the plan's window. */

@@ -78,7 +78,7 @@ class Migration(migrations.Migration):
             field=models.PositiveSmallIntegerField(
                 blank=True,
                 help_text="Applies to every team in the organization that has no value of its own. Leave empty to use "
-                f"24 months, or the plan's window if that's shorter. {RETENTION_MONTHS_HELP}",
+                f"the plan's window. {RETENTION_MONTHS_HELP}",
                 null=True,
                 validators=[django.core.validators.MinValueValidator(1)],
             ),
