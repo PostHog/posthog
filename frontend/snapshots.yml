@@ -8871,9 +8871,9 @@ snapshots:
     scenes-app-ai-observability-byok-model-picker-notice--models-failed-to-load--light:
         hash: v1.k794b7964.76cfc4cc5e788cae6f7eab832fd2d85089afc7b2bdfcbba8813b33b1e212b90a.rqyS3wFRk8IcQnR9MkuOBrJviIiAqlOz342XtDrw1DI
     scenes-app-ai-observability-byok-model-picker-notice--no-provider-keys--dark:
-        hash: v1.k794b7964.fd75ac130df7efede8c38a25a7d0c2c7675bca398496e38bd347dd8568f8522a.ppty7IQt0-lGuwpFlzBe_RHxc2pYgeRqIpcjSzwLGwA
+        hash: v1.k794b7964.26f6a546df80753a2fb3f8832d3fd4738f84268449603cdf497ae41b414ed5b6.lD6qcAM4H9ocYAkOSWeyBNRVdg_36snWFJxBRguxQR0
     scenes-app-ai-observability-byok-model-picker-notice--no-provider-keys--light:
-        hash: v1.k794b7964.00f1c6684767d0c95bf81ce8144f18acecf494b8590c2cd0efc6cc0e61c30afe.c7O5Tq5l2b_JFWj-fNfa7erXDEH7ZYORyDXCJHXz6AI
+        hash: v1.k794b7964.aeb93c3858b6a0dc6a42f9529d4aa03a4ee96e40867e88bcc13f5cdf8900980d.9BoUebeBw6_p5_djebdTYSXy2rDYTE3zQ4Me0BluMX0
     scenes-app-ai-observability-byok-model-picker-notice--no-usable-provider-keys--dark:
         hash: v1.k794b7964.a260abcedfa1372c2c4caf36dbf8e51580ae6d6303b7d18617a6799fbdcb9841.pfjNZI_gu55WYAo4V3uxORMyk_GHRA7uQMkkBaMaYX8
     scenes-app-ai-observability-byok-model-picker-notice--no-usable-provider-keys--light:
@@ -8967,13 +8967,13 @@ snapshots:
     scenes-app-ai-observability-evaluation-explanation--system-one-zero-probability--light:
         hash: v1.k794b7964.f56325c23a185f032b8e7c331463345ea780e4e1b9a85f44a2f560869f06afa4.KcU1H2opmRuSoQcBHacqKya9WVvI5GATsFn_lgLD8rM
     scenes-app-ai-observability-evaluations-onboarding--narrow--dark:
-        hash: v1.k794b7964.2fe8551c13c48d3966c607923d7457eb1edba026b14430e8c40a1052a5223554.h1DTp9Ar3Xk9DmfrMviNCD90-dEDhm_xLCi-Fl8C0Ps
+        hash: v1.k794b7964.effa3fb1ba5852100b35391d3ab39e8346a57dadd0590b06cb9d49f64c01a737.djrzTGO7oZZpIpNVyXF7UP_CZMcUUGELjb-xsc04N88
     scenes-app-ai-observability-evaluations-onboarding--narrow--light:
-        hash: v1.k794b7964.725c9cd138e9974a36814447547b53b57f74adf288df0362133840fb7b04a416.ZgYC21heeJMxtaLWGjfeDXIrZAhqovb5dhfEtPO-TCc
+        hash: v1.k794b7964.9ff3b23f67aef9bca395669b8c6b8fd866d5540a43d9d1b646336be4ca1304f2.L6AzmeevlP-C222Eg3uV8umWZVUdUTB4g1MFk-5JMYM
     scenes-app-ai-observability-evaluations-onboarding--no-online-evaluations--dark:
-        hash: v1.k794b7964.3caf7af67991fbfda18f590ef7a86787d67dd96e02dd2b3806a9d4fc321837ee.hz1-YxbzgDhzEHRO8TndIgNIVd_qAKCY35yNf2k4UbI
+        hash: v1.k794b7964.29f809615534c4d871203afc5ef9c55b017f4db6cf24462005b99069a7a72f47.NdFTYxlZdPrwJtYsyGOErDGNc7lbady-ag9hYKxEdvY
     scenes-app-ai-observability-evaluations-onboarding--no-online-evaluations--light:
-        hash: v1.k794b7964.1dbea4bbbd7b0731b841cfdf0dc28826e9bba9caf9735cc7257e0fc4e0a67026.ezM9M-EOjWsTZXJk602I44gvDXvOzobiHJq09E0OEac
+        hash: v1.k794b7964.469add53e73b02ed08f3f15d5f1d4fb8608174c7b50e9aeefab0abe607b6e071.IYZzSNa-qIVMxHbkk-kGbn2tlkVE8d4EwYAT2yQZY6A
     scenes-app-ai-observability-evaluations-overview--directory-open--dark:
         hash: v1.k794b7964.9e8467472787599992a607e83fc725f1808762fc1c33cd0ec4f097e457e1411c.VdW-6vKl9WLQcs3_PcFk76quSN32MHTKKi65Mr2AtIw
     scenes-app-ai-observability-evaluations-overview--directory-open--light:
@@ -13438,6 +13438,10 @@ snapshots:
         hash: v1.k794b7964.ea887c384da7d18b38230ba0b420b1f87d0a2995899d5844290ddc16eb476dc3.8F9-jOoonwrPVwHD8_XR0eud3gqkF0OueJM1tArPbn0
     scenes-app-llm-observability-evaluation-templates--narrow--light:
         hash: v1.k794b7964.acb588946dd41382c78934be3f8912589d1a15df06ef9a976f617fad21f1ddd2.0LsEsqRoncEFZhEVh5X8gbA_QoGZelV2t1ABDsxGeao
+    scenes-app-llm-observability-evaluation-templates--without-api-key--dark:
+        hash: v1.k794b7964.50d81e23177f49a10b50aa963a9a617dc26c8b2cce062a8e313430cf4868446e.MlMWfByO92mw-UakenXEkHJEuedG86aYeWonqvOAILA
+    scenes-app-llm-observability-evaluation-templates--without-api-key--light:
+        hash: v1.k794b7964.539c391440bb76c34d73f3b2dde3540960a8c521e97968ba1fbfe5b88e2a339d.GXDp0COFtN21PhNIdkfuMAKL2O1mGPpyPcWqTdJCZTI
     scenes-app-llm-observability-evaluationreportconfig--lemon-ui--dark:
         hash: v1.k794b7964.195aa4a5a39e8f947e17fe67f5c23303b7dd0579c278907761be24a08780be92.IkGQtAI95T60kJKVZcmmFBIWNCd4meuJv-bcNDoohwU
     scenes-app-llm-observability-evaluationreportconfig--lemon-ui--light:
