@@ -80,6 +80,7 @@ export function createApp(redis: RedisWithPing & Pick<PayloadStashRedis, 'incrby
 
     app.all('/mcp', streamable.fetch)
     app.all('/mcp/*', streamable.fetch)
+    app.all('/ask', streamable.fetchAsk)
 
     app.all('*', (c) => c.notFound())
 

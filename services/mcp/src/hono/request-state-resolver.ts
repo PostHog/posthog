@@ -2,7 +2,7 @@ import type { StateLookupCache } from '@/lib/cache/StateLookupCache'
 import { MCPClientProfile } from '@/lib/client-detection'
 import { isCloudApi, isLocalApi, MCP_GATEWAY_FLAG } from '@/lib/constants'
 import { env } from '@/lib/env'
-import { McpSessionResetRequiredError } from '@/lib/errors'
+import { McpSessionResetRequiredError, McpSurfaceUnavailableError } from '@/lib/errors'
 import { EVENT_SOURCE, resolveEventSource } from '@/lib/event-source'
 import { MCP_NO_DATA_INSTALL_NOTICE_FLAG, type NoDataAction } from '@/lib/no-data-guard'
 import { buildMCPAnalyticsGroups, type MCPAnalyticsContext } from '@/lib/posthog/analytics'
@@ -13,7 +13,7 @@ import {
     type FlagGroups,
     resolveFeatureFlagOverrides,
 } from '@/lib/posthog/flags'
-import type { RequestProperties } from '@/lib/request-properties'
+import type { McpSurface, RequestProperties } from '@/lib/request-properties'
 import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 import type { McpMode } from '@/lib/utils'
 import { TASKS_CONTEXT_TOOL_NAMES } from '@/tools/tasksContext'
@@ -28,7 +28,7 @@ import type { BusinessKnowledgeContent, Context, Env, PinnedActiveContext, Tool,
 
 import { McpSessionRedisStore } from './cache/McpSessionRedisStore'
 import type { RedisLike } from './cache/RedisCache'
-import { MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
+import { ASK_POSTHOG_HOW_FEATURE_FLAG, MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
 import { GUIDANCE_RULE_FLAGS } from './guidance/rules'
 import { MCP_INTENT_PROMPT_FLAG, resolveIntentPrompt } from './intent-prompt'
 import {
@@ -54,6 +54,8 @@ export interface ResolvedState {
     reqCtx: RequestContext
     context: Context
     useSingleExec: boolean
+    /** Undefined means `/mcp`. */
+    surface?: McpSurface | undefined
     viaMcpStore?: boolean | undefined
     toolFeatureFlags: EvaluatedFlags | undefined
     interviewRecruitmentConfig?: InterviewRecruitmentConfig
@@ -211,6 +213,7 @@ export class RequestStateResolver {
                 ...getRequiredFeatureFlags(),
                 MCP_GATEWAY_FLAG,
                 MCP_EXEC_SKILLS_FEATURE_FLAG,
+                ASK_POSTHOG_HOW_FEATURE_FLAG,
                 MCP_INTERVIEW_RECRUITMENT_FLAG,
                 MCP_INTENT_PROMPT_FLAG,
                 MCP_NO_DATA_INSTALL_NOTICE_FLAG,
@@ -242,6 +245,10 @@ export class RequestStateResolver {
         // Dev/test-only overrides win over evaluated values (no-op in production).
         const overrides = resolveFeatureFlagOverrides(props.featureFlagOverrides)
         const mergedFlags = { ...allFlags, ...overrides }
+        const surface = props.surface ?? 'mcp'
+        if (surface === 'ask' && mergedFlags[ASK_POSTHOG_HOW_FEATURE_FLAG] !== true) {
+            throw new McpSurfaceUnavailableError(surface)
+        }
         let recruitmentPayload = payloads[MCP_INTERVIEW_RECRUITMENT_FLAG]
         if (
             recruitmentPayload === undefined &&
@@ -297,8 +304,9 @@ export class RequestStateResolver {
 
         const renderUiEnabled = clientProfile.isRenderUiHost()
 
+        // The ask surface pairs ask-posthog-how with exec, so it ignores a requested tools mode.
         const { mode: resolvedMode, useSingleExec } = resolveMode({
-            mode: requestContext.mode,
+            mode: surface === 'ask' ? 'cli' : requestContext.mode,
             clientProfile,
         })
         requestContext.mode = resolvedMode
@@ -356,6 +364,7 @@ export class RequestStateResolver {
             reqCtx,
             context,
             useSingleExec,
+            surface,
             viaMcpStore: props.viaMcpStore,
             toolFeatureFlags,
             interviewRecruitmentConfig,

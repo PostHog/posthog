@@ -7,6 +7,9 @@ import { extractBearerToken, hash, parseMcpMode, sanitizeHeaderValue, type McpMo
 
 export type Transport = 'streamable-http' | 'sse'
 
+/** The MCP endpoint a request arrived on: `/mcp`, or `/ask`, which serves only `ask-posthog-how` and `exec`. */
+export type McpSurface = 'mcp' | 'ask'
+
 export type RequestProperties = {
     userHash: string
     apiToken: string
@@ -30,6 +33,7 @@ export type RequestProperties = {
     mode?: McpMode | undefined
     viaMcpStore?: boolean | undefined
     transport?: Transport | undefined
+    surface?: McpSurface | undefined
     mcpSessionId?: string | undefined
     mcpConversationId?: string | undefined
     viaSseRedirect?: boolean | undefined

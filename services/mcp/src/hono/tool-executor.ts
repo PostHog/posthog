@@ -42,6 +42,12 @@ import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeErrorToken } from '@/lib/posthog/analytics'
 import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
 import {
+    ASK_POSTHOG_HOW_TOOL_NAME,
+    AskPostHogHowSchema,
+    buildAskPostHogHowEntry,
+    buildRecipe,
+} from '@/tools/ask-posthog-how'
+import {
     createExecTool,
     describeApiValidationError,
     describeExecCommand,
@@ -84,7 +90,7 @@ import { getEffectiveMCPClientContext, getEffectiveMCPClientIdentity, resolveSes
 import { toolCallDurationSeconds, toolCallsTotal, toolErrorsTotal } from './metrics'
 import type { ResolvedState } from './request-state-resolver'
 import type { SkillCatalogService } from './skill-catalog-service'
-import type { ToolCatalog } from './tool-catalog'
+import { type ToolCatalog, toMcpInputSchema } from './tool-catalog'
 
 interface ResolvedTool {
     name: string
@@ -167,6 +173,7 @@ export class ToolExecutor {
     private readonly instructionsBuilder: InstructionsBuilder
     private readonly skillCatalogService: SkillCatalogService | undefined
     private readonly guidance: GuidanceEngine | undefined
+    private readonly askPostHogHowEntry = buildAskPostHogHowEntry(toMcpInputSchema(AskPostHogHowSchema))
 
     constructor(
         catalog: ToolCatalog,
@@ -208,6 +215,9 @@ export class ToolExecutor {
     }
 
     private buildAdvertisedTools(state: ResolvedState): ListToolsResult['tools'] {
+        if (state.surface === 'ask') {
+            return [this.askPostHogHowEntry, this.instructionsBuilder.buildExecToolEntry(state)]
+        }
         if (state.useSingleExec) {
             const renderUiEntry = state.renderUiEnabled
                 ? this.instructionsBuilder.buildRenderUiToolEntry(this.catalog.getPreBuiltEntries())
@@ -230,6 +240,9 @@ export class ToolExecutor {
     }
 
     private findOriginalTool(toolName: string, state: ResolvedState): ListToolsResult['tools'][number] | undefined {
+        if (state.surface === 'ask' && toolName === ASK_POSTHOG_HOW_TOOL_NAME) {
+            return this.askPostHogHowEntry
+        }
         if (state.useSingleExec) {
             if (toolName === 'exec') {
                 return this.instructionsBuilder.buildExecToolEntry(state)
@@ -341,6 +354,24 @@ export class ToolExecutor {
                 return { content: [{ type: 'text', text: 'Tool exec not found' }], isError: true }
             }
             return this.callExecTool(callParams, state, analyticsMeta)
+        }
+
+        if (toolName === ASK_POSTHOG_HOW_TOOL_NAME && state.surface === 'ask') {
+            return this.callTool(
+                {
+                    name: toolName,
+                    schema: AskPostHogHowSchema,
+                    handler: async (_context, args) =>
+                        buildRecipe(
+                            (args as { intent: string }).intent,
+                            state.allTools,
+                            this.skillCatalogService?.getCatalog()
+                        ),
+                },
+                callParams,
+                state,
+                analyticsMeta
+            )
         }
 
         if (toolName === 'render-ui') {
