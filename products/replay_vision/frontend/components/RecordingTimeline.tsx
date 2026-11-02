@@ -156,6 +156,7 @@ export function RecordingTimeline(props: RecordingTimelineProps): JSX.Element {
                                                 observation={timeline.summary as ReplayObservationApi}
                                                 chapter={row.chapter.position}
                                                 className="w-20 shrink-0"
+                                                size="small"
                                             />
                                         </span>
                                     </Tooltip>

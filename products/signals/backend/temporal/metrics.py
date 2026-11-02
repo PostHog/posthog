@@ -106,11 +106,13 @@ def increment_dropped(stage: str, reason: str, count: int = 1) -> None:
     ).add(count)
 
 
-def increment_report_completed(result: str) -> None:
+def increment_report_completed(result: str, failure_reason: str | None = None, error_type: str | None = None) -> None:
     """Count report completions by result (ready/failed/not_actionable/pending_input)."""
     if not _in_temporal_context():
         return
-    get_metric_meter({"result": result}).create_counter(
+    get_metric_meter(
+        {"result": result, "failure_reason": failure_reason or "", "error_type": error_type or ""}
+    ).create_counter(
         "signals_reports_total",
         "Signal reports completed by result",
     ).add(1)

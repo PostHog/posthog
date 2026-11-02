@@ -31,6 +31,10 @@ export interface GitHubRepositoryComboboxProps {
     /** Load every page. The default picker stops after the first page and waits for "Load more". */
     loadAll?: boolean
     fullWidth?: boolean
+    triggerClassName?: string
+    contentSide?: 'top' | 'bottom'
+    contentClassName?: string
+    defaultOpen?: boolean
 }
 
 /**
@@ -52,6 +56,10 @@ export function GitHubRepositoryCombobox({
     repositoryFilter,
     loadAll = false,
     fullWidth = false,
+    triggerClassName,
+    contentSide = 'bottom',
+    contentClassName,
+    defaultOpen = false,
 }: GitHubRepositoryComboboxProps): JSX.Element {
     const logic = githubRepositorySearchLogic({ id: integrationId, loadAll })
     const { repositories, loading, hasMore, searchQuery, error } = useValues(logic)
@@ -63,7 +71,7 @@ export function GitHubRepositoryCombobox({
     const triggerRef = useRef<HTMLButtonElement>(null)
     const disabledReasonId = useId()
     const isDisabled = disabled || !!disabledReason
-    const [open, setOpen] = useState(false)
+    const [open, setOpen] = useState(defaultOpen)
 
     const trimmedSearchQuery = searchQuery.trim()
     // Keep the selected target visible while searching, loading, or refreshing.
@@ -101,14 +109,19 @@ export function GitHubRepositoryCombobox({
                         disabled={isDisabled}
                         aria-label="Repository"
                         aria-describedby={disabledReason ? disabledReasonId : undefined}
-                        className={fullWidth ? 'min-h-10 w-full justify-start' : undefined}
+                        className={triggerClassName ?? (fullWidth ? 'min-h-10 w-full justify-start' : undefined)}
                     >
                         <IconGithub className="shrink-0" />
                         <span className="min-w-0 truncate">{value || placeholder}</span>
                     </Button>
                 }
             />
-            <ComboboxContent anchor={triggerRef} side="bottom" sideOffset={6} className="min-w-[280px]">
+            <ComboboxContent
+                anchor={triggerRef}
+                side={contentSide}
+                sideOffset={6}
+                className={contentClassName ?? 'min-w-[280px]'}
+            >
                 <ComboboxSearchField
                     itemsLabel="repositories"
                     loading={loading}

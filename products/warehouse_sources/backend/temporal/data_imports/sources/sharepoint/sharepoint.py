@@ -1,6 +1,6 @@
 import dataclasses
 from collections.abc import Callable, Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import quote, urlparse
 
@@ -13,8 +13,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.sharepoint.settings import (
+    ACTIVITY_STATS_WINDOW,
     DRIVE_ID_COLUMN,
     GRAPH_BASE_URL,
+    INCREMENTAL_FIELDS,
+    ITEM_ID_COLUMN,
     LIST_ID_COLUMN,
     LOGIN_BASE_URL,
     MAX_PAGES_PER_COLLECTION,
@@ -28,6 +31,9 @@ REQUEST_TIMEOUT_SECONDS = 120
 VALIDATE_TIMEOUT_SECONDS = 30
 
 _module_logger: FilteringBoundLogger = structlog.get_logger(__name__)
+
+LIST_ENDPOINTS = (SharePointEndpoint.LIST_ITEMS, SharePointEndpoint.LIST_ITEM_VERSIONS)
+VERSION_ENDPOINTS = (SharePointEndpoint.DRIVE_ITEM_VERSIONS, SharePointEndpoint.LIST_ITEM_VERSIONS)
 
 SITES_DENIED_ERROR = (
     "Microsoft Graph denied access to SharePoint. Grant the app the Sites.Read.All application permission "
@@ -390,7 +396,13 @@ def _iter_grandchildren(
             def stage(next_url: str, site_id: str = site_id, parent_id: str = parent_id) -> None:
                 manager.save_state(SharePointResumeConfig(site_id=site_id, parent_id=parent_id, next_url=next_url))
 
-            for page in _iter_parent_rows(client, endpoint, quoted_site, site_id, parent_id, start_url, stage, logger):
+            if endpoint in VERSION_ENDPOINTS:
+                pages = _iter_parent_versions(
+                    client, endpoint, quoted_site, site_id, parent_id, start_url, stage, manager.safe_point, logger
+                )
+            else:
+                pages = _iter_parent_rows(client, endpoint, quoted_site, site_id, parent_id, start_url, stage, logger)
+            for page in pages:
                 yielded = True
                 yield page
             start_url = None
@@ -401,13 +413,14 @@ def _iter_grandchildren(
 def _site_parents(
     client: SharePointClient, endpoint: SharePointEndpoint, quoted_site: str, logger: FilteringBoundLogger
 ) -> list[dict[str, Any]]:
-    collection = "lists" if endpoint == SharePointEndpoint.LIST_ITEMS else "drives"
+    is_list = endpoint in LIST_ENDPOINTS
+    collection = "lists" if is_list else "drives"
     parents: list[dict[str, Any]] = []
     path = f"/sites/{quoted_site}/{collection}"
     for page in _walk_child_collection(client, path, None, None, lambda _: None, logger):
         for parent in page:
             # Hidden lists are SharePoint's own plumbing (workflow history, user info, and so on).
-            if endpoint == SharePointEndpoint.LIST_ITEMS and (parent.get("list") or {}).get("hidden"):
+            if is_list and (parent.get("list") or {}).get("hidden"):
                 continue
             parents.append(parent)
     return parents
@@ -451,6 +464,85 @@ def _iter_parent_rows(
             yield rows
 
 
+def _iter_parent_versions(
+    client: SharePointClient,
+    endpoint: SharePointEndpoint,
+    quoted_site: str,
+    site_id: str,
+    parent_id: str,
+    start_url: Optional[str],
+    stage: Callable[[str], None],
+    safe_point: Callable[[], None],
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    """Versions of every item in one list (`list_item_versions`) or every file in one drive (`drive_item_versions`).
+
+    The cursor names the page of items in progress, not the next one, because the versions of
+    that page are still being read. A resume reads the versions of that page again.
+    """
+    quoted_parent = quote(parent_id, safe="!-_")
+    is_list = endpoint == SharePointEndpoint.LIST_ITEM_VERSIONS
+    if is_list:
+        items_path = f"/sites/{quoted_site}/lists/{quoted_parent}/items"
+        item_prefix = items_path
+        version_params: Optional[dict[str, str]] = {"expand": "fields"}
+        parent_columns = {SITE_ID_COLUMN: site_id, LIST_ID_COLUMN: parent_id}
+    else:
+        items_path = f"/drives/{quoted_parent}/root/delta"
+        item_prefix = f"/drives/{quoted_parent}/items"
+        version_params = None
+        parent_columns = {SITE_ID_COLUMN: site_id, DRIVE_ID_COLUMN: parent_id}
+
+    next_url: Optional[str] = None
+
+    def remember_next(url: str) -> None:
+        nonlocal next_url
+        next_url = url
+
+    page_url = start_url
+    seen: set[str] = set()
+    for page in _walk_child_collection(client, items_path, None, start_url, remember_next, logger):
+        if page_url is not None:
+            stage(page_url)
+        page_yielded = False
+        for item in page:
+            item_id = item.get("id")
+            if item_id is None or item_id in seen:
+                continue
+            # Folders have no versions, and delta can return an item more than once.
+            if not is_list and (item.get("deleted") is not None or item.get("file") is None):
+                continue
+            seen.add(item_id)
+            path = f"{item_prefix}/{quote(item_id, safe='!-_')}/versions"
+            item_columns = {**parent_columns, ITEM_ID_COLUMN: item_id}
+            item_yielded = False
+            for versions in _walk_child_collection(client, path, version_params, None, lambda _: None, logger):
+                rows = []
+                for version in versions:
+                    version.pop("@microsoft.graph.downloadUrl", None)
+                    rows.append(_normalize(version, endpoint, **item_columns))
+                item_yielded = True
+                yield rows
+            if item_yielded:
+                page_yielded = True
+            else:
+                safe_point()
+        if not page_yielded:
+            safe_point()
+        page_url = next_url
+
+
+def _activity_stats_collection(last_value: Any, now: datetime) -> str:
+    end = (now.astimezone(UTC) + timedelta(days=1)).date()
+    start = end - ACTIVITY_STATS_WINDOW
+    watermark = _parse_datetime(last_value)
+    if watermark is not None:
+        start = max(start, watermark.astimezone(UTC).date())
+    return (
+        f"getActivitiesByInterval(startDateTime='{start.isoformat()}',endDateTime='{end.isoformat()}',interval='day')"
+    )
+
+
 def _get_rows(
     tenant_id: str,
     client_id: str,
@@ -459,6 +551,7 @@ def _get_rows(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[SharePointResumeConfig],
+    incremental_field_last_value: Any = None,
 ) -> Iterator[list[dict[str, Any]]]:
     sharepoint_endpoint = SharePointEndpoint(endpoint)
     site_paths = parse_site_urls(site_urls)
@@ -471,9 +564,26 @@ def _get_rows(
 
     sites = _list_sites(client, site_paths, logger)
 
-    if sharepoint_endpoint in (SharePointEndpoint.LISTS, SharePointEndpoint.DRIVES):
+    site_collections = {
+        SharePointEndpoint.LISTS: "lists",
+        SharePointEndpoint.DRIVES: "drives",
+        SharePointEndpoint.CONTENT_TYPES: "contentTypes",
+    }
+    if sharepoint_endpoint == SharePointEndpoint.SITE_ACTIVITY_STATS:
+        collection = _activity_stats_collection(incremental_field_last_value, datetime.now(UTC))
         yield from _iter_site_children(
-            client, sharepoint_endpoint, sharepoint_endpoint.value, sites, logger, resumable_source_manager, resume
+            client, sharepoint_endpoint, collection, sites, logger, resumable_source_manager, resume
+        )
+        return
+    if sharepoint_endpoint in site_collections:
+        yield from _iter_site_children(
+            client,
+            sharepoint_endpoint,
+            site_collections[sharepoint_endpoint],
+            sites,
+            logger,
+            resumable_source_manager,
+            resume,
         )
         return
 
@@ -488,6 +598,7 @@ def sharepoint_source(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[SharePointResumeConfig],
+    incremental_field_last_value: Any = None,
 ) -> SourceResponse:
     config = SHAREPOINT_ENDPOINTS[endpoint]
     has_datetime_partition = config.partition_key is not None
@@ -502,6 +613,7 @@ def sharepoint_source(
             endpoint=endpoint,
             logger=logger,
             resumable_source_manager=resumable_source_manager,
+            incremental_field_last_value=incremental_field_last_value,
         ),
         primary_keys=config.primary_keys,
         partition_count=1,
@@ -509,7 +621,8 @@ def sharepoint_source(
         partition_mode="datetime" if has_datetime_partition else None,
         partition_format="month" if has_datetime_partition else None,
         partition_keys=[config.partition_key] if config.partition_key is not None else None,
-        sort_mode="asc",
+        # Incremental activity stats are ascending per site, not across the whole run.
+        sort_mode=None if INCREMENTAL_FIELDS[endpoint] else "asc",
     )
 
 

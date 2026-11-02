@@ -4,6 +4,18 @@
         "id": {
             "description": "A unique integer value identifying this feature flag.",
             "type": "number"
+        },
+        "version": {
+            "anyOf": [
+                {
+                    "minimum": 0,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The `version` from your most recent read of this flag. Required when the flag's `filters.version` is 2, optional otherwise. When sent, the change is refused with 409 if anyone else changed the flag after that version. Null is the same as leaving it out."
         }
     },
     "required": ["id"],

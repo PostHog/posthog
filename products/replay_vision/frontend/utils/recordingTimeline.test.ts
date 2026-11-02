@@ -1,5 +1,5 @@
 import type { ReplayObservationApi } from '../generated/api.schemas'
-import { recordingTimeline, timelineRows } from './recordingTimeline'
+import { momentCount, recordingTimeline, timelineRows } from './recordingTimeline'
 
 function summary(
     output: Record<string, unknown> | null,
@@ -174,5 +174,19 @@ describe('recordingTimeline', () => {
         )
         expect(rows).toEqual(['boundary start', 'chapter Browses', 'inactive 20000-90000', 'chapter Buys'])
         expect(timeline.chapters.find((c) => c.title === 'Buys')?.inactiveMs).toBe(5_000)
+    })
+
+    it.each([
+        { name: 'nothing', observations: [], count: 0 },
+        {
+            name: 'chapters and a cited moment',
+            observations: [
+                summary({ chapters: [chapter(0, 10_000, 'A'), chapter(10_000, 20_000, 'B')] }),
+                monitor('m1', 5_000),
+            ],
+            count: 3,
+        },
+    ])('counts the moments of $name', ({ observations, count }) => {
+        expect(momentCount(recordingTimeline(observations))).toBe(count)
     })
 })

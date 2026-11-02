@@ -272,14 +272,16 @@ def _mint_transactional_email_jwt(team_id: int, hog_flow_id: str) -> str:
     return WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_PURPOSE.mint({"team_id": team_id, "hog_flow_id": hog_flow_id})
 
 
-def send_transactional_email(team_id: int, hog_flow_id: str, payload: dict) -> requests.Response:
+def send_transactional_email(
+    team_id: int, hog_flow_id: str, payload: dict, *, timeout: float = 10
+) -> requests.Response:
     """Run a transactional email's workflow once. `payload` carries the recipient, the recipient's distinct_id and
     the template variables. 202 means queued, 429 means the team is over its email quota."""
     return internal_requests.post(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/transactional_email",
         json=payload,
         headers={"Authorization": f"Bearer {_mint_transactional_email_jwt(team_id, hog_flow_id)}"},
-        timeout=10,
+        timeout=timeout,
     )
 
 

@@ -12,7 +12,7 @@ from django.db import models
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
-from products.signals.backend.activity_summary.computed import COMPUTED_SCHEMA_VERSION
+from products.signals.backend.activity_summary.computed import READABLE_COMPUTED_SCHEMA_VERSIONS
 from products.signals.backend.activity_summary.config import ActivitySummaryConfig, read_config
 from products.signals.backend.activity_summary.logic import is_stale
 from products.signals.backend.activity_summary.queue import is_team_enrolled_for_read
@@ -100,8 +100,11 @@ def _themes(summary: dict[str, Any]) -> tuple[ActivitySummaryTheme, ...]:
 
 
 def _computed(value: Any) -> dict[str, Any] | None:
-    # A row from before the field existed has none. A row from another schema version has another shape.
-    return value if isinstance(value, dict) and value.get("schema_version") == COMPUTED_SCHEMA_VERSION else None
+    # A row from before the field existed has none. A row from an unknown schema version has another shape.
+    # A version 1 row has no task or MCP refs, so it gets empty lists.
+    if not isinstance(value, dict) or value.get("schema_version") not in READABLE_COMPUTED_SCHEMA_VERSIONS:
+        return None
+    return {"tasks": [], "mcp_sessions": [], **value}
 
 
 def _readable_config(team: Team) -> ActivitySummaryConfig | None:

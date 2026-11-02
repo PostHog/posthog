@@ -13,6 +13,7 @@ from posthog.utils import absolute_uri
 
 from products.alerts.backend.logic.insight_alert_destinations import snooze_select
 from products.alerts_platform.backend.facade.contracts import (
+    SOURCE_CONDITION_KEY,
     AlertEventKind,
     AnnouncedTransition,
     MessageDetail,
@@ -31,13 +32,18 @@ def describe_insight_transition(*, project_id: int, transition: AnnouncedTransit
     insight_short_id = detail.get("insight_short_id")
     return SourceDescription(
         # One detail for every breach, because a transport such as PagerDuty keys its details by label.
-        details=(MessageDetail(label="Threshold breached", value="\n".join(breaches)),) if breaches else (),
+        details=(MessageDetail(label=_breach_label(transition), value="\n".join(breaches)),) if breaches else (),
         context=(f"Insight: {insight_name}",) if insight_name else (),
         data_link=MessageLink(label="View insight", url=insight_url(project_id, insight_short_id))
         if insight_short_id
         else None,
         slack_elements=(snooze_select(alert_id),) if alert_id else (),
     )
+
+
+def _breach_label(transition: AnnouncedTransition) -> str:
+    condition = transition.source_config.get(SOURCE_CONDITION_KEY)
+    return "Anomaly detected" if isinstance(condition, dict) and condition.get("detector") else "Threshold breached"
 
 
 def insight_url(project_id: int, insight_short_id: str) -> str:

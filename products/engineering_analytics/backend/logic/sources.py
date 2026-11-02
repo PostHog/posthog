@@ -36,9 +36,10 @@ from products.engineering_analytics.backend.facade.contracts import (
     GitHubSource,
     GitHubSourceNotConnectedError,
 )
-from products.engineering_analytics.backend.logic.views import depot_ci, workflow_jobs
+from products.engineering_analytics.backend.logic.views import depot_ci, trunk_quarantined_tests, workflow_jobs
 from products.engineering_analytics.backend.logic.views.source_schema import OPTIONAL_WORKFLOW_RUNS_COLUMNS
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore, UnreadableSourceInputsError
 from products.warehouse_sources.backend.facade.sources import github_schema_repo_endpoint
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
@@ -351,6 +352,8 @@ class TrunkQuarantineSource:
 
     table: str
     org_url_slug: str | None
+    # False until a source moved to the v2 API resyncs, so the board keeps reading the v1 columns.
+    v2_shape: bool
 
 
 def resolve_trunk_quarantined_tests_source(
@@ -372,8 +375,15 @@ def resolve_trunk_quarantined_tests_source(
             if table is None or table.deleted or not _IDENTIFIER.match(table.name):
                 continue
             # job_inputs is an EncryptedJSONField and can hold any JSON shape.
-            inputs = source.job_inputs if isinstance(source.job_inputs, dict) else {}
-            resolved = TrunkQuarantineSource(table=table.name, org_url_slug=inputs.get("org_url_slug") or None)
+            try:
+                inputs = SourceInputsStore.load(source)
+            except UnreadableSourceInputsError:
+                inputs = {}
+            resolved = TrunkQuarantineSource(
+                table=table.name,
+                org_url_slug=inputs.get("org_url_slug") or None,
+                v2_shape=trunk_quarantined_tests.V2_SHAPE_COLUMN in (table.columns or {}),
+            )
             owner, name = inputs.get("repo_owner") or "", inputs.get("repo_name") or ""
             if f"{owner}/{name}".lower() == repository.lower():
                 return resolved
@@ -511,8 +521,9 @@ def _source_repository(source: ExternalDataSource) -> str:
     (list/str) would crash the ``.get`` below — guard it the same way ``job_logs.coordinator``
     does, since this resolves for every engineering_analytics endpoint.
     """
-    job_inputs = source.job_inputs
-    if not isinstance(job_inputs, dict):
+    try:
+        job_inputs = SourceInputsStore.load(source)
+    except UnreadableSourceInputsError:
         return ""
     return str(job_inputs.get("repository") or "").strip()
 
@@ -526,8 +537,9 @@ def _configured_repositories(source: ExternalDataSource) -> list[str]:
     dropped case-insensitively (GitHub full names are case-insensitive). ``job_inputs`` is an
     ``EncryptedJSONField`` that can hold any JSON value, so a non-dict yields no repos.
     """
-    job_inputs = source.job_inputs
-    if not isinstance(job_inputs, dict):
+    try:
+        job_inputs = SourceInputsStore.load(source)
+    except UnreadableSourceInputsError:
         return []
     repositories = job_inputs.get("repositories")
     # An empty `repositories` list means "unset" — the sync-side parser falls back to the single
@@ -614,7 +626,10 @@ def depot_source_api_token(team: Team, source_id: str) -> str | None:
     """The Depot organization API token a team's Depot source syncs with, or None."""
     source = _accessible_sources(team, ExternalDataSourceType.DEPOT, None).filter(id=source_id).first()
     # job_inputs is an EncryptedJSONField and can hold any JSON shape.
-    inputs = source.job_inputs if source is not None and isinstance(source.job_inputs, dict) else {}
+    try:
+        inputs = SourceInputsStore.load(source) if source is not None else {}
+    except UnreadableSourceInputsError:
+        inputs = {}
     api_token = inputs.get("api_token")
     return api_token if isinstance(api_token, str) and api_token else None
 

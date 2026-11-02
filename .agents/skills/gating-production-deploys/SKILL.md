@@ -74,16 +74,22 @@ Counter-example, not gated: `build-phrocs.yml`.
 For a new monorepo publisher or independent releases of a shared built image,
 read [Ordered image releases](references/ordered-image-releases.md). Reuse the
 repository helper and canonical policy. Use `.github/actions/shared-image-releases`
-for `inspect` and the publication helper APIs. The legacy paths-filter action
-owns manifest loading and projection. The foundation supports the common
-alias and policy helpers. Channels must stay empty; selective worker publication
-is not implemented. Services built elsewhere retain their existing publisher family.
+for `inspect` and `publish`. The legacy paths-filter action owns manifest loading
+and projection. Selective channels compare each destination frontier with the
+successful build and publish only eligible digests. Keep channels empty until
+their infrastructure, policy entry, seed and consumer binding have separate
+activation review. Services built elsewhere retain their existing
+publisher family.
 
-The source action validates policy and the configured build input offline.
-IAM authorizes origin writes; ECR handles replication.
+The publisher validates source policy offline, then authenticates with the
+selective role and checks origin access through the frontier lookup. It copies
+once to the US origin and verifies its digest; ECR handles replication. Adding
+another worker needs its infrastructure entry and policy entry, with no workflow
+edit. A receipt proves the origin, not regional availability.
+
 For new-service onboarding or an existing-service migration, hand the consumer's
 source identity, policy and destination coordinates to the Charts migration
 helper. Charts checks resolved regional repositories against source policy and
 provisioned infrastructure, together with owner, lane, image group and inherited
-Git filters. Kargo checks regional tag, revision and digest agreement.
-Obtain that check before treating the consumer setup as ready.
+Git filters. Kargo checks regional tag, revision and digest agreement. Obtain
+that check before treating the consumer setup as ready.

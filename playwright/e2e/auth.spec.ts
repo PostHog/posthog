@@ -44,8 +44,7 @@ test.describe('Auth', () => {
         await loginPage.enterUsername(LOGIN_USERNAME)
         await expect(page.locator('[data-attr=login-email]')).toHaveValue(LOGIN_USERNAME)
 
-        await page.locator('[data-attr=login-email]').blur()
-        await page.locator('[data-attr=password]').waitFor({ state: 'visible', timeout: 5000 })
+        await loginPage.continueWithEmail()
 
         await loginPage.enterPassword(LOGIN_PASSWORD)
         await expect(page.locator('[data-attr=password]')).toHaveValue(LOGIN_PASSWORD)
@@ -87,8 +86,7 @@ test.describe('Auth', () => {
         await loginPage.enterUsername(LOGIN_USERNAME)
         await expect(page.locator('[data-attr=login-email]')).toHaveValue(LOGIN_USERNAME)
 
-        await page.locator('[data-attr=login-email]').blur()
-        await page.locator('[data-attr=password]').waitFor({ state: 'visible', timeout: 5000 })
+        await loginPage.continueWithEmail()
 
         await loginPage.enterPassword('wrong password')
         await expect(page.locator('[data-attr=password]')).toHaveValue('wrong password')
@@ -108,8 +106,7 @@ test.describe('Auth', () => {
         await expect(page).toHaveURL(/\/login/)
 
         await loginPage.enterUsername(LOGIN_USERNAME)
-        await page.locator('[data-attr=login-email]').blur()
-        await page.locator('[data-attr=password]').waitFor({ state: 'visible', timeout: 5000 })
+        await loginPage.continueWithEmail()
 
         await loginPage.enterPassword(LOGIN_PASSWORD)
         await loginPage.clickLogin()
@@ -123,8 +120,7 @@ test.describe('Auth', () => {
         await expect(page).toHaveURL(/\/login/)
 
         await loginPage.enterUsername(LOGIN_USERNAME)
-        await page.locator('[data-attr=login-email]').blur()
-        await page.locator('[data-attr=password]').waitFor({ state: 'visible', timeout: 5000 })
+        await loginPage.continueWithEmail()
 
         await loginPage.enterPassword(LOGIN_PASSWORD)
         await loginPage.clickLogin()
@@ -142,8 +138,7 @@ test.describe('Auth', () => {
         await expect(page).toHaveURL(/\/login/)
 
         await loginPage.enterUsername(workspace!.user_email)
-        await page.locator('[data-attr=login-email]').blur()
-        await page.locator('[data-attr=password]').waitFor({ state: 'visible', timeout: 5000 })
+        await loginPage.continueWithEmail()
 
         await loginPage.enterPassword(LOGIN_PASSWORD)
         await loginPage.clickLogin()

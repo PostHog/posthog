@@ -55,6 +55,10 @@ class GitLabSource(ResumableSource[GitLabSourceConfig, GitLabResumeConfig]):
         return ExternalDataSourceType.GITLAB
 
     @property
+    def credential_kind(self) -> str | None:
+        return "gitlab"
+
+    @property
     def connection_host_fields(self) -> list[str]:
         # `gitlab_host` is where the stored token is sent; retargeting it must re-require the token.
         return ["gitlab_host"]

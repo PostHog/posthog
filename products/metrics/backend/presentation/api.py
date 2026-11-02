@@ -24,7 +24,7 @@ from rest_framework.response import Response
 from posthog.schema import MetricsDashboardVariable, MetricsDashboardVariableSelection, MetricsDashboardVariableSource
 
 from posthog.api.documentation import _FallbackSerializer
-from posthog.api.query import CONCURRENCY_LIMIT_USER_MESSAGE
+from posthog.api.query import CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS, CONCURRENCY_LIMIT_USER_MESSAGE
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.snuffle_proxy import SNUFFLE_API_FEATURE_FLAG
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
@@ -1193,7 +1193,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 date_to=data["dateTo"],
             )
         except ConcurrencyLimitExceeded as exc:
-            raise Throttled(detail=CONCURRENCY_LIMIT_USER_MESSAGE) from exc
+            raise Throttled(wait=CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS, detail=CONCURRENCY_LIMIT_USER_MESSAGE) from exc
         except ValueError as exc:
             raise ParseError(str(exc))
 

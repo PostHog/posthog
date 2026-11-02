@@ -383,8 +383,11 @@ def get_skill_by_name_from_db(
     version_id: str | None = None,
     *,
     include_archived: bool = False,
+    defer_body: bool = False,
 ) -> LLMSkill | None:
     queryset = get_active_skill_queryset(team).filter(name=skill_name)
+    if defer_body:
+        queryset = queryset.defer("body")
 
     if version_id is not None:
         # `include_archived` honours a pin to one immutable version row even after
@@ -395,6 +398,8 @@ def get_skill_by_name_from_db(
             if include_archived
             else queryset.filter(id=version_id)
         )
+        if defer_body:
+            rows = rows.defer("body")
         if version is not None:
             rows = rows.filter(version=version)
         return rows.order_by("created_at", "id").first()
@@ -440,11 +445,14 @@ def _carry_forward(payload_value: Any, current_value: Any) -> Any:
 # caller-supplied value for one of these is a forged attestation: dropping `canonical_hash` from a
 # seeded Signals scout, or writing a hash of the caller's own content, makes an edited scout read as
 # PostHog-shipped and mints a permanent billing exemption for its reports.
-HARNESS_OWNED_METADATA_KEYS = frozenset({"seeded_by", "canonical_hash", "source"})
+# `source_template*` records which product template a scout's text came from, so a forged one could get the scout overwritten.
+HARNESS_OWNED_METADATA_KEYS = frozenset(
+    {"seeded_by", "canonical_hash", "source", "source_template", "source_template_hash"}
+)
 
 
-def _resolve_published_metadata(payload_value: dict[str, Any] | None, current_value: dict | None) -> dict[str, Any]:
-    """Caller metadata for a new version, with the harness-owned provenance pinned to the current row."""
+def resolve_skill_metadata(payload_value: dict[str, Any] | None, current_value: dict | None) -> dict[str, Any]:
+    """Server-owned provenance comes only from the current persisted row."""
     current = dict(current_value or {})
     if payload_value is None:
         return current
@@ -493,7 +501,7 @@ def apply_skill_file_edits(file_content: str, edits: list[dict[str, str]], *, fi
 def publish_skill_version(
     team: Team,
     *,
-    user: User,
+    user: User | None,
     skill_name: str,
     body: str | None = None,
     edits: list[dict[str, str]] | None = None,
@@ -506,7 +514,9 @@ def publish_skill_version(
     file_edits: list[dict[str, Any]] | None = None,
     base_version: int,
     version_description: str | None = None,
+    system_metadata: dict[str, Any] | None = None,
 ) -> LLMSkill:
+    """`system_metadata` overwrites server-owned keys, so only server-side code passes it, usually with `user=None`."""
     with transaction.atomic():
         current_latest = (
             LLMSkill.objects.select_for_update()
@@ -544,7 +554,7 @@ def publish_skill_version(
             license=_carry_forward(license, current_latest.license),
             compatibility=_carry_forward(compatibility, current_latest.compatibility),
             allowed_tools=_carry_forward(allowed_tools, current_latest.allowed_tools),
-            metadata=_resolve_published_metadata(metadata, current_latest.metadata),
+            metadata={**resolve_skill_metadata(metadata, current_latest.metadata), **(system_metadata or {})},
             # Categorization is a property of the skill, not the version — carry it forward so editing
             # a scout (or any categorized skill) doesn't drop it out of its tab.
             category=current_latest.category,
@@ -671,7 +681,7 @@ def create_skill(
                 license=license or "",
                 compatibility=compatibility or "",
                 allowed_tools=allowed_tools or [],
-                metadata=metadata or {},
+                metadata=resolve_skill_metadata(metadata, None),
                 version=1,
                 is_latest=True,
                 created_by=user,

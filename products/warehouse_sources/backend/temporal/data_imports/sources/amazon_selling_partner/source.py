@@ -213,6 +213,7 @@ class AmazonSellingPartnerSource(ResumableSource[AmazonSellingPartnerSourceConfi
                     ),
                     SourceFieldInputConfig(
                         name="marketplace_ids",
+                        sync_setting=True,
                         label="Marketplace IDs",
                         caption="Comma-separated. Required for vendor reports. For sellers it applies to orders, order items and inventory, while transactions always cover every marketplace. Sellers can leave it blank to use every marketplace they sell in.",
                         type=SourceFieldInputConfigType.TEXT,

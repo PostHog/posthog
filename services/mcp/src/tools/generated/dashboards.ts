@@ -59,6 +59,9 @@ const dashboardCreate = (): ToolBase<
         if (params.layout_compaction !== undefined) {
             body['layout_compaction'] = params.layout_compaction
         }
+        if (params.group_display !== undefined) {
+            body['group_display'] = params.group_display
+        }
         if (params.groups !== undefined) {
             body['groups'] = params.groups
         }
@@ -112,6 +115,7 @@ const dashboardCreate = (): ToolBase<
                 'tiles.*.insight.last_viewed_at',
                 'tiles.*.insight.timezone',
                 'tiles.*.insight.resolved_date_range',
+                'tiles.*.insight.resolved_compare_date_range',
                 'tiles.*.insight.filter_override_context',
                 'created_by.uuid',
                 'created_by.distinct_id',
@@ -291,6 +295,7 @@ const dashboardGet = (): ToolBase<
                 'tiles.*.insight.alerts',
                 'tiles.*.insight.timezone',
                 'tiles.*.insight.resolved_date_range',
+                'tiles.*.insight.resolved_compare_date_range',
                 'tiles.*.insight.filter_override_context',
                 'created_by.uuid',
                 'created_by.distinct_id',
@@ -615,6 +620,9 @@ const dashboardUpdate = (): ToolBase<
         if (params.layout_compaction !== undefined) {
             body['layout_compaction'] = params.layout_compaction
         }
+        if (params.group_display !== undefined) {
+            body['group_display'] = params.group_display
+        }
         if (params.groups !== undefined) {
             body['groups'] = params.groups
         }
@@ -669,6 +677,7 @@ const dashboardUpdate = (): ToolBase<
                 'tiles.*.insight.alerts',
                 'tiles.*.insight.timezone',
                 'tiles.*.insight.resolved_date_range',
+                'tiles.*.insight.resolved_compare_date_range',
                 'tiles.*.insight.filter_override_context',
                 'created_by.uuid',
                 'created_by.distinct_id',

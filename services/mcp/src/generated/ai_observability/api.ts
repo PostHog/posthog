@@ -532,6 +532,8 @@ export const AiObservabilityOfflineExperimentsUploadCreateParams = () => zod.obj
         ),
 })
 
+export const aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemModelVersionMax = 255
+
 export const aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemCaseKeyMax = 255
 
 export const aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemTrialMax = 255
@@ -559,6 +561,11 @@ export const AiObservabilityOfflineExperimentsUploadCreateBody = () => zod.objec
                 id: zod
                     .string()
                     .describe('Caller-generated UUID for one input\/output execution. Reuse for exact retries.'),
+                model_version: zod
+                    .string()
+                    .max(aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemModelVersionMax)
+                    .nullish()
+                    .describe("Model used for this item. Omitted or null values inherit the experiment's model."),
                 case_key: zod
                     .string()
                     .max(aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemCaseKeyMax)
@@ -739,6 +746,12 @@ export const AiObservabilityOfflineScorersHistoryListQueryParams = () => zod.obj
         .max(aiObservabilityOfflineScorersHistoryListQueryApplicationVersionMax)
         .optional()
         .describe('Exact application revision.'),
+    breakdown: zod
+        .enum(['model_version', 'prompt_version', 'application_version', 'suite_key', 'run_source'])
+        .optional()
+        .describe(
+            "Split history by this property. Model uses each item's model, falling back to the experiment's model.\n\n\* `model_version` - Model\n\* `prompt_version` - Prompt version\n\* `application_version` - Application version\n\* `suite_key` - Suite\n\* `run_source` - Run source"
+        ),
     created_by: zod.number().min(1).optional().describe("Filter experiments by the author's user ID."),
     created_by_is_null: zod.boolean().optional().describe('Only include experiments without an author.'),
     cursor: zod
@@ -1422,6 +1435,13 @@ export const EvaluationsCreateBody = () => zod
                         .enum(['llm', 'decision'])
                         .nullish()
                         .describe('Judge method. Omit to keep the saved method; null restores automatic routing.'),
+                    include_media: zod.boolean().optional().describe('Set to false to judge text only.'),
+                    reasoning_level: zod
+                        .enum(['minimal', 'low', 'medium', 'high'])
+                        .nullish()
+                        .describe(
+                            "How much the judge model reasons before it answers. Only Anthropic and OpenAI reasoning models with the 'llm' judge method support it. Omit to keep the saved level; null uses the model's default."
+                        ),
                 }),
                 zod.object({
                     source: zod
@@ -1897,6 +1917,13 @@ export const EvaluationsPartialUpdateBody = () => zod
                         .enum(['llm', 'decision'])
                         .nullish()
                         .describe('Judge method. Omit to keep the saved method; null restores automatic routing.'),
+                    include_media: zod.boolean().optional().describe('Set to false to judge text only.'),
+                    reasoning_level: zod
+                        .enum(['minimal', 'low', 'medium', 'high'])
+                        .nullish()
+                        .describe(
+                            "How much the judge model reasons before it answers. Only Anthropic and OpenAI reasoning models with the 'llm' judge method support it. Omit to keep the saved level; null uses the model's default."
+                        ),
                 }),
                 zod.object({
                     source: zod

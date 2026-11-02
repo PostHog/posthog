@@ -223,6 +223,24 @@ describe('ReportCard', () => {
         expect(logic.values.selectedReportIds).toEqual([])
     })
 
+    it.each([
+        ['a report without a pull request', null],
+        ['a pull request', 'https://github.com/example/repo/pull/123'],
+    ])('shows a plain title without a conventional commit tag for %s', (_name, implementationPrUrl) => {
+        cleanup()
+        render(
+            <ReportCard
+                report={makeReport('r-2', {
+                    title: 'note(example): Example report title',
+                    implementation_pr_url: implementationPrUrl,
+                })}
+            />
+        )
+
+        expect(screen.getByText('Example report title')).toBeInTheDocument()
+        expect(screen.queryByText('note(example)')).not.toBeInTheDocument()
+    })
+
     test.each([
         [
             "a person's reason",
@@ -264,6 +282,11 @@ describe('ReportCard', () => {
             action: 'unassign',
             hold: () => jest.spyOn(api, 'delete').mockReturnValue(new Promise<never>(() => {})),
             start: () => logic.actions.bulkUnassignMe(['r-1']),
+        },
+        {
+            action: 'claim',
+            hold: () => jest.spyOn(api, 'create').mockReturnValue(new Promise<never>(() => {})),
+            start: () => logic.actions.bulkClaim(['r-1']),
         },
     ])('locks the selection while a bulk $action is running', ({ hold, start }) => {
         const pending = hold()

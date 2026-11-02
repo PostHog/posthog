@@ -53,10 +53,23 @@ describe('slack template', () => {
 
         const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
             status: 200,
-            body: { ok: true },
+            body: { ok: true, channel: 'C0123ABC', ts: '1700000000.000200', message: { text: 'hello' } },
         })
         expect(fetchResponse.finished).toBe(true)
         expect(fetchResponse.error).toBeUndefined()
+        // A later workflow step reads the ts to reply in the thread of this message.
+        expect(fetchResponse.execResult).toEqual({ channel: 'C0123ABC', ts: '1700000000.000200' })
+    })
+
+    it('preserves separate metadata and chart attachments', async () => {
+        const attachments = [
+            { color: '#D97706', blocks: [{ type: 'section', text: { type: 'plain_text', text: 'Limit crossed' } }] },
+            { blocks: [{ type: 'image', image_url: 'https://example.com/chart.png', alt_text: 'Insight chart' }] },
+        ]
+        const response = await tester.invoke({ ...commonInputs, text: '', attachments })
+
+        expect(response.error).toBeUndefined()
+        expect(bodyOf(response.invocation.queueParameters)).toMatchObject({ attachments, text: '', blocks: [] })
     })
 
     it.each([

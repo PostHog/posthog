@@ -1464,6 +1464,7 @@ export interface PaginatedTaskListItemListApi {
  * * `space_setup` - Space Setup
  * * `business_knowledge` - Business Knowledge
  * * `metrics_import` - Metrics Import
+ * * `knowledge_writer` - Knowledge Writer
  */
 export type TaskOriginProductEnumApi = (typeof TaskOriginProductEnumApi)[keyof typeof TaskOriginProductEnumApi]
 
@@ -1494,6 +1495,7 @@ export const TaskOriginProductEnumApi = {
     SpaceSetup: 'space_setup',
     BusinessKnowledge: 'business_knowledge',
     MetricsImport: 'metrics_import',
+    KnowledgeWriter: 'knowledge_writer',
 } as const
 
 /**
@@ -1574,7 +1576,8 @@ export interface TaskCreateApi {
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
-     * * `metrics_import` - Metrics Import */
+     * * `metrics_import` - Metrics Import
+     * * `knowledge_writer` - Knowledge Writer */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -1810,7 +1813,8 @@ export interface TaskWriteApi {
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
-     * * `metrics_import` - Metrics Import */
+     * * `metrics_import` - Metrics Import
+     * * `knowledge_writer` - Knowledge Writer */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -1947,7 +1951,8 @@ export interface PatchedTaskWriteApi {
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
-     * * `metrics_import` - Metrics Import */
+     * * `metrics_import` - Metrics Import
+     * * `knowledge_writer` - Knowledge Writer */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -3825,97 +3830,6 @@ export interface ConnectionTokenResponseApi {
     token: string
 }
 
-/**
- * One peer agent run visible to the requesting run (agent peer messaging).
- */
-export interface TaskRunPeerApi {
-    /** The peer run's id — the address send_agent_message targets. */
-    run_id: string
-    /** Id of the peer run's parent task. */
-    task_id: string
-    /** Title of the peer run's parent task. */
-    task_title: string
-    /**
-     * Email of the user whose task the peer run belongs to.
-     * @nullable
-     */
-    created_by_email: string | null
-    /** Agent runtime of the peer run's task (e.g. 'pi'). */
-    runtime: string
-    /**
-     * Model the peer run was started with, when recorded.
-     * @nullable
-     */
-    model: string | null
-    /**
-     * Repository the peer run works on, or null for repo-less (channel-mode) runs.
-     * @nullable
-     */
-    repository: string | null
-    /**
-     * Current stage of the peer run (e.g. 'build').
-     * @nullable
-     */
-    stage: string | null
-    /** Run status: 'in_progress' or 'queued' (only these are listed). */
-    status: string
-    /** Whether the peer accepts messages right now. Only in-progress runs are sendable; a queued run is listed but its workflow may not exist yet. Never infer sendability from status labels. */
-    sendable: boolean
-    /**
-     * ISO-8601 timestamp of the peer run's last update.
-     * @nullable
-     */
-    updated_at: string | null
-}
-
-export interface TaskRunPeersResponseApi {
-    /** Active agent runs the requesting run may message, most recently updated first. */
-    peers: TaskRunPeerApi[]
-}
-
-export interface TaskRunPeerMessageRequestApi {
-    /**
-     * Plain-text message body (max 16000 chars). Delivered to the peer below a server-composed provenance envelope; send short summaries, never raw file dumps — use artifact_ids for files.
-     * @maxLength 16000
-     */
-    content: string
-    /**
-     * Manifest ids of artifacts on the SENDING run to share (max 10). Each is copied into the target run's own artifact storage; the receiver gets an immutable snapshot.
-     * @maxItems 10
-     * @items.maxLength 128
-     */
-    artifact_ids?: string[]
-}
-
-/**
- * * `accepted` - accepted
- * * `target_finished` - target_finished
- * * `rejected` - rejected
- */
-export type ResultEnumApi = (typeof ResultEnumApi)[keyof typeof ResultEnumApi]
-
-export const ResultEnumApi = {
-    Accepted: 'accepted',
-    TargetFinished: 'target_finished',
-    Rejected: 'rejected',
-} as const
-
-export interface TaskRunPeerMessageResponseApi {
-    /** Send outcome: 'accepted' (queued for delivery — not a delivery confirmation), 'target_finished' (the peer's workflow is gone), or 'rejected' (throttled or invalid).
-     *
-     * * `accepted` - accepted
-     * * `target_finished` - target_finished
-     * * `rejected` - rejected */
-    result: ResultEnumApi
-    /** Human-readable explanation of the result. */
-    detail: string
-    /**
-     * Id of the recorded peer message, when one was created for this send.
-     * @nullable
-     */
-    message_id?: string | null
-}
-
 export interface TaskRunRelayMessageRequestApi {
     /**
      * Joined message body. Used when text_parts is absent.
@@ -5077,6 +4991,7 @@ export interface SlackThreadContextResponseApi {
  * * `experiments` - experiments
  * * `hogdesk` - hogdesk
  * * `image_builder` - image_builder
+ * * `knowledge_writer` - knowledge_writer
  * * `loop` - loop
  * * `mcp_analytics` - mcp_analytics
  * * `onboarding` - onboarding
@@ -5106,6 +5021,7 @@ export const TaskListSourceEnumApi = {
     Experiments: 'experiments',
     Hogdesk: 'hogdesk',
     ImageBuilder: 'image_builder',
+    KnowledgeWriter: 'knowledge_writer',
     Loop: 'loop',
     McpAnalytics: 'mcp_analytics',
     Onboarding: 'onboarding',
@@ -5314,6 +5230,7 @@ export type SandboxCustomImagesListParams = {
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
      * * `metrics_import` - Metrics Import
+     * * `knowledge_writer` - Knowledge Writer
      * @minLength 1
      */
     origin_product?: SandboxCustomImagesListOriginProduct
@@ -5349,6 +5266,7 @@ export const SandboxCustomImagesListOriginProduct = {
     SpaceSetup: 'space_setup',
     BusinessKnowledge: 'business_knowledge',
     MetricsImport: 'metrics_import',
+    KnowledgeWriter: 'knowledge_writer',
 } as const
 
 export type SandboxListParams = {
@@ -5496,6 +5414,7 @@ export type TasksListParams = {
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
      * * `metrics_import` - Metrics Import
+     * * `knowledge_writer` - Knowledge Writer
      * @minLength 1
      */
     exclude_origin_product?: TasksListExcludeOriginProduct
@@ -5646,6 +5565,7 @@ export const TasksListExcludeOriginProduct = {
     SpaceSetup: 'space_setup',
     BusinessKnowledge: 'business_knowledge',
     MetricsImport: 'metrics_import',
+    KnowledgeWriter: 'knowledge_writer',
 } as const
 
 export type TasksListInternal = (typeof TasksListInternal)[keyof typeof TasksListInternal]
@@ -5679,6 +5599,7 @@ export const TasksListPrState = {
  * * `experiments` - experiments
  * * `hogdesk` - hogdesk
  * * `image_builder` - image_builder
+ * * `knowledge_writer` - knowledge_writer
  * * `loop` - loop
  * * `mcp_analytics` - mcp_analytics
  * * `onboarding` - onboarding
@@ -5708,6 +5629,7 @@ export const TasksListSourcesItem = {
     Experiments: 'experiments',
     Hogdesk: 'hogdesk',
     ImageBuilder: 'image_builder',
+    KnowledgeWriter: 'knowledge_writer',
     Loop: 'loop',
     McpAnalytics: 'mcp_analytics',
     Onboarding: 'onboarding',

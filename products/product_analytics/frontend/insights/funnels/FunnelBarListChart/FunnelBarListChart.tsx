@@ -24,6 +24,7 @@ import {
 import { GlyphColumn } from '../FunnelBarHorizontalChart/GlyphColumn'
 import { openFunnelSegmentPersons } from '../FunnelBarHorizontalChart/openFunnelSegmentPersons'
 import { funnelDataLogic } from '../funnelDataLogic'
+import { FunnelGoalLines } from '../FunnelGoalLines'
 import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
 import { FunnelBarListDropOff } from './FunnelBarListDropOff'
 import { FunnelBarListLabel } from './FunnelBarListLabel'
@@ -211,7 +212,9 @@ export function FunnelBarListChart({ showPersonsModal: showPersonsModalProp = tr
                     tooltip={renderTooltip}
                     onPointClick={onPointClick}
                     onError={handleChartError}
-                />
+                >
+                    <FunnelGoalLines />
+                </StackedBarList>
             </div>
         </div>
     )

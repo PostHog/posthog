@@ -141,6 +141,8 @@ export const AiObservabilityOfflineExperimentsPartialUpdateBody = /* @__PURE__ *
         .describe('Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.'),
 })
 
+export const aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemModelVersionMax = 255
+
 export const aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemCaseKeyMax = 255
 
 export const aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemTrialMax = 255
@@ -168,6 +170,11 @@ export const AiObservabilityOfflineExperimentsUploadCreateBody = /* @__PURE__ */
                 id: zod
                     .uuid()
                     .describe('Caller-generated UUID for one input\/output execution. Reuse for exact retries.'),
+                model_version: zod
+                    .string()
+                    .max(aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemModelVersionMax)
+                    .nullish()
+                    .describe("Model used for this item. Omitted or null values inherit the experiment's model."),
                 case_key: zod
                     .string()
                     .max(aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemCaseKeyMax)
@@ -301,6 +308,30 @@ export const AiObservabilityOfflineExperimentsUploadCreateBody = /* @__PURE__ */
         .min(1)
         .max(aiObservabilityOfflineExperimentsUploadCreateBodyResultsMax)
         .describe('One to 1,000 unique item\/scorer-version results. The entire request commits atomically.'),
+})
+
+/**
+ * Starts writing the trace and every node, inputs and outputs included, to a JSON file. Poll the export until it completes, then download it.
+ */
+export const AiObservabilityTracesExportsCreateBody = /* @__PURE__ */ zod.object({
+    timestamp_hint: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            'When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.'
+        ),
+})
+
+/**
+ * Request an AI summary of the trace. A ready summary is returned as is unless `regenerate` is set; otherwise a job starts writing one, or the request joins the job already writing it.
+ */
+export const aiObservabilityTracesSummaryCreateBodyRegenerateDefault = false
+
+export const AiObservabilityTracesSummaryCreateBody = /* @__PURE__ */ zod.object({
+    regenerate: zod
+        .boolean()
+        .default(aiObservabilityTracesSummaryCreateBodyRegenerateDefault)
+        .describe('Replace a ready summary with a new one. A pending summary is never replaced.'),
 })
 
 /**
@@ -601,6 +632,13 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod
                         .enum(['llm', 'decision'])
                         .nullish()
                         .describe('Judge method. Omit to keep the saved method; null restores automatic routing.'),
+                    include_media: zod.boolean().optional().describe('Set to false to judge text only.'),
+                    reasoning_level: zod
+                        .enum(['minimal', 'low', 'medium', 'high'])
+                        .nullish()
+                        .describe(
+                            "How much the judge model reasons before it answers. Only Anthropic and OpenAI reasoning models with the 'llm' judge method support it. Omit to keep the saved level; null uses the model's default."
+                        ),
                 }),
                 zod.object({
                     source: zod
@@ -996,6 +1034,13 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod
                         .enum(['llm', 'decision'])
                         .nullish()
                         .describe('Judge method. Omit to keep the saved method; null restores automatic routing.'),
+                    include_media: zod.boolean().optional().describe('Set to false to judge text only.'),
+                    reasoning_level: zod
+                        .enum(['minimal', 'low', 'medium', 'high'])
+                        .nullish()
+                        .describe(
+                            "How much the judge model reasons before it answers. Only Anthropic and OpenAI reasoning models with the 'llm' judge method support it. Omit to keep the saved level; null uses the model's default."
+                        ),
                 }),
                 zod.object({
                     source: zod
@@ -1294,6 +1339,13 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod
                         .enum(['llm', 'decision'])
                         .nullish()
                         .describe('Judge method. Omit to keep the saved method; null restores automatic routing.'),
+                    include_media: zod.boolean().optional().describe('Set to false to judge text only.'),
+                    reasoning_level: zod
+                        .enum(['minimal', 'low', 'medium', 'high'])
+                        .nullish()
+                        .describe(
+                            "How much the judge model reasons before it answers. Only Anthropic and OpenAI reasoning models with the 'llm' judge method support it. Omit to keep the saved level; null uses the model's default."
+                        ),
                 }),
                 zod.object({
                     source: zod

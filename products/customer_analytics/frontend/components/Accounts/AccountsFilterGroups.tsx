@@ -11,6 +11,7 @@ import type { AnyPropertyFilter } from '~/types'
 
 import { AccountRelationshipOperatorValueSelect } from './AccountRelationshipOperatorValueSelect'
 import { accountsColumnConfigLogic } from './accountsColumnConfigLogic'
+import { AccountsDefinitionStatus } from './AccountsDefinitionStatus'
 import { accountsLogic } from './accountsLogic'
 import {
     ACCOUNT_FIELD_TAXONOMIC_OPTIONS,
@@ -29,6 +30,7 @@ export function AccountsFilterGroups(): JSX.Element {
         removeAccountFilterGroup,
         updateAccountFilterGroup,
     } = useActions(accountsLogic)
+    const { ensureDefinitionsLoaded } = useActions(accountsColumnConfigLogic)
     const { customPropertyTaxonomicOptions, relationshipTaxonomicOptions } = useValues(accountsColumnConfigLogic)
     const detailsId = useId()
     const [expanded, setExpanded] = useState(false)
@@ -38,6 +40,8 @@ export function AccountsFilterGroups(): JSX.Element {
     function renderFilters(filters: AccountFilter[], groupIndex: number): JSX.Element {
         return (
             <PropertyFilters
+                onFilterOpen={ensureDefinitionsLoaded}
+                filterHeader={<AccountsDefinitionStatus />}
                 propertyFilters={filters as AnyPropertyFilter[]}
                 onChange={(updatedFilters) => {
                     setExpanded(true)

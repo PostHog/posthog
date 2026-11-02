@@ -49,6 +49,9 @@ class SmartleadEndpointConfig:
     # Set for per-campaign resources that hang off the account-level campaign list.
     fanout: Optional[DependentEndpointConfig] = None
     page_size: int = PAGE_SIZE
+    # Retry attempts per request when the endpoint has a tighter rate limit than the account-wide one.
+    # None uses the framework default.
+    max_retries: Optional[int] = None
 
 
 def _campaign_fanout() -> DependentEndpointConfig:
@@ -60,6 +63,17 @@ def _campaign_fanout() -> DependentEndpointConfig:
         resolve_field="id",
         include_from_parent=["id"],
         parent_field_renames={"id": "campaign_id"},
+    )
+
+
+def _email_account_fanout() -> DependentEndpointConfig:
+    # Warmup stats bodies carry no account id, so inject the parent's `id` as `email_account_id`.
+    return DependentEndpointConfig(
+        parent_name="email_accounts",
+        resolve_param="email_account_id",
+        resolve_field="id",
+        include_from_parent=["id"],
+        parent_field_renames={"id": "email_account_id"},
     )
 
 
@@ -122,6 +136,36 @@ SMARTLEAD_ENDPOINTS: dict[str, SmartleadEndpointConfig] = {
     "clients": SmartleadEndpointConfig(
         name="clients",
         path="/client/",
+    ),
+    # Global and custom lead categories as a bare array. Resolves `lead_category_id` on leads.
+    "lead_categories": SmartleadEndpointConfig(
+        name="lead_categories",
+        path="/leads/fetch-categories",
+    ),
+    # One row per lead-to-campaign mapping across every campaign, with that lead's sent emails,
+    # opens, clicks, replies and thread replies nested in `activities`. The `event_time_from`
+    # filter applies to activity events, not to any row-level field, so there is no watermark
+    # column to bind it to and the table syncs as full refresh.
+    "all_leads_activities": SmartleadEndpointConfig(
+        name="all_leads_activities",
+        path="/campaigns/all-leads-activities",
+        pagination="offset",
+        data_selector="data",
+        primary_keys=["campaign_id", "email_lead_map_id"],
+        # The endpoint allows 10 requests per minute and answers 429 with no `Retry-After`. The
+        # default 5 attempts back off for 15 seconds in total, which is shorter than the window;
+        # 8 attempts back off for about 2 minutes.
+        max_retries=8,
+    ),
+    # One aggregate object per email account: warmup totals, reputation score and a `daily_stats`
+    # array that covers only the last 7 days. A full refresh replaces it with the current window.
+    "warmup_stats": SmartleadEndpointConfig(
+        name="warmup_stats",
+        path="/email-accounts/{email_account_id}/warmup-stats",
+        expects_list=False,
+        primary_keys=["email_account_id"],
+        partition_key=None,
+        fanout=_email_account_fanout(),
     ),
 }
 

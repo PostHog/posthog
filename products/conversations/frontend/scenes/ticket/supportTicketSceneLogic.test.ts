@@ -11,6 +11,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
 import { tagsModel } from '~/models/tagsModel'
 import { initKeaTests } from '~/test/init'
 import type { CommentType } from '~/types'
@@ -162,6 +163,19 @@ describe('supportTicketSceneLogic ai reply feedback', () => {
         await expectLogic(logic).toMatchValues({
             latestAiMessage: expect.objectContaining({ id: 'msg-ai-1', authorType: 'AI' }),
         })
+    })
+
+    it('keeps feedback on the AI reply after an automated update', () => {
+        logic.actions.setMessages([
+            makeAiComment('msg-ai-1', false),
+            {
+                ...makeAiComment('pr-update', false),
+                created_at: '2026-01-01T00:01:00Z',
+                item_context: { author_type: 'AI', is_private: false, automated_update_key: 'pr-123' },
+            } as unknown as CommentType,
+        ])
+
+        expect(logic.values.latestAiMessage?.id).toBe('msg-ai-1')
     })
 
     it('calls backend relay on good feedback', async () => {
@@ -346,6 +360,19 @@ describe('supportTicketSceneLogic chatMessages mapping', () => {
         ])
 
         expect(logic.values.latestAiDraftId).toBe('new-draft')
+    })
+
+    it('shows automated private notes without treating them as AI drafts', () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_SUPPORT_AI_NOTES]: false })
+        logic.actions.setMessages([
+            {
+                ...makeAiComment('pr-update'),
+                item_context: { author_type: 'AI', is_private: true, automated_update_key: 'pr-123' },
+            } as unknown as CommentType,
+        ])
+
+        expect(logic.values.chatMessages).toEqual([expect.objectContaining({ id: 'pr-update', automatedUpdate: true })])
+        expect(logic.values.latestAiDraftId).toBeNull()
     })
 
     it('selects widget delivery statuses for public team messages', () => {
@@ -885,6 +912,30 @@ describe('supportTicketSceneLogic send outcome handling', () => {
             is_private: false,
         })
         expect(logic.values.messageSending).toBe(false)
+    })
+})
+
+describe('supportTicketSceneLogic staff actions context', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+
+    const ticketGetMock = api.conversationsTickets.get as jest.Mock
+
+    beforeEach(() => {
+        initKeaTests()
+        ticketGetMock.mockReset().mockResolvedValue(makeTicket())
+    })
+
+    afterEach(() => {
+        stopPolling(logic)
+    })
+
+    // The staff actions panel renders only after the ticket loads, so the scene must hold the shared logic open.
+    it('keeps the ticket context for staff actions when nothing else mounts the impersonation logic', async () => {
+        logic = supportTicketSceneLogic({ id: 42 })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['setTicket', 'setTicketContext'])
+
+        expect(impersonationNoticeLogic.values.ticketContext).toMatchObject({ ticketId: 'ticket-1' })
     })
 })
 

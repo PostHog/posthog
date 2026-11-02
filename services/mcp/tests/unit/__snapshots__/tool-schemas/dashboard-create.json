@@ -93,6 +93,11 @@
             "enum": ["tight", "condensed", "standard", "relaxed", "wide"],
             "type": "string"
         },
+        "group_display": {
+            "description": "How tile groups show. sections shows each group as a band that opens and closes. tabs shows one group at a time, and tiles outside any group get their own first tab.\n\n* `sections` - sections\n* `tabs` - tabs",
+            "enum": ["sections", "tabs"],
+            "type": "string"
+        },
         "groups": {
             "anyOf": [
                 {

@@ -1,4 +1,5 @@
 import dataclasses
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from functools import partial
 from typing import Any, Optional
@@ -41,10 +42,12 @@ MAX_PAGES: int = 100
 # pagination for the full-refresh reference tables.
 _LIST_SORT_PARAMS = {"order_by": "id", "sort_order": "asc"}
 
-# Name of the internal parent resource that enumerates sensor ids for the measurement fan-out.
+# Names of the internal parent resources that enumerate sensor / location ids for the fan-outs.
 _SENSOR_IDS_RESOURCE = "sensor_ids"
-# Key the framework injects a parent field under: `_{parent_resource}_{field}`.
+_LOCATION_IDS_RESOURCE = "location_ids"
+# Keys the framework injects a parent field under: `_{parent_resource}_{field}`.
 _PARENT_SENSOR_ID_KEY = f"_{_SENSOR_IDS_RESOURCE}_id"
+_PARENT_LOCATION_ID_KEY = f"_{_LOCATION_IDS_RESOURCE}_id"
 
 
 @dataclasses.dataclass
@@ -158,6 +161,47 @@ def _reshape_measurement(item: dict[str, Any]) -> dict[str, Any]:
     return _flatten_measurement(item, item[_PARENT_SENSOR_ID_KEY])
 
 
+def _flatten_flag(item: dict[str, Any]) -> dict[str, Any]:
+    flag_type = item.get("flagType") or {}
+    return {
+        "location_id": item.get("locationId"),
+        "flag_type_id": flag_type.get("id"),
+        "flag_type_label": flag_type.get("label"),
+        "flag_level": flag_type.get("level"),
+        "datetime_from": (item.get("datetimeFrom") or {}).get("utc"),
+        "datetime_to": (item.get("datetimeTo") or {}).get("utc"),
+        "sensor_ids": item.get("sensorIds"),
+        "note": item.get("note"),
+    }
+
+
+def _reshape_location_flag(item: dict[str, Any]) -> dict[str, Any]:
+    return {**_flatten_flag(item), "location_id": item[_PARENT_LOCATION_ID_KEY]}
+
+
+def _reshape_sensor_flag(item: dict[str, Any]) -> dict[str, Any]:
+    return {"sensor_id": item[_PARENT_SENSOR_ID_KEY], **_flatten_flag(item)}
+
+
+def _reshape_latest(item: dict[str, Any]) -> dict[str, Any]:
+    reading_time = item.get("datetime") or {}
+    return {
+        "location_id": item[_PARENT_LOCATION_ID_KEY],
+        "sensor_id": item["sensorsId"],
+        "datetime": reading_time.get("utc"),
+        "datetime_local": reading_time.get("local"),
+        "value": item.get("value"),
+        "coordinates": item.get("coordinates"),
+    }
+
+
+_FANOUT_ROW_MAPPERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
+    "location_latest": _reshape_latest,
+    "location_flags": _reshape_location_flag,
+    "sensor_flags": _reshape_sensor_flag,
+}
+
+
 def _client_config(api_key: str) -> ClientConfig:
     return {
         "base_url": OPENAQ_BASE_URL,
@@ -186,7 +230,7 @@ def _list_resource(endpoint: str, config: OpenAQEndpointConfig, page_size: int) 
     return resource
 
 
-def _measurement_resources(
+def _fanout_resources(
     endpoint: str,
     config: OpenAQEndpointConfig,
     page_size: int,
@@ -201,13 +245,18 @@ def _measurement_resources(
             "data_selector": "results",
             "paginator": OpenAQPageNumberPaginator(page_size, MAX_PAGES),
         },
-        "data_map": _explode_location_sensor_ids,
     }
+    if config.kind == "location_fanout":
+        parent["name"] = _LOCATION_IDS_RESOURCE
+        resolve_param = "locations_id"
+    else:
+        parent["data_map"] = _explode_location_sensor_ids
+        resolve_param = "sensors_id"
 
     child_endpoint: Endpoint = {
         "path": config.path,
         "params": {
-            "sensors_id": {"type": "resolve", "resource": _SENSOR_IDS_RESOURCE, "field": "id"},
+            resolve_param: {"type": "resolve", "resource": parent["name"], "field": "id"},
             "limit": page_size,
         },
         "data_selector": "results",
@@ -227,7 +276,7 @@ def _measurement_resources(
         "name": endpoint,
         "endpoint": child_endpoint,
         "include_from_parent": ["id"],
-        "data_map": _reshape_measurement,
+        "data_map": _reshape_measurement if config.kind == "measurement" else _FANOUT_ROW_MAPPERS[endpoint],
     }
     return [parent, child]
 
@@ -247,11 +296,11 @@ def openaq_source(
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
-    if config.kind == "measurement":
+    if config.kind in ("measurement", "location_fanout", "sensor_fanout"):
         rest_config: RESTAPIConfig = {
             "client": client_config,
             "resource_defaults": {},
-            "resources": _measurement_resources(
+            "resources": _fanout_resources(
                 endpoint, config, page_size, should_use_incremental_field, db_incremental_field_last_value
             ),
         }
@@ -308,7 +357,7 @@ def openaq_source(
         # incremental watermark relies on. Unverified against the live API (no key available); noted
         # in the PR. If this proves wrong, the datetime_from server filter still bounds each fetch, so
         # completeness holds — only mid-sync watermark checkpointing would need sort_mode="desc".
-        sort_mode="asc",
+        sort_mode=config.sort_mode,
         column_hints=resource.column_hints,
     )
 

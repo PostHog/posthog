@@ -180,6 +180,7 @@ class ElectricityMapsSource(ResumableSource[ElectricityMapsSourceConfig, Electri
                     ),
                     SourceFieldInputConfig(
                         name="zones",
+                        sync_setting=True,
                         label="Zones",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -188,6 +189,7 @@ class ElectricityMapsSource(ResumableSource[ElectricityMapsSourceConfig, Electri
                     ),
                     SourceFieldInputConfig(
                         name="pricing_nodes",
+                        sync_setting=True,
                         label="Pricing nodes",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -196,6 +198,7 @@ class ElectricityMapsSource(ResumableSource[ElectricityMapsSourceConfig, Electri
                     ),
                     SourceFieldInputConfig(
                         name="history_days",
+                        sync_setting=True,
                         label="Days of history to sync initially",
                         type=SourceFieldInputConfigType.NUMBER,
                         required=False,

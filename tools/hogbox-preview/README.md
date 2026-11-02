@@ -22,9 +22,9 @@ The thing that changes when we swap providers is small and isolated:
 ```python
 from hogbox_preview import HoglandBackend, PostHogPreviewStack
 
-backend = HoglandBackend(host="https://hogland.hedgehog-kitefin.ts.net", name="preview-pr-123")
+backend = HoglandBackend(host="https://hogland-dev.hedgehog-kitefin.ts.net", name="preview-pr-123")
 url = PostHogPreviewStack(backend, branch="pull/123/head").bring_up()
-print(url)  # https://pen-….boxes.hogland.prod-us.posthog.dev/  (stable across rebuilds)
+print(url)  # https://pen-….boxes.hogland.dev.posthog.dev/  (stable across rebuilds)
 ```
 
 ## How it actually works
@@ -82,12 +82,24 @@ placement holds its name for up to an hour), so any reused box name would make
 a placement retry 409 against its own corpse. Leftover boxes are reaped after
 the new box comes up and on teardown.
 
-## Running a preview
+## Getting a preview
 
-No CI workflow builds previews.
-Run the tool by hand against a hogland cluster (see [CLI](#cli)), and destroy the box when you are done.
+Previews are opt-in and run on the dev hogland cluster.
+Add the **`hogbox-preview`** label to a same-repo PR, draft or ready, and `hogbox-preview-env.yml` builds one for any paths.
+While the label stays on, every push rebuilds the preview.
+Fork PRs never get one, even when labeled, because the build would run fork code with the hogland token in scope.
+GitHub cannot filter a label trigger by name, so the workflow dispatches on every `labeled`, `unlabeled`, `synchronize` and `reopened` event, and a job-level `if:` skips every PR without the label before a runner starts.
+Rapid pushes coalesce through a per-PR `concurrency` group on the deploy job.
 
-## Hibernation & wake (why autos are affordable)
+## Reporting & lifecycle
+
+- **PR comment**: a `Hogbox preview` section in the shared `🤖 CI report` comment (`.github/scripts/post-hogbox-preview-section.mjs`), staged building → ready → failed → torn down, with the URL, login, and what's running.
+- **GitHub Deployment**: a `preview-pr-<n>` task in the shared `hogbox-preview` environment (in_progress → success/failure + URL), so the preview shows in the PR's Deployments UI.
+- **Teardown**: removing the label destroys box + pen, and so does closing a labeled PR (`pr-closed.yml`).
+  A daily stale-sweep (`cleanup-stale`) in `hogbox-preview-cleanup.yml` reaps previews whose PR closed but slipped through.
+  It is its own workflow because the OIDC mint needs `id-token: write`, which can't live in the reusable `pr-cleanup.yml`.
+
+## Hibernation & wake (why previews are affordable)
 
 Every preview pen is created with `on_idle=hibernate` + `wake=on-request` (both
 re-asserted on each push). After ~30 min idle (the `--ttl-seconds` window),
@@ -97,9 +109,7 @@ edge, which sees a hibernated wake-on-request pen and serves a brief **"waking
 up" interstitial** (a polling page for browser navigations, a retry-503 for
 XHR/asset clients) while it restores the box (~30–40s, a warm restore of the ready
 stack) and repoints the pen. Actively-viewed previews stay awake — edge traffic
-touches the box, so only a genuinely idle one sleeps. This hibernate/wake cycle is
-what makes fleet-wide auto-previews (peak ~85–115 concurrently open) affordable
-(~7–10× vs always-on). See hogland's `docs/PENS.md`.
+touches the box, so only a genuinely idle one sleeps. See hogland's `docs/PENS.md`.
 
 Access is **tailnet-only** (PostHog VPN) — internal reviewers, no public URL.
 

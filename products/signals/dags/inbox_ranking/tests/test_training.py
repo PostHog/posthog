@@ -56,11 +56,20 @@ from products.signals.backend.ranking.serving_manifest import (
     serving_manifest_key,
     serving_model_prefix,
     serving_project_vectors_key,
+    serving_user_vectors_key,
 )
 from products.signals.backend.ranking.sinks import REPORT_SCORED_EVENT
 from products.signals.dags.inbox_ranking.common import partition_object_key
-from products.signals.dags.inbox_ranking.dataset.dag import LABELS_TABLE, PROJECT_VECTORS_TABLE, STATE_TABLE
-from products.signals.dags.inbox_ranking.dataset.project_vectors import PROJECT_VECTORS_SCHEMA_VERSION
+from products.signals.dags.inbox_ranking.dataset.dag import (
+    LABELS_TABLE,
+    PROJECT_VECTORS_TABLE,
+    STATE_TABLE,
+    USER_VECTORS_TABLE,
+)
+from products.signals.dags.inbox_ranking.dataset.project_vectors import (
+    PROJECT_VECTORS_SCHEMA_VERSION,
+    USER_VECTORS_SCHEMA_VERSION,
+)
 from products.signals.dags.inbox_ranking.training.calibration import (
     BUCKETS,
     calibration_buckets,
@@ -87,6 +96,7 @@ from products.signals.dags.inbox_ranking.training.dag import (
 from products.signals.dags.inbox_ranking.training.examples import (
     STATE_LAG_LIMIT,
     Snapshot,
+    activity_vector_as_of,
     assemble_snapshot,
     birth_day_positives,
     build_examples,
@@ -472,6 +482,47 @@ def test_holdout_mask_cuts_by_report_not_by_row():
         }
     )
     assert holdout_mask(examples, holdout_days=7).tolist() == [False, False, True, True]
+
+
+ACTIVITY_AS_OF = datetime.datetime(2026, 8, 10, 12, 0, tzinfo=datetime.UTC)
+
+
+@pytest.mark.parametrize(
+    "generated_hours_before,expected_hours_before",
+    [
+        ([], None),
+        ([72, 24, 48], 24),
+        # A summary built after the scoring moment did not exist yet.
+        ([24, -1], 24),
+        ([24 * 8], None),
+    ],
+    ids=["no_vector_yet", "newest_of_several", "vector_after_the_moment", "stale_vector"],
+)
+def test_activity_vector_as_of_reads_the_newest_vector_before_the_moment(generated_hours_before, expected_hours_before):
+    generated_ats = [ACTIVITY_AS_OF - datetime.timedelta(hours=hours) for hours in generated_hours_before]
+    vectors = pd.DataFrame(
+        {
+            "team_id": [1] * len(generated_ats) + [2, 1],
+            "user_id": [7] * len(generated_ats) + [7, 8],
+            # Another team's user 7 and another user of team 1, both fresher than any of user 7's vectors.
+            "generated_at": pd.to_datetime(
+                generated_ats + [ACTIVITY_AS_OF - datetime.timedelta(hours=1)] * 2, utc=True
+            ),
+            "embedding_small": [[float(hours)] for hours in generated_hours_before] + [[-1.0], [-2.0]],
+        }
+    )
+
+    found = activity_vector_as_of(
+        vectors, team_id=1, user_id=7, as_of=ACTIVITY_AS_OF, max_age=datetime.timedelta(days=7)
+    )
+
+    if expected_hours_before is None:
+        assert found is None
+    else:
+        assert found is not None
+        assert found.embedding == [float(expected_hours_before)]
+        assert found.age == datetime.timedelta(hours=expected_hours_before)
+        assert found.generated_at == ACTIVITY_AS_OF - found.age
 
 
 class _FakeClient:
@@ -2173,14 +2224,14 @@ class _AppObjectStore:
         self.metadata = dict(metadata or {})
         self.fail_on = fail_on
         self.written: list[str] = []
-        self.extras: dict[str, dict[str, str] | None] = {}
+        self.extras: dict[str, dict[str, Any] | None] = {}
 
     def head_object(self, bucket: str, file_key: str) -> dict[str, Any] | None:
         if file_key not in self.objects:
             return None
         return {"ContentLength": len(self.objects[file_key]), "Metadata": self.metadata.get(file_key, {})}
 
-    def write(self, bucket: str, key: str, content: str | bytes, extras: dict[str, str] | None) -> None:
+    def write(self, bucket: str, key: str, content: str | bytes, extras: dict[str, Any] | None) -> None:
         if self.fail_on is not None and self.fail_on in key:
             raise RuntimeError("object store write failed")
         self.objects[key] = content if isinstance(content, bytes) else content.encode()
@@ -2350,6 +2401,40 @@ def test_project_vectors_are_published_before_the_manifest_that_names_them(
         assert mirror.objects == {}
 
 
+@pytest.mark.parametrize(
+    "source_present,already_published,write_fails",
+    [(True, False, False), (True, True, False), (False, False, False), (True, False, True)],
+)
+def test_user_vectors_are_published_when_present_and_never_block_the_manifest_or_reach_the_mirror(
+    monkeypatch: pytest.MonkeyPatch, source_present: bool, already_published: bool, write_fails: bool
+) -> None:
+    prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
+    partition_key = "2026-08-19"
+    target = serving_user_vectors_key(prefix, partition_key)
+    store = _AppObjectStore(
+        {target: b"published before"} if already_published else None, fail_on="/user_vectors/" if write_fails else None
+    )
+    mirror = _AppObjectStore()
+    dataset = _serving_dataset_s3(prefix, partition_key)
+    if source_present:
+        dataset.objects[partition_object_key(prefix, USER_VECTORS_TABLE, partition_key)] = b"user vectors"
+    capture = _run_serving_manifest(monkeypatch, store, mirror=mirror, dataset_client=dataset)
+
+    named = source_present and not write_fails
+    manifest = ServingManifest.model_validate_json(store.objects[serving_manifest_key(prefix)])
+    assert manifest.user_vectors == (target if named else None)
+    assert _manifest_event(capture)["user_vectors_key"] == manifest.user_vectors
+    assert store.written[-1] == serving_manifest_key(prefix)
+    if named and not already_published:
+        assert store.objects[target] == b"user vectors"
+        assert store.extras[target] == {
+            "Metadata": {PROJECT_VECTORS_SCHEMA_VERSION_METADATA_KEY: str(USER_VECTORS_SCHEMA_VERSION)}
+        }
+    # Per-user data stays in the deployment that owns the users.
+    assert not any("/user_vectors/" in key for key in mirror.objects)
+    assert ServingManifest.model_validate_json(mirror.objects[serving_manifest_key(prefix)]).user_vectors is None
+
+
 _MIRROR_PARTITION = "2026-08-19"
 
 
@@ -2368,6 +2453,7 @@ def _mirror_vectors_metadata(engagement_offset: int, schema_version: int = PROJE
     "mirror_days,expected_offset,skip_reason",
     [
         ({0: _mirror_vectors_metadata(1)}, 0, None),
+        ({0: _mirror_vectors_metadata(1, schema_version=1)}, 0, None),
         ({1: _mirror_vectors_metadata(2)}, 1, None),
         (
             {

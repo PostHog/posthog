@@ -84,14 +84,20 @@ def _auth_headers(email: str, api_token: str) -> dict[str, str]:
     return {"Authorization": f"Basic {token}", "Accept": "application/json"}
 
 
-def _format_jql_datetime(value: Any) -> str:
+def _parse_datetime(value: Any) -> datetime:
     if isinstance(value, datetime):
-        dt = value
-    elif isinstance(value, date):
-        dt = datetime.combine(value, datetime.min.time())
-    else:
-        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    return (dt - INCREMENTAL_LOOKBACK).strftime(JQL_DATETIME_FORMAT)
+        return value
+    if isinstance(value, date):
+        return datetime.combine(value, datetime.min.time())
+    # ``/changelog/bulkfetch`` returns ``created`` as epoch milliseconds, so the issue_changelogs
+    # watermark is a number. ``fromisoformat`` misreads a digit string as a compact ISO date.
+    if isinstance(value, int | float) or str(value).isdigit():
+        return datetime.fromtimestamp(0, UTC) + timedelta(milliseconds=int(value))
+    return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+
+
+def _format_jql_datetime(value: Any) -> str:
+    return (_parse_datetime(value) - INCREMENTAL_LOOKBACK).strftime(JQL_DATETIME_FORMAT)
 
 
 def _build_issues_jql(incremental_field: str | None, last_value: Any) -> str:
@@ -167,12 +173,7 @@ class JiraWorklogPaginator(JSONResponseCursorPaginator):
 
 
 def _to_epoch_millis(value: Any) -> int:
-    if isinstance(value, datetime):
-        dt = value
-    elif isinstance(value, date):
-        dt = datetime.combine(value, datetime.min.time())
-    else:
-        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    dt = _parse_datetime(value)
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=UTC)
     return int(dt.timestamp() * 1000)

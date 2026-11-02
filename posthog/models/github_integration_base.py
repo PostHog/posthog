@@ -440,7 +440,9 @@ class GitHubIntegrationBase:
                 .annotate(count=Count("id"))
             )
             for row in grouped:
-                counts[row["integration_id"]] = counts.get(row["integration_id"], 0) + row["count"]
+                # The integration_id__in filter excludes rows without an installation id.
+                installation_id = cast(str, row["integration_id"])
+                counts[installation_id] = counts.get(installation_id, 0) + row["count"]
         return counts
 
     @classmethod

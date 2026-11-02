@@ -177,10 +177,10 @@ export interface DataCatalogMetricApi {
      */
     unit?: string
     /**
-     * Email of the human accountable for this metric, or null.
+     * Email of the human accountable for this metric, or null. Set it to the email of a member of this organization to reassign the metric, or to null to clear it. Changing the owner keeps the metric's approval.
      * @nullable
      */
-    readonly owner: string | null
+    owner?: string | null
     /**
      * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
      * @nullable
@@ -280,10 +280,10 @@ export interface DataCatalogMetricCreateApi {
      */
     unit?: string
     /**
-     * Email of the human accountable for this metric, or null.
+     * Email of the human accountable for this metric, or null. Set it to the email of a member of this organization to reassign the metric, or to null to clear it. Changing the owner keeps the metric's approval.
      * @nullable
      */
-    readonly owner: string | null
+    owner?: string | null
     /**
      * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
      * @nullable
@@ -407,10 +407,10 @@ export interface PatchedDataCatalogMetricApi {
      */
     unit?: string
     /**
-     * Email of the human accountable for this metric, or null.
+     * Email of the human accountable for this metric, or null. Set it to the email of a member of this organization to reassign the metric, or to null to clear it. Changing the owner keeps the metric's approval.
      * @nullable
      */
-    readonly owner?: string | null
+    owner?: string | null
     /**
      * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
      * @nullable
@@ -466,6 +466,14 @@ export interface PatchedDataCatalogMetricApi {
     readonly created_at?: string
     /** @nullable */
     readonly updated_at?: string | null
+}
+
+/**
+ * Input for approving one metric.
+ */
+export interface DataCatalogMetricApproveRequestApi {
+    /** The metric's `updated_at` as last seen by the approver. When the metric changed since then, the API returns 409 and leaves it proposed. Omit to approve the current version. */
+    expected_updated_at?: string
 }
 
 /**
@@ -567,9 +575,9 @@ export interface DataCatalogMetricRunApi {
 }
 
 /**
- * Input for the bulk metric actions: the metric names to act on.
+ * Input for giving many metrics one owner.
  */
-export interface DataCatalogMetricBulkNamesRequestApi {
+export interface DataCatalogMetricBulkChangeOwnerRequestApi {
     /**
      * Names of the metrics to act on, at most 100. Duplicates are collapsed.
      * @minItems 1
@@ -577,6 +585,11 @@ export interface DataCatalogMetricBulkNamesRequestApi {
      * @items.maxLength 128
      */
     names: string[]
+    /**
+     * Email of the member of this organization who becomes the owner of every named metric, or null to clear the owner. Changing the owner keeps each metric's approval.
+     * @nullable
+     */
+    owner: string | null
 }
 
 /**
@@ -587,6 +600,29 @@ export interface DataCatalogMetricBulkSkipApi {
     name: string
     /** Why it was skipped, e.g. 'Not found', 'Already approved', 'Drifted from its source insight'. */
     reason: string
+}
+
+/**
+ * Outcome of a bulk owner change: what changed, and what was left alone.
+ */
+export interface DataCatalogMetricBulkChangeOwnerApi {
+    /** The metrics that now have the new owner, freshly serialized. */
+    updated: DataCatalogMetricApi[]
+    /** Requested metrics whose owner did not change, with reasons. */
+    skipped: DataCatalogMetricBulkSkipApi[]
+}
+
+/**
+ * Input for the bulk metric actions: the metric names to act on.
+ */
+export interface DataCatalogMetricBulkNamesRequestApi {
+    /**
+     * Names of the metrics to act on, at most 100. Duplicates are collapsed.
+     * @minItems 1
+     * @maxItems 100
+     * @items.maxLength 128
+     */
+    names: string[]
 }
 
 /**

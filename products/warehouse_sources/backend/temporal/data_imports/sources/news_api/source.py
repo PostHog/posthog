@@ -76,6 +76,7 @@ Note: NewsAPI's free Developer plan is limited to articles from the last month a
                     ),
                     SourceFieldInputConfig(
                         name="query",
+                        sync_setting=True,
                         label="Search query",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -84,6 +85,7 @@ Note: NewsAPI's free Developer plan is limited to articles from the last month a
                     ),
                     SourceFieldInputConfig(
                         name="language",
+                        sync_setting=True,
                         label="Language (optional, 2-letter code)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

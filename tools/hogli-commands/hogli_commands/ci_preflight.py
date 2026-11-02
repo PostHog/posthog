@@ -293,6 +293,39 @@ DIFF_CHECKS: list[DiffCheck] = [
         requires=("python-env",),
     ),
     DiffCheck(
+        key="frontend-layers",
+        label="new static import from a lower frontend layer into a higher one",
+        triggers=[
+            "frontend/src/*",
+            "frontend/@posthog/*",
+            "products/*/frontend/*",
+            "common/*",
+            "packages/*",
+            "frontend/bin/layers.mjs",
+            "frontend/bin/layer-baseline.txt",
+        ],
+        verify=["hogli", "lint:frontend-layers"],
+        # Prune, never update: --update-baseline would grandfather the upward import the
+        # branch just added, which is the one thing the check exists to stop.
+        fix=["hogli", "lint:frontend-layers", "--prune-baseline"],
+        requires=("node",),
+    ),
+    DiffCheck(
+        key="frontend-css-coupling",
+        label="new component that uses a stylesheet's class without importing the stylesheet",
+        triggers=[
+            "frontend/src/*",
+            "products/*/frontend/*",
+            "frontend/bin/cssCoupling.mjs",
+            "frontend/bin/css-coupling-baseline.txt",
+        ],
+        verify=["hogli", "lint:frontend-css-coupling"],
+        # Prune, never update: --update-baseline would grandfather the coupling the
+        # branch just added, which is the one thing the check exists to stop.
+        fix=["hogli", "lint:frontend-css-coupling", "--prune-baseline"],
+        requires=("node",),
+    ),
+    DiffCheck(
         key="workflow-lint",
         label="workflow-convention failure in .github/workflows",
         triggers=[".github/workflows/*.yml", ".github/workflows/*.yaml"],
@@ -358,6 +391,13 @@ DIFF_CHECKS: list[DiffCheck] = [
         triggers=SEMGREP_SCOPE,
         verify=None,
         run=check_semgrep_devex,
+    ),
+    DiffCheck(
+        key="new-ee-files",
+        label="new file under ee/ (needs human approval)",
+        triggers=["ee/*"],
+        verify=["python", ".github/scripts/check-no-new-ee-files.py"],
+        takes_diff_scope=True,
     ),
     DiffCheck(
         key="cross-lane",

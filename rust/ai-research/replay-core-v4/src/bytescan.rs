@@ -351,6 +351,108 @@ impl<'b> Iterator for ArrayItems<'b> {
     }
 }
 
+/// The top-level `keys` of each object item of the array that starts at `start`, found in the same pass that finds
+/// where the item ends, so that an array of small objects is scanned once. Items that are not objects are skipped. As
+/// in a parse, the last of a repeated key wins, and an escaped key is not one of `keys`.
+pub fn array_object_fields<'b, const N: usize>(
+    bytes: &'b [u8],
+    start: usize,
+    keys: [&'b [u8]; N],
+) -> Result<ArrayObjectFields<'b, N>> {
+    if bytes.get(start) != Some(&b'[') {
+        return Err(ScanError("not an array"));
+    }
+    Ok(ArrayObjectFields {
+        bytes,
+        keys,
+        pos: start + 1,
+        done: false,
+        first: true,
+    })
+}
+
+pub struct ArrayObjectFields<'b, const N: usize> {
+    bytes: &'b [u8],
+    keys: [&'b [u8]; N],
+    pos: usize,
+    done: bool,
+    first: bool,
+}
+
+impl<const N: usize> ArrayObjectFields<'_, N> {
+    /// Reads the object at `pos`, and returns its end and its fields.
+    fn object(&self, mut pos: usize) -> Result<(usize, [Option<Span>; N])> {
+        let bytes = self.bytes;
+        let mut found = [None; N];
+        pos = skip_ws(bytes, pos + 1);
+        if bytes.get(pos) == Some(&b'}') {
+            return Ok((pos + 1, found));
+        }
+        loop {
+            if bytes.get(pos) != Some(&b'"') {
+                return Err(ScanError("expected object key"));
+            }
+            let key_end = skip_string(bytes, pos)?;
+            let key = &bytes[pos + 1..key_end - 1];
+            pos = skip_ws(bytes, key_end);
+            if bytes.get(pos) != Some(&b':') {
+                return Err(ScanError("expected ':' after object key"));
+            }
+            let value = locate_value(bytes, pos + 1)?;
+            if let Some(index) = self.keys.iter().position(|&k| k == key) {
+                found[index] = Some(value);
+            }
+            pos = skip_ws(bytes, value.1);
+            match bytes.get(pos) {
+                Some(b',') => pos = skip_ws(bytes, pos + 1),
+                Some(b'}') => return Ok((pos + 1, found)),
+                _ => return Err(ScanError("expected ',' between object entries")),
+            }
+        }
+    }
+}
+
+impl<const N: usize> Iterator for ArrayObjectFields<'_, N> {
+    type Item = Result<[Option<Span>; N]>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while !self.done {
+            let bytes = self.bytes;
+            let mut pos = skip_ws(bytes, self.pos);
+            if bytes.get(pos) == Some(&b']') {
+                self.done = true;
+                return None;
+            }
+            if !self.first {
+                if bytes.get(pos) != Some(&b',') {
+                    self.done = true;
+                    return Some(Err(ScanError("expected ',' between array items")));
+                }
+                pos = skip_ws(bytes, pos + 1);
+            }
+            self.first = false;
+            let item = if bytes.get(pos) == Some(&b'{') {
+                self.object(pos).map(|(end, found)| (end, Some(found)))
+            } else {
+                locate_value(bytes, pos).map(|span| (span.1, None))
+            };
+            match item {
+                Ok((end, found)) => {
+                    self.pos = end;
+                    if let Some(found) = found {
+                        return Some(Ok(found));
+                    }
+                }
+                Err(error) => {
+                    self.done = true;
+                    return Some(Err(error));
+                }
+            }
+        }
+        None
+    }
+}
+
 /// Parse a scanned scalar span as a JSON number, mirroring what `JSON.parse` would produce (an f64).
 /// Returns `None` for non-numbers. Accepts the full JSON number grammar (fractions, exponents); the
 /// charset pre-check keeps Rust-isms like `inf`/`NaN` out.
@@ -359,6 +461,19 @@ pub fn parse_number(bytes: &[u8], span: Span) -> Option<f64> {
     let first = *raw.first()?;
     if first != b'-' && !first.is_ascii_digit() {
         return None;
+    }
+    // Most numbers in a recording are small integers, which an f64 holds exactly, so they skip the float parser.
+    let digits = raw.strip_prefix(b"-").unwrap_or(raw);
+    if !digits.is_empty() && digits.len() <= 15 && digits.iter().all(u8::is_ascii_digit) {
+        let value = digits
+            .iter()
+            .fold(0i64, |value, digit| value * 10 + i64::from(digit - b'0'))
+            as f64;
+        return Some(if digits.len() < raw.len() {
+            -value
+        } else {
+            value
+        });
     }
     if !raw
         .iter()

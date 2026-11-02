@@ -17,3 +17,11 @@ ALERT_DISPATCH_RETRY_POLICY = common.RetryPolicy(
     maximum_attempts=0,
 )
 ALERT_DISPATCH_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(hours=1)
+SUMMARY_RETRY_POLICY = common.RetryPolicy(
+    initial_interval=timedelta(seconds=5),
+    maximum_interval=timedelta(seconds=30),
+    maximum_attempts=3,
+)
+# Sized past one model call (ISSUE_SUMMARY_LLM_TIMEOUT_SECONDS) plus the category call and the input build.
+SUMMARY_START_TO_CLOSE_TIMEOUT = timedelta(seconds=60)
+SUMMARY_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(minutes=5)

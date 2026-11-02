@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react'
 
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
+import { useResolvedChartTheme } from '../../core/theme'
 import type { ChartTheme, Series, TooltipContext } from '../../core/types'
 import { partValue } from '../ProportionBar/proportion-bar-data'
 import { BarListLabel } from './BarListLabel'
@@ -25,7 +26,8 @@ export interface BarListProps<Meta = unknown> {
     /** One series per row, valued like a `PieChart` slice: the sum of `data`, floored at 0. Rows
      *  keep the order of `series`, so sort them before you pass them in. */
     series: Series<Meta>[]
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     config?: BarListConfig
     /** The whole that each share is a fraction of. Defaults to the sum of the rows. Set it when the
      *  rows are the top of a larger whole, so the shares stay true to that whole. */
@@ -58,7 +60,7 @@ function defaultValueFormatter(value: number): string {
 
 function BarListInner<Meta = unknown>({
     series,
-    theme,
+    theme: themeProp,
     config,
     total,
     valueFormatter = defaultValueFormatter,
@@ -67,6 +69,7 @@ function BarListInner<Meta = unknown>({
     dataAttr,
     onError,
 }: BarListProps<Meta>): React.ReactElement | null {
+    const theme = useResolvedChartTheme(themeProp)
     const { scale = 'max', valueDisplay = 'value', labelPosition = 'start' } = config ?? {}
 
     const rows = useMemo(

@@ -50,17 +50,25 @@ class TestFormatDatetime:
 
 
 class TestPagination:
-    def test_paginates_by_page_number_and_saves_state(self) -> None:
+    @pytest.mark.parametrize(
+        "endpoint, data_key, path",
+        [
+            ("calls", "calls", "/api/v1/calls"),
+            ("user_statuses", "user_statuses", "/api/v1/user-statuses"),
+        ],
+    )
+    def test_paginates_by_page_number_and_saves_state(self, endpoint: str, data_key: str, path: str) -> None:
         result = _driver().run(
-            "calls",
+            endpoint,
             [
-                _page("calls", [{"id": 1}], current=1, total_pages=2),
-                _page("calls", [{"id": 2}], current=2, total_pages=2),
+                _page(data_key, [{"id": 1}], current=1, total_pages=2),
+                _page(data_key, [{"id": 2}], current=2, total_pages=2),
             ],
         )
 
         assert result.raised is None
         assert result.rows == [{"id": 1}, {"id": 2}]
+        assert result.paths == [path, path]
         assert result.params("page") == ["1", "2"]
         # State saved once, pointing at page 2 (the next page after the first was written).
         assert result.saved_states == [FreshcallerResumeConfig(page=2)]

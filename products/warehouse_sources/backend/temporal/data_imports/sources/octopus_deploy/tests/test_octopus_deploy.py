@@ -127,16 +127,18 @@ class TestOctopusDeploySourceResponse:
         "endpoint, primary_keys, partition_key",
         [
             ("spaces", ["Id"], None),
+            ("users", ["Id"], None),
             ("projects", ["SpaceId", "Id"], None),
             ("releases", ["SpaceId", "Id"], "Assembled"),
             ("deployments", ["SpaceId", "Id"], "Created"),
             ("tasks", ["SpaceId", "Id"], "QueueTime"),
             ("events", ["SpaceId", "Id"], "Occurred"),
+            ("interruptions", ["SpaceId", "Id"], "Created"),
         ],
     )
     def test_response_shape(self, endpoint, primary_keys, partition_key):
         script = [_page([], has_next=False)]
-        if endpoint != "spaces":
+        if endpoint not in ("spaces", "users"):
             script = [_page([{"Id": "Spaces-1"}], has_next=False), *script]
         result = _driver().run(endpoint, script)
         assert result.raised is None
@@ -204,13 +206,14 @@ class TestGetRows:
         # Spaces-1 was already completed before the crash — not re-fetched.
         assert "/api/Spaces-1/projects" not in result.paths
 
-    def test_instance_level_endpoint_skips_space_fan_out(self):
-        responses = [_page([{"Id": "Spaces-1"}, {"Id": "Spaces-2"}], has_next=False)]
-        result = _driver().run("spaces", responses)
+    @pytest.mark.parametrize("endpoint, path", [("spaces", "/api/spaces"), ("users", "/api/users")])
+    def test_instance_level_endpoint_skips_space_fan_out(self, endpoint, path):
+        responses = [_page([{"Id": "A-1"}, {"Id": "A-2"}], has_next=False)]
+        result = _driver().run(endpoint, responses)
 
         assert result.raised is None
-        assert result.paths == ["/api/spaces"]
-        assert [row["Id"] for row in result.rows] == ["Spaces-1", "Spaces-2"]
+        assert result.paths == [path]
+        assert result.rows == [{"Id": "A-1"}, {"Id": "A-2"}]
 
     def test_incremental_filter_applied_to_every_page(self):
         responses = [

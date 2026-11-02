@@ -45,6 +45,22 @@ class TestPineconeCredentials(SimpleTestCase):
             assert request.url == f"https://api.pinecone.io{path}" + ("?limit=1" if schema_name else "")
             assert len(http.calls) == 1
 
+    @parameterized.expand(
+        [
+            ("namespaces", "https://api.pinecone.io/indexes", {"indexes": []}),
+            ("assistant_files", "https://api.pinecone.io/assistant/assistants?limit=1", {"assistants": []}),
+        ]
+    )
+    def test_fan_out_table_validates_against_its_parent_listing(
+        self, schema_name: str, url: str, body: dict[str, object]
+    ) -> None:
+        with responses.RequestsMock() as http:
+            http.add(responses.GET, url.split("?")[0], json=body)
+            assert PineconeSource().validate_credentials(
+                PineconeSourceConfig(api_key="fake-pinecone-key"), team_id=1, schema_name=schema_name
+            ) == (True, None)
+            assert [call.request.url for call in http.calls] == [url]
+
     def test_unknown_table_is_rejected_without_http(self) -> None:
         with responses.RequestsMock() as http:
             valid, error = PineconeSource().validate_credentials(

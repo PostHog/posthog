@@ -79,6 +79,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
     get_or_create_datawarehouse_credential,
 )
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.facade.types import (
     DataWarehouseTableFormat,
     ExternalDataSourceStatus,
@@ -1138,18 +1139,19 @@ def _trunk_quarantined_rows() -> list[dict[str, Any]]:
         module = file[:-3].replace("/", ".") if file.endswith(".py") else ""
         rows.append(
             {
+                "id": f"engseed-trunk-{index:03d}",
+                "test_collection_id": "engseed",
                 "file": file,
                 "name": name,
                 "labels": "[]",
-                "parent": parent,
-                "status": "FLAKY",
+                "parent_name": parent,
+                "class_name": f"{module}.{test_class}" if test_class else "",
                 "variant": "",
-                "classname": f"{module}.{test_class}" if test_class else "",
+                "status": "flaky",
                 "codeowners": "[]",
-                "test_case_id": f"engseed-trunk-{index:03d}",
-                "quarantined_at": quarantined_at,
-                "quarantine_setting": "AUTO_QUARANTINE",
-                "status_last_updated_at": quarantined_at,
+                "quarantine_state": "quarantined",
+                "quarantined_since": quarantined_at,
+                "url": "",
             }
         )
     return rows
@@ -1520,21 +1522,22 @@ class Command(BaseCommand):
     ) -> ExternalDataSource:
         source = ExternalDataSource.objects.filter(team=team, source_id=source_id, source_type=source_type).first()
         if source is None:
-            return ExternalDataSource.objects.create(
+            return SourceInputsStore.create(
                 team=team,
                 source_id=source_id,
                 connection_id=source_id,
                 status=ExternalDataSourceStatus.COMPLETED,
                 source_type=source_type,
                 prefix=prefix,
-                job_inputs=dict(job_inputs),
+                inputs=dict(job_inputs),
             )
         update_fields = []
         if source.prefix != prefix:
             source.prefix = prefix
             update_fields.append("prefix")
-        if any((source.job_inputs or {}).get(key) != value for key, value in job_inputs.items()):
-            source.job_inputs = {**(source.job_inputs or {}), **job_inputs}
+        inputs = SourceInputsStore.load(source)
+        if any(inputs.get(key) != value for key, value in job_inputs.items()):
+            SourceInputsStore.assign(source, {**inputs, **job_inputs})
             update_fields.append("job_inputs")
         if update_fields:
             source.save(update_fields=[*update_fields, "updated_at"])

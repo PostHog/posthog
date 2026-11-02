@@ -2889,6 +2889,26 @@
                   "table": null,
                   "type": "json"
               },
+              "brand_sentiment": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "brand_sentiment",
+                  "id": null,
+                  "name": "brand_sentiment",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "brand_sentiment_score": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "brand_sentiment_score",
+                  "id": null,
+                  "name": "brand_sentiment_score",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "float"
+              },
               "cost_usd": {
                   "chain": null,
                   "fields": null,
@@ -5524,6 +5544,16 @@
                   "table": null,
                   "type": "datetime"
               },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
               "created_at": {
                   "chain": null,
                   "fields": null,
@@ -5949,6 +5979,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
               },
               "created_at": {
                   "chain": null,
@@ -14153,6 +14193,26 @@
                   "table": null,
                   "type": "integer"
               },
+              "agent_model": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "agent_model",
+                  "id": null,
+                  "name": "agent_model",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "agent_reasoning_effort": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "agent_reasoning_effort",
+                  "id": null,
+                  "name": "agent_reasoning_effort",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "iteration_budget_remaining": {
                   "chain": null,
                   "fields": null,
@@ -14258,6 +14318,46 @@
                   "hogql_value": "status",
                   "id": null,
                   "name": "status",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "kickoff_reason": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "kickoff_reason",
+                  "id": null,
+                  "name": "kickoff_reason",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "agent_runtime_adapter": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "agent_runtime_adapter",
+                  "id": null,
+                  "name": "agent_runtime_adapter",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "agent_model": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "agent_model",
+                  "id": null,
+                  "name": "agent_model",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "agent_reasoning_effort": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "agent_reasoning_effort",
+                  "id": null,
+                  "name": "agent_reasoning_effort",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
@@ -17517,6 +17617,26 @@
                   "table": null,
                   "type": "json"
               },
+              "brand_sentiment": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "brand_sentiment",
+                  "id": null,
+                  "name": "brand_sentiment",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "brand_sentiment_score": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "brand_sentiment_score",
+                  "id": null,
+                  "name": "brand_sentiment_score",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "float"
+              },
               "cost_usd": {
                   "chain": null,
                   "fields": null,
@@ -20152,6 +20272,16 @@
                   "table": null,
                   "type": "datetime"
               },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
               "created_at": {
                   "chain": null,
                   "fields": null,
@@ -20577,6 +20707,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
               },
               "created_at": {
                   "chain": null,
@@ -28781,6 +28921,26 @@
                   "table": null,
                   "type": "integer"
               },
+              "agent_model": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "agent_model",
+                  "id": null,
+                  "name": "agent_model",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "agent_reasoning_effort": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "agent_reasoning_effort",
+                  "id": null,
+                  "name": "agent_reasoning_effort",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "iteration_budget_remaining": {
                   "chain": null,
                   "fields": null,
@@ -28886,6 +29046,46 @@
                   "hogql_value": "status",
                   "id": null,
                   "name": "status",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "kickoff_reason": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "kickoff_reason",
+                  "id": null,
+                  "name": "kickoff_reason",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "agent_runtime_adapter": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "agent_runtime_adapter",
+                  "id": null,
+                  "name": "agent_runtime_adapter",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "agent_model": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "agent_model",
+                  "id": null,
+                  "name": "agent_model",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "agent_reasoning_effort": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "agent_reasoning_effort",
+                  "id": null,
+                  "name": "agent_reasoning_effort",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"

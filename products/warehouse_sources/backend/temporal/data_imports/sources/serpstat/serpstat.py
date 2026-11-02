@@ -20,6 +20,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     SerpstatSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.serpstat.settings import (
+    DEFAULT_SEARCH_ENGINE,
+    DOMAIN_ERROR,
+    DOMAIN_HISTORY_PAGE_SIZE,
+    DOMAIN_RESPONSE_ACTIONS,
     ENDPOINTS,
     MAX_PAGES,
     PAGE_SIZE,
@@ -38,6 +42,10 @@ class SerpstatResumeConfig:
 
 
 class SerpstatPaginator(PageNumberPaginator):
+    def __init__(self, *, page_size: int | None = None, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.page_size = page_size
+
     def init_request(self, request: Request) -> None:
         # JSON-RPC puts pagination inside params, rather than at the body root.
         request.json["params"]["page"] = self.page
@@ -48,8 +56,15 @@ class SerpstatPaginator(PageNumberPaginator):
 
     def update_state(self, response: Response, data: list[Any] | None = None) -> None:
         super().update_state(response, data)
+        if self.page_size is not None and data is not None and len(data) < self.page_size:
+            self._has_next_page = False
         if self.maximum_page == MAX_PAGES and self.page > MAX_PAGES and data:
             logger.info("serpstat_page_cap_reached", maximum_page=self.maximum_page)
+
+
+def normalize_domain(value: str | None) -> str:
+    domain = (value or "").strip().lower().removeprefix("https://").removeprefix("http://")
+    return domain.split("/", 1)[0]
 
 
 def serpstat_resource(
@@ -60,6 +75,7 @@ def serpstat_resource(
     api_version: str,
     manager: ResumableSourceManager[SerpstatResumeConfig] | None = None,
     credential_check: bool = False,
+    date_from: str | None = None,
 ) -> Resource:
     settings = ENDPOINTS[endpoint]
     resume = manager.load_state() if manager is not None and manager.can_resume() else None
@@ -67,7 +83,14 @@ def serpstat_resource(
     params: dict[str, Any] = {}
     if settings.project_param:
         params[settings.project_param] = int(config.project_id)
-    if settings.total_pages_path:
+    if settings.domain_param:
+        domain = normalize_domain(config.domain)
+        if not domain:
+            raise ValueError(DOMAIN_ERROR)
+        params[settings.domain_param] = [domain] if settings.domain_param == "domains" else domain
+    if settings.search_engine:
+        params["se"] = (config.search_engine or "").strip() or DEFAULT_SEARCH_ENGINE
+    if settings.paginated:
         params[settings.size_param] = 20 if credential_check else PAGE_SIZE
     if endpoint in ("project_keywords", "project_positions"):
         params.update(sort="added", order="asc")
@@ -77,6 +100,12 @@ def serpstat_resource(
             date_from=(date.fromisoformat(date_to) - timedelta(days=POSITION_HISTORY_DAYS - 1)).isoformat(),
             date_to=date_to,
         )
+    if endpoint == "domain_history":
+        params.update(during_all_time=True, sort={"date": "asc"}, size=DOMAIN_HISTORY_PAGE_SIZE)
+        if date_from:
+            params["filters"] = {"date_from": date_from}
+    if endpoint == "backlinks":
+        params.update(searchType="domain_with_subdomains", sort="add", order="desc")
 
     rest_config: RESTAPIConfig = {
         "client": {
@@ -102,10 +131,11 @@ def serpstat_resource(
                         base_page=1,
                         total_path=settings.total_pages_path,
                         maximum_page=1 if credential_check else MAX_PAGES,
+                        page_size=PAGE_SIZE if settings.stop_on_short_page else None,
                     )
-                    if settings.total_pages_path
+                    if settings.paginated
                     else "single_page",
-                    "response_actions": RESPONSE_ACTIONS,
+                    "response_actions": DOMAIN_RESPONSE_ACTIONS if settings.domain_param else RESPONSE_ACTIONS,
                 },
             }
         ],

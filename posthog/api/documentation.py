@@ -26,6 +26,7 @@ from rest_framework_dataclasses.fields import EnumField as DataclassEnumField
 from posthog.enums import LabeledEnumType
 from posthog.models.entity import MathType
 from posthog.models.property import OperatorType, PropertyType
+from posthog.models.property.property import SemverOperator
 from posthog.permissions import APIScopePermission
 from posthog.products import is_product_module
 
@@ -465,17 +466,7 @@ class FeatureFlagFilterPropertyDateSchemaSerializer(_FeatureFlagFilterPropertyBa
 
 class FeatureFlagFilterPropertySemverSchemaSerializer(_FeatureFlagFilterPropertyBaseSerializer):
     operator = serializers.ChoiceField(
-        choices=[
-            "semver_gt",
-            "semver_gte",
-            "semver_lt",
-            "semver_lte",
-            "semver_eq",
-            "semver_neq",
-            "semver_tilde",
-            "semver_caret",
-            "semver_wildcard",
-        ],
+        choices=SemverOperator.choices,
         required=True,
         help_text="Semantic version comparison operator.",
     )

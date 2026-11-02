@@ -247,12 +247,37 @@ export interface _TracingAggregationQueryBodyApi {
     offset?: number
     /** Also return the sessions and people behind each operation. Off by default because it reads the span and resource attribute maps, which the rest of the aggregation never touches. */
     includeImpact?: boolean
+    /** Group HTTP server spans by `METHOD route` (from `http.route`) in place of the span name, so raw paths like `/users/1` and `/users/2` fold into one row. Spans without a route keep their span name. Spans that are not HTTP server spans are left out. */
+    groupByEndpoint?: boolean
+    /** Also return `health_status` and `health_reason` per row, comparing each row with the same row in the comparison window, or in the previous period when `compareFilter` is off. Uses the same statuses and thresholds as the service health check. Costs a second window query. */
+    includeHealth?: boolean
 }
 
 export interface _TracingAggregationRequestApi {
     /** The span aggregation query to execute. */
     query: _TracingAggregationQueryBodyApi
 }
+
+/**
+ * * `silent` - Silent
+ * * `regressed` - Regressed
+ * * `degraded` - Degraded
+ * * `new` - New
+ * * `recovered` - Recovered
+ * * `improved` - Improved
+ * * `ok` - Ok
+ */
+export type ServiceHealthStatusEnumApi = (typeof ServiceHealthStatusEnumApi)[keyof typeof ServiceHealthStatusEnumApi]
+
+export const ServiceHealthStatusEnumApi = {
+    Silent: 'silent',
+    Regressed: 'regressed',
+    Degraded: 'degraded',
+    New: 'new',
+    Recovered: 'recovered',
+    Improved: 'improved',
+    Ok: 'ok',
+} as const
 
 export interface _AggregatedSpanRowApi {
     /** Service that emitted the spans in this group. */
@@ -295,6 +320,21 @@ export interface _AggregatedSpanRowApi {
      * @nullable
      */
     spans_with_distinct_id: number | null
+    /** How this group compares with its baseline: regressed (error rate or p95 jumped), degraded (high error rate), new (no spans in the baseline), recovered, improved, or ok. Null unless the query set `includeHealth`.
+     *
+     * * `silent` - Silent
+     * * `regressed` - Regressed
+     * * `degraded` - Degraded
+     * * `new` - New
+     * * `recovered` - Recovered
+     * * `improved` - Improved
+     * * `ok` - Ok */
+    health_status: ServiceHealthStatusEnumApi | null
+    /**
+     * Short reason for `health_status`, such as `error rate 0.2% → 4.1%`. Empty when the status is ok.
+     * @nullable
+     */
+    health_reason: string | null
 }
 
 export interface _TracingAggregationResponseApi {
@@ -881,27 +921,6 @@ export interface _ServiceHealthSummaryApi {
     improved: number
 }
 
-/**
- * * `silent` - Silent
- * * `regressed` - Regressed
- * * `degraded` - Degraded
- * * `new` - New
- * * `recovered` - Recovered
- * * `improved` - Improved
- * * `ok` - Ok
- */
-export type ServiceHealthStatusEnumApi = (typeof ServiceHealthStatusEnumApi)[keyof typeof ServiceHealthStatusEnumApi]
-
-export const ServiceHealthStatusEnumApi = {
-    Silent: 'silent',
-    Regressed: 'regressed',
-    Degraded: 'degraded',
-    New: 'new',
-    Recovered: 'recovered',
-    Improved: 'improved',
-    Ok: 'ok',
-} as const
-
 export interface _ServiceHealthRowApi {
     /** Service name. */
     service: string
@@ -1152,13 +1171,30 @@ export interface _SymbolStatsResponseApi {
 export interface _TracingTraceRequestApi {
     /** Date range for the query. Omit it to search all retained spans for this trace. */
     dateRange?: _TracingDateRangeApi
-    /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
+    /** Omit the per-span attributes, resource attributes and events from results to keep payloads compact. Defaults to false. */
     excludeAttributes?: boolean
     /**
      * Pagination offset into the trace's spans (ordered by start time ascending). Each page returns up to 2000 spans; pass the response's `nextOffset` to load the next page. Defaults to 0.
      * @minimum 0
      */
     offset?: number
+}
+
+/**
+ * Event attributes. Keys are whatever the instrumentation set.
+ */
+export type _SpanEventApiAttributes = { [key: string]: string }
+
+export interface _SpanEventApi {
+    /** Event name, for example `exception`. */
+    name: string
+    /**
+     * When the event occurred. Null when the SDK did not set a time.
+     * @nullable
+     */
+    timestamp: string | null
+    /** Event attributes. Keys are whatever the instrumentation set. */
+    attributes: _SpanEventApiAttributes
 }
 
 /**
@@ -1172,7 +1208,7 @@ export type _TraceSpanApiAttributes = { [key: string]: string }
 export type _TraceSpanApiResourceAttributes = { [key: string]: string }
 
 /**
- * A span in a single trace. The trace action adds self time, which the list does not compute.
+ * A span in a single trace. The trace action adds self time and span events, which the list does not return.
  */
 export interface _TraceSpanApi {
     /** Span's own UUID. */
@@ -1211,6 +1247,8 @@ export interface _TraceSpanApi {
     resource_attributes: _TraceSpanApiResourceAttributes
     /** Span duration minus the time spent in its children, in nanoseconds. */
     self_time_nano: number
+    /** OpenTelemetry span events, earliest first. Omitted when `excludeAttributes` is true. */
+    events?: _SpanEventApi[]
 }
 
 export interface _TracingTraceResponseApi {

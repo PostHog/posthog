@@ -144,26 +144,31 @@ def key_metrics(team: Team, user: User) -> list[KeyMetric] | None:
         for key, condition in conditions.items()
     )
     rows = _run(daily, team, user)
-    if rows is None:
+    weekly = (
+        _run(
+            _select(
+                WEEKLY_PEOPLE,
+                start=_midnight(team, today - timedelta(days=14)),
+                week=_midnight(team, today - timedelta(days=7)),
+                end=_midnight(team, today),
+                match=conditions[PEOPLE_METRIC],
+                test_accounts=clone_expr(test_accounts),
+            ),
+            team,
+            user,
+        )
+        if PEOPLE_METRIC in conditions
+        else []
+    )
+    if rows is None or weekly is None:
         return None
     by_day = {_day(row[0]): row[1:] for row in rows}
 
     days = [today - timedelta(days=offset) for offset in range(DAYS, 0, -1)]
     metrics = []
-    for index, (key, condition) in enumerate(conditions.items()):
+    for index, key in enumerate(conditions):
         points = [(day, float(by_day[day][index]) if day in by_day else 0.0) for day in days]
         if key == PEOPLE_METRIC:
-            weekly_query = _select(
-                WEEKLY_PEOPLE,
-                start=_midnight(team, today - timedelta(days=14)),
-                week=_midnight(team, today - timedelta(days=7)),
-                end=_midnight(team, today),
-                match=condition,
-                test_accounts=clone_expr(test_accounts),
-            )
-            weekly = _run(weekly_query, team, user)
-            if weekly is None:
-                return None
             this_week, last_week = (float(value) for value in weekly[0])
         else:
             this_week, last_week = sum(v for _, v in points[-7:]), sum(v for _, v in points[-14:-7])

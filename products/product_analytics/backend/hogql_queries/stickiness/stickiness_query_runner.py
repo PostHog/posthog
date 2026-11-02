@@ -371,15 +371,6 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
                     ],
                 }
 
-                # Add minimal action data for color consistency with trends
-                series_object["action"] = {
-                    "order": series_with_extra.series_order,
-                    "type": "events",
-                    "name": series_label or "All events",
-                    "id": series_label,
-                    "custom_name": series_with_extra.series.custom_name,
-                }
-
                 # Modifications for when comparing to previous period
                 if self.query.compareFilter is not None and self.query.compareFilter.compare:
                     series_object["compare"] = True
