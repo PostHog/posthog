@@ -3,6 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconPulse } from '@posthog/icons'
 import { LemonSelect } from '@posthog/lemon-ui'
 
+import { QuillDisplayOptionSelect } from 'lib/components/QuillDisplayOptionSelect/QuillDisplayOptionSelect'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -14,12 +16,32 @@ export function SmoothingFilter(): JSX.Element | null {
     const { insightProps, editingDisabledReason } = useValues(insightLogic)
     const { isTrends, interval, trendsFilter } = useValues(trendsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!isTrends || !interval) {
         return null
     }
 
     const { smoothingIntervals } = trendsFilter || {}
+    const onSmoothingChange = (key: number): void => {
+        updateInsightFilter({
+            smoothingIntervals: key,
+        })
+    }
+
+    if (todayRailNav && smoothingOptions[interval].length) {
+        return (
+            <QuillDisplayOptionSelect
+                key={interval}
+                value={smoothingIntervals || 1}
+                options={smoothingOptions[interval]}
+                onChange={onSmoothingChange}
+                disabledReason={editingDisabledReason}
+                fullWidth
+                data-attr="smoothing-filter"
+            />
+        )
+    }
 
     // Put a little icon next to the selected item
     const options = smoothingOptions[interval].map(({ value, label }) => ({
@@ -45,11 +67,7 @@ export function SmoothingFilter(): JSX.Element | null {
             key={interval}
             value={smoothingIntervals || 1}
             fullWidth
-            onChange={(key) => {
-                updateInsightFilter({
-                    smoothingIntervals: key,
-                })
-            }}
+            onChange={onSmoothingChange}
             data-attr="smoothing-filter"
             options={options}
             size="small"

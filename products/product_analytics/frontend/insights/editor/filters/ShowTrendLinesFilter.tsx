@@ -1,13 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonCheckbox } from '@posthog/lemon-ui'
-
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { isFunnelsQuery, isRetentionQuery, isTrendsQuery } from '~/queries/schema/node-guards'
 import { ChartDisplayType } from '~/types'
 
+import { DisplayOptionCheckbox } from 'products/product_analytics/frontend/insights/editor/DisplayOptionCheckbox'
 import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
 
 export function ShowTrendLinesFilter(): JSX.Element {
@@ -55,13 +54,11 @@ export function ShowTrendLinesFilter(): JSX.Element {
     }
 
     return (
-        <LemonCheckbox
-            className="p-1 px-2"
-            onChange={toggleShowTrendLines}
+        <DisplayOptionCheckbox
+            label="Show trend lines"
             checked={!disabledReason && !!showTrendLines}
             disabledReason={disabledReason}
-            label={<span className="font-normal">Show trend lines</span>}
-            size="small"
+            onChange={toggleShowTrendLines}
         />
     )
 }

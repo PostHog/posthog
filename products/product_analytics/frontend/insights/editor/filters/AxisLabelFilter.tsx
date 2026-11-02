@@ -2,8 +2,10 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { LemonInput } from '@posthog/lemon-ui'
+import { Input } from '@posthog/quill'
 import { normalizeAxisLabel } from '@posthog/quill-charts'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -13,6 +15,7 @@ export function AxisLabelFilter({ axis }: { axis: 'x' | 'y' }): JSX.Element {
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
     const savedLabel = axis === 'x' ? trendsFilter?.xAxisLabel : trendsFilter?.yAxisLabel
     const [draft, setDraft] = useState(savedLabel ?? '')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     useEffect(() => {
         setDraft(savedLabel ?? '')
@@ -22,6 +25,24 @@ export function AxisLabelFilter({ axis }: { axis: 'x' | 'y' }): JSX.Element {
         const normalized = normalizeAxisLabel(draft)
         setDraft(normalized ?? '')
         updateInsightFilter(axis === 'x' ? { xAxisLabel: normalized } : { yAxisLabel: normalized })
+    }
+
+    if (todayRailNav) {
+        return (
+            <Input
+                aria-label={`${axis.toUpperCase()}-axis label`}
+                data-attr={`trends-${axis}-axis-label-input`}
+                value={draft}
+                placeholder="Label"
+                onChange={(event) => setDraft(event.target.value)}
+                onBlur={commit}
+                onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                        commit()
+                    }
+                }}
+            />
+        )
     }
 
     return (

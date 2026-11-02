@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonCheckbox } from '@posthog/lemon-ui'
-
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+
+import { DisplayOptionCheckbox } from 'products/product_analytics/frontend/insights/editor/DisplayOptionCheckbox'
 
 export function ShowAlertThresholdLinesFilter(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -15,12 +15,10 @@ export function ShowAlertThresholdLinesFilter(): JSX.Element | null {
     }
 
     return (
-        <LemonCheckbox
-            className="p-1 px-2"
-            onChange={toggleShowAlertThresholdLines}
+        <DisplayOptionCheckbox
+            label="Show alert threshold lines"
             checked={!!showAlertThresholdLines}
-            label={<span className="font-normal">Show alert threshold lines</span>}
-            size="small"
+            onChange={toggleShowAlertThresholdLines}
         />
     )
 }

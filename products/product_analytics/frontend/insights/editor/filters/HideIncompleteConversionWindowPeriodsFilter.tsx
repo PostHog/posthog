@@ -1,12 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { IconInfo } from '@posthog/icons'
-import { LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
-
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { isFunnelsQuery } from '~/queries/schema/node-guards'
+
+import { DisplayOptionCheckbox } from 'products/product_analytics/frontend/insights/editor/DisplayOptionCheckbox'
 
 export function HideIncompleteConversionWindowPeriodsFilter(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -21,23 +20,15 @@ export function HideIncompleteConversionWindowPeriodsFilter(): JSX.Element | nul
         querySource.funnelsFilter?.hideIncompleteConversionWindowPeriods ?? false
 
     return (
-        <LemonCheckbox
-            className="p-1 px-2"
+        <DisplayOptionCheckbox
+            label="Hide incomplete periods"
+            info="Hides recent periods whose conversion window hasn't fully elapsed, so the trend isn't dragged down by entrants who still have time to convert."
+            checked={hideIncompleteConversionWindowPeriods}
             onChange={() =>
                 updateInsightFilter({
                     hideIncompleteConversionWindowPeriods: !hideIncompleteConversionWindowPeriods,
                 })
             }
-            checked={hideIncompleteConversionWindowPeriods}
-            label={
-                <span className="font-normal inline-flex items-center gap-1">
-                    Hide incomplete periods
-                    <Tooltip title="Hides recent periods whose conversion window hasn't fully elapsed, so the trend isn't dragged down by entrants who still have time to convert.">
-                        <IconInfo className="relative top-0.5 text-base text-secondary" />
-                    </Tooltip>
-                </span>
-            }
-            size="small"
         />
     )
 }
