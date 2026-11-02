@@ -112,6 +112,13 @@ const PricingTiers = ({
     )
 }
 
+// A product plan's entitlement-only features configure PostHog rather than describe the plan, so the table skips
+// them. Platform plans also mark inherited features entitlement-only, so their table keeps every feature.
+function comparedPlanFeatures(product: BillingProductV2Type, plan?: BillingPlanType): BillingFeatureType[] {
+    const features = plan?.features ?? []
+    return product.type === 'platform_and_support' ? features : features.filter((feature) => !feature.entitlement_only)
+}
+
 export const PlanComparison = ({
     product,
     includeAddons = false,
@@ -132,12 +139,7 @@ export const PlanComparison = ({
         return null
     }
     const fullyFeaturedPlan = plans[plans.length - 1]
-    // A product plan's entitlement-only features configure PostHog rather than describe the plan, so the table skips
-    // them. Platform plans also mark inherited features entitlement-only, so their table keeps every feature.
-    const comparedFeatures =
-        (product.type === 'platform_and_support'
-            ? fullyFeaturedPlan?.features
-            : fullyFeaturedPlan?.features?.filter((feature) => !feature.entitlement_only)) ?? []
+    const comparedFeatures = comparedPlanFeatures(product, fullyFeaturedPlan)
 
     const productAnalyticsPlans = billing?.products?.find((product) => product.type === 'product_analytics')?.plans
     const eventsRetentionOf = (plan?: BillingPlanType): BillingFeatureType | undefined =>

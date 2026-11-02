@@ -1,14 +1,12 @@
 import { useEffect, useState } from 'react'
 
-import { LemonBanner, LemonButton, LemonDialog, LemonInput, LemonLabel, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonLabel } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
-import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { pluralize } from 'lib/utils/strings'
-import { urls } from 'scenes/urls'
 
-import { LONGEST_PLAN_RETENTION_MONTHS } from 'products/product_analytics/frontend/insights/dataRetention/dataRetentionBannerLogic'
-
+import { EventsRetentionCustomFields } from './EventsRetentionCustomFields'
 import { EventsPassSchedule, nextPassOn } from './nextPassOn'
 import { retentionPeriodLabel } from './retentionPeriodLabel'
 
@@ -51,34 +49,70 @@ function monthsProblem(months: number | null, minMonths: number, maxMonths: numb
     return null
 }
 
-export function EventsRetentionWindowForm({
-    retentionMonths,
+function retentionChoiceOptions({
     defaultMonths,
     defaultIsOrganizationWindow,
     minMonths,
     maxMonths,
-    planMonths,
-    scope,
-    overrideNote,
-    nextMonthlyCleanupOn,
-    passSchedule,
-    saving,
     restrictionReason,
-    onSave,
     dataAttr,
-}: EventsRetentionWindowFormProps): JSX.Element {
-    const [choice, setChoice] = useState<RetentionChoice>(retentionMonths === null ? 'default' : 'custom')
+}: EventsRetentionWindowFormProps): LemonRadioOption<RetentionChoice>[] {
+    const canLengthen = maxMonths > defaultMonths
+    const range = canLengthen ? 'shorter or longer' : 'shorter'
+    const defaultPeriod = pluralize(defaultMonths, 'month')
+    const disabledReason = restrictionReason ?? undefined
+    return [
+        {
+            value: 'default',
+            label: `Default events retention (${defaultPeriod})`,
+            description: defaultIsOrganizationWindow
+                ? `This project uses the organization's events retention of ${defaultPeriod}. To set a ${range} period for this project, use the Custom events retention setting below.`
+                : `Our default retention period for events data is ${defaultPeriod}. To set a ${range} period, use the Custom events retention setting below.`,
+            disabledReason,
+            'data-attr': `${dataAttr}-default`,
+        },
+        {
+            value: 'custom',
+            label: `Custom events retention (${minMonths} to ${maxMonths} months)`,
+            description: canLengthen
+                ? `Set a shorter or longer period, up to ${retentionPeriodLabel(maxMonths)}, with a guaranteed deletion date.`
+                : 'Set a shorter period with a guaranteed deletion date.',
+            disabledReason,
+            'data-attr': `${dataAttr}-custom`,
+        },
+    ]
+}
+
+export function EventsRetentionWindowForm(props: EventsRetentionWindowFormProps): JSX.Element {
+    const {
+        retentionMonths,
+        defaultMonths,
+        defaultIsOrganizationWindow,
+        minMonths,
+        maxMonths,
+        planMonths,
+        scope,
+        overrideNote,
+        nextMonthlyCleanupOn,
+        passSchedule,
+        saving,
+        restrictionReason,
+        onSave,
+        dataAttr,
+    } = props
+    const savedChoice: RetentionChoice = retentionMonths === null ? 'default' : 'custom'
+    const [choice, setChoice] = useState<RetentionChoice>(savedChoice)
     const [draftMonths, setDraftMonths] = useState<number | null>(retentionMonths ?? defaultMonths)
 
     useEffect(() => {
-        setChoice(retentionMonths === null ? 'default' : 'custom')
+        setChoice(savedChoice)
         setDraftMonths(retentionMonths ?? defaultMonths)
-    }, [retentionMonths, defaultMonths])
+    }, [savedChoice, retentionMonths, defaultMonths])
 
+    const draftValue = choice === 'custom' ? draftMonths : null
     const draftProblem = choice === 'custom' ? monthsProblem(draftMonths, minMonths, maxMonths) : null
-    const unchanged = choice === 'default' ? retentionMonths === null : draftMonths === retentionMonths
     const saveDisabledReason =
-        restrictionReason ?? (draftProblem !== null ? draftProblem : unchanged ? 'No changes to save' : null)
+        restrictionReason ?? draftProblem ?? (draftValue === retentionMonths ? 'No changes to save' : null)
 
     const confirmDeletion = (months: number, description: string, onConfirm: () => void): void => {
         LemonDialog.open({
@@ -125,18 +159,12 @@ export function EventsRetentionWindowForm({
         if (saveDisabledReason) {
             return
         }
-        if (choice === 'custom' && draftMonths !== null) {
-            saveCustom(draftMonths)
-        } else {
+        if (draftValue === null) {
             saveDefault()
+        } else {
+            saveCustom(draftValue)
         }
     }
-
-    const canUpgrade = planMonths < LONGEST_PLAN_RETENTION_MONTHS
-    const customRange = maxMonths > defaultMonths ? 'shorter or longer' : 'shorter'
-    const defaultDescription = defaultIsOrganizationWindow
-        ? `This project uses the organization's events retention of ${pluralize(defaultMonths, 'month')}. To set a ${customRange} period for this project, use the Custom events retention setting below.`
-        : `Our default retention period for events data is ${pluralize(defaultMonths, 'month')}. To set a ${customRange} period, use the Custom events retention setting below.`
 
     return (
         <div className="flex flex-col gap-4 max-w-160">
@@ -150,72 +178,21 @@ export function EventsRetentionWindowForm({
                 radioPosition="top"
                 aria-label="Retention period"
                 data-attr={`${dataAttr}-choice`}
-                options={[
-                    {
-                        value: 'default',
-                        label: `Default events retention (${pluralize(defaultMonths, 'month')})`,
-                        description: defaultDescription,
-                        disabledReason: restrictionReason ?? undefined,
-                        'data-attr': `${dataAttr}-default`,
-                    },
-                    {
-                        value: 'custom',
-                        label: `Custom events retention (${minMonths} to ${maxMonths} months)`,
-                        description:
-                            maxMonths > defaultMonths
-                                ? `Set a shorter or longer period, up to ${retentionPeriodLabel(maxMonths)}, with a guaranteed deletion date.`
-                                : 'Set a shorter period with a guaranteed deletion date.',
-                        disabledReason: restrictionReason ?? undefined,
-                        'data-attr': `${dataAttr}-custom`,
-                    },
-                ]}
+                options={retentionChoiceOptions(props)}
             />
             {choice === 'custom' && (
-                <div className="flex flex-col gap-4 pl-6">
-                    <div className="flex flex-col gap-1">
-                        <LemonLabel htmlFor={`${dataAttr}-input`}>Keep events for</LemonLabel>
-                        <LemonInput
-                            id={`${dataAttr}-input`}
-                            type="number"
-                            min={minMonths}
-                            max={maxMonths}
-                            value={draftMonths ?? NaN}
-                            onChange={(value) =>
-                                setDraftMonths(value === undefined || Number.isNaN(value) ? null : value)
-                            }
-                            onPressEnter={save}
-                            status={draftProblem ? 'danger' : 'default'}
-                            suffix={<span className="text-secondary">months</span>}
-                            disabled={!!restrictionReason || saving}
-                            className="w-40"
-                            data-attr={`${dataAttr}-input`}
-                        />
-                        <p className={draftProblem ? 'mb-0 text-xs text-danger' : 'mb-0 text-xs text-secondary'}>
-                            {draftProblem ?? `Enter a number between ${minMonths} and ${maxMonths}.`}
-                            {draftProblem &&
-                                maxMonths === planMonths &&
-                                ` Your plan allows up to ${planMonths} months.`}
-                        </p>
-                    </div>
-                    <div className="rounded bg-fill-secondary px-4 py-3 text-xs text-secondary">
-                        <p className="mb-2 font-semibold text-primary">How custom retention works</p>
-                        <ul className="list-disc pl-4 flex flex-col gap-1">
-                            <li>
-                                Each monthly cleanup deletes the months whose events are all older than your period, so
-                                no event is kept more than about a month past it.
-                            </li>
-                            <li>Use this if you need a guaranteed deletion date, for example for compliance.</li>
-                            <li>{overrideNote}</li>
-                            {canUpgrade && (
-                                <li>
-                                    Need longer data retention? Head over to our{' '}
-                                    <Link to={urls.organizationBilling()}>billing page</Link> to upgrade.
-                                </li>
-                            )}
-                        </ul>
-                    </div>
-                    <LemonBanner type="warning">Deleted events can't be restored.</LemonBanner>
-                </div>
+                <EventsRetentionCustomFields
+                    months={draftMonths}
+                    problem={draftProblem}
+                    minMonths={minMonths}
+                    maxMonths={maxMonths}
+                    planMonths={planMonths}
+                    overrideNote={overrideNote}
+                    disabled={!!restrictionReason || saving}
+                    onChange={setDraftMonths}
+                    onPressEnter={save}
+                    dataAttr={dataAttr}
+                />
             )}
             <div>
                 <LemonButton
