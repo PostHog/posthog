@@ -398,7 +398,7 @@ class TestBuildPersonalRanking(BaseTest):
             ),
             (
                 "products.signals.backend.ranking.inbox_sort.posthoganalytics.get_feature_flag",
-                MagicMock(return_value="action"),
+                MagicMock(return_value="action_pills"),
             ),
         ):
             patcher = patch(target, value)
