@@ -1,5 +1,7 @@
 import { HogFunctionTemplate } from '~/cdp/types'
 
+import { webhookHeaderInputs } from './webhook-header-inputs'
+
 export const template: HogFunctionTemplate = {
     free: false,
     status: 'hidden',
@@ -69,26 +71,7 @@ return {'await': {'max_wait': inputs.max_wait, 'label': 'callback'}}
             description:
                 'JSON object to send in the request body. The step adds a `callback_url` field. Post the reply to that URL as JSON, with `Content-Type: application/json`, in the form `{"result": {...}}`. A 409 answer means the step is not ready yet, so try again a few seconds later.',
         },
-        {
-            key: 'headers',
-            type: 'dictionary',
-            label: 'Headers',
-            secret: false,
-            required: false,
-            default: { 'Content-Type': 'application/json' },
-            description:
-                'HTTP headers to send in the request. Put API tokens and other credentials in Secret headers instead.',
-        },
-        {
-            key: 'secret_headers',
-            type: 'dictionary',
-            label: 'Secret headers',
-            secret: true,
-            required: false,
-            templating: false,
-            description:
-                'HTTP headers that hold a credential, such as an API token. These are encrypted, hidden after saving, and kept out of the logs. Values are sent exactly as entered, without templating, and replace a plaintext header of the same name.',
-        },
+        ...webhookHeaderInputs,
         {
             key: 'max_wait',
             type: 'choice',
