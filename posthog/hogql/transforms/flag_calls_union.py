@@ -403,8 +403,7 @@ def _flag_call_scans(
     position = 0
     while join is not None:
         # The rename runs before type resolution, so the chain is all it can read. EventsScan.of matches the same
-        # names, and the binding check rejects a rename that changes what a name binds to. A CTE of that name shadows
-        # the table at every position.
+        # names, and the binding check rejects a rename that changes what a name binds to.
         # nosemgrep: hogql-no-string-table-chain
         name = ".".join(str(part) for part in join.table.chain) if isinstance(join.table, ast.Field) else None
         if name is not None and name in EVENTS_NAMES and name not in ctes:
@@ -523,7 +522,6 @@ class _UnionChainCollector(SyntaxVisitor):
         super().__init__()
         self.chains: list[list[str | int]] = []
         self.unreadable_joins: list[str] = []
-        # The chain behind each column that lazy table resolution exports under a field's own name.
         self.exports: dict[str, list[str | int]] = {}
         self.export_collision: tuple[list[str | int], list[str | int]] | None = None
         # The event and person properties that a string-parsing call such as toFloatOrZero reads from the scan.
