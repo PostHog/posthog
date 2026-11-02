@@ -210,8 +210,7 @@ tools:
             workflows-get-email-template first (the design may carry fresh human edits from the visual editor) and send
             back the complete content.email with your edited design. Keep the template id, and send only the writable
             fields you change: the tool refuses the read-only fields of a fetched template, such as created_at and
-            content_hash. The server re-renders the sent email from the
-            design on save. After updating, call workflows-show-email-template so the user sees the result, and share
+            updated_at. The server re-renders the sent email from the design on save. After updating, call workflows-show-email-template so the user sees the result, and share
             the returned _posthogUrl edit link.
         exclude_params:
             - content.email.html

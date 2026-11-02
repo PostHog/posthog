@@ -5,13 +5,11 @@ import { GENERATED_TOOL_MAP } from '@/tools/generated'
 
 describe('Generated email template tools', () => {
     const toolSchema = (name: string): z.ZodType => GENERATED_TOOL_MAP[name]!().schema
-    const hash = `v1:${'a'.repeat(64)}`
     const templateId = '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b'
     const design = {
         schemaVersion: 16,
         body: { id: 'body', rows: [], values: {} },
     }
-    const upload = { key: 'welcome', name: 'Welcome', subject: 'Hi', html: '<p>Hi</p>' }
     const codeSend = { to: 'jane@example.com', template_key: 'welcome', subject: 'Hi', html: '<p>Hi</p>' }
     const createWithEmail = (email: Record<string, unknown>): Record<string, unknown> => ({
         name: 'Welcome',
@@ -20,8 +18,7 @@ describe('Generated email template tools', () => {
 
     it.each([
         ['workflows-send-email', 'a misspelled field', { ...codeSend, capture_engagment: false }],
-        ['workflows-send-email', 'a field of a send by template', { ...codeSend, template: { key: 'welcome', hash } }],
-        ['workflows-upload-email-template', 'a misspelled top-level field', { ...upload, if_superseded: true }],
+        ['workflows-send-email', 'a field of a send by template', { ...codeSend, template_id: templateId }],
         [
             'workflows-make-email-template-transactional-prepare',
             'an unknown top-level field',
