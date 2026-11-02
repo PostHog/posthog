@@ -31,6 +31,7 @@ Theme-side restyle knobs, all optional: `theme.axisLineColor` strokes the baseli
 - `maxCategoryLabelWidth` truncates category labels with an ellipsis and reveals the full value on hover. It also clamps the axis margin, so a long label cannot push the plot off screen. On horizontal charts the cap grows to 30% of the chart width when that is wider, so a wider chart shows more of each label. `MAX_CATEGORY_LABEL_WIDTH` is the exported default.
 - `TimeSeriesLineChart` `xScale: 'time'` places each point at its time, so a stretch with no samples keeps its width. Labels parse in `xAxis.timezone` and must be ascending. `xDomain: [from, to]` in epoch ms spans the axis past the data. Ticks stay on the data labels.
 - `LineChart` `timeScale: { parse, domain }` places each label at its time instead of evenly by index. `parse` returns epoch milliseconds, and labels outside `domain` are not drawn. Memoize the object.
+- A missing (non-finite) value breaks the line and area. `connectNulls: true` draws across it instead.
 
 ## Y-axis format
 

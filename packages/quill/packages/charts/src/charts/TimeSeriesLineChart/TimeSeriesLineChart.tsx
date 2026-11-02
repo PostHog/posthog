@@ -65,6 +65,8 @@ export interface TimeSeriesLineChartConfig {
     xScale?: 'index' | 'time'
     /** With `xScale: 'time'`, the axis span as `[from, to]` epoch ms. Defaults to the label range. */
     xDomain?: readonly [number, number]
+    /** Draw lines and areas across missing (non-finite) values instead of breaking them. */
+    connectNulls?: boolean
     /** Tooltip behaviour and built-in content options. A `tooltip` render prop replaces the content. */
     tooltip?: TooltipConfig
     /** Built-in legend with click-to-toggle series visibility. Hidden by default. */
@@ -125,6 +127,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
         curve,
         xScale,
         xDomain,
+        connectNulls,
         tooltip: tooltipConfig,
         legend,
     } = config ?? {}
@@ -179,6 +182,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
         showTickMarks,
         curve,
         timeScale,
+        connectNulls,
         percentStackView,
         showCrosshair,
         tooltip: timeSeriesTooltipConfig,
