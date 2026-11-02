@@ -476,6 +476,49 @@ export interface OrganizationMemberGithubLoginApi {
     github_login: string | null
 }
 
+/**
+ * * `dashboard` - Dashboard
+ * * `insight` - Insight
+ * * `notebook` - Notebook
+ * * `recording` - Session recording
+ */
+export type MemberOffboardingResourceKindEnumApi =
+    (typeof MemberOffboardingResourceKindEnumApi)[keyof typeof MemberOffboardingResourceKindEnumApi]
+
+export const MemberOffboardingResourceKindEnumApi = {
+    Dashboard: 'dashboard',
+    Insight: 'insight',
+    Notebook: 'notebook',
+    Recording: 'recording',
+} as const
+
+export interface MemberOffboardingResourceApi {
+    /** Opaque identifier used to update this resource during offboarding. */
+    id: string
+    /** Identifier accepted by the resource’s own API. */
+    resource_id: string
+    /** The kind of public object or automated delivery.
+     *
+     * * `dashboard` - Dashboard
+     * * `insight` - Insight
+     * * `notebook` - Notebook
+     * * `recording` - Session recording */
+    kind: MemberOffboardingResourceKindEnumApi
+    /** The resource's display name. */
+    name: string
+    /** Project containing the resource. */
+    team_id: number
+    /** Name of the project containing the resource. */
+    project_name: string
+    /** Whether all active public links require a password. */
+    password_protected: boolean
+    /**
+     * Project-scoped path to open the resource in PostHog.
+     * @nullable
+     */
+    url: string | null
+}
+
 export interface OrganizationPersonalAPIKeyOwnerApi {
     /** First name of the key's owner. */
     readonly first_name: string
