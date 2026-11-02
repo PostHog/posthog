@@ -90,5 +90,5 @@ It overrides root clipping and visibility styles, drops any root style declarati
 A template whose HTML cannot keep the footer fails the send.
 The visible footer is best effort across email clients and template CSS; the signed tracking header still attributes the message.
 Each delivered send emits a `workflows sandbox email sent` event.
-Live workflow sends record `email_sandbox_sent` instead of `email_sent`, so they never count toward the sending tier; test sends record neither.
+Live workflow sends record `email_sent`, so workflow reports count them, and also `email_sandbox_sent`, so the sending tier can leave them out of its promotion volume; test sends record neither.
 Keep the switch off in production until the sandbox caps are deployed.

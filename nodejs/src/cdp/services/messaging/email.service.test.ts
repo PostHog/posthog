@@ -521,7 +521,7 @@ describe('EmailService', () => {
                         }),
                     ])
                     expect(result.metrics.map((metric) => metric.metric_name)).toEqual(
-                        isTest ? [] : ['email_sandbox_sent']
+                        isTest ? [] : ['email_sent', 'email_untracked', 'email_sandbox_sent']
                     )
                     expect(capture).toHaveBeenCalledWith(
                         expect.objectContaining({ id: team.id }),

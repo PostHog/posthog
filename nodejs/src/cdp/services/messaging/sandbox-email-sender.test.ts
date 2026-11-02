@@ -112,7 +112,12 @@ describe('sandbox email content', () => {
             'height:30px!important;content:"a\nb";overflow:hidden!important',
             'height:30px!important',
         ],
-        ['a closed comment', 'margin:0/* note */;height:30px!important', 'margin:0;height:30px!important'],
+        ['a closed comment', 'margin:0/* note */;height:30px!important', 'margin:0 ;height:30px!important'],
+        [
+            'a comment between a slash and a star',
+            'height:30px!important;overflow:hidden!important;--x: //**/*',
+            'height:30px!important;overflow:hidden!important;--x: / *',
+        ],
     ])('keeps the visibility overrides in effect after %s in the template style', async (_case, style, kept) => {
         const html = `<html style='${style}'><body style='${style}'><p>Visible message</p></body></html>`
         const result = await sender.withIdentificationFooter(params(html), 'Example organization via PostHog', 1)
@@ -122,6 +127,7 @@ describe('sandbox email content', () => {
             const value = ancestor.attrs.find((attribute) => attribute.name === 'style')!.value
             expect(value.startsWith(`${kept};display:block!important;`)).toBe(true)
             expect(value.endsWith(';zoom:1!important')).toBe(true)
+            expect(value).not.toContain('/*')
         }
     })
     it.each([

@@ -72,6 +72,8 @@ function scanDeclarations(style: string): string[] {
             if (end === -1) {
                 return declarations
             }
+            // A comment separates tokens, so it becomes a space: dropping it could join a slash and a star.
+            current += ' '
             index = end + 1
         } else if (char === ';' && !closers.length) {
             declarations.push(current)
