@@ -559,11 +559,11 @@ describe('logsAlertFormLogic', () => {
             logic.unmount()
         })
 
-        it.each<[string, LogsAlertConfigurationApi | null, LogsAlertConfigurationApi[], boolean]>([
-            ['alert the platform owns', PLATFORM_ALERT, [], false],
-            ['alert that already groups', GROUPED_BY_SERVICE_ALERT, [], true],
-            ['new alert in a team that has cut over', null, [MOCK_ALERT, PLATFORM_ALERT], false],
-        ])('with the flag off, can group for %s', async (_, alert, teamAlerts, expected) => {
+        it.each<[string, LogsAlertConfigurationApi | null, LogsAlertConfigurationApi[], boolean, string[]]>([
+            ['alert the platform owns', PLATFORM_ALERT, [], false, ['none']],
+            ['alert that already groups', GROUPED_BY_SERVICE_ALERT, [], true, ['none', 'service']],
+            ['new alert in a team that has cut over', null, [MOCK_ALERT, PLATFORM_ALERT], false, ['none']],
+        ])('with the flag off, can group for %s', async (_, alert, teamAlerts, expected, allowedGroupBys) => {
             setGroupingFlag(false)
             givenTeamAlerts(teamAlerts)
             const logic = logsAlertFormLogic({ alert })
@@ -572,6 +572,7 @@ describe('logsAlertFormLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.canGroup).toBe(expected)
+            expect(logic.values.allowedGroupBys).toEqual(allowedGroupBys)
             logic.unmount()
         })
 

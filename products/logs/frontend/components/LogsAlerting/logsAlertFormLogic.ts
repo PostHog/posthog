@@ -32,6 +32,7 @@ import {
 
 import {
     DEFAULT_GROUPED_MAX_INSTANCES,
+    allowedGroupBysOf,
     LogsAlertGroupBy,
     canGroupAlert,
     groupByOf,
@@ -136,6 +137,7 @@ export interface logsAlertFormLogicValues {
     alertFormTouched: boolean
     alertFormTouches: Record<string, boolean>
     alertFormValidationErrors: DeepPartialMap<LogsAlertFormType, ValidationErrorType>
+    allowedGroupBys: LogsAlertGroupBy[] | null
     canGroup: boolean
     isAlertFormSubmitting: boolean
     isAlertFormValid: boolean
@@ -263,7 +265,9 @@ export interface logsAlertFormLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         isEditing: (arg: any) => boolean
-        canGroup: (arg: any, alerts: LogsAlertConfigurationApi[], featureFlags: FeatureFlagsSet) => boolean
+        groupingFlagEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        canGroup: (arg: any, alerts: LogsAlertConfigurationApi[], groupingFlagEnabled: boolean) => boolean
+        allowedGroupBys: (arg: any, groupingFlagEnabled: boolean) => LogsAlertGroupBy[] | null
         regroupConfirmation: (arg: any) => string
         needsRegroupConfirmation: (arg: any, canGroup: boolean, alertForm: LogsAlertFormType) => boolean
         simulationDisabledReason: (canGroup: boolean, alertForm: LogsAlertFormType) => string | undefined
@@ -399,13 +403,22 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
 
     selectors({
         isEditing: [() => [(_, props) => props.alert], (alert: LogsAlertConfigurationApi | null) => alert !== null],
+        groupingFlagEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.LOGS_ALERTS_GROUPING],
+        ],
         canGroup: [
-            (s) => [(_, props) => props.alert, s.alerts, s.featureFlags],
+            (s) => [(_, props) => props.alert, s.alerts, s.groupingFlagEnabled],
             (
                 alert: LogsAlertConfigurationApi | null,
                 alerts: LogsAlertConfigurationApi[],
-                featureFlags: FeatureFlagsSet
-            ): boolean => canGroupAlert(alert, alerts, !!featureFlags[FEATURE_FLAGS.LOGS_ALERTS_GROUPING]),
+                groupingFlagEnabled: boolean
+            ): boolean => canGroupAlert(alert, alerts, groupingFlagEnabled),
+        ],
+        allowedGroupBys: [
+            (s) => [(_, props) => props.alert, s.groupingFlagEnabled],
+            (alert: LogsAlertConfigurationApi | null, groupingFlagEnabled: boolean): LogsAlertGroupBy[] | null =>
+                allowedGroupBysOf(alert, groupingFlagEnabled),
         ],
         regroupConfirmation: [
             () => [(_, props) => props.alert],

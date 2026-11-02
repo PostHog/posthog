@@ -23,6 +23,8 @@ export const SIMULATION_NEEDS_UNGROUPED =
 
 export const MAX_INSTANCES_LIMIT = 100
 
+export const GROUP_BY_NOT_AVAILABLE = "Grouping by other fields isn't available for this project yet."
+
 const GROUP_BY_KEYS: Record<LogsAlertGroupBy, string[]> = {
     none: [],
     service: ['service_name'],
@@ -92,6 +94,21 @@ export function canGroupAlert(
         return false
     }
     return alert ? alert.platform_owned : teamAlerts.some((candidate) => candidate.platform_owned)
+}
+
+/**
+ * The Group by options a save may pick, or null for all of them. With the flag off, an alert that
+ * already groups may only keep its grouping or drop it, as the API allows.
+ */
+export function allowedGroupBysOf(
+    alert: LogsAlertConfigurationApi | null,
+    groupingFlagEnabled: boolean
+): LogsAlertGroupBy[] | null {
+    if (groupingFlagEnabled) {
+        return null
+    }
+    const current = groupByOf(alert?.grouping)
+    return current === 'none' ? ['none'] : ['none', current]
 }
 
 /** What a save that changes the grouping does to the state the alert tracks now. */
