@@ -14,6 +14,7 @@ pub const IMAGE_URL_PREFIX: &str = "imageurl:v4:";
 pub const HASH_CHARS: usize = 22;
 /// What a remote URL becomes when the recorder replaces it without a check by the URL policy.
 pub const URL_UNCHECKED_MARKER: &str = "imageurl:v4:declined:unchecked";
+pub const IMAGE_DECLINED_PREFIX: &str = "image:v4:declined:";
 
 const DECLINED: &str = "declined:";
 
@@ -21,14 +22,36 @@ const DECLINED: &str = "declined:";
 pub enum ImageDecline {
     /// The dataset keeps no AVIF image, inline or fetched.
     Avif,
+    OverLimit,
+    Undecodable,
+    /// Bytes of another format than PNG, JPEG, GIF or WebP, the formats the image scrub reads.
+    Unsupported,
 }
 
 impl ImageDecline {
-    pub const ALL: [ImageDecline; 1] = [ImageDecline::Avif];
+    pub const ALL: [ImageDecline; 4] = [
+        ImageDecline::Avif,
+        ImageDecline::OverLimit,
+        ImageDecline::Undecodable,
+        ImageDecline::Unsupported,
+    ];
+
+    /// The metric label, which also ends the marker.
+    pub const fn label(self) -> &'static str {
+        match self {
+            ImageDecline::Avif => "avif",
+            ImageDecline::OverLimit => "over_limit",
+            ImageDecline::Undecodable => "undecodable",
+            ImageDecline::Unsupported => "unsupported",
+        }
+    }
 
     pub const fn marker(self) -> &'static str {
         match self {
             ImageDecline::Avif => "image:v4:declined:avif",
+            ImageDecline::OverLimit => "image:v4:declined:over_limit",
+            ImageDecline::Undecodable => "image:v4:declined:undecodable",
+            ImageDecline::Unsupported => "image:v4:declined:unsupported",
         }
     }
 }
@@ -209,6 +232,7 @@ mod tests {
                 hash: HASH,
             })
         };
+        let image = |reason| Parsed::Declined(Declined::Image(reason));
         let url = |reason| Parsed::Declined(Declined::Url(reason));
         let vectors = [
             (
@@ -219,9 +243,18 @@ mod tests {
                 "imageurl:v4:7:2026-10:AbCdEfGhIjKlMnOpQr-_09",
                 reference(RefKind::ImageUrl),
             ),
+            ("image:v4:declined:avif", image(ImageDecline::Avif)),
             (
-                "image:v4:declined:avif",
-                Parsed::Declined(Declined::Image(ImageDecline::Avif)),
+                "image:v4:declined:over_limit",
+                image(ImageDecline::OverLimit),
+            ),
+            (
+                "image:v4:declined:undecodable",
+                image(ImageDecline::Undecodable),
+            ),
+            (
+                "image:v4:declined:unsupported",
+                image(ImageDecline::Unsupported),
             ),
             (
                 "imageurl:v4:declined:unchecked",
@@ -269,6 +302,12 @@ mod tests {
             .map(|(written, _)| written.to_string())
             .collect();
         assert_eq!(every_marker, vector_markers);
+        for reason in ImageDecline::ALL {
+            assert_eq!(
+                reason.marker(),
+                format!("{IMAGE_DECLINED_PREFIX}{}", reason.label())
+            );
+        }
     }
 
     #[test]
