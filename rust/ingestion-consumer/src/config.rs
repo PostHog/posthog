@@ -18,6 +18,14 @@ use crate::partition_budget::BudgetLimits;
 use crate::routing::{Router, RoutingStrategy};
 use common_kafka_consumer::config::ConsumerConfigBuilder;
 
+/// The consumer loop must report healthy within this, or the lifecycle
+/// manager restarts the process.
+pub const LIVENESS_DEADLINE: Duration = Duration::from_secs(60);
+
+/// How long a shutdown waits for the consumer loop to drain its in-flight
+/// work before the process exits.
+pub const GRACEFUL_SHUTDOWN: Duration = Duration::from_secs(60);
+
 /// Configuration for the ingestion consumer. Env var names and defaults match
 /// the Node.js ingestion consumer, so both read the same ConfigMap.
 /// `KAFKA_CONSUMER_*` vars also apply as rdkafka overrides; see
@@ -220,6 +228,17 @@ pub struct Config {
     /// Minimum spacing between offset commits (milliseconds).
     #[envconfig(from = "CONSUMER_COMMIT_INTERVAL_MS", default = "500")]
     pub consumer_commit_interval_ms: u64,
+
+    /// How long a revoke waits for the revoked partitions' in-flight messages
+    /// before it commits them and hands the partitions to their new owner
+    /// (milliseconds). The commit gets the same time again. librdkafka fetches
+    /// no partition while it waits. `0` (default) hands them over at once,
+    /// and the new owner processes their in-flight messages again. At least
+    /// twice `INGESTION_REQUEST_SOFT_BUDGET_MS` when that is set, and at most
+    /// half the smallest of the liveness deadline, the graceful shutdown, and
+    /// `KAFKA_CONSUMER_MAX_POLL_INTERVAL_MS`.
+    #[envconfig(from = "CONSUMER_REVOKE_DRAIN_TIMEOUT_MS", default = "0")]
+    pub consumer_revoke_drain_timeout_ms: u64,
 
     /// Uncommitted events at which a partition's fetch pauses. Required.
     #[envconfig(from = "CONSUMER_PARTITION_BUDGET_EVENTS", default = "0")]
@@ -640,6 +659,48 @@ impl Config {
         }))
     }
 
+    /// A budgeted request comes back within one soft budget. A drain shorter
+    /// than two soft budgets can time out on requests that are about to finish.
+    const MIN_REVOKE_DRAIN_SOFT_BUDGETS: u64 = 2;
+
+    pub fn revoke_drain_timeout(&self) -> Result<Option<Duration>, String> {
+        let timeout_ms = self.consumer_revoke_drain_timeout_ms;
+        if timeout_ms == 0 {
+            return Ok(None);
+        }
+        let floor_ms = self
+            .request_soft_budget_ms
+            .saturating_mul(Self::MIN_REVOKE_DRAIN_SOFT_BUDGETS);
+        if timeout_ms < floor_ms {
+            return Err(format!(
+                "CONSUMER_REVOKE_DRAIN_TIMEOUT_MS must be 0 or at least {} times \
+                 INGESTION_REQUEST_SOFT_BUDGET_MS ({floor_ms})",
+                Self::MIN_REVOKE_DRAIN_SOFT_BUDGETS
+            ));
+        }
+        // The drain's commit phase neither polls Kafka nor reports healthy for
+        // up to the timeout, a drain at shutdown adds that phase to the
+        // graceful budget, and wait plus commit must fit the broker's
+        // rebalance timeout (max.poll.interval.ms).
+        let ceiling_ms = [
+            LIVENESS_DEADLINE.as_millis() as u64,
+            GRACEFUL_SHUTDOWN.as_millis() as u64,
+            u64::from(self.kafka_consumer_max_poll_interval_ms),
+        ]
+        .into_iter()
+        .min()
+        .expect("three candidates")
+            / 2;
+        if timeout_ms > ceiling_ms {
+            return Err(format!(
+                "CONSUMER_REVOKE_DRAIN_TIMEOUT_MS must be at most half the smallest of the \
+                 liveness deadline, the graceful shutdown, and \
+                 KAFKA_CONSUMER_MAX_POLL_INTERVAL_MS ({ceiling_ms})"
+            ));
+        }
+        Ok(Some(Duration::from_millis(timeout_ms)))
+    }
+
     pub fn worker_urls(&self) -> Vec<String> {
         self.worker_addresses
             .split(',')
@@ -777,6 +838,28 @@ mod tests {
     ])]
     fn an_invalid_request_budget_is_rejected(#[case] vars: &[(&str, &str)]) {
         assert!(config(vars).request_budget().is_err());
+    }
+
+    struct DrainTimeoutCase {
+        vars: &'static [(&'static str, &'static str)],
+        expected: Result<Option<Duration>, ()>,
+    }
+
+    #[rstest]
+    #[case::off(DrainTimeoutCase { vars: &[("INGESTION_REQUEST_SOFT_BUDGET_MS", "3000")], expected: Ok(None) })]
+    #[case::no_soft_budget(DrainTimeoutCase { vars: &[("CONSUMER_REVOKE_DRAIN_TIMEOUT_MS", "100")], expected: Ok(Some(Duration::from_millis(100))) })]
+    #[case::at_two_soft_budgets(DrainTimeoutCase { vars: &[("CONSUMER_REVOKE_DRAIN_TIMEOUT_MS", "6000"), ("INGESTION_REQUEST_SOFT_BUDGET_MS", "3000")], expected: Ok(Some(Duration::from_millis(6000))) })]
+    #[case::below_two_soft_budgets(DrainTimeoutCase { vars: &[("CONSUMER_REVOKE_DRAIN_TIMEOUT_MS", "5999"), ("INGESTION_REQUEST_SOFT_BUDGET_MS", "3000")], expected: Err(()) })]
+    #[case::at_half_the_liveness_deadline(DrainTimeoutCase { vars: &[("CONSUMER_REVOKE_DRAIN_TIMEOUT_MS", "30000")], expected: Ok(Some(Duration::from_millis(30000))) })]
+    #[case::above_half_the_liveness_deadline(DrainTimeoutCase { vars: &[("CONSUMER_REVOKE_DRAIN_TIMEOUT_MS", "30001")], expected: Err(()) })]
+    #[case::above_half_a_short_poll_interval(DrainTimeoutCase { vars: &[("CONSUMER_REVOKE_DRAIN_TIMEOUT_MS", "10001"), ("KAFKA_CONSUMER_MAX_POLL_INTERVAL_MS", "20000")], expected: Err(()) })]
+    fn the_revoke_drain_timeout_is_off_or_between_two_soft_budgets_and_half_the_tightest_budget(
+        #[case] case: DrainTimeoutCase,
+    ) {
+        assert_eq!(
+            config(case.vars).revoke_drain_timeout().map_err(drop),
+            case.expected
+        );
     }
 
     struct LimitsCase {

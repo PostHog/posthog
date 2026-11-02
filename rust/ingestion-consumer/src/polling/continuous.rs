@@ -55,11 +55,11 @@ impl PollingStrategy for ContinuousPolling {
         self.collector.deadline()
     }
 
-    fn received<M: Message>(&mut self, message: &M, now: Instant) {
+    fn on_received<M: Message>(&mut self, message: &M, now: Instant) {
         self.collector.add(message, now);
     }
 
-    fn completed(&mut self, completion: &GroupCompletion) -> anyhow::Result<()> {
+    fn on_completed(&mut self, completion: &GroupCompletion) -> anyhow::Result<()> {
         if (completion.accepted as usize) < completion.offsets.len() {
             anyhow::bail!(
                 "accepted {}/{} messages — not committing offsets",
@@ -84,26 +84,40 @@ impl PollingStrategy for ContinuousPolling {
         Ok(())
     }
 
-    fn ticked(&mut self) {
+    fn on_ticked(&mut self) {
         self.commit_due = true;
     }
 
-    fn revoked(&mut self, topic_partitions: &[TopicPartition]) {
-        let building = self.collector.remove_partitions(topic_partitions) as u64;
-        self.uncommitted.revoked(topic_partitions);
-        self.processed.revoked(topic_partitions);
-        report_revoked(building);
+    fn on_assigned(&mut self, topic_partitions: &[TopicPartition]) {
+        self.forget_partitions(topic_partitions);
     }
 
-    fn shutdown(&mut self) {
+    fn on_drain_started(&mut self, topic_partitions: &[TopicPartition]) {
+        report_revoked(self.collector.remove_partitions(topic_partitions) as u64);
+    }
+
+    fn on_drain_finished(&mut self, topic_partitions: &[TopicPartition]) -> Option<Commit> {
+        let commit = self
+            .settlement
+            .take_all()
+            .map(|commit| self.record_commit(commit));
+        self.on_revoked(topic_partitions);
+        commit
+    }
+
+    fn on_revoked(&mut self, topic_partitions: &[TopicPartition]) {
+        self.forget_partitions(topic_partitions);
+    }
+
+    fn on_shutdown(&mut self) {
         self.accepting_new_batches = false;
         self.commit_due = true;
         self.collector.discard();
     }
 
-    fn submitted(&mut self, poll: InFlightPoll) {
-        self.uncommitted.charged(&poll);
-        self.processed.submitted(&poll);
+    fn on_submitted(&mut self, poll: InFlightPoll) {
+        self.uncommitted.record_poll(&poll);
+        self.processed.record_poll(&poll);
     }
 
     fn next_step(&mut self, now: Instant) -> Option<Step> {
@@ -114,15 +128,28 @@ impl PollingStrategy for ContinuousPolling {
                 self.settlement.take_all()
             };
             if let Some(commit) = commit {
-                self.uncommitted.committed(&commit);
-                self.processed.committed(&commit);
-                return Some(Step::Commit(commit));
+                return Some(Step::Commit(self.record_commit(commit)));
             }
         }
         if let Some(collected) = self.collector.take_ready(now) {
             return Some(Step::Submit(collected));
         }
         (!self.accepting_new_batches && self.uncommitted.is_empty()).then_some(Step::Stop)
+    }
+}
+
+impl ContinuousPolling {
+    fn record_commit(&mut self, commit: Commit) -> Commit {
+        self.uncommitted.record_commit(&commit);
+        self.processed.record_commit(&commit);
+        commit
+    }
+
+    fn forget_partitions(&mut self, topic_partitions: &[TopicPartition]) {
+        let building = self.collector.remove_partitions(topic_partitions) as u64;
+        self.uncommitted.forget(topic_partitions);
+        self.processed.forget(topic_partitions);
+        report_revoked(building);
     }
 }
 
@@ -144,7 +171,7 @@ impl ProcessedTimestamps {
         }
     }
 
-    fn submitted(&mut self, poll: &InFlightPoll) {
+    fn record_poll(&mut self, poll: &InFlightPoll) {
         for (topic_partition, deliveries) in &poll.partitions {
             self.partitions
                 .entry(topic_partition.clone())
@@ -156,7 +183,7 @@ impl ProcessedTimestamps {
         }
     }
 
-    fn committed(&mut self, commit: &Commit) {
+    fn record_commit(&mut self, commit: &Commit) {
         for (topic_partition, next_to_read) in &commit.offsets {
             let Some(polls) = self.partitions.get_mut(topic_partition) else {
                 continue;
@@ -182,8 +209,8 @@ impl ProcessedTimestamps {
         }
     }
 
-    fn revoked(&mut self, revoked: &[TopicPartition]) {
-        for topic_partition in revoked {
+    fn forget(&mut self, topic_partitions: &[TopicPartition]) {
+        for topic_partition in topic_partitions {
             self.partitions.remove(topic_partition);
         }
     }
@@ -205,14 +232,14 @@ impl UncommittedCharges {
         self.total == Charge::ZERO
     }
 
-    /// `None` once the partition is revoked, until its next charge.
+    /// `None` once the partition is forgotten, until its next charge.
     fn topic_partition(&self, partition: Partition) -> Option<&TopicPartition> {
         self.partitions
             .get(&partition)
             .map(|(topic_partition, _)| topic_partition)
     }
 
-    fn charged(&mut self, poll: &InFlightPoll) {
+    fn record_poll(&mut self, poll: &InFlightPoll) {
         for (topic_partition, &charge) in &poll.uncommitted {
             let previous = self.partitions.insert(
                 Partition(topic_partition.partition),
@@ -222,7 +249,7 @@ impl UncommittedCharges {
         }
     }
 
-    fn committed(&mut self, commit: &Commit) {
+    fn record_commit(&mut self, commit: &Commit) {
         for (topic_partition, &charge) in &commit.uncommitted {
             if let Some((_, partition)) = self
                 .partitions
@@ -234,8 +261,8 @@ impl UncommittedCharges {
         }
     }
 
-    fn revoked(&mut self, revoked: &[TopicPartition]) {
-        for topic_partition in revoked {
+    fn forget(&mut self, topic_partitions: &[TopicPartition]) {
+        for topic_partition in topic_partitions {
             let previous = self
                 .partitions
                 .remove(&Partition(topic_partition.partition));
@@ -296,7 +323,7 @@ mod tests {
         harness.receive(0, &[10, 11]);
         harness.receive(1, &[20]);
 
-        harness.poller.revoked(&[p(0)]);
+        harness.poller.on_revoked(&[p(0)]);
         harness.receive(0, &[10]);
         harness.after_the_batch_timeout();
 
@@ -339,7 +366,7 @@ mod tests {
         harness.submit();
 
         harness.complete_under(before, 0, &[0, 1]);
-        harness.poller.ticked();
+        harness.poller.on_ticked();
         assert!(
             harness.step().is_none(),
             "the old assignment's completion is stale"
@@ -348,6 +375,66 @@ mod tests {
         harness.complete(0, &[0, 1]);
         assert_eq!(harness.commit(), HashMap::from([(p(0), Offset(2))]));
         assert_eq!(processed(), 2);
+    }
+
+    #[test]
+    fn a_started_drain_drops_the_poll_in_progress_and_settles_what_was_submitted() {
+        let mut harness = continuous(1_000);
+        harness.receive(0, &[0, 1]);
+        harness.after_the_batch_timeout();
+        harness.submit();
+        harness.receive(0, &[2]);
+
+        harness.poller.on_drain_started(&[p(0)]);
+        harness.after_the_batch_timeout();
+        assert!(
+            harness.step().is_none(),
+            "offset 2 was never charged, so the new owner reads it"
+        );
+
+        harness.complete(0, &[0, 1]);
+        assert_eq!(harness.commit(), HashMap::from([(p(0), Offset(2))]));
+    }
+
+    #[test]
+    fn a_finished_drain_commits_up_to_the_first_unprocessed_offset() {
+        let mut harness = continuous(1_000);
+        harness.receive(0, &[0, 1, 2]);
+        harness.after_the_batch_timeout();
+        harness.submit();
+
+        harness.poller.on_drain_started(&[p(0)]);
+        harness.complete(0, &[0, 2]);
+
+        assert_eq!(
+            harness.finish_drain(0),
+            HashMap::from([(p(0), Offset(1))]),
+            "offset 1 came back unfinished"
+        );
+    }
+
+    #[test]
+    fn a_finished_drain_frees_the_partitions_charge_and_ignores_its_late_completions() {
+        let mut harness = continuous(3);
+        harness.receive(0, &[0, 1, 2]);
+        harness.after_the_batch_timeout();
+        harness.submit();
+        assert!(!harness.poller.reading());
+        let drained_generation = harness.ledger.generation(&p(0));
+
+        harness.poller.on_drain_started(&[p(0)]);
+        assert_eq!(harness.finish_drain(0), HashMap::new());
+        assert!(
+            harness.poller.reading(),
+            "a drained partition holds no charge"
+        );
+
+        harness.complete_under(drained_generation, 0, &[0, 1, 2]);
+        harness.poller.on_ticked();
+        assert!(
+            harness.step().is_none(),
+            "a late completion commits nothing"
+        );
     }
 
     #[test]
@@ -414,7 +501,7 @@ mod tests {
 
         let error = harness
             .poller
-            .completed(&short)
+            .on_completed(&short)
             .expect_err("a dropped message must not commit");
         assert!(error.to_string().contains("accepted 1/2"), "{error}");
     }
@@ -458,7 +545,7 @@ mod tests {
         harness.submit();
         harness.receive(0, &[1]);
 
-        harness.poller.shutdown();
+        harness.poller.on_shutdown();
         assert!(!harness.poller.reading());
         assert_eq!(harness.poller.deadline(), None);
         assert!(harness.step().is_none(), "offset 0 is still in flight");

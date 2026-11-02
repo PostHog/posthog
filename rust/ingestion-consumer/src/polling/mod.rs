@@ -47,22 +47,29 @@ pub(crate) trait PollingStrategy {
 
     fn deadline(&self) -> Option<Instant>;
 
-    fn received<M: Message>(&mut self, message: &M, now: Instant);
+    fn on_received<M: Message>(&mut self, message: &M, now: Instant);
 
-    fn completed(&mut self, completion: &GroupCompletion) -> anyhow::Result<()>;
+    fn on_completed(&mut self, completion: &GroupCompletion) -> anyhow::Result<()>;
 
-    fn ticked(&mut self);
+    fn on_ticked(&mut self);
+
+    fn on_assigned(&mut self, topic_partitions: &[TopicPartition]);
+
+    fn on_drain_started(&mut self, topic_partitions: &[TopicPartition]);
+
+    /// The commit holds every partition's frontier, not only the drained ones.
+    fn on_drain_finished(&mut self, topic_partitions: &[TopicPartition]) -> Option<Commit>;
 
     /// Every message received before the revoke belongs to the old
     /// assignment: the batcher purges it, or Kafka delivers it again from the
     /// last commit.
-    fn revoked(&mut self, topic_partitions: &[TopicPartition]);
+    fn on_revoked(&mut self, topic_partitions: &[TopicPartition]);
 
     /// The poll in progress is not charged yet, so it is dropped and replays
     /// from the last commit.
-    fn shutdown(&mut self);
+    fn on_shutdown(&mut self);
 
-    fn submitted(&mut self, poll: InFlightPoll);
+    fn on_submitted(&mut self, poll: InFlightPoll);
 
     fn next_step(&mut self, now: Instant) -> Option<Step>;
 }

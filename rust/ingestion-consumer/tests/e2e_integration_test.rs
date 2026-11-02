@@ -2,7 +2,7 @@
 
 mod common;
 
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -590,6 +590,33 @@ struct Harness {
     budget: Option<RequestBudget>,
     partition_budget: BudgetLimits,
     in_flight_limit: ChargeLimit,
+    revoke_drain_timeout: Option<Duration>,
+    rebalance_mode: RebalanceMode,
+}
+
+/// Production runs `group.protocol=consumer` (KIP-848), which also revokes
+/// incrementally. The test broker, Redpanda v25.1.9, does not implement
+/// ConsumerGroupHeartbeat (API key 68) and leaves the key out of its
+/// ApiVersions response. So no case covers KIP-848; `Cooperative` takes the
+/// same `incremental_unassign` path in the consumer.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum RebalanceMode {
+    Eager,
+    /// `cooperative-sticky`: a revoke takes only the partitions that move.
+    /// The broker is `Stable` while the old owner holds them, and the new owner
+    /// gets them in a second rebalance after the unassign.
+    Cooperative,
+}
+
+impl RebalanceMode {
+    fn configure(self, config: &mut ClientConfig) {
+        match self {
+            Self::Eager => {}
+            Self::Cooperative => {
+                config.set("partition.assignment.strategy", "cooperative-sticky");
+            }
+        }
+    }
 }
 
 // Short session and heartbeat so group handovers finish quickly.
@@ -598,7 +625,13 @@ fn make_kafka_consumer(
     group_id: &str,
     instance_id: Option<&str>,
 ) -> StreamConsumer<RebalanceContext> {
-    make_kafka_consumer_with_context(topic, group_id, instance_id, RebalanceContext::new())
+    make_kafka_consumer_with_context(
+        topic,
+        group_id,
+        instance_id,
+        RebalanceContext::new(),
+        RebalanceMode::Eager,
+    )
 }
 
 fn make_kafka_consumer_with_context(
@@ -606,6 +639,7 @@ fn make_kafka_consumer_with_context(
     group_id: &str,
     instance_id: Option<&str>,
     context: RebalanceContext,
+    rebalance_mode: RebalanceMode,
 ) -> StreamConsumer<RebalanceContext> {
     let mut config = ClientConfig::new();
     config
@@ -620,6 +654,7 @@ fn make_kafka_consumer_with_context(
     if let Some(id) = instance_id {
         config.set("group.instance.id", id);
     }
+    rebalance_mode.configure(&mut config);
     let kafka_consumer: StreamConsumer<RebalanceContext> =
         config.create_with_context(context).expect("kafka consumer");
     kafka_consumer.subscribe(&[topic]).expect("subscribe");
@@ -678,12 +713,22 @@ impl Harness {
             COMMIT_INTERVAL,
             BudgetLimits::unset(),
             ChargeLimit::unset(),
+            None,
+            RebalanceMode::Eager,
         )
         .await
     }
 
     /// One worker; every request carries a 500 ms soft budget.
     async fn start_budgeted(topic: &str, partitions: i32) -> Self {
+        Self::start_budgeted_draining_revokes(topic, partitions, None).await
+    }
+
+    async fn start_budgeted_draining_revokes(
+        topic: &str,
+        partitions: i32,
+        revoke_drain_timeout: Option<Duration>,
+    ) -> Self {
         Self::start_inner(
             topic,
             partitions,
@@ -706,6 +751,8 @@ impl Harness {
             COMMIT_INTERVAL,
             BudgetLimits::unset(),
             ChargeLimit::unset(),
+            revoke_drain_timeout,
+            RebalanceMode::Eager,
         )
         .await
     }
@@ -731,6 +778,8 @@ impl Harness {
             COMMIT_INTERVAL,
             BudgetLimits::unset(),
             ChargeLimit::unset(),
+            None,
+            RebalanceMode::Eager,
         )
         .await
     }
@@ -757,6 +806,34 @@ impl Harness {
             COMMIT_INTERVAL,
             BudgetLimits::unset(),
             ChargeLimit::unset(),
+            None,
+            RebalanceMode::Eager,
+        )
+        .await
+    }
+
+    async fn start_draining_revokes(
+        topic: &str,
+        partitions: i32,
+        worker_count: usize,
+        revoke_drain_timeout: Duration,
+        rebalance_mode: RebalanceMode,
+    ) -> Self {
+        Self::start_inner(
+            topic,
+            partitions,
+            worker_count,
+            Duration::from_secs(60),
+            fast_registry_config(),
+            0,
+            ComponentOptions::new(),
+            common::PRODUCTION_PACK_TARGETS,
+            None,
+            COMMIT_INTERVAL,
+            BudgetLimits::unset(),
+            ChargeLimit::unset(),
+            Some(revoke_drain_timeout),
+            rebalance_mode,
         )
         .await
     }
@@ -775,6 +852,8 @@ impl Harness {
             COMMIT_INTERVAL,
             BudgetLimits::unset(),
             ChargeLimit::unset(),
+            None,
+            RebalanceMode::Eager,
         )
         .await
     }
@@ -799,6 +878,8 @@ impl Harness {
             commit_interval,
             BudgetLimits::unset(),
             ChargeLimit::unset(),
+            None,
+            RebalanceMode::Eager,
         )
         .await
     }
@@ -842,6 +923,8 @@ impl Harness {
             COMMIT_INTERVAL,
             partition_budget,
             in_flight_limit,
+            None,
+            RebalanceMode::Eager,
         )
         .await
     }
@@ -867,6 +950,8 @@ impl Harness {
             commit_interval,
             partition_budget,
             ChargeLimit::unset(),
+            None,
+            RebalanceMode::Eager,
         )
         .await
     }
@@ -885,6 +970,8 @@ impl Harness {
         commit_interval: Duration,
         partition_budget: BudgetLimits,
         in_flight_limit: ChargeLimit,
+        revoke_drain_timeout: Option<Duration>,
+        rebalance_mode: RebalanceMode,
     ) -> Self {
         create_topic(topic, partitions).await;
 
@@ -914,8 +1001,13 @@ impl Harness {
         let group_id = format!("e2e-{}", Uuid::new_v4());
         let ledger = Arc::new(TopicOffsetLedger::new());
         let debug_recorder = DebugRecorder::new(10_000, Duration::from_secs(3600));
-        let kafka_consumer =
-            make_kafka_consumer_with_context(topic, &group_id, None, RebalanceContext::new());
+        let kafka_consumer = make_kafka_consumer_with_context(
+            topic,
+            &group_id,
+            None,
+            RebalanceContext::new(),
+            rebalance_mode,
+        );
 
         let (batcher, outputs) = common::batcher(
             pool_source,
@@ -941,6 +1033,7 @@ impl Harness {
                 ledger: Arc::clone(&ledger),
                 partition_budget,
                 in_flight_limit,
+                revoke_drain_timeout,
             },
             handle,
         );
@@ -974,6 +1067,8 @@ impl Harness {
             budget,
             partition_budget,
             in_flight_limit,
+            revoke_drain_timeout,
+            rebalance_mode,
         }
     }
 
@@ -984,6 +1079,19 @@ impl Harness {
             .into_iter()
             .filter_map(|event| match event.kind {
                 DebugEventKind::BatchDispatched { messages, .. } => Some(messages),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn dispatched_assignment_epochs(&self) -> Vec<u64> {
+        self.debug_recorder
+            .backlog()
+            .into_iter()
+            .filter_map(|event| match event.kind {
+                DebugEventKind::BatchDispatched {
+                    assignment_epoch, ..
+                } => Some(assignment_epoch),
                 _ => None,
             })
             .collect()
@@ -1017,6 +1125,7 @@ impl Harness {
             &self.group_id,
             None,
             RebalanceContext::new(),
+            self.rebalance_mode,
         );
         let (batcher, outputs) = common::batcher(
             pool_source,
@@ -1042,6 +1151,7 @@ impl Harness {
                 ledger: Arc::clone(&self.ledger),
                 partition_budget: self.partition_budget,
                 in_flight_limit: self.in_flight_limit,
+                revoke_drain_timeout: self.revoke_drain_timeout,
             },
             handle,
         );
@@ -1113,7 +1223,13 @@ impl Harness {
             self.budget,
         );
         let consumer = IngestionConsumer::from_parts(
-            make_kafka_consumer(&self.topic, &self.group_id, None),
+            make_kafka_consumer_with_context(
+                &self.topic,
+                &self.group_id,
+                None,
+                RebalanceContext::new(),
+                self.rebalance_mode,
+            ),
             batcher,
             outputs,
             transport,
@@ -1128,6 +1244,7 @@ impl Harness {
                 ledger: Arc::new(TopicOffsetLedger::new()),
                 partition_budget: self.partition_budget,
                 in_flight_limit: self.in_flight_limit,
+                revoke_drain_timeout: self.revoke_drain_timeout,
             },
             handle,
         );
@@ -1184,6 +1301,97 @@ fn broker_committed_offset(group_id: &str, topic: &str, partition: i32) -> Optio
     match committed.elements()[0].offset() {
         rdkafka::Offset::Offset(offset) => Some(offset),
         _ => None,
+    }
+}
+
+#[derive(Debug)]
+struct GroupState {
+    state: String,
+    owned: Vec<usize>,
+}
+
+impl GroupState {
+    fn handed_over(&self) -> bool {
+        self.state == "Stable" && self.owned == [1, 1]
+    }
+
+    fn holds_a_revoke(&self, mode: RebalanceMode) -> bool {
+        match mode {
+            RebalanceMode::Eager => self.state == "PreparingRebalance" && self.owned.len() == 2,
+            RebalanceMode::Cooperative => self.state == "Stable" && self.owned == [0, 1],
+        }
+    }
+}
+
+fn group_state(group_id: &str) -> Option<GroupState> {
+    let probe: BaseConsumer = ClientConfig::new()
+        .set("bootstrap.servers", KAFKA_BROKERS)
+        .set("group.id", group_id)
+        .create()
+        .expect("group probe");
+    let groups = probe
+        .client()
+        .fetch_group_list(Some(group_id), Duration::from_secs(5))
+        .ok()?;
+    let group = groups
+        .groups()
+        .iter()
+        .find(|group| group.name() == group_id)?;
+    let mut owned: Vec<usize> = group
+        .members()
+        .iter()
+        .map(|member| assigned_partition_count(member.assignment().unwrap_or_default()))
+        .collect();
+    owned.sort_unstable();
+    Some(GroupState {
+        state: group.state().to_string(),
+        owned,
+    })
+}
+
+/// Counts the partitions in a classic-protocol `ConsumerProtocolAssignment`:
+/// an i16 version, then an i32 count of (i16-length topic, i32 count of i32 partitions).
+fn assigned_partition_count(assignment: &[u8]) -> usize {
+    fn read<const N: usize>(bytes: &[u8], at: &mut usize) -> Option<[u8; N]> {
+        let read = bytes.get(*at..*at + N)?.try_into().ok()?;
+        *at += N;
+        Some(read)
+    }
+    fn count(assignment: &[u8]) -> Option<usize> {
+        let mut at = 2;
+        let topics = i32::from_be_bytes(read(assignment, &mut at)?);
+        let mut partitions = 0;
+        for _ in 0..topics {
+            at += i16::from_be_bytes(read(assignment, &mut at)?) as usize;
+            let in_topic = i32::from_be_bytes(read(assignment, &mut at)?) as usize;
+            at += 4 * in_topic;
+            partitions += in_topic;
+        }
+        Some(partitions)
+    }
+    if assignment.is_empty() {
+        return 0;
+    }
+    count(assignment).expect("a well-formed consumer protocol assignment")
+}
+
+async fn wait_for_group(
+    group_id: &str,
+    timeout: Duration,
+    what: &str,
+    cond: impl Fn(&GroupState) -> bool,
+) {
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        let observed = group_state(group_id);
+        if observed.as_ref().is_some_and(&cond) {
+            return;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "timed out waiting for the group to {what}, last seen {observed:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(250)).await;
     }
 }
 
@@ -1453,6 +1661,100 @@ async fn a_partial_ack_after_a_revoke_resends_nothing() {
         *harness.workers[0].replayed.lock().unwrap(),
         Vec::<(String, usize)>::new(),
         "the old owner resends nothing for a revoked partition"
+    );
+
+    second.stop().await;
+    harness.stop().await;
+}
+
+#[tokio::test]
+async fn a_partial_ack_during_a_drain_commits_only_what_was_processed() {
+    let topic = format!("e2e-partial-drain-{}", Uuid::new_v4());
+    let harness =
+        Harness::start_budgeted_draining_revokes(&topic, 1, Some(Duration::from_secs(20))).await;
+    // The partition holds a, b, a, b, and the b messages come back unfinished.
+    *harness.workers[0].leave_unfinished.lock().unwrap() = Some(("visitor-b".to_string(), 1));
+    let records = alternating_visitors(0, "tok:203.0.113.7", 0);
+
+    // A trickle keeps the consumer polling, so it takes part in the rebalance.
+    let producer = make_producer();
+    producer
+        .client()
+        .fetch_metadata(Some(&topic), Duration::from_secs(5))
+        .expect("trickle producer metadata");
+
+    let gate = harness.workers[0].block().await;
+    produce_keyed_in_one_transaction(&topic, "tok", &records).await;
+    let trickling = Arc::new(AtomicBool::new(true));
+    let trickle = tokio::spawn({
+        let trickling = Arc::clone(&trickling);
+        let topic = topic.clone();
+        async move {
+            let mut seq = 1000usize;
+            while trickling.load(Ordering::SeqCst) {
+                produce(&producer, &topic, 0, "tok", "trickle", seq).await;
+                seq += 1;
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        }
+    });
+    wait_until(
+        Duration::from_secs(15),
+        "a request to reach the worker",
+        || harness.workers[0].arrived_count() > 0,
+    )
+    .await;
+
+    let second = harness.join_second_consumer().await;
+    // The drain waits on the gated request.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    trickling.store(false, Ordering::SeqCst);
+    trickle.await.expect("trickle task");
+    drop(gate);
+
+    wait_until(
+        Duration::from_secs(30),
+        "every message to be delivered",
+        || {
+            let delivered: HashSet<(String, usize)> = harness
+                .delivery_log
+                .lock()
+                .unwrap()
+                .iter()
+                .cloned()
+                .collect();
+            records
+                .iter()
+                .all(|(_, _, visitor, seq)| delivered.contains(&(visitor.to_string(), *seq)))
+        },
+    )
+    .await;
+    // Time for a replay by the new owner to arrive.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    assert!(
+        harness.workers[0]
+            .leave_unfinished
+            .lock()
+            .unwrap()
+            .is_none(),
+        "the gated request was acked as partial"
+    );
+    assert_eq!(
+        *harness.workers[0].replayed.lock().unwrap(),
+        Vec::<(String, usize)>::new(),
+        "the old owner resends nothing of a draining partition"
+    );
+    let log = harness.delivery_log.lock().unwrap().clone();
+    let mut seen = HashSet::new();
+    let processed_twice: BTreeSet<(String, usize)> = log
+        .iter()
+        .filter(|entry| entry.0 != "trickle" && !seen.insert(*entry))
+        .cloned()
+        .collect();
+    assert_eq!(
+        processed_twice,
+        BTreeSet::from([("visitor-a".to_string(), 2)])
     );
 
     second.stop().await;
@@ -3370,6 +3672,321 @@ async fn second_consumer_joining_the_group_preserves_all_messages() {
     harness.stop().await;
 }
 
+#[rstest]
+#[case::eager(RebalanceMode::Eager)]
+#[case::cooperative(RebalanceMode::Cooperative)]
+#[tokio::test]
+async fn a_drain_commits_the_in_flight_messages_before_the_new_owner_reads(
+    #[case] rebalance_mode: RebalanceMode,
+) {
+    let topic = format!("e2e-revoke-drain-{}", Uuid::new_v4());
+    let harness =
+        Harness::start_draining_revokes(&topic, 2, 2, Duration::from_secs(20), rebalance_mode)
+            .await;
+    let producer = make_producer();
+
+    let mut guards = Vec::new();
+    for w in &harness.workers {
+        guards.push(w.block().await);
+    }
+    for seq in 0..5usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+        produce(&producer, &topic, 1, "tok", "user-2", seq).await;
+    }
+    wait_until(Duration::from_secs(10), "work to reach a worker", || {
+        harness.workers.iter().any(|w| w.arrived_count() > 0)
+    })
+    .await;
+
+    let second = harness.join_second_consumer().await;
+    // The drain waits on the gated requests.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    guards.clear();
+    for seq in 5..10usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+        produce(&producer, &topic, 1, "tok", "user-2", seq).await;
+    }
+
+    let expected: HashSet<(String, usize)> = ["user-1", "user-2"]
+        .iter()
+        .flat_map(|user| (0..10usize).map(|seq| (user.to_string(), seq)))
+        .collect();
+    wait_until(
+        Duration::from_secs(30),
+        "every message to be delivered",
+        || {
+            let delivered: HashSet<(String, usize)> = harness
+                .delivery_log
+                .lock()
+                .unwrap()
+                .iter()
+                .cloned()
+                .collect();
+            expected.is_subset(&delivered)
+        },
+    )
+    .await;
+    // Time for a replay by the new owner to arrive.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let log = harness.delivery_log.lock().unwrap().clone();
+    let mut seen = HashSet::new();
+    let duplicates: Vec<&(String, usize)> =
+        log.iter().filter(|entry| !seen.insert(*entry)).collect();
+    assert!(
+        duplicates.is_empty(),
+        "the new owner processed again what the old owner finished: {duplicates:?}"
+    );
+
+    second.stop().await;
+    harness.stop().await;
+}
+
+fn processed_counts(harness: &Harness) -> HashMap<(String, usize), usize> {
+    let mut counts = HashMap::new();
+    for entry in harness.delivery_log.lock().unwrap().iter() {
+        *counts.entry(entry.clone()).or_insert(0) += 1;
+    }
+    counts
+}
+
+#[rstest]
+#[case::eager(RebalanceMode::Eager)]
+#[case::cooperative(RebalanceMode::Cooperative)]
+#[tokio::test]
+async fn a_drain_holds_every_partition_and_dispatches_nothing_until_its_release(
+    #[case] rebalance_mode: RebalanceMode,
+) {
+    let topic = format!("e2e-drain-hold-{}", Uuid::new_v4());
+    let harness =
+        Harness::start_draining_revokes(&topic, 2, 2, Duration::from_secs(20), rebalance_mode)
+            .await;
+    let producer = make_producer();
+
+    let mut guards = Vec::new();
+    for w in &harness.workers {
+        guards.push(w.block().await);
+    }
+    for seq in 0..5usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+        produce(&producer, &topic, 1, "tok", "user-2", seq).await;
+    }
+    wait_until(
+        Duration::from_secs(10),
+        "every produced message to dispatch",
+        || harness.poll_sizes().iter().sum::<usize>() == 10,
+    )
+    .await;
+
+    let second = harness.join_second_consumer().await;
+    wait_for_group(
+        &harness.group_id,
+        Duration::from_secs(10),
+        "hold a revoke",
+        |group| group.holds_a_revoke(rebalance_mode),
+    )
+    .await;
+    // The revoke arrives on the next heartbeat; the gated requests hold the drain.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let dispatched = harness.poll_sizes().len();
+    for seq in 5..15usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+        produce(&producer, &topic, 1, "tok", "user-2", seq).await;
+    }
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert_eq!(
+        harness.poll_sizes().len(),
+        dispatched,
+        "librdkafka pauses the whole assignment until the unassign, so a drain dispatches no poll"
+    );
+    let group = group_state(&harness.group_id);
+    assert!(
+        group
+            .as_ref()
+            .is_some_and(|group| group.holds_a_revoke(rebalance_mode)),
+        "the drain still holds the revoke: {group:?}"
+    );
+
+    guards.clear();
+    let expected: HashSet<(String, usize)> = ["user-1", "user-2"]
+        .iter()
+        .flat_map(|user| (0..15usize).map(|seq| (user.to_string(), seq)))
+        .collect();
+    wait_until(
+        Duration::from_secs(30),
+        "every message to be delivered",
+        || {
+            let delivered: HashSet<(String, usize)> = harness
+                .delivery_log
+                .lock()
+                .unwrap()
+                .iter()
+                .cloned()
+                .collect();
+            expected.is_subset(&delivered)
+        },
+    )
+    .await;
+    wait_for_group(
+        &harness.group_id,
+        Duration::from_secs(10),
+        "hand the partition over",
+        GroupState::handed_over,
+    )
+    .await;
+    // Time for a replay by either owner to arrive.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let duplicates: Vec<((String, usize), usize)> = processed_counts(&harness)
+        .into_iter()
+        .filter(|(_, count)| *count > 1)
+        .collect();
+    assert!(
+        duplicates.is_empty(),
+        "processed more than once: {duplicates:?}"
+    );
+
+    second.stop().await;
+    harness.stop().await;
+}
+
+#[rstest]
+#[case::eager(RebalanceMode::Eager)]
+#[case::cooperative(RebalanceMode::Cooperative)]
+#[tokio::test]
+async fn a_drain_that_times_out_hands_the_partitions_over_uncommitted(
+    #[case] rebalance_mode: RebalanceMode,
+) {
+    let topic = format!("e2e-drain-timeout-{}", Uuid::new_v4());
+    let harness =
+        Harness::start_draining_revokes(&topic, 2, 2, Duration::from_secs(3), rebalance_mode).await;
+    let producer = make_producer();
+    let partitions = [
+        TopicPartition::new(topic.clone(), 0),
+        TopicPartition::new(topic.clone(), 1),
+    ];
+    let users = [("user-1", 0), ("user-2", 1)];
+
+    let mut guards = Vec::new();
+    for w in &harness.workers {
+        guards.push(w.block().await);
+    }
+    for seq in 0..5usize {
+        for (user, partition) in users {
+            produce(&producer, &topic, partition, "tok", user, seq).await;
+        }
+    }
+    wait_until(
+        Duration::from_secs(10),
+        "every produced message to dispatch",
+        || harness.poll_sizes().iter().sum::<usize>() == 10,
+    )
+    .await;
+    let generations_before: Vec<u64> = partitions
+        .iter()
+        .map(|partition| harness.ledger.generation(partition))
+        .collect();
+    let bumps = |harness: &Harness| -> Vec<u64> {
+        let mut bumps: Vec<u64> = partitions
+            .iter()
+            .zip(&generations_before)
+            .map(|(partition, before)| harness.ledger.generation(partition) - before)
+            .collect();
+        bumps.sort_unstable();
+        bumps
+    };
+
+    let joined = tokio::time::Instant::now();
+    let second = harness.join_second_consumer().await;
+    // The gated requests outlive the drain timeout.
+    wait_for_group(
+        &harness.group_id,
+        Duration::from_secs(20),
+        "hand the partition over",
+        GroupState::handed_over,
+    )
+    .await;
+    assert!(
+        joined.elapsed() >= Duration::from_secs(3),
+        "the drain held the revoke for its timeout"
+    );
+    assert_eq!(harness.committed_offset(0), None);
+    assert_eq!(harness.committed_offset(1), None);
+    // The release bumps the generation of each revoked partition, and an
+    // assignment bumps the generation of each partition it returns.
+    let expected_bumps = match rebalance_mode {
+        RebalanceMode::Eager => vec![1, 2],
+        RebalanceMode::Cooperative => vec![0, 1],
+    };
+    wait_until(
+        Duration::from_secs(10),
+        "the first consumer to apply its new assignment",
+        || bumps(&harness) == expected_bumps,
+    )
+    .await;
+    let moved = partitions
+        .iter()
+        .zip(&generations_before)
+        .find(|(partition, before)| harness.ledger.generation(partition) == *before + 1)
+        .map(|(partition, _)| partition.partition)
+        .expect("one partition left the first consumer");
+
+    guards.clear();
+    let read_again = |partition: i32| partition == moved || rebalance_mode == RebalanceMode::Eager;
+    let processed_as_expected = |harness: &Harness| {
+        let counts = processed_counts(harness);
+        users.iter().all(|(user, partition)| {
+            let expected = if read_again(*partition) { 2 } else { 1 };
+            (0..5usize).all(|seq| counts.get(&(user.to_string(), seq)) == Some(&expected))
+        })
+    };
+    wait_until(
+        Duration::from_secs(30),
+        "the released requests and the new owners to process every message",
+        || processed_as_expected(&harness),
+    )
+    .await;
+    wait_until(
+        Duration::from_secs(10),
+        "each owner to commit its partition",
+        || harness.committed_offset(0) == Some(5) && harness.committed_offset(1) == Some(5),
+    )
+    .await;
+    // Time for a replay by either owner to arrive.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    assert!(
+        processed_as_expected(&harness),
+        "the old owner's released requests process every message once, and each new assignment processes its partition once more: {:?}",
+        processed_counts(&harness)
+    );
+    assert_eq!(
+        bumps(&harness),
+        expected_bumps,
+        "no later rebalance touched the first consumer's partitions"
+    );
+    let commits_of_moved: Vec<i64> = harness
+        .debug_recorder
+        .backlog()
+        .into_iter()
+        .filter_map(|event| match event.kind {
+            DebugEventKind::CommitSubmitted { offsets } => Some(offsets),
+            _ => None,
+        })
+        .flatten()
+        .filter(|offset| offset.partition == moved)
+        .map(|offset| offset.offset)
+        .collect();
+    assert_eq!(
+        commits_of_moved,
+        Vec::<i64>::new(),
+        "the old owner's late completions commit nothing for the partition it handed over"
+    );
+
+    second.stop().await;
+    harness.stop().await;
+}
+
 #[tokio::test]
 async fn partition_lost_and_regained_keeps_the_consumer_alive() {
     let topic = format!("e2e-regain-{}", Uuid::new_v4());
@@ -3471,6 +4088,11 @@ async fn partition_lost_and_regained_keeps_the_consumer_alive() {
         },
     )
     .await;
+    let epochs = harness.dispatched_assignment_epochs();
+    assert!(
+        epochs.last() > epochs.first(),
+        "polls after the regain go out under a later assignment epoch: {epochs:?}"
+    );
 
     harness.stop().await;
 }
@@ -3516,6 +4138,7 @@ async fn fenced_static_member_exits_on_fatal_error() {
             ledger: Arc::new(TopicOffsetLedger::new()),
             partition_budget: BudgetLimits::unset(),
             in_flight_limit: ChargeLimit::unset(),
+            revoke_drain_timeout: None,
         },
         handle,
     );
