@@ -7,8 +7,9 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { workflowLogic } from '../../../workflowLogic'
+import { getEdgeId } from '../../edgeId'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
-import type { HogFlowActionNode } from '../../types'
+import type { HogFlowActionNode, HogFlowEdge } from '../../types'
 import * as tileCanvasLayout from './tileCanvasLayout'
 import { tileCanvasLogic } from './tileCanvasLogic'
 import { stepCount } from './tileCanvasModel'
@@ -272,6 +273,70 @@ describe('tileCanvasLogic', () => {
                 nodeToBeAdded: null,
                 isPlacing: false,
             })
+        })
+    })
+
+    describe('dragging a step', () => {
+        const edge = (from: string, to: string): object | undefined =>
+            logic.values.workflow.edges.find((candidate) => candidate.from === from && candidate.to === to)
+        const edgePairs = (): string[] =>
+            logic.values.workflow.edges.map((candidate) => `${candidate.from}->${candidate.to}`).sort()
+
+        beforeEach(async () => {
+            jest.mocked(loadAppMetricsTotals).mockResolvedValue({})
+            logic = await mountSavedCanvas()
+            // The editor lays out its graph nodes after the load, and a move reads them.
+            await expectLogic(hogFlowEditorLogic({ id: WORKFLOW_ID }))
+                .toFinishAllListeners()
+                .toMatchValues({ nodes: expect.arrayContaining([expect.objectContaining({ id: 'b2' })]) })
+        })
+
+        it('moves the dragged step to the + it lands on, and its old neighbors join up', async () => {
+            const capture = jest.spyOn(posthog, 'capture')
+
+            logic.actions.startDraggingStep('b2')
+            logic.actions.dropAt(edge('split', 'b1') as HogFlowEdge)
+            logic.actions.endDraggingStep()
+
+            expect(edgePairs()).toEqual(
+                [
+                    'trigger_node->split',
+                    'split->pause',
+                    'pause->a2',
+                    'a2->exit_node',
+                    'split->b2',
+                    'b2->b1',
+                    'b1->exit_node',
+                ].sort()
+            )
+            expect(logic.values.isMovingNode).toBe(false)
+            expect(capture).toHaveBeenCalledWith('workflows tile canvas step moved', {
+                source: 'drag',
+                step_type: 'delay',
+            })
+        })
+
+        it.each(['trigger_node', 'split', 'exit_node'])('does not let %s be dragged', async (actionId) => {
+            await expectLogic(logic, () => logic.actions.startDraggingStep(actionId)).toMatchValues({
+                isMovingNode: false,
+                isDraggingStep: false,
+            })
+        })
+
+        it('offers no + next to the dragged step, and ignores a drop there', async () => {
+            const before = edgePairs()
+
+            logic.actions.startDraggingStep('b1')
+
+            expect(logic.values.placeableEdgeKeys).not.toContain(getEdgeId(edge('split', 'b1') as HogFlowEdge))
+            expect(logic.values.placeableEdgeKeys).not.toContain(getEdgeId(edge('b1', 'b2') as HogFlowEdge))
+            expect(logic.values.placeableEdgeKeys).toContain(getEdgeId(edge('pause', 'a2') as HogFlowEdge))
+
+            logic.actions.dropAt(edge('b1', 'b2') as HogFlowEdge)
+            logic.actions.endDraggingStep()
+
+            expect(edgePairs()).toEqual(before)
+            expect(logic.values.isMovingNode).toBe(false)
         })
     })
 

@@ -71,6 +71,8 @@ export function TileCanvasContent(): JSX.Element {
         countOf,
         templateNameOf,
         nodeToBeAdded,
+        isDraggingStep,
+        placeableEdgeKeys,
         dropTargetEdgeKey,
     } = useValues(tileCanvasLogic)
     const { activateNode, openStepMenu, handlePaneClick, setDropTargetEdgeKey, dropAt } = useActions(tileCanvasLogic)
@@ -113,10 +115,16 @@ export function TileCanvasContent(): JSX.Element {
         drawnGraph.nodes.some((node) => node.id === nodeId && node.kind === 'step' && hasStepMenu(node.action))
 
     const dropEdgeAt = (event: DragEvent<HTMLDivElement>): HogFlowEdge | null =>
-        nearestInsertEdge(edges, screenToFlowPosition({ x: event.clientX, y: event.clientY }), DROP_REACH / getZoom())
+        nearestInsertEdge(
+            edges,
+            screenToFlowPosition({ x: event.clientX, y: event.clientY }),
+            DROP_REACH / getZoom(),
+            placeableEdgeKeys
+        )
+    const isDragging = !!nodeToBeAdded || isDraggingStep
 
     const onDragOver = (event: DragEvent<HTMLDivElement>): void => {
-        if (!nodeToBeAdded) {
+        if (!isDragging) {
             return
         }
         event.preventDefault()
@@ -135,7 +143,7 @@ export function TileCanvasContent(): JSX.Element {
     }
 
     const onDrop = (event: DragEvent<HTMLDivElement>): void => {
-        if (!nodeToBeAdded) {
+        if (!isDragging) {
             return
         }
         event.preventDefault()
