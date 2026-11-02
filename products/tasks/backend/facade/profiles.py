@@ -167,6 +167,7 @@ class TaskProfile:
     # True installs the team's MCP store servers in the sandbox. False installs none, personal
     # servers included.
     mcp_store_servers: bool
+    mcp_exclude_tools: tuple[str, ...]
     # The OAuth application that mints the sandbox's PostHog tokens. The LLM gateway pins billing
     # products per application, so a token from a shared application is valid for every product on
     # it. A product with its own billing needs its own application.
