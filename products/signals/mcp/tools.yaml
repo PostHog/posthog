@@ -409,6 +409,29 @@ tools:
             note:
                 description: The person's context for why the report was or was not useful, up to 4000 characters.
                 input_schema: SignalReportFeedbackNoteSchema
+    inbox-reports-for-me:
+        operation: signals_reports_for_me_retrieve
+        enabled: true
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get your personal ranked inbox
+        description: >
+            Get the current user's own open inbox reports, ranked for them. One language model call ranks the reports
+            that need them (suggested reviewer, claimed, waiting on their input) and the reports the ranking model rates
+            highest, using their activity summary. Use it for "what should I work on" and "my top N" questions in place
+            of paging inbox-reports-list. Each entry has a rank, a tier, a short reason, a next step for the top entries
+            and a compact report. Read the full report with inbox-reports-retrieve before you act on it. The list is
+            personal: only the user it describes can read it. The call returns at once and never waits on the model. A
+            current stored list comes back as is. Otherwise the call starts a background build and returns the last
+            stored list with `stale: true`, or the reports in inbox order with `fallback_reason: building`, and sets
+            `building: true`. `refresh` and `focus` always start a build, and builds are rate limited. When `building`
+            is true, call again a little later, or pass `wait_seconds` (up to 30) to wait for the new list in the same
+            call. `personalized: false` means the user has no activity summary yet or the list is in inbox order (see
+            `fallback_reason`). `stale: true` without `building` means the build limit was reached and the list may miss
+            recent changes. `status: unavailable` means personal ranking is off for now.
+        feature_flag: personal-inbox-ranking
     inbox-reports-leave-reviewers:
         operation: signals_reports_reviewers_me_create
         enabled: true

@@ -15,6 +15,9 @@ export function useColoredSeries<Meta = unknown>(series: Series<Meta>[], theme: 
         () =>
             series.map((s, i) => ({
                 ...s,
+                // `data` is typed `number[]`, but a query can return `null` (e.g. a trends formula
+                // evaluated as a total value). Every renderer and overlay reads `data.length`.
+                data: s.data ?? [],
                 color: s.color || theme.colors[i % theme.colors.length],
             })),
         [series, theme.colors]

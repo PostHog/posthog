@@ -642,6 +642,8 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             ("planted_placeholder", "default@example.com", 'is not on the verified domain "posthog.com"'),
             ("not_an_email", "not-an-email", "is not a valid email address"),
             ("address_list", "a@posthog.com, b@posthog.com", "is not a valid email address"),
+            ("overlong_address", f"{'a' * 243}@posthog.com", "254 characters or fewer"),
+            ("overlong_non_address", "a" * 255, "254 characters or fewer"),
         ]
     )
     def test_email_literal_sender_override_rejected_at_save(self, _name, address, expected):
@@ -656,6 +658,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
     @parameterized.expand(
         [
             ("on_domain", "community@posthog.com"),
+            ("max_length", f"{'a' * 242}@posthog.com"),
             ("case_insensitive", "Community@PostHog.com"),
             ("liquid_template", "{{ event.properties.sender }}"),
             ("hog_template", "{event.properties.sender}"),
@@ -1489,7 +1492,10 @@ class TestTaskInputTypeValidation(SimpleTestCase):
     @parameterized.expand(
         [
             ("repository_string", "task_repository", "example-org/example-repo", True),
+            ("repository_list", "task_repository", ["example-org/example-repo", "example-org/example-docs"], True),
             ("repository_not_string", "task_repository", 123, False),
+            ("repository_list_not_strings", "task_repository", [{"name": "example-org/example-repo"}], False),
+            ("repository_list_too_long", "task_repository", [f"example-org/repo-{i}" for i in range(11)], False),
             ("model_full", "task_model", {"model": "claude-sonnet-5", "reasoning_effort": "high"}, True),
             ("model_without_effort", "task_model", {"model": "claude-sonnet-5"}, True),
             ("model_not_dict", "task_model", "claude-sonnet-5", False),

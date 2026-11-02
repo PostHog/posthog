@@ -1,1 +1,1 @@
-0222_signalreport_team_updated_idx
+0226_signalreport_trgm_fastupdate_off

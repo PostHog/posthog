@@ -47,6 +47,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     is_over_billing_limit_error,
     start_batch_export_run,
 )
+from products.batch_exports.backend.temporal.errors import ColumnTypeMappingError
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
@@ -58,6 +59,7 @@ from products.batch_exports.backend.temporal.pipeline.types import BatchExportRe
 from products.batch_exports.backend.temporal.queue import RecordBatchQueue, wait_for_schema_or_producer
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
+    handle_column_type_mapping_errors,
     handle_non_retryable_errors,
     make_retryable_with_exponential_backoff,
 )
@@ -1037,7 +1039,7 @@ def _get_databricks_fields_from_record_schema(
         is_variant = pa_field.name in known_variant_columns
         databricks_type = _get_databricks_field_type(pa_field.type, is_variant)
         if databricks_type is None:
-            raise TypeError(f"Unsupported type in field '{name}': '{databricks_type}'")
+            raise ColumnTypeMappingError("Databricks", name, pa_field.type)
         databricks_schema.append((name, databricks_type))
 
     return databricks_schema
@@ -1110,10 +1112,11 @@ def _get_databricks_table_settings(
             if staged_fields:
                 table_fields = staged_fields
     else:
-        table_fields = _get_databricks_fields_from_record_schema(
-            record_batch_schema,
-            known_variant_columns=known_variant_columns,
-        )
+        with handle_column_type_mapping_errors(model):
+            table_fields = _get_databricks_fields_from_record_schema(
+                record_batch_schema,
+                known_variant_columns=known_variant_columns,
+            )
 
     return TableSettings(table_fields, record_batch_schema, known_variant_columns)
 

@@ -1,5 +1,6 @@
-import dataclasses
 from typing import Literal, Optional
+
+from posthog.dataclasses import frozen
 
 # The RKI COVID-19 API (api.corona-zahlen.org) is a public, unauthenticated JSON wrapper over
 # published Robert Koch-Institut figures, maintained by Marlon Lückert. Every endpoint returns its
@@ -8,23 +9,29 @@ from typing import Literal, Optional
 #
 # Each endpoint returns a bespoke JSON shape, so endpoints are grouped by a `kind` that tells the
 # transport how to reshape the response into flat rows:
-#   snapshot     -> the response body is a single row (e.g. /germany)
-#   dict_rows    -> body["data"] is a dict whose values are self-describing rows (e.g. /states)
-#   keyed_rows   -> body["data"] is a dict whose keys carry the row identity and must be injected
-#                   into each row under `key_field` (e.g. /germany/age-groups)
-#   data_list    -> body["data"] is already a list of rows (e.g. /germany/history/cases)
-#   data_history -> the rows live at body["data"]["history"] (e.g. /germany/history/frozen-incidence)
-ParseKind = Literal["snapshot", "dict_rows", "keyed_rows", "data_list", "data_history"]
+#   snapshot      -> the response body is a single row (e.g. /germany)
+#   data_snapshot -> body["data"] is a single row (e.g. /vaccinations)
+#   dict_rows     -> body["data"] is a dict whose values are self-describing rows (e.g. /states)
+#   keyed_rows    -> body["data"] is a dict whose keys carry the row identity and must be injected
+#                    into each row under `key_field` (e.g. /germany/age-groups)
+#   keyed_history -> body["data"] is a dict like keyed_rows, but each value nests its rows under
+#                    "history"; each history row gets the key and the parent fields
+#                    (e.g. /states/history/cases)
+#   data_list     -> body["data"] is already a list of rows (e.g. /germany/history/cases)
+#   data_history  -> the rows live at body["data"]["history"] (e.g. /germany/history/frozen-incidence)
+ParseKind = Literal[
+    "snapshot", "data_snapshot", "dict_rows", "keyed_rows", "keyed_history", "data_list", "data_history"
+]
 
 
-@dataclasses.dataclass
+@frozen
 class RKICovidEndpointConfig:
     name: str
     path: str
     kind: ParseKind
     # Unique across the whole table. None for single-row snapshot tables that are replaced wholesale.
     primary_keys: Optional[list[str]]
-    # Set for keyed_rows endpoints: the column the dict key is injected under.
+    # Set for keyed_rows and keyed_history endpoints: the column the dict key is injected under.
     key_field: Optional[str] = None
     # A stable date column used for datetime partitioning. History rows are keyed by reporting day
     # and never move to another day, so `date` is safe. None for snapshot tables.
@@ -112,6 +119,16 @@ RKI_COVID_ENDPOINTS: dict[str, RKICovidEndpointConfig] = {
         primary_keys=["abbreviation"],
         description="Current COVID-19 snapshot per German federal state (Bundesland): cases, deaths, recoveries, week incidence, and hospitalization. One row per state. Full refresh.",
     ),
+    "states_history_cases": RKICovidEndpointConfig(
+        name="states_history_cases",
+        path="/states/history/cases",
+        kind="keyed_history",
+        primary_keys=["abbreviation", "date"],
+        key_field="abbreviation",
+        partition_key="date",
+        supports_days=True,
+        description="Daily new reported COVID-19 cases per German federal state. One row per state and day. Full refresh.",
+    ),
     "districts": RKICovidEndpointConfig(
         name="districts",
         path="/districts",
@@ -125,6 +142,30 @@ RKI_COVID_ENDPOINTS: dict[str, RKICovidEndpointConfig] = {
         kind="data_history",
         primary_keys=["calendarWeek"],
         description="Weekly PCR testing figures for Germany: performed tests, positive tests, positivity rate, and reporting laboratories. One row per calendar week. Full refresh.",
+    ),
+    "vaccinations": RKICovidEndpointConfig(
+        name="vaccinations",
+        path="/vaccinations",
+        kind="data_snapshot",
+        primary_keys=None,
+        description="Current nationwide COVID-19 vaccination totals for Germany: administered doses, vaccinated people per dose, doses per vaccine, and vaccination quotas. One row, replaced on every sync.",
+    ),
+    "vaccinations_history": RKICovidEndpointConfig(
+        name="vaccinations_history",
+        path="/vaccinations/history",
+        kind="data_history",
+        primary_keys=["date"],
+        partition_key="date",
+        supports_days=True,
+        description="Daily COVID-19 vaccinations administered in Germany, split by first, second, and booster doses. One row per day. Full refresh.",
+    ),
+    "vaccinations_states": RKICovidEndpointConfig(
+        name="vaccinations_states",
+        path="/vaccinations/states",
+        kind="keyed_rows",
+        primary_keys=["abbreviation"],
+        key_field="abbreviation",
+        description="Current COVID-19 vaccination totals and quotas per German federal state. One row per state. Full refresh.",
     ),
 }
 
