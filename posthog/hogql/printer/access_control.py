@@ -149,3 +149,31 @@ def _build_creator_exemption(
             ast.Constant(value=False),
         ],
     )
+
+
+def can_read_internal_logs(user_access_control: Optional["UserAccessControl"]) -> bool:
+    """Whether the user may read the logs PostHog writes for the team's workflows.
+
+    The workflow logs endpoint checks access per workflow. The logs tables cannot map every row to
+    its workflow, so this check fails closed: one denied workflow hides every internal row.
+    """
+    if user_access_control is None:
+        return False
+    if user_access_control.is_organization_admin:
+        return True
+    return user_access_control.check_access_level_for_resource(
+        "hog_flow", "viewer"
+    ) and not user_access_control.blocked_resource_ids_by_scope.get("hog_flow")
+
+
+def build_internal_logs_guard(table_type: ast.TableOrSelectType, context: HogQLContext) -> Optional[ast.Expr]:
+    """`internal_source = ''` on a logs table, unless the user may read internal logs."""
+    user_access_control = context.database.user_access_control if context.database else None
+    if can_read_internal_logs(user_access_control):
+        return None
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.Eq,
+        left=ast.Field(chain=["internal_source"], type=ast.FieldType(name="internal_source", table_type=table_type)),
+        right=ast.Constant(value=""),
+        type=ast.BooleanType(),
+    )

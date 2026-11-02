@@ -543,6 +543,28 @@ class TestRestParityForObjectGrants(BaseTest):
         assert sql.count("or(") == 1
         assert len(self._id_list_placeholders(context)) == 1
 
+    @parameterized.expand(
+        [
+            ("full_access", None, "logs", False),
+            ("resource_denied", "resource", "logs", True),
+            ("one_workflow_denied", "object", "logs", True),
+            ("rollup_one_workflow_denied", "object", "posthog.logs_volume_buckets", True),
+        ]
+    )
+    def test_internal_logs_need_access_to_every_workflow(
+        self, _name: str, denial: str | None, table: str, hidden: bool
+    ) -> None:
+        if denial == "resource":
+            self._ac(resource="hog_flow", access_level="none")
+        elif denial == "object":
+            self._ac(
+                resource="hog_flow", resource_id="flow-1", access_level="none", organization_member=self.membership
+            )
+
+        sql, _ = self._compile(f"SELECT count() FROM {table}")
+
+        assert ("equals(" in sql and ".internal_source, %(" in sql) is hidden
+
 
 class TestDeniedTableError(BaseTest):
     """Test that denied tables show a helpful error message."""
