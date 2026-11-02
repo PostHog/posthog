@@ -459,6 +459,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         METRICS_IMPORT = "metrics_import", "Metrics Import"
         # Docs pull requests written by the knowledge writer. Reserved: only its intake creates these.
         KNOWLEDGE_WRITER = "knowledge_writer", "Knowledge Writer"
+        CONTEXT_LAYER = "context_layer", "Context Layer"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
