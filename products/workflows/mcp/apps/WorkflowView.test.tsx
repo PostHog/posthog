@@ -134,13 +134,21 @@ describe('WorkflowView', () => {
         expect(screen.getByText('Unpublished changes')).toBeTruthy()
     })
 
-    it('keeps the title when a step is malformed, and draws the steps again once they are fixed', async () => {
+    it.each([
+        [
+            'a step is malformed',
+            {
+                actions: [
+                    ...actions,
+                    { id: 'wait', name: 'Wait', type: 'wait_until_condition', config: {} },
+                ] as HogFlowActionApi[],
+            },
+        ],
+        ['an edge points at a missing step', { edges: [...edges, { from: 'email', to: 'gone', type: 'continue' }] }],
+    ])('keeps the title when %s, and draws the steps again once they are fixed', async (_, broken) => {
         const silenced = jest.spyOn(console, 'error').mockImplementation(() => {})
-        const malformed = { id: 'wait', name: 'Wait', type: 'wait_until_condition', config: {} }
 
-        const { rerender } = render(
-            <WorkflowView workflow={{ ...workflow, actions: [...actions, malformed] as HogFlowActionApi[] }} />
-        )
+        const { rerender } = render(<WorkflowView workflow={{ ...workflow, ...broken } as WorkflowData} />)
 
         expect(screen.getByText('Ad sign-up onboarding')).toBeTruthy()
         expect(screen.getByText(/The steps could not be drawn here/)).toBeTruthy()
@@ -150,6 +158,16 @@ describe('WorkflowView', () => {
         expect(await screen.findByLabelText('Done')).toBeTruthy()
         expect(screen.queryByText(/The steps could not be drawn here/)).toBeNull()
         silenced.mockRestore()
+    })
+
+    it('starts a new canvas for the next workflow, with no step left expanded', async () => {
+        const { rerender } = render(<WorkflowView workflow={workflow} />)
+        fireEvent.click(await screen.findByLabelText('Done'))
+        expect((await screen.findByLabelText('Done')).getAttribute('aria-expanded')).toBe('true')
+
+        rerender(<WorkflowView workflow={{ ...workflow, actions: [...actions], edges: [...edges] }} />)
+
+        expect((await screen.findByLabelText('Done')).getAttribute('aria-expanded')).toBe('false')
     })
 
     it('draws the steps again when the next workflow after a failed layout arrives', async () => {

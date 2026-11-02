@@ -41,6 +41,9 @@ export function PreviewCanvas({
     if (placed.kind === 'failed') {
         throw new Error('The workflow steps could not be laid out')
     }
+    if (!edgesConnect(actions, edges)) {
+        throw new Error('A workflow edge points at a step that does not exist')
+    }
     const shift = ready ? { x: PADDING - ready.bounds.x, y: PADDING - ready.bounds.y } : ORIGIN
     const toggle = (actionId: string): void => setExpandedId((current) => (current === actionId ? null : actionId))
 
@@ -132,6 +135,14 @@ function useShowExpandedStep(
             element.scrollTo?.({ left, top, behavior: 'smooth' })
         }
     }, [scroller, ready, expandedId, zoom])
+}
+
+function edgesConnect(
+    actions: WorkflowCanvasPreviewProps['actions'],
+    edges: WorkflowCanvasPreviewProps['edges']
+): boolean {
+    const ids = new Set(actions.map((action) => action.id))
+    return edges.every((edge) => ids.has(edge.from) && ids.has(edge.to))
 }
 
 function triggerPoint(graph: VisibleGraph, ready: ReadyLayout): Point | null {
