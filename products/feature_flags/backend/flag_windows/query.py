@@ -141,17 +141,24 @@ class EditCounts:
     buckets: tuple[BucketCounts, ...]
 
 
-def _actor(group_type_index: int | None) -> tuple[ast.Expr, ast.Expr]:
-    """The person or the group that the flag aggregates by, and the check that the event has it."""
+@frozen
+class _Actor:
+    # The person, or the group that a group flag aggregates by.
+    expr: ast.Expr
+    # The event has the actor. A group flag needs the group on the event.
+    present: ast.Expr
+
+
+def _actor(group_type_index: int | None) -> _Actor:
     if group_type_index is None:
-        return ast.Field(chain=["person_id"]), ast.Constant(value=True)
+        return _Actor(expr=ast.Field(chain=["person_id"]), present=ast.Constant(value=True))
     actor = ast.Field(chain=[f"$group_{group_type_index}"])
-    return actor, parse_expr("notEmpty({actor})", placeholders={"actor": actor})
+    return _Actor(expr=actor, present=parse_expr("notEmpty({actor})", placeholders={"actor": actor}))
 
 
 def read_flag(team: Team, edit: WatchedEdit, by_reason: ast.Expr | None) -> FlagRead:
     """`by_reason` is the column of `_reason_joins` for the edit, or None without watched conditions."""
-    actor, has_actor = _actor(edit.group_type_index)
+    actor = _actor(edit.group_type_index)
     # A flag key can hold any character, so it goes in as an AST node, never as HogQL text.
     property_name = f"$feature/{edit.flag_key}"
     flag_value = ast.Call(name="toString", args=[ast.Field(chain=["properties", property_name])])
@@ -189,8 +196,8 @@ def read_flag(team: Team, edit: WatchedEdit, by_reason: ast.Expr | None) -> Flag
     else:
         exposed = parse_expr("{flag_value} = 'true'", placeholders={"flag_value": flag_value})
     return FlagRead(
-        actor=actor,
-        has_actor=has_actor,
+        actor=actor.expr,
+        has_actor=actor.present,
         with_flag=with_flag,
         exposed=exposed,
         variant_key=variant_key,
@@ -233,12 +240,12 @@ def _reason_joins(edits: Sequence[WatchedEdit], end: datetime) -> tuple[list[ast
     columns: dict[str, ast.Expr] = {}
     for group_type_index, watched in edits_by_actor.items():
         alias = "flag_reasons" if group_type_index is None else f"flag_reasons_{group_type_index}"
-        actor, has_actor = _actor(group_type_index)
+        actor = _actor(group_type_index)
         # The top-level filters keep the shape that the flag_evaluations swap reads, so this scan also finds the
         # flag calls of a team whose calls ingestion writes only to `flag_evaluations`.
         subquery = ast.SelectQuery(
             select=[
-                ast.Alias(alias="actor", expr=actor),
+                ast.Alias(alias="actor", expr=actor.expr),
                 *[ast.Alias(alias=f"e{index}", expr=_got_watched_condition(edit)) for index, edit in watched],
             ],
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
@@ -256,7 +263,7 @@ def _reason_joins(edits: Sequence[WatchedEdit], end: datetime) -> tuple[list[ast
                     "flag_keys": ast.Tuple(
                         exprs=[ast.Constant(value=key) for key in sorted({edit.flag_key for _, edit in watched})]
                     ),
-                    "has_actor": has_actor,
+                    "has_actor": actor.present,
                 },
             ),
             group_by=[ast.Field(chain=["actor"])],
@@ -269,7 +276,7 @@ def _reason_joins(edits: Sequence[WatchedEdit], end: datetime) -> tuple[list[ast
                 constraint=ast.JoinConstraint(
                     expr=parse_expr(
                         "{reasons_actor} = {actor}",
-                        placeholders={"reasons_actor": ast.Field(chain=[alias, "actor"]), "actor": actor},
+                        placeholders={"reasons_actor": ast.Field(chain=[alias, "actor"]), "actor": actor.expr},
                     ),
                     constraint_type="ON",
                 ),
