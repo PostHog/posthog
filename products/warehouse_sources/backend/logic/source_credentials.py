@@ -205,6 +205,23 @@ class WarehouseSourceCredentialsStore:
         return IntegrationReference.from_legacy_id(pk)
 
     @staticmethod
+    def other_usages(
+        source: ExternalDataSource, reference: IntegrationReference | None = None
+    ) -> list[IntegrationUsage]:
+        """The objects other than the source that use the row at ``reference``, by default the row of the source.
+
+        Empty when there is no such row in scope.
+        """
+        pk = _pk(source) if reference is None else reference.legacy_id
+        rows = _accessor_or_none(source)
+        if pk is None or rows is None:
+            return []
+        try:
+            return _other_usages(rows, source, pk)
+        except IntegrationNotFound:
+            return []
+
+    @staticmethod
     def release(source: ExternalDataSource) -> bool:
         """Note that the source no longer uses its row. Returns True when nothing else uses it.
 

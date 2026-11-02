@@ -330,7 +330,7 @@ def _integration_in_use_error(usages: list[IntegrationUsage]) -> ValidationError
         f"{_USAGE_TYPE_LABELS.get(usage_type, usage_type)}: "
         + (
             str(sum(usage.type == usage_type for usage in usages))
-            if usage_type == "warehouse_source"
+            if usage_type in ("warehouse_source", "unreadable_warehouse_source")
             else ", ".join(sorted(usage.name for usage in usages if usage.type == usage_type))
         )
         for usage_type in types
