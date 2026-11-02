@@ -7,6 +7,7 @@ import { resolveSessionKey } from '../mcp-context'
 import { guidanceEvaluationErrorsTotal, guidanceNoticesTotal } from '../metrics'
 import type { ResolvedState } from '../request-state-resolver'
 import { GUIDANCE_RULES, type GuidanceRule } from './rules'
+import { selfDrivingReportsGuidance } from './self-driving-reports'
 
 // A conversation handle outlives any single request, so its counters keep the session store's
 // idle TTL. Without a handle the counters key on the caller and expire like a 30-minute idle
@@ -130,10 +131,15 @@ export class GuidanceEngine {
         }
         const preset = resolveScopePreset(state.apiKeyScopes)
         const rules = this.rules.filter((rule) => ruleApplies(rule, state, preset))
-        if (rules.length === 0) {
-            return undefined
-        }
         try {
+            const reportsNotice = await selfDrivingReportsGuidance(this.redis, state, call)
+            if (reportsNotice) {
+                guidanceNoticesTotal.inc({ rule: reportsNotice.ruleId, outcome: reportsNotice.outcome })
+                return reportsNotice
+            }
+            if (rules.length === 0) {
+                return undefined
+            }
             const sessionKey = await this.resolveCountingKey(state)
             const ttl = sessionKey ? SESSION_TTL_SECONDS : CALLER_TTL_SECONDS
             // The braces are a cluster hash tag, so the script can touch a rule's three keys together.

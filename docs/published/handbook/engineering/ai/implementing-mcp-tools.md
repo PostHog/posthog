@@ -146,6 +146,16 @@ The server does not capture the prompt text separately.
 This collection trial changes no tool results and adds no recommendations or elicitation.
 Evaluate intent against independently recorded abstract task goals, checking invented goals, identifying details, and appropriate uncertainty.
 
+## Error tracking report guidance
+
+The `mcp-guidance-error-tracking-sd-reports` flag controls a contextual suggestion after a successful `query-error-tracking-issue` call. It applies to external user credentials that can read inbox reports and their work logs, when the current project's onboarding `completed_at` is set. This records completed setup, including projects that later paused Self-driving; the suggestion does not claim scouts are running. The onboarding lookup uses the caller's credentials, has a one-second deadline, and skips guidance on an error or an unrecognized response. The original issue result remains usable.
+
+The suggestion asks the agent to call `inbox-reports-list` with the same issue UUID in `error_tracking_issue_id`, then read matching reports and their work logs. The server does not fetch reports just to deliver the suggestion. The filter accepts exact Error tracking or scout source IDs and exact issue URLs in current evidence and report summaries. It checks the issue's project, preserves report access and visibility rules, resolves merged reports to their survivor, and inspects at most 1,000 recent evidence candidates and 1,000 summary candidates. Both `/error-tracking/<id>` and the legacy `/error_tracking/<id>` URLs are accepted. Removed citations and deleted signals do not match older versions of the same evidence.
+
+Exact references establish that a report references the error, not that its linked PR fixes it. Agents should also search reports by the issue name or distinctive error terms, including when the exact lookup is empty, and check the scope and latest known state of any linked PR before acting. Existing reports need no migration or backfill for this lookup.
+
+Guidance appears at most once per issue, project, caller, and identifiable session. Different issues can receive their own suggestion. Calls without a client-supplied session or conversation handle remain independent. The existing `mcp_guidance_rule` and `mcp_guidance_outcome` properties record `error-tracking-to-self-driving-reports` with `shown` or `flag_off` at the eligible call; the latter is the experiment's control. No elicitation dialog is opened, and reading reports changes no Self-driving settings.
+
 ## Interview recruitment with URL elicitation
 
 > [!CAUTION]

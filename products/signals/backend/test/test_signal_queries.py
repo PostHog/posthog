@@ -19,6 +19,8 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
 
+from products.error_tracking.backend.models import ErrorTrackingIssue
+from products.signals.backend.error_tracking_reports import reports_referencing_error_tracking_issue
 from products.signals.backend.facade.api import (
     SignalSourceSlicePullRequest,
     get_outcomes_for_signal_source_slice,
@@ -123,6 +125,52 @@ class _SignalEmbeddingsTestBase(ClickhouseTestMixin, APIBaseTest):
         # only on the relative inserted_at ordering between versions, not the absolute timestamp.
         self.base = datetime.now(UTC) - timedelta(days=2)
         sync_execute(f"TRUNCATE TABLE {_MODEL_TABLE}", flush=False, team_id=self.team.pk)
+
+
+class TestReportsReferencingErrorTrackingIssue(_SignalEmbeddingsTestBase):
+    def test_matches_current_exact_references_and_follows_signal_moves(self) -> None:
+        issue = ErrorTrackingIssue.objects.create(team=self.team, name="Example error")
+        reports = {
+            name: SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title=name)
+            for name in ("direct", "scout", "citation", "summary", "removed", "deleted", "moved", "survivor", "other")
+        }
+        issue_url = f"/project/{self.team.id}/error-tracking/{issue.id}"
+        reports["summary"].summary = f"See [error]({issue_url.replace('error-tracking', 'error_tracking')})."
+        reports["summary"].save(update_fields=["summary"])
+
+        for name, source_product in (("direct", "error_tracking"), ("scout", "signals_scout"), ("other", "github")):
+            self._emit_version(
+                document_id=name,
+                report_id=str(reports[name].id),
+                source_product=source_product,
+                source_id=str(issue.id),
+                inserted_at=self.base,
+            )
+        for name in ("citation", "removed", "deleted", "moved"):
+            self._emit_version(
+                document_id=name,
+                report_id=str(reports[name].id),
+                source_product="signals_scout",
+                content=f"Evidence [error]({issue_url})",
+                inserted_at=self.base,
+            )
+        for name, new_report, content, deleted in (
+            ("removed", "removed", "Revised evidence without a citation", False),
+            ("deleted", "deleted", f"Evidence [error]({issue_url})", True),
+            ("moved", "survivor", f"Evidence [error]({issue_url})", False),
+        ):
+            self._emit_version(
+                document_id=name,
+                report_id=str(reports[new_report].id),
+                source_product="signals_scout",
+                content=content,
+                deleted=deleted,
+                inserted_at=self.base + timedelta(minutes=1),
+            )
+
+        assert reports_referencing_error_tracking_issue(team=self.team, issue_id=issue.id) == {
+            str(reports[name].id) for name in ("direct", "scout", "citation", "summary", "survivor")
+        }
 
 
 class TestFetchSourceProductsForReports(_SignalEmbeddingsTestBase):

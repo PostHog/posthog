@@ -10886,6 +10886,10 @@ export type SignalsReportsListParams = {
      */
     created_after?: string
     /**
+     * Find reports referencing this Error Tracking issue UUID in this project. Matches exact source IDs from Error Tracking or scouts, and exact issue URLs in current evidence or report summaries. Inspects up to 1,000 recent evidence and summary candidates each. A reference does not prove a report's linked PR fixes the issue. No matches does not rule out related reports; use search with the issue's name or error terms to investigate further.
+     */
+    error_tracking_issue_id?: string
+    /**
      * Report ids to leave out of the results and counts, for example the reports a client already shows, as repeated parameters or comma-separated. The other reports keep their order. At most 100.
      * @maxItems 100
      */
@@ -11138,6 +11142,10 @@ export type SignalsReportsSectionCountsRetrieveParams = {
      * ISO 8601 datetime. Keeps reports created at or after this time.
      */
     created_after?: string
+    /**
+     * Find reports referencing this Error Tracking issue UUID in this project. Matches exact source IDs from Error Tracking or scouts, and exact issue URLs in current evidence or report summaries. Inspects up to 1,000 recent evidence and summary candidates each. A reference does not prove a report's linked PR fixes the issue. No matches does not rule out related reports; use search with the issue's name or error terms to investigate further.
+     */
+    error_tracking_issue_id?: string
     /**
      * Report ids to leave out of the results and counts, for example the reports a client already shows, as repeated parameters or comma-separated. The other reports keep their order. At most 100.
      * @maxItems 100
