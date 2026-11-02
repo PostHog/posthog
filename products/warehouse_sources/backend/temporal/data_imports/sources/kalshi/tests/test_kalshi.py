@@ -131,7 +131,9 @@ class TestKalshiTransport:
         assert result.requests[0].param("min_ts") == "1609459200"
         assert result.requests[0].param("limit") == str(KALSHI_ENDPOINTS[endpoint].page_size)
 
-    @parameterized.expand(["markets", "events", "milestones", "historical_markets", "orders", "historical_orders"])
+    @parameterized.expand(
+        ["markets", "events", "milestones", "historical_markets", "orders", "historical_orders", "credit_history"]
+    )
     def test_non_incremental_endpoints_never_send_min_ts(self, endpoint: str) -> None:
         # Kalshi answers 200 and ignores params it doesn't recognise, so a filter wired onto an
         # endpoint that has none would look like it worked while syncing everything every run.
@@ -529,30 +531,34 @@ class TestKalshiWeatherIndex:
     @parameterized.expand(
         [
             # `from=0` would silently fall back to the trailing 24 hours.
-            ("full_refresh", {"should_use_incremental_field": False}, "1"),
+            ("full_refresh", "weather_index", {"should_use_incremental_field": False}, "1"),
             (
                 "incremental_rereads_the_last_hour",
+                "weather_index",
                 {"incremental_field": "t", "db_incremental_field_last_value": 1_790_000_000_000},
                 str(1_790_000_000_000 - 3_600_000),
             ),
+            # The calibration timeline takes no window, so it is read whole for every city.
+            ("calibrations", "weather_index_calibrations", {"should_use_incremental_field": False}, None),
         ]
     )
     def test_reads_every_city_from_the_window_start(
-        self, _name: str, inputs: dict[str, Any], expected_from: str
+        self, _name: str, endpoint: str, inputs: dict[str, Any], expected_from: str | None
     ) -> None:
-        point = {"t": 1_790_000_060_000, "v": 79.16, "status": "normal", "contributors": 5}
+        config = KALSHI_ENDPOINTS[endpoint]
+        row = {"t": 1_790_000_060_000, "v": 79.16, "config_version": "v1.0"}
         result = _driver().run(
-            "weather_index",
-            always(ScriptedResponse(json={"city": "any", "units": "fahrenheit", "timeseries": [point]})),
+            endpoint,
+            always(ScriptedResponse(json={"city": "any", "units": "fahrenheit", config.data_key: [row]})),
             **inputs,
         )
 
         assert result.raised is None
-        assert result.paths == [f"/trade-api/v2/live_data/weather/{city}" for city in WEATHER_INDEX_CITIES]
+        assert result.paths == [f"/trade-api/v2{config.path.format(city=city)}" for city in WEATHER_INDEX_CITIES]
         assert set(result.params("from")) == {expected_from}
-        assert all(to is not None for to in result.params("to"))
-        # The city is half of the primary key; without it every city's minute collides.
-        assert result.rows == [{"city": city, **point} for city in WEATHER_INDEX_CITIES]
+        assert all((to is not None) == (expected_from is not None) for to in result.params("to"))
+        # The city is half of the primary key; without it every city's rows collide.
+        assert result.rows == [{"city": city, **row} for city in WEATHER_INDEX_CITIES]
         assert result.response is not None
         assert result.response.sort_mode == "desc"
 

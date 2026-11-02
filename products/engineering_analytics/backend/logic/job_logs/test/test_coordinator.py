@@ -19,9 +19,22 @@ from products.engineering_analytics.backend.logic.job_logs.coordinator import (
     _github_source_params,
     _query_jobs_with_diagnostics,
 )
-from products.engineering_analytics.backend.logic.sources import DEPOT_JOB_ATTEMPTS_SCHEMA
-from products.engineering_analytics.backend.logic.views.source_schema import DEPOT_JOB_ATTEMPTS_COLUMNS
-from products.engineering_analytics.backend.tests._github_fixtures import create_github_warehouse_table, link_schema
+from products.engineering_analytics.backend.logic.sources import (
+    DEPOT_JOB_ATTEMPTS_SCHEMA,
+    PULL_REQUESTS_SCHEMA,
+    WORKFLOW_RUNS_SCHEMA,
+)
+from products.engineering_analytics.backend.logic.views.source_schema import (
+    DEPOT_JOB_ATTEMPTS_COLUMNS,
+    PULL_REQUESTS_COLUMNS,
+)
+from products.engineering_analytics.backend.tests._github_fixtures import (
+    _pr_row,
+    create_github_source,
+    create_github_warehouse_table,
+    create_warehouse_table_row,
+    link_schema,
+)
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
@@ -81,10 +94,40 @@ class TestDiscoverFailedDepotAttempts(ClickhouseTestMixin, BaseTest):
             job_inputs={"api_token": "depot-tok", "repository": "PostHog/posthog"},
         )
 
+        # Depot reports only a ref. A pull request ref takes its head branch from the PR snapshot.
+        github = create_github_source(self.team, prefix="gh", repository="PostHog/posthog")
+        pull_requests = create_github_warehouse_table(
+            self,
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [_pr_row(77, "alice", "open", 0, "2026-09-23T10:00:00Z", head_ref="feature-x")],
+            source=github,
+            prefix="gh",
+        )
+        link_schema(
+            self.team,
+            github,
+            name=PULL_REQUESTS_SCHEMA,
+            table=DataWarehouseTable.objects.get(team=self.team, name=pull_requests),
+        )
+        link_schema(
+            self.team,
+            github,
+            name=WORKFLOW_RUNS_SCHEMA,
+            table=create_warehouse_table_row(self.team, name="ghgithub_workflow_runs", source=github),
+        )
+
         def attempt(
-            attempt_id: str, status: str, finished: str, *, run_id: str = "427q556wmn", run_workflow_count: int = 1
+            attempt_id: str,
+            status: str,
+            finished: str,
+            *,
+            run_id: str = "427q556wmn",
+            run_workflow_count: int = 1,
+            ref: str = "refs/pull/77/merge",
         ) -> dict:
             return dict.fromkeys(DEPOT_JOB_ATTEMPTS_COLUMNS) | {
+                "ref": ref,
                 "run_id": run_id,
                 "run_workflow_count": run_workflow_count,
                 "workflow_id": "cccccccccc",
@@ -108,7 +151,14 @@ class TestDiscoverFailedDepotAttempts(ClickhouseTestMixin, BaseTest):
                 attempt("b82nsv77wl", "failed", "2026-09-22T14:52:30.000Z"),
                 attempt("q28m5dl5rg", "failed", "2026-09-24T14:53:00.000Z", run_id="ps_59s92fgx6c"),
                 # A run with two workflows takes the workflow's id, as the runs view keys it.
-                attempt("h8qn5x801q", "failed", "2026-09-24T14:54:00.000Z", run_id="bbbbbbbbbb", run_workflow_count=2),
+                attempt(
+                    "h8qn5x801q",
+                    "failed",
+                    "2026-09-24T14:54:00.000Z",
+                    run_id="bbbbbbbbbb",
+                    run_workflow_count=2,
+                    ref="refs/heads/hotfix",
+                ),
             ],
             source=source,
             prefix="ci",
@@ -120,7 +170,7 @@ class TestDiscoverFailedDepotAttempts(ClickhouseTestMixin, BaseTest):
             table=DataWarehouseTable.objects.get(team=self.team, name=table_name),
         )
 
-        def fetch_inputs(attempt_id: str, run_id: int, job_id: int) -> FetchDepotJobLogInputs:
+        def fetch_inputs(attempt_id: str, run_id: int, job_id: int, branch: str) -> FetchDepotJobLogInputs:
             return FetchDepotJobLogInputs(
                 team_id=self.team.pk,
                 source_id=str(source.id),
@@ -134,10 +184,11 @@ class TestDiscoverFailedDepotAttempts(ClickhouseTestMixin, BaseTest):
                 head_sha="abc1234",
                 native_run_id="bbbbbbbbbb" if run_id == 223978965517241 else "427q556wmn",
                 native_workflow_run_id="cccccccccc",
+                branch=branch,
             )
 
-        two_workflow_run = fetch_inputs("h8qn5x801q", run_id=223978965517241, job_id=300989664396052)
-        one_workflow_run = fetch_inputs("zf6sbbn2wh", run_id=80213453736890, job_id=579485267642625)
+        two_workflow_run = fetch_inputs("h8qn5x801q", run_id=223978965517241, job_id=300989664396052, branch="hotfix")
+        one_workflow_run = fetch_inputs("zf6sbbn2wh", run_id=80213453736890, job_id=579485267642625, branch="feature-x")
         window_start = DepotDiscoveryInputs(cutoff_iso="2026-09-24T00:00:00+00:00", cursors={})
         assert _discover_failed_depot_attempts(window_start) == DepotDiscovery(
             attempts=[two_workflow_run, one_workflow_run], cursors={}

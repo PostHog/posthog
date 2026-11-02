@@ -28,13 +28,12 @@ from products.engineering_analytics.backend.logic.signals.contracts import (
     SOURCE_TYPE_FLAKY_CHECK,
     CISignalFinding,
 )
-from products.signals.backend.contracts import (
+from products.signals.backend.facade.signal_extras import (
     EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra,
     EngineeringAnalyticsCIDurationRegressionSignalExtra,
     EngineeringAnalyticsCIFlakyCheckSignalExtra,
-    SignalRemediation,
 )
-from products.signals.backend.enums import ReportPriority
+from products.signals.backend.facade.taxonomy import ReportPriority, SignalRemediation
 
 logger = structlog.get_logger(__name__)
 

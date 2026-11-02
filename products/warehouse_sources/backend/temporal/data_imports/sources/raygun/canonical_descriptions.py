@@ -99,4 +99,50 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "lastSeenAt": "Timestamp when the page was most recently seen.",
         },
     },
+    "error_instances": {
+        "description": "A single occurrence of an error, listed under the error group it belongs to.",
+        "docs_url": "https://api.raygun.com/v3/swagger",
+        "columns": {
+            "identifier": "Identifier of the error instance.",
+            "occurredOn": "Timestamp when the error instance occurred.",
+            "applicationIdentifier": "Identifier of the application the error instance belongs to.",
+            "errorGroupIdentifier": "Identifier of the error group the error instance belongs to.",
+        },
+    },
+    "deployment_error_groups": {
+        "description": "An error group that is new in, or regressed in, a deployment of an application.",
+        "docs_url": "https://api.raygun.com/v3/swagger",
+        "columns": {
+            "identifier": "Unique identifier for the error group.",
+            "applicationIdentifier": "Identifier of the application the error group belongs to.",
+            "deploymentIdentifier": "Identifier of the deployment the error group is linked to.",
+            "deploymentState": "How the error group relates to the deployment: new (first seen in it) or regressed (returned after it was resolved).",
+            "message": "The error message representing the group.",
+            "status": "Current status of the error group (e.g. active, resolved, ignored).",
+            "lastOccurredAt": "Timestamp when the error group most recently occurred.",
+            "createdAt": "Timestamp when the error group was first created.",
+        },
+    },
+    "error_metrics": {
+        "description": "Hourly count of error instances for an application.",
+        "docs_url": "https://api.raygun.com/v3/swagger",
+        "columns": {
+            "applicationIdentifier": "Identifier of the application the metric belongs to.",
+            "metric": "Name of the metric (errorInstances).",
+            "aggregation": "Aggregation applied to the metric within each hour (count).",
+            "time": "Start of the hourly bucket.",
+            "value": "Aggregated metric value for the hour.",
+        },
+    },
+    "page_metrics": {
+        "description": "Hourly real user monitoring page metrics for an application: page views and page performance timings.",
+        "docs_url": "https://api.raygun.com/v3/swagger",
+        "columns": {
+            "applicationIdentifier": "Identifier of the application the metric belongs to.",
+            "metric": "Name of the metric, e.g. pageViews, loadTime or largestContentfulPaint.",
+            "aggregation": "Aggregation applied to the metric within each hour: count, average, median, p95 or p99.",
+            "time": "Start of the hourly bucket.",
+            "value": "Aggregated metric value for the hour. Timings are in milliseconds; cumulativeLayoutShift is a unitless score.",
+        },
+    },
 }

@@ -8,22 +8,12 @@ from posthog.models.utils import uuid7
 
 class TestWebVitalsAPI(ClickhouseTestMixin, APIBaseTest):
     def assert_values(self, results, expected_values):
-        # Verify that all web vitals metrics are present in the response
-        metrics = [result["action"]["custom_name"] for result in results]
-        self.assertCountEqual(metrics, ["INP", "LCP", "CLS", "FCP"])
+        # The toolbar maps a row's `order` to a metric by this list, its WEB_VITALS_SERIES_ORDER
+        metrics = ["INP", "LCP", "CLS", "FCP"]
+        self.assertCountEqual([result["order"] for result in results], range(len(metrics)))
 
-        # Verify the p90 values of the metrics
         for result in results:
-            custom_name = result["action"]["custom_name"]
-
-            if custom_name == "INP":
-                self.assertEqual(result["data"][-1], expected_values["INP"])
-            elif custom_name == "LCP":
-                self.assertEqual(result["data"][-1], expected_values["LCP"])
-            elif custom_name == "CLS":
-                self.assertEqual(result["data"][-1], expected_values["CLS"])
-            elif custom_name == "FCP":
-                self.assertEqual(result["data"][-1], expected_values["FCP"])
+            self.assertEqual(result["data"][-1], expected_values[metrics[result["order"]]])
 
     def test_web_vitals_missing_pathname(self):
         response = self.client.get(f"/api/environments/{self.team.pk}/web_vitals/")

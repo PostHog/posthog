@@ -2,17 +2,19 @@ import os
 import json
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from urllib.parse import unquote
 
 import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, Mock, patch
 
-from django.db import connection
+from django.db import OperationalError, connection
 from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
+import psycopg
 from boto3 import resource
 from botocore.config import Config
 from parameterized import parameterized
@@ -36,6 +38,7 @@ from products.error_tracking.backend.facade import (
     contracts,
     summaries as summaries_facade,
 )
+from products.error_tracking.backend.logic import symbol_sets as symbol_sets_logic
 from products.error_tracking.backend.models import (
     ErrorTrackingAlert,
     ErrorTrackingAlertThread,
@@ -1693,6 +1696,107 @@ class TestErrorTracking(APIBaseTest):
         assert "fallback_presigned_url" not in symbol_set_upload_response
         assert symbol_set.last_used is not None
 
+    @parameterized.expand(
+        [
+            ("pending", None, True),
+            ("placeholder", None, True),
+            ("uploaded", None, False),
+            ("content_mismatch", "content_hash_mismatch", False),
+            ("release_mismatch", "release_id_mismatch", False),
+        ]
+    )
+    def test_bulk_start_upload_reuses_symbol_set_created_by_concurrent_upload(
+        self, existing_state: str, expected_code: str | None, expect_upload: bool
+    ) -> None:
+        chunk_id = str(uuid7())
+        new_chunk_id = str(uuid7())
+        release = ErrorTrackingRelease.objects.create(
+            team=self.team, hash_id="upload-release", version="1.0.0", project="test"
+        )
+        other_release = ErrorTrackingRelease.objects.create(
+            team=self.team, hash_id="other-upload-release", version="2.0.0", project="test"
+        )
+        inserted = False
+        winner: ErrorTrackingSymbolSet | None = None
+
+        def insert_before_bulk_create(
+            execute: Callable[..., object], sql: str, params: object, many: bool, context: object
+        ) -> object:
+            nonlocal inserted, winner
+            if not inserted and sql.startswith('INSERT INTO "posthog_errortrackingsymbolset"'):
+                inserted = True
+                winner = ErrorTrackingSymbolSet.objects.create(
+                    team=self.team,
+                    ref=chunk_id,
+                    storage_ptr=None if existing_state == "placeholder" else "symbolsets/concurrent-upload",
+                    content_hash=("hash" if existing_state == "uploaded" else "other_hash" if expected_code else None),
+                    release=other_release if existing_state == "release_mismatch" else None,
+                )
+            return execute(sql, params, many, context)
+
+        with connection.execute_wrapper(insert_before_bulk_create):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+                data={
+                    "symbol_sets": [
+                        {"chunk_id": chunk_id, "content_hash": "hash", "release_id": str(release.id)},
+                        {"chunk_id": new_chunk_id, "content_hash": "new_hash"},
+                    ]
+                },
+                format="json",
+            )
+
+        assert winner is not None
+        if expected_code:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert response.json()["code"] == expected_code
+            assert not ErrorTrackingSymbolSet.objects.filter(team=self.team, ref=new_chunk_id).exists()
+            return
+
+        assert response.status_code == status.HTTP_201_CREATED
+        id_map = response.json()["id_map"]
+        symbol_set = ErrorTrackingSymbolSet.objects.get(team=self.team, ref=chunk_id)
+        assert symbol_set.id == winner.id
+        assert symbol_set.release_id == release.id
+        assert (chunk_id in id_map) == expect_upload
+        if expect_upload:
+            assert id_map[chunk_id]["symbol_set_id"] == str(winner.id)
+            assert id_map[chunk_id]["presigned_url"]["fields"]["key"] == symbol_set.storage_ptr
+            if existing_state == "pending":
+                assert symbol_set.storage_ptr == winner.storage_ptr
+        else:
+            assert symbol_set.content_hash == "hash"
+            assert symbol_set.storage_ptr == winner.storage_ptr
+        new_symbol_set = ErrorTrackingSymbolSet.objects.get(team=self.team, ref=new_chunk_id)
+        assert id_map[new_chunk_id]["symbol_set_id"] == str(new_symbol_set.id)
+        assert id_map[new_chunk_id]["presigned_url"]["fields"]["key"] == new_symbol_set.storage_ptr
+
+    def test_bulk_start_upload_retries_after_deadlock(self) -> None:
+        chunk_id = str(uuid7())
+        deadlock = OperationalError("deadlock detected")
+        deadlock.__cause__ = psycopg.errors.DeadlockDetected("deadlock detected")
+        create_or_reuse = symbol_sets_logic._create_or_reuse_symbol_sets
+        calls = 0
+
+        def deadlock_on_first_attempt(*args: Any) -> dict[str, dict[str, Any]]:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise deadlock
+            return create_or_reuse(*args)
+
+        with patch.object(symbol_sets_logic, "_create_or_reuse_symbol_sets", side_effect=deadlock_on_first_attempt):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+                data={"chunk_ids": [chunk_id]},
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert calls == 2
+        assert response.json()["id_map"][chunk_id]["symbol_set_id"] == str(
+            ErrorTrackingSymbolSet.objects.get(team=self.team, ref=chunk_id).id
+        )
+
     def test_bulk_start_upload_includes_fallback_presigned_url_when_accelerated(self) -> None:
         chunk_id = str(uuid7())
         with (
@@ -2060,8 +2164,9 @@ class TestErrorTracking(APIBaseTest):
 
         symbol_set.refresh_from_db()
         assert symbol_set.release_id == release.id
-        assert symbol_set.storage_ptr != initial_storage_ptr
+        assert symbol_set.storage_ptr == initial_storage_ptr
         assert id_map[str(chunk_id)]["symbol_set_id"] == str(symbol_set.id)
+        assert id_map[str(chunk_id)]["presigned_url"]["fields"]["key"] == initial_storage_ptr
 
     def test_bulk_start_upload_updates_release_for_uploaded_symbol_set(self) -> None:
         chunk_id = str(uuid7())
@@ -2128,8 +2233,9 @@ class TestErrorTracking(APIBaseTest):
         id_map = second_response.json()["id_map"]
 
         symbol_set.refresh_from_db()
-        assert symbol_set.storage_ptr != initial_storage_ptr
+        assert symbol_set.storage_ptr == initial_storage_ptr
         assert id_map[str(chunk_id)]["symbol_set_id"] == str(symbol_set.id)
+        assert id_map[str(chunk_id)]["presigned_url"]["fields"]["key"] == initial_storage_ptr
 
     def test_bulk_start_upload_rejects_release_change(self) -> None:
         chunk_id = str(uuid7())

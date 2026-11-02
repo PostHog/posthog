@@ -85,6 +85,7 @@ import {
 } from './experimentTargeting'
 import { newScanner } from './newScanner'
 import { ReplayScannerTab } from './replayScannerSceneLogic'
+import { saveScannerEnabled } from './saveScannerEnabled'
 import { clearScannerDraft, readScannerDraft, writeScannerDraft } from './scannerDraft'
 import {
     ScannerEditorStep,
@@ -510,6 +511,12 @@ export interface CreditLimitState {
 }
 
 /** The fields a free-only change moves, copied from the saved scanner so the status updates without a reload. */
+function enabledFields(
+    saved: ReplayScannerApi
+): Pick<ReplayScannerApi, 'enabled' | 'unrunnable_reason' | 'created_by'> {
+    return { enabled: saved.enabled, unrunnable_reason: saved.unrunnable_reason, created_by: saved.created_by }
+}
+
 function freeOnlyFields(
     saved: ReplayScannerApi
 ): Pick<ReplayScannerApi, 'free_only' | 'limit_reached' | 'limit_from_free_credits' | 'credits_used_against_limit'> {
@@ -911,8 +918,8 @@ export interface replayScannerLogicActions {
     toggleEnabledFailure: () => {
         value: true
     }
-    toggleEnabledSuccess: (enabled: boolean) => {
-        enabled: boolean
+    toggleEnabledSuccess: (saved: ReplayScannerApi) => {
+        saved: ReplayScannerApi
     }
     touchScannerField: (key: string) => {
         key: string
@@ -1075,7 +1082,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         loadObservationStatsSuccess: (stats: ObservationStatsApi) => ({ stats }),
         loadObservationStatsFailure: true,
         toggleEnabled: true,
-        toggleEnabledSuccess: (enabled: boolean) => ({ enabled }),
+        toggleEnabledSuccess: (saved: ReplayScannerApi) => ({ saved }),
         toggleEnabledFailure: true,
         turnOffFreeOnly: true,
         turnOffFreeOnlySuccess: (saved: ReplayScannerApi) => ({ saved }),
@@ -1233,7 +1240,13 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                             },
                         })
                     } else {
-                        await visionScannersPartialUpdate(String(teamId), props.id, scannerToPatchedApiBody(body))
+                        // The toggles own `enabled`, and the sweep may have turned the scanner off while the form was open.
+                        const { enabled: _enabled, ...editedFields } = body
+                        await visionScannersPartialUpdate(
+                            String(teamId),
+                            props.id,
+                            scannerToPatchedApiBody(editedFields)
+                        )
                         actions.scannerSaved(scanner)
                         lemonToast.success('Scanner saved')
                         leaveScannerEditor(props.id, urls.replayVision(props.id))
@@ -1445,7 +1458,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 loadScannerSuccess: (_, { scanner }) => scanner,
                 // Keyed on the real save, not submitScannerSuccess — kea-forms fires that on the no-API advance path too.
                 scannerSaved: (_, { scanner }) => scanner,
-                toggleEnabledSuccess: (state, { enabled }) => (state ? { ...state, enabled } : state),
+                toggleEnabledSuccess: (state, { saved }) => (state ? { ...state, ...enabledFields(saved) } : state),
                 turnOffFreeOnlySuccess: (state, { saved }) => (state ? { ...state, ...freeOnlyFields(saved) } : state),
                 // Self-driving changes the prompt the model gets, so the backend bumps the version with it.
                 turnOnSelfDrivingSuccess: (state, { scannerVersion, updatedAt }) =>
@@ -2608,8 +2621,15 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 const next = !scanner.enabled
                 actions.setScannerValue('enabled', next)
                 try {
-                    await visionScannersPartialUpdate(String(teamId), props.id, { enabled: next })
-                    actions.toggleEnabledSuccess(next)
+                    const saved = await saveScannerEnabled(String(teamId), props.id, next)
+                    if (!saved) {
+                        actions.setScannerValue('enabled', false)
+                        actions.toggleEnabledFailure()
+                        return
+                    }
+                    // Turning on can take the scanner over, which clears its blocker and changes its creator.
+                    actions.setScannerValues(enabledFields(saved))
+                    actions.toggleEnabledSuccess(saved)
                     refreshVisionQuota()
                     lemonToast.success(`Scanner ${next ? 'enabled' : 'disabled'}`)
                 } catch (error: any) {
