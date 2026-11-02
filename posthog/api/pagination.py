@@ -174,11 +174,17 @@ class PageCursor:
 
     The page reads the rows that sort strictly after `after` in the direction it pages, and skips
     the first `offset` of them. `reverse` pages toward the start of the list.
+
+    `drf_position` and `drf_offset` point at the same row the way DRF's cursor does: the rows whose
+    first ordering field sorts strictly after `drf_position`, minus the first `drf_offset` of them.
+    Only a server that still runs DRF's paginator during a deploy reads them.
     """
 
     reverse: bool
     after: tuple[str | None, ...]
     offset: int = 0
+    drf_position: str | None = None
+    drf_offset: int = 0
 
 
 class StableCursorPagination(CursorPagination):
@@ -222,15 +228,15 @@ class StableCursorPagination(CursorPagination):
 
     def cursor_link(self, cursor: PageCursor) -> str:
         tokens: dict[str, str] = {}
-        if cursor.offset:
-            tokens["o"] = str(cursor.offset)
+        if cursor.drf_offset:
+            tokens["o"] = str(cursor.drf_offset)
         if cursor.reverse:
             tokens["r"] = "1"
-        if cursor.after:
+        # A cursor that skips rows came in DRF's format, which `p` and `o` already describe in full.
+        if cursor.after and not cursor.offset:
             tokens["v"] = json.dumps(list(cursor.after), separators=(",", ":"))
-            # A server that still runs DRF's paginator during a deploy reads the first field from `p`.
-            if cursor.after[0] is not None:
-                tokens["p"] = cursor.after[0]
+        if cursor.drf_position is not None:
+            tokens["p"] = cursor.drf_position
         encoded = b64encode(urlencode(tokens).encode("ascii")).decode("ascii")
         return replace_query_param(self.page_url, self.cursor_query_param, encoded)
 
@@ -240,15 +246,60 @@ class StableCursorPagination(CursorPagination):
             return None
         try:
             tokens = parse_qs(b64decode(encoded.encode("ascii")).decode("ascii"), keep_blank_values=True)
-            offset = int(tokens.get("o", ["0"])[0])
+            drf_offset = int(tokens.get("o", ["0"])[0])
             reverse = bool(int(tokens.get("r", ["0"])[0]))
-            # A cursor that DRF encoded holds only the first ordering field, as `p`.
-            after = json.loads(tokens["v"][0]) if "v" in tokens else tokens.get("p", [])
-        except (TypeError, ValueError):
+            drf_position = tokens["p"][0] if "p" in tokens else None
+            if "v" in tokens:
+                # `v` names the edge row exactly, so no rows are skipped. `o` is there for DRF only.
+                after = json.loads(tokens["v"][0])
+                offset = 0
+            else:
+                # A cursor that DRF encoded holds only the first ordering field, as `p`.
+                after = [] if drf_position is None else [drf_position]
+                offset = drf_offset
+        # Deeply nested JSON in `v` makes the parser give up with a RecursionError.
+        except (TypeError, ValueError, RecursionError):
             raise NotFound(self.invalid_cursor_message)
-        if offset < 0 or not isinstance(after, list) or not all(v is None or isinstance(v, str) for v in after):
+        if drf_offset < 0 or not isinstance(after, list) or not all(v is None or isinstance(v, str) for v in after):
             raise NotFound(self.invalid_cursor_message)
-        return PageCursor(reverse=reverse, after=tuple(after), offset=min(offset, self.offset_cutoff))
+        return PageCursor(
+            reverse=reverse,
+            after=tuple(after),
+            offset=min(offset, self.offset_cutoff),
+            drf_position=drf_position,
+            drf_offset=min(drf_offset, self.offset_cutoff),
+        )
+
+    def _drf_marker(self, rows_from_edge: list[Any], reverse: bool) -> tuple[str | None, int]:
+        """Return DRF's position and offset for a cursor that starts just past the first row of `rows_from_edge`.
+
+        This copies how DRF's `get_next_link` and `get_previous_link` build a cursor: the position is
+        the nearest row whose first ordering field differs from the edge row, and the offset counts
+        the rows between them.
+        """
+        edge_value = self.position_of(rows_from_edge[0])[0]
+        tied = 0
+        for row in rows_from_edge:
+            value = self.position_of(row)[0]
+            if value != edge_value:
+                return value, tied
+            tied += 1
+
+        # Every row on the page shares the edge value, so the marker has to come from outside the page.
+        incoming = self.current_cursor
+        if incoming is None:
+            return None, tied
+        if incoming.reverse == reverse:
+            return incoming.drf_position, incoming.drf_offset + tied
+        if self.row_past_page is None:
+            return None, tied
+        # DRF does the same on a change of direction. It is exact unless the tie group also covers that row.
+        return self.position_of(self.row_past_page)[0], 0
+
+    def next_cursor(self, page: list[Any]) -> PageCursor:
+        """Return the cursor of the page after the last row of `page`, which must have rows."""
+        position, offset = self._drf_marker(list(reversed(page)), reverse=False)
+        return PageCursor(reverse=False, after=self.position_of(page[-1]), drf_position=position, drf_offset=offset)
 
     def _read_page[T](
         self, read: Callable[[CursorPageRequest], list[T]], queryset: Any, request: Request, view: Any
@@ -271,6 +322,7 @@ class StableCursorPagination(CursorPagination):
         )
         self.page = rows[: self.page_size]
         has_more = len(rows) > self.page_size
+        self.row_past_page = rows[self.page_size] if has_more else None
         has_rows_before = bool(start.after) or start.offset > 0
         if start.reverse:
             self.page.reverse()
@@ -292,7 +344,7 @@ class StableCursorPagination(CursorPagination):
         if not self.page:
             # No row sorts before the cursor any more, so the next page is the first page.
             return remove_query_param(self.page_url, self.cursor_query_param)
-        return self.cursor_link(PageCursor(reverse=False, after=self.position_of(self.page[-1])))
+        return self.cursor_link(self.next_cursor(self.page))
 
     def get_previous_link(self) -> Optional[str]:
         if not self.has_previous:
@@ -300,7 +352,10 @@ class StableCursorPagination(CursorPagination):
         if not self.page:
             # No row sorts after the cursor any more, so the previous page is the last page.
             return self.cursor_link(PageCursor(reverse=True, after=()))
-        return self.cursor_link(PageCursor(reverse=True, after=self.position_of(self.page[0])))
+        position, offset = self._drf_marker(self.page, reverse=True)
+        return self.cursor_link(
+            PageCursor(reverse=True, after=self.position_of(self.page[0]), drf_position=position, drf_offset=offset)
+        )
 
     def get_paginated_response(self, data: Any) -> Response:
         if not self.include_count:

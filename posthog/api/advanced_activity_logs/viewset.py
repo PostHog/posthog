@@ -16,7 +16,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.fields import JSONStringFilterField, JSONTolerantListField, OptionalBooleanField
-from posthog.api.pagination import BoundedPageNumberPagination, PageCursor, StableCursorPagination
+from posthog.api.pagination import BoundedPageNumberPagination, StableCursorPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import AvailableFeature
@@ -187,7 +187,7 @@ class TailFollowingCursorPagination(StableCursorPagination):
         if not self.page:
             # Nothing new since the caller's position, so hand the same cursor back.
             return self.cursor_link(self.current_cursor) if self.current_cursor else None
-        return self.cursor_link(PageCursor(reverse=False, after=self.position_of(self.page[-1])))
+        return self.cursor_link(self.next_cursor(self.page))
 
 
 class ActivityLogPageNumberPagination(BoundedPageNumberPagination):

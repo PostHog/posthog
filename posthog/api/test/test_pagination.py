@@ -1,12 +1,14 @@
 from base64 import b64encode
-from datetime import UTC, datetime
-from urllib.parse import parse_qs, urlparse
+from datetime import UTC, datetime, timedelta
+from urllib.parse import parse_qs, urlencode, urlparse
 
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 from rest_framework import serializers
+from rest_framework.exceptions import NotFound
 from rest_framework.generics import GenericAPIView
+from rest_framework.pagination import CursorPagination
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
@@ -35,6 +37,11 @@ class _ByDateMarkerQueryset(StableCursorPagination):
     page_size = 2
 
 
+class _ByDateMarkerOnDrf(CursorPagination):
+    ordering = ("-date_marker", "-id")
+    page_size = 2
+
+
 class TestCursorPagination(BaseTest):
     def _page(self, mode: str, cursor: str | None) -> dict:
         request = Request(APIRequestFactory().get("/annotations/", {"cursor": cursor} if cursor else {}))
@@ -53,6 +60,12 @@ class TestCursorPagination(BaseTest):
         paginator = _ByDateMarkerQueryset()
         rows = paginator.paginate_queryset(queryset, request, view)
         return paginator.get_paginated_response(_AnnotationIdSerializer(rows, many=True).data).data
+
+    def _drf_page_ids(self, cursor: str) -> list[int]:
+        request = Request(APIRequestFactory().get("/annotations/", {"cursor": cursor}))
+        rows = _ByDateMarkerOnDrf().paginate_queryset(Annotation.objects.filter(team=self.team), request)
+        assert rows is not None
+        return [row.id for row in rows]
 
     def _cursor(self, link: str) -> str:
         return parse_qs(urlparse(link).query)["cursor"][0]
@@ -96,3 +109,33 @@ class TestCursorPagination(BaseTest):
         page = self._page(mode, b64encode(b"o=2").decode("ascii"))
 
         assert [row["id"] for row in page["results"]] == ids_newest_first[2:]
+
+    @parameterized.expand([("queryset",), ("facade",)])
+    def test_drf_paginator_reads_every_cursor_to_the_same_rows(self, mode: str) -> None:
+        newest = datetime(2024, 1, 3, tzinfo=UTC)
+        shared = newest - timedelta(days=1)
+        for marker in [newest, shared, shared, shared, shared, shared, shared - timedelta(days=1)]:
+            Annotation.objects.create(team=self.team, content="note", date_marker=marker)
+
+        page = self._page(mode, None)
+        cursors: list[str] = []
+        while page["next"] is not None:
+            cursors.append(self._cursor(page["next"]))
+            page = self._page(mode, cursors[-1])
+        while page["previous"] is not None:
+            cursors.append(self._cursor(page["previous"]))
+            page = self._page(mode, cursors[-1])
+
+        assert len(cursors) == 6
+        for cursor in cursors:
+            assert self._drf_page_ids(cursor) == [row["id"] for row in self._page(mode, cursor)["results"]]
+
+    @parameterized.expand(
+        [
+            ("negative_offset", b64encode(b"o=-1").decode("ascii")),
+            ("deeply_nested_position", b64encode(urlencode({"v": "[" * 100_000}).encode("ascii")).decode("ascii")),
+        ]
+    )
+    def test_rejects_a_malformed_cursor(self, _name: str, cursor: str) -> None:
+        with self.assertRaises(NotFound):
+            self._page("queryset", cursor)
