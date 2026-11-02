@@ -363,6 +363,21 @@ class TestRestoreWarehouseSourceConnectionFields(_StripTestCase):
         assert self._row(source) == {**POSTGRES_CONNECTION, "password": expected_password}
         assert len(self._backups()) == 1
 
+    def test_restore_from_backup_decrypts_a_leaf_with_an_extra_encryption_layer(self) -> None:
+        field = cast(EncryptedJSONField, Integration._meta.get_field("sensitive_config"))
+        source = self._backfilled_source()
+        ExternalDataSource.objects.filter(pk=source.pk).update(
+            job_inputs={**POSTGRES_INPUTS, "password": field.encrypt(POSTGRES_INPUTS["password"])}
+        )
+        self._run("strip_warehouse_source_connection_fields", "--execute")
+        self._delete_row(source)
+
+        output = self._run("restore_warehouse_source_connection_fields", "--execute", "--source-id", str(source.id))
+
+        assert "restored_from_backup=1" in output
+        assert self._stored(source) == POSTGRES_INPUTS
+        assert self._row(source) == POSTGRES_CONNECTION
+
     def test_restore_without_row_or_backup_changes_nothing(self) -> None:
         source = self._stripped_source()
         self._delete_row(source)

@@ -39,7 +39,6 @@ from products.warehouse_sources.backend.logic.source_credentials_rollout import 
     in_use_oauth_slot,
     is_stripped,
     read_enabled,
-    split_connection_fields,
     stripped_at_now,
 )
 from products.warehouse_sources.backend.logic.source_credentials_sync import next_source_batch, stored_connection_fields
@@ -275,7 +274,9 @@ def _restore_one(source_id: UUID, team_id: int, execute: bool, prefer_backup: bo
             backup = _backup_of(source)
             if backup is None:
                 return NO_CREDENTIALS
-            connection = split_connection_fields(str(source.source_type), backup.inputs)
+            # Decrypted like the backfill and the strip check read them, so a leaf with an extra encryption layer
+            # goes back as its value, not its ciphertext. An undecryptable leaf fails the restore.
+            connection = stored_connection_fields(source, backup.inputs)
             outcome = RESTORED_FROM_BACKUP
             if execute:
                 # Credentials first, like every other write, so the row and `job_inputs` agree after the restore.

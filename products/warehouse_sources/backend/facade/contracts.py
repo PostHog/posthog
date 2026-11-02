@@ -36,6 +36,8 @@ CREDENTIALS_REFERENCE_INPUT_KEY = "credentials_integration_id"
 
 # The `IntegrationUsage.type` of a warehouse source that uses an integration row.
 WAREHOUSE_SOURCE_USAGE_TYPE = "warehouse_source"
+# A source whose inputs do not decode, so it may use the row. It blocks a delete of the row only.
+UNREADABLE_WAREHOUSE_SOURCE_USAGE_TYPE = "unreadable_warehouse_source"
 
 
 class SharedCredentialsError(Exception):
@@ -417,3 +419,5 @@ class SourceReferencingIntegration:
     id: UUID
     source_type: str
     prefix: str | None
+    # The inputs did not decode, so the source may point at the row. The search counts it as a user.
+    unreadable: bool = False

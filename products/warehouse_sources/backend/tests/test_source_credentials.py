@@ -19,6 +19,7 @@ from posthog.models.team import Team
 
 from products.warehouse_sources.backend.facade.contracts import SharedCredentialsError
 from products.warehouse_sources.backend.facade.credential_kinds import CREDENTIAL_KINDS
+from products.warehouse_sources.backend.integration_usages import integration_usages
 from products.warehouse_sources.backend.logic.credential_auth_types import (
     UnknownCredentialKindError,
     typed_in_auth_type,
@@ -590,11 +591,29 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
 
     @parameterized.expand(
         [
+            ("top_level_int", {"linear_integration_id": 7}, True),
+            ("top_level_string", {"linear_integration_id": "7"}, True),
+            ("nested", {"auth": {"hubspot_integration_id": 7}}, True),
+            # The typed-in pointer lives in the column, so a stale input of the same name is not a pointer.
+            ("column_name_in_inputs", {"credentials_integration_id": "7"}, False),
+            ("other_integration", {"linear_integration_id": 8}, False),
+            ("not_a_pointer_key", {"workspace_id": 7}, False),
+            ("no_inputs", None, False),
+        ]
+    )
+    def test_reference_detection_in_inputs(self, _name: str, inputs: dict[str, Any] | None, expected: bool) -> None:
+        source = self._source()
+        source.job_inputs = inputs
+        source.save()
+
+        found = list_sources_using_integration(self.team.id, 7)
+
+        assert [ref.id for ref in found] == ([source.id] if expected else [])
+
+    @parameterized.expand(
+        [
             ("column", "7", None, False, True),
             ("column_and_inputs_count_once", "7", {"linear_integration_id": "7"}, False, True),
-            # The column names the one row a source uses. A pointer that only `job_inputs` hold is not read.
-            ("only_inputs", None, {"linear_integration_id": "7"}, False, False),
-            ("only_nested_inputs", None, {"auth": {"hubspot_integration_id": 7}}, False, False),
             ("deleted_source", "7", None, True, False),
             ("other_row", "8", None, False, False),
             ("leading_zero", "07", None, False, False),
@@ -602,7 +621,7 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
         ]
     )
     def test_reference_detection_by_column(
-        self, _name: str, column: str | None, inputs: dict[str, Any] | None, deleted: bool, expected: bool
+        self, _name: str, column: str, inputs: dict[str, Any] | None, deleted: bool, expected: bool
     ) -> None:
         source = self._source()
         source.credentials_integration_id = column
@@ -612,7 +631,47 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
 
         found = list_sources_using_integration(self.team.id, 7)
 
-        assert [ref.id for ref in found] == ([source.id] if expected else [])
+        assert [(ref.id, ref.unreadable) for ref in found] == ([(source.id, False)] if expected else [])
+
+    @parameterized.expand(
+        [
+            # (name, row, broken source type, encrypted pointer, counted)
+            ("oauth_row_of_its_kind", "oauth", ExternalDataSourceType.HUBSPOT, False, True),
+            ("oauth_row_of_its_kind_encrypted_pointer", "oauth", ExternalDataSourceType.HUBSPOT, True, True),
+            ("oauth_row_of_another_kind", "oauth", ExternalDataSourceType.POSTGRES, False, False),
+            # The typed-in pointer is in the column, which always reads, so broken inputs say nothing about it.
+            ("typed_in_row_of_its_kind", "typed_in", ExternalDataSourceType.POSTGRES, False, False),
+            ("typed_in_row_of_its_kind_encrypted_pointer", "typed_in", ExternalDataSourceType.POSTGRES, True, False),
+        ]
+    )
+    def test_a_source_with_unreadable_inputs_counts_as_a_user_of_an_oauth_row_of_its_kind(
+        self, _name: str, row: str, broken_type: ExternalDataSourceType, encrypted_pointer: bool, counted: bool
+    ) -> None:
+        editor = self._source()
+        pk = (
+            self._create(editor, PG_FIELDS)
+            if row == "typed_in"
+            else IntegrationManager.hubspot.oauth.create(self.team.id, external_id="H1", config={}).id
+        )
+        broken = self._source(broken_type)
+        broken.job_inputs = (
+            {"auth": {"hubspot_integration_id": Fernet(Fernet.generate_key()).encrypt(str(pk).encode()).decode()}}
+            if encrypted_pointer
+            else "not json"
+        )
+        broken.save()
+
+        found = list_sources_using_integration(self.team.id, pk)
+
+        expected = [(broken.id, True)] if counted else []
+        if row == "typed_in":
+            expected = [(editor.id, False)]
+            assert WarehouseSourceCredentialsStore.update(editor, {**PG_FIELDS, "password": "new"}).legacy_id == pk
+        assert [(ref.id, ref.unreadable) for ref in found] == expected
+        # Such a user blocks a delete of the row, with its own usage type.
+        assert [usage.type for usage in integration_usages(self.team.id, pk) if usage.id == str(broken.id)] == (
+            ["unreadable_warehouse_source"] if counted else []
+        )
 
     def test_conflict_response_names_the_other_users(self) -> None:
         source = self._source()
@@ -657,13 +716,19 @@ class TestWarehouseSourceUsageProvider(BaseTest):
 
     @parameterized.expand(
         [
-            ("with_prefix", "prod", "Postgres (prod)"),
-            ("without_prefix", None, "Postgres"),
+            ("credentials_column", None, "prod", "Postgres (prod)"),
+            ("oauth_pointer_without_prefix", "linear_integration_id", None, "Postgres"),
         ]
     )
-    def test_the_sdk_reports_a_source_that_points_at_the_row(self, _name: str, prefix: str | None, name: str) -> None:
+    def test_the_sdk_reports_a_source_that_points_at_the_row(
+        self, _name: str, inputs_key: str | None, prefix: str | None, name: str
+    ) -> None:
         row = self._row()
-        pointer: dict[str, Any] = {"job_inputs": {}, "credentials_integration_id": str(row.id)}
+        pointer: dict[str, Any] = (
+            {"job_inputs": {inputs_key: str(row.id)}}
+            if inputs_key
+            else {"job_inputs": {}, "credentials_integration_id": str(row.id)}
+        )
         source = self._source(prefix=prefix, **pointer)
         self._source(deleted=True, **pointer)
 
