@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto'
 
 import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
-import { HISTORICAL_MIGRATION_MIN_AGE_MS } from '~/ingestion/common/steps/event-preprocessing/validate-historical-migration'
 import { resolvePersonMode } from '~/ingestion/common/steps/event-processing/create-event'
 import { IngestedEventInfo } from '~/ingestion/common/steps/event-processing/emit-event-step'
 import {
@@ -14,6 +13,8 @@ import { PipelineResult, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { Properties } from '~/plugin-scaffold'
 import { EventHeaders, Person } from '~/types'
+
+const HISTORICAL_MIGRATION_MIN_AGE_MS = 48 * 60 * 60 * 1000
 
 export interface EventUsageBatchContext {
     eventUsageBatch: UsageRecordBatch
@@ -111,11 +112,8 @@ export interface EventUsageRecordContext {
  * date for event identity and comparison with legacy reports.
  *
  * Historical analytics migrations are free once the event is at least 48 hours old at capture.
- * Preprocessing keeps the migration flag whenever it cannot parse the timestamp header. Capture
- * sends that header as epoch milliseconds, which preprocessing cannot parse. Billing therefore
- * checks the age itself, from the normalized event timestamp. Separate usage keys retain free
- * import counts.
- * Ordinary late events remain billable.
+ * The sender sets the migration flag, so the age check keeps recent flagged events billable.
+ * Separate usage keys retain free import counts. Ordinary late events remain billable.
  */
 export function createRecordEventUsageStep<T extends RecordEventUsageInput>(
     resolveUsageKey: UsageKeyResolver
