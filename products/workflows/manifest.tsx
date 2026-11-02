@@ -92,6 +92,7 @@ export const manifest: ProductManifest = {
         '/transactional/suppression': ['Transactional', 'transactional'],
         '/transactional/reputation': ['Transactional', 'transactional'],
         '/transactional/settings': ['Transactional', 'transactional'],
+        '/transactional/webhooks': ['Transactional', 'transactional'],
         '/transactional/new': ['Transactional', 'transactional'],
         // A template opened from a section's Templates tab stays in that section.
         '/transactional/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
@@ -113,7 +114,7 @@ export const manifest: ProductManifest = {
         broadcasts: (tab?: MessagingNavTabKey | 'calendar'): string => `/broadcasts${tab ? `/${tab}` : ''}`,
         broadcast: (id: string): string => `/broadcasts/${id}`,
         broadcastNew: (): string => '/broadcasts/new',
-        transactional: (tab?: MessagingNavTabKey): string => `/transactional${tab ? `/${tab}` : ''}`,
+        transactional: (tab?: MessagingNavTabKey | 'webhooks'): string => `/transactional${tab ? `/${tab}` : ''}`,
         transactionalNew: (): string => '/transactional/new',
         transactionalTemplate: (id: string): string => `/transactional/library/templates/${id}`,
         broadcastsTemplate: (id: string): string => `/broadcasts/library/templates/${id}`,

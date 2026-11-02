@@ -1,0 +1,111 @@
+import { CyclotronJobFiltersType, EventPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+
+import type { hogFunctionsCreate } from 'products/cdp/frontend/generated/api'
+import type { HogFunctionTemplateApi } from 'products/cdp/frontend/generated/api.schemas'
+
+export type DeliveryWebhookCreateBody = NonNullable<Parameters<typeof hogFunctionsCreate>[1]>
+
+export const DELIVERY_WEBHOOK_TEMPLATE_ID = 'template-webhook'
+
+// pinned: event names the email delivery pipeline captures. Renaming one stops its webhooks.
+export const DELIVERY_WEBHOOK_EVENTS = [
+    { event: '$workflows_email_sent', label: 'Sent' },
+    { event: '$workflows_email_delivered', label: 'Delivered' },
+    { event: '$workflows_email_delivery_delayed', label: 'Delivery delayed' },
+    { event: '$workflows_email_bounced', label: 'Bounced' },
+    { event: '$workflows_email_blocked', label: 'Marked as spam' },
+    { event: '$workflows_email_failed', label: 'Failed' },
+    { event: '$workflows_email_opened', label: 'Opened' },
+    { event: '$workflows_email_link_clicked', label: 'Link clicked' },
+] as const
+
+export type DeliveryWebhookEventName = (typeof DELIVERY_WEBHOOK_EVENTS)[number]['event']
+
+// Only a transactional send carries the message id, so this property tells its events apart from workflow emails.
+const TRANSACTIONAL_EMAIL_PROPERTY: EventPropertyFilter = {
+    key: '$email_message_id',
+    type: PropertyFilterType.Event,
+    operator: PropertyOperator.IsSet,
+}
+
+// The list matches a destination whose filters contain this group, so it shows the webhooks the tab created
+// and any destination a user built by hand on the same property.
+export const DELIVERY_WEBHOOK_LIST_FILTER_GROUPS: CyclotronJobFiltersType[] = [
+    { properties: [TRANSACTIONAL_EMAIL_PROPERTY] },
+]
+
+// Resend's webhook body, so a receiver written for Resend needs only a new secret. Resend calls a spam
+// complaint "complained" and a link click "clicked"; every other event keeps its own suffix.
+const DELIVERY_WEBHOOK_BODY = {
+    type: "{event.event == '$workflows_email_blocked' ? 'email.complained' : event.event == '$workflows_email_link_clicked' ? 'email.clicked' : replaceOne(event.event, '$workflows_email_', 'email.')}",
+    created_at: '{event.timestamp}',
+    data: {
+        email_id: '{event.properties.$email_message_id}',
+        to: ['{event.properties.$email_to}'],
+        subject: '{event.properties.$email_subject}',
+        template_id: '{event.properties.$workflow_id}',
+        distinct_id: '{event.distinct_id}',
+        bounce: { type: '{event.properties.$bounce_type}', subType: '{event.properties.$bounce_sub_type}' },
+        click: { link: '{event.properties.$link_url}' },
+    },
+}
+
+/** A Standard Webhooks secret: `whsec_` and 32 random bytes in base64. */
+export function generateSigningSecret(): string {
+    const bytes = crypto.getRandomValues(new Uint8Array(32))
+    return `whsec_${btoa(String.fromCharCode(...bytes))}`
+}
+
+export function isHttpUrl(value: string): boolean {
+    try {
+        return ['http:', 'https:'].includes(new URL(value).protocol)
+    } catch {
+        return false
+    }
+}
+
+function hostOf(url: string): string {
+    try {
+        return new URL(url).host
+    } catch {
+        return url
+    }
+}
+
+export function buildDeliveryWebhookPayload({
+    url,
+    events,
+    signingSecret,
+    template,
+}: {
+    url: string
+    events: DeliveryWebhookEventName[]
+    signingSecret: string
+    template: Pick<HogFunctionTemplateApi, 'code' | 'inputs_schema' | 'icon_url'>
+}): DeliveryWebhookCreateBody {
+    const payload = {
+        template_id: DELIVERY_WEBHOOK_TEMPLATE_ID,
+        type: 'destination',
+        name: `Transactional email webhook: ${hostOf(url)}`,
+        description: 'Sends delivery updates for transactional emails to your endpoint.',
+        hog: template.code,
+        inputs_schema: template.inputs_schema,
+        inputs: {
+            url: { value: url },
+            method: { value: 'POST' },
+            headers: { value: { 'Content-Type': 'application/json' } },
+            body: { value: DELIVERY_WEBHOOK_BODY },
+            signing_secret: { value: signingSecret },
+        },
+        filters: {
+            source: 'events',
+            events: events.map((event) => ({ id: event, name: event, type: 'events' })),
+            properties: [TRANSACTIONAL_EMAIL_PROPERTY],
+        },
+        icon_url: template.icon_url,
+        enabled: true,
+    }
+    // The generated write body marks server-set input fields (bytecode, order, transpiled) as required,
+    // so the payload reaches it only through `unknown`.
+    return payload as unknown as DeliveryWebhookCreateBody
+}

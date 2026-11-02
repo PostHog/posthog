@@ -26,6 +26,7 @@ import {
     isMessagingSetupTab,
 } from '../messagingTabs'
 import { TransactionalEmailsTable } from './TransactionalEmailsTable'
+import { TransactionalWebhooks } from './webhooks/TransactionalWebhooks'
 import { TransactionalEmailWizard } from './wizard/TransactionalEmailWizard'
 
 export const scene: SceneExport = {
@@ -37,13 +38,15 @@ export function TransactionalScene(): JSX.Element {
     const { location } = useValues(router)
     const showTransactional = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const showWebhooks = useFeatureFlag('WORKFLOWS_EMAIL_DELIVERY_WEBHOOKS')
     // The tab routes are literal paths, so the tab is the last path segment rather than a route param.
     const lastSegment = location.pathname.split('/').pop() ?? ''
-    const currentTab: MessagingNavTabKey | 'transactional' = MESSAGING_NAV_TAB_KEYS.includes(
-        lastSegment as MessagingNavTabKey
-    )
-        ? (lastSegment as MessagingNavTabKey)
-        : 'transactional'
+    const currentTab: MessagingNavTabKey | 'transactional' | 'webhooks' =
+        showWebhooks && lastSegment === 'webhooks'
+            ? 'webhooks'
+            : MESSAGING_NAV_TAB_KEYS.includes(lastSegment as MessagingNavTabKey)
+              ? (lastSegment as MessagingNavTabKey)
+              : 'transactional'
 
     if (!showTransactional) {
         return <NotFound object="page" />
@@ -60,7 +63,7 @@ export function TransactionalScene(): JSX.Element {
                 description="Send emails from your code with one API call"
                 resourceType={{ type: 'transactional' }}
                 actions={
-                    currentTab === 'transactional' ? (
+                    currentTab === 'webhooks' ? undefined : currentTab === 'transactional' ? (
                         <AccessControlAction
                             resourceType={AccessControlResourceType.Workflow}
                             minAccessLevel={AccessControlLevel.Editor}
@@ -90,8 +93,12 @@ export function TransactionalScene(): JSX.Element {
                 }
             />
             <EmailSuspensionBanner />
-            <LemonTabs<'transactional' | 'library' | 'messaging-setup'>
-                activeKey={currentTab === 'transactional' || currentTab === 'library' ? currentTab : 'messaging-setup'}
+            <LemonTabs<'transactional' | 'library' | 'webhooks' | 'messaging-setup'>
+                activeKey={
+                    currentTab === 'transactional' || currentTab === 'library' || currentTab === 'webhooks'
+                        ? currentTab
+                        : 'messaging-setup'
+                }
                 tabs={[
                     {
                         label: 'Transactional emails',
@@ -105,6 +112,14 @@ export function TransactionalScene(): JSX.Element {
                         link: urls.transactional('library'),
                         content: MESSAGING_TAB_CONTENT.library,
                     },
+                    showWebhooks
+                        ? {
+                              label: 'Webhooks',
+                              key: 'webhooks',
+                              link: urls.transactional('webhooks'),
+                              content: <TransactionalWebhooks />,
+                          }
+                        : null,
                     {
                         label: 'Messaging',
                         key: 'messaging-setup',
