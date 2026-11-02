@@ -1,8 +1,11 @@
 from collections.abc import Callable
 
+from unittest.mock import patch
+
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from sqlparse.exceptions import SQLParseError
 
 from posthog.hogql.direct_sql.bigquery_adapter import ensure_read_only_raw_bigquery_statement
 from posthog.hogql.direct_sql.clickhouse_adapter import ensure_read_only_raw_clickhouse_statement
@@ -72,10 +75,11 @@ class TestDirectSQLQuoting(SimpleTestCase):
         with self.assertRaisesMessage(ExposedHogQLError, "quoting must be unambiguous"):
             ensure_single_direct_statement(r"SELECT '\' AS label -- '", dialect=dialect)
 
-    def test_rejects_excessive_nesting(self) -> None:
-        sql = "SELECT 29 + " + "(" * 1000 + "17" + ")" * 1000
-        with self.assertRaisesMessage(ExposedHogQLError, "too complex to validate"):
-            ensure_read_only_raw_motherduck_statement(sql)
+    @parameterized.expand([("grouping_limit", SQLParseError), ("recursion_limit", RecursionError)])
+    def test_exposes_grouping_errors(self, _name: str, error: type[Exception]) -> None:
+        with patch("posthog.hogql.direct_sql.raw_sql.group", side_effect=error("limit reached")):
+            with self.assertRaisesMessage(ExposedHogQLError, "too complex to validate"):
+                ensure_read_only_raw_motherduck_statement("SELECT 17")
 
     @parameterized.expand(
         [
