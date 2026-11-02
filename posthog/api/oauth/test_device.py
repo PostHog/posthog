@@ -127,7 +127,7 @@ class TestOAuthDeviceGrant(APIBaseTest):
         # Scopes are listed per project, because a grant in one project grants nothing in another.
         self.assertEqual(
             lookup.json()["granted_scopes"],
-            [{"project_id": self.team.id, "scopes": expected}] if expected else [],
+            [{"project_id": self.team.id, "organization_id": None, "scopes": expected}] if expected else [],
         )
 
     @parameterized.expand(

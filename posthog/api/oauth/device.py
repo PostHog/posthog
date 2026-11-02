@@ -313,7 +313,12 @@ class DeviceApprovalSerializer(DeviceUserCodeSerializer):
 class GrantedScopesSerializer(serializers.Serializer):
     project_id = serializers.IntegerField(
         allow_null=True,
-        help_text="The project these scopes work in. Null for a connection that works in every project.",
+        help_text="The project these scopes work in. Null when the connection is not limited to projects.",
+    )
+    organization_id = serializers.CharField(
+        allow_null=True,
+        help_text="The organization these scopes work in, for a connection limited to organizations. Null when "
+        "the connection is not limited to organizations.",
     )
     scopes = serializers.ListField(child=serializers.CharField(), help_text="The scopes granted in the project.")
 
@@ -361,18 +366,30 @@ def _granted_scopes(user: User, application: OAuthApplication) -> list[dict[str,
     the Connected applications page counts them. A scope granted in one project grants nothing in
     another, so a step-up only hides scopes the chosen project already has."""
     rows = [
-        *live_oauth_access_tokens(user).filter(application=application).values_list("scope", "scoped_teams"),
+        *live_oauth_access_tokens(user)
+        .filter(application=application)
+        .values_list("scope", "scoped_teams", "scoped_organizations"),
         *live_oauth_refresh_tokens(user)
         .filter(application=application)
-        .values_list("access_token__scope", "access_token__scoped_teams"),
+        .values_list("access_token__scope", "access_token__scoped_teams", "access_token__scoped_organizations"),
     ]
-    by_project: dict[int | None, set[str]] = {}
-    for scope, scoped_teams in rows:
-        for project_id in scoped_teams or [None]:
-            by_project.setdefault(project_id, set()).update((scope or "").split())
+    # Keyed by (project, organization). A connection limited to organizations counts only in them, and
+    # only a connection limited to neither counts everywhere.
+    granted: dict[tuple[int | None, str | None], set[str]] = {}
+    for scope, scoped_teams, scoped_organizations in rows:
+        if scoped_teams:
+            places: list[tuple[int | None, str | None]] = [(project_id, None) for project_id in scoped_teams]
+        elif scoped_organizations:
+            places = [(None, organization_id) for organization_id in scoped_organizations]
+        else:
+            places = [(None, None)]
+        for place in places:
+            granted.setdefault(place, set()).update((scope or "").split())
     return [
-        {"project_id": project_id, "scopes": sorted(scopes)}
-        for project_id, scopes in sorted(by_project.items(), key=lambda item: (item[0] is not None, item[0] or 0))
+        {"project_id": project_id, "organization_id": organization_id, "scopes": sorted(scopes)}
+        for (project_id, organization_id), scopes in sorted(
+            granted.items(), key=lambda item: (item[0][0] or 0, item[0][1] or "")
+        )
     ]
 
 

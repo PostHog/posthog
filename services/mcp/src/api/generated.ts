@@ -38822,10 +38822,15 @@ export namespace Schemas {
 
     export interface GrantedScopes {
       /**
-         * The project these scopes work in. Null for a connection that works in every project.
+         * The project these scopes work in. Null when the connection is not limited to projects.
          * @nullable
          */
       project_id: number | null;
+      /**
+         * The organization these scopes work in, for a connection limited to organizations. Null when the connection is not limited to organizations.
+         * @nullable
+         */
+      organization_id: string | null;
       /** The scopes granted in the project. */
       scopes: string[];
     }
