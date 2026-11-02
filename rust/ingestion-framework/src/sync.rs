@@ -56,11 +56,13 @@ pub struct FifoLimiter {
 
 struct LimiterState {
     running: usize,
-    waiters: VecDeque<oneshot::Sender<()>>,
+    waiters: VecDeque<oneshot::Sender<LimiterPermit>>,
 }
 
+/// A held slot. The slot is a value from the moment `acquire()` reserves it, so a dropped
+/// `acquire()` future, or a dropped permit in transit to a waiter, releases it.
 pub struct LimiterPermit {
-    limiter: Arc<FifoLimiter>,
+    limiter: Option<Arc<FifoLimiter>>,
 }
 
 impl FifoLimiter {
@@ -82,40 +84,61 @@ impl FifoLimiter {
     }
 
     pub fn acquire(self: &Arc<Self>) -> impl Future<Output = LimiterPermit> + Send + 'static {
-        let limiter = self.clone();
-        let receiver = {
+        enum Reserved {
+            Now(LimiterPermit),
+            Queued(oneshot::Receiver<LimiterPermit>),
+        }
+        let reserved = {
             let mut state = self.state.lock().unwrap();
             if state.running < self.max && state.waiters.is_empty() {
                 state.running += 1;
-                None
+                Reserved::Now(LimiterPermit {
+                    limiter: Some(self.clone()),
+                })
             } else {
                 let (tx, rx) = oneshot::channel();
                 state.waiters.push_back(tx);
-                Some(rx)
+                Reserved::Queued(rx)
             }
         };
         async move {
-            if let Some(rx) = receiver {
-                // The sender is dropped only with the limiter, which this future keeps alive.
-                let _ = rx.await;
+            match reserved {
+                Reserved::Now(permit) => permit,
+                // Every queued sender gets a send, so this receive does not fail.
+                Reserved::Queued(rx) => rx.await.unwrap_or(LimiterPermit { limiter: None }),
             }
-            LimiterPermit { limiter }
         }
     }
 
-    fn release(&self) {
-        let mut state = self.state.lock().unwrap();
-        while let Some(waiter) = state.waiters.pop_front() {
-            if waiter.send(()).is_ok() {
-                return;
+    fn release(self: &Arc<Self>) {
+        loop {
+            let waiter = {
+                let mut state = self.state.lock().unwrap();
+                match state.waiters.pop_front() {
+                    Some(waiter) => waiter,
+                    None => {
+                        state.running -= 1;
+                        return;
+                    }
+                }
+            };
+            // The slot moves to the next waiter. A waiter that is gone hands it back.
+            match waiter.send(LimiterPermit {
+                limiter: Some(self.clone()),
+            }) {
+                Ok(()) => return,
+                Err(mut permit) => {
+                    permit.limiter = None;
+                }
             }
         }
-        state.running -= 1;
     }
 }
 
 impl Drop for LimiterPermit {
     fn drop(&mut self) {
-        self.limiter.release();
+        if let Some(limiter) = self.limiter.take() {
+            limiter.release();
+        }
     }
 }

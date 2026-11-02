@@ -113,7 +113,9 @@ where
                 Some(permit) => Some(permit.await),
                 None => None,
             };
-            let outcome = AssertUnwindSafe((shared.processor)(queue))
+            // The processor call is inside the guarded block, so a panic before it returns
+            // its future also fails the group.
+            let outcome = AssertUnwindSafe(async { (shared.processor)(queue).await })
                 .catch_unwind()
                 .await;
             let mut state = shared.state.lock().unwrap();

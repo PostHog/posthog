@@ -54,7 +54,7 @@ Jest fake timers map to `#[tokio::test(start_paused = true)]`: tokio advances th
 
 `tests/unit_semantics.rs` pins behavior the chapters leave implicit: poison-then-drain for the concurrent and grouping stages, feed-while-parked, FIFO admission under `max_concurrency`, filter-map passthrough order, DLQ header layout, DLQ rethrow, warnings on timeouts, fan-out DLQ aggregation, and concurrent batch feeds on a multi-thread runtime.
 
-`tests/review_regressions.rs` pins divergences that a review found and that are now fixed: the ingestion warning bytes, the fan-out `dlq_reason`, produce order on a multi-thread runtime, the redirect produce before `next()` returns, a dropped batching `next()`, scheduler cleanup, `tries: 0`, top-level retriability, a fan-in panic, `max_concurrency: Some(0)`, and the cost of a group start.
+`tests/review_regressions.rs` pins divergences that a review found and that are now fixed: the ingestion warning bytes, the fan-out `dlq_reason`, produce order on a multi-thread runtime, the redirect produce before `next()` returns, a dropped batching `next()`, scheduler cleanup, `tries: 0`, top-level retriability, a fan-in panic, `max_concurrency: Some(0)`, the cost of a group start, overlapping and cancelled scheduler waits, the parents a fan-in panic leaves ready, a group processor that panics before it returns its future, a dropped limiter `acquire()`, and retry options that give an out-of-range sleep.
 
 `consumeAll(pipeline, ms)` and `jest.advanceTimersByTimeAsync(ms)` before an `await` map to `consume_all_within` and `within_ms` in `tests/common`, which fail the test when the work needs more virtual time than Node gives it.
 
@@ -90,13 +90,13 @@ These are deliberate. Each one follows from a language difference. Items 1 to 15
 14. **Clock.** `BatchBudget` reads `tokio::time::Instant`, so it follows a paused test clock as Node's follows `Date.now()` under fake timers.
 15. **Not ported:** `span-attributes.ts` and OTel span parenting (Rust uses `tracing`), `tophog/`, and `extensions/`.
 16. **Cancel safety.** Node has no cancellation. `BatchingPipeline::next()` is cancel-safe: it keeps its sub-pipeline pull, the results it has not routed, and a running afterBatch hook under its pump lock, and the next call resumes them, so a dropped call (for example from an HTTP handler whose client went away) loses no batch and runs no hook twice. A `ChunkPipeline::next()` is not cancel-safe: the interleaving stages keep their pull, but a stage such as `pipe_chunk`, result handling or side-effect handling holds the chunk in the dropped future. Do not race a chunk pipeline's `next()` against a timeout. A dropped batching `next()` also leaves the hook paused until the next call polls it, where Node's would run on.
-17. **`PromiseScheduler` keeps the first failure.** Node removes a promise when it settles, so a rejection that settles before `waitForAll()` is not seen there. The Rust scheduler keeps it, as the `FailureLatchingPromiseScheduler` of the Node metrics consumer does, because a consumer that misses it stores the offsets of a batch whose side effect failed. A settled side effect leaves the set at the next `schedule()` that finds the set grown to twice its size after the last cleanup, or at `pending_count()`. `wait_for_all()` waits for every side effect pending at the call and then returns the first failure; Node's `Promise.all` rejects at the first failure without waiting for the rest.
+17. **`PromiseScheduler` keeps the first failure.** Node removes a promise when it settles, so a rejection that settles before `waitForAll()` is not seen there. The Rust scheduler keeps it, as the `FailureLatchingPromiseScheduler` of the Node metrics consumer does, because a consumer that misses it stores the offsets of a batch whose side effect failed. A settled side effect leaves the set at the next `schedule()` that finds the set grown to twice its size after the last cleanup, at `pending_count()`, or when a `wait_for_all()` sees it settle. As in Node, a side effect stays in the set until it settles, so an overlapping `wait_for_all()` also waits for it, and a cancelled one leaves it, and its failure, for the next call. `wait_for_all()` waits for every side effect pending at the call and then returns the first failure; Node's `Promise.all` rejects at the first failure without waiting for the rest.
 18. **User callbacks that panic.** A panic in a grouping function, fan-out function or fan-in function becomes an error from `next()`, as a Node throw rejects `next()` and poisons the stage. No lock is held while user code runs. `max_concurrency: Some(0)` panics when the stage is built, as `pLimit(0)` throws.
 19. **`per_element` rejects late.** Node's `Promise.all` rejects at the first failed step, and the other steps run on. Rust waits for the other steps and then returns the first error to occur.
 
 ## Benchmarks
 
-`benches/framework.rs` (criterion) and `nodejs/src/ingestion/framework/benchmarks/framework-bench.ts` run the same six workloads at sizes 1, 100 and 10 000, with trivial steps, so the numbers are framework overhead per element. `per_element_max50` was added after the table below was measured, so it has no row yet.
+`benches/framework.rs` (criterion) and `nodejs/src/ingestion/framework/benchmarks/framework-bench.ts` run the same six workloads at sizes 1, 100 and 10 000, with trivial steps, so the numbers are framework overhead per element. The Rust benchmark installs a Prometheus recorder, so both sides pay for their metrics.
 
 ```bash
 cd rust && cargo bench -p ingestion-framework --bench framework
@@ -112,22 +112,25 @@ One 4-vCPU cloud container, the two runs one after the other. Mean ns per elemen
 
 | Workload                         | Size   | Node (ns/elem) | Rust (ns/elem) | Node ÷ Rust |
 | -------------------------------- | ------ | -------------- | -------------- | ----------- |
-| `step_pipeline_5_steps`          | 1      | 19 079         | 1 654          | 11.5×       |
-| `step_pipeline_5_steps`          | 100    | 19 089         | 1 771          | 10.8×       |
-| `step_pipeline_5_steps`          | 10 000 | 24 731         | 1 602          | 15.4×       |
-| `pipe_chunk_5_steps`             | 1      | 35 913         | 2 821          | 12.7×       |
-| `pipe_chunk_5_steps`             | 100    | 1 146          | 512            | 2.2×        |
-| `pipe_chunk_5_steps`             | 10 000 | 993            | 469            | 2.1×        |
-| `concurrently_max50`             | 1      | 30 215         | 3 792          | 8.0×        |
-| `concurrently_max50`             | 100    | 13 231         | 1 582          | 8.4×        |
-| `concurrently_max50`             | 10 000 | 13 869         | 1 743          | 8.0×        |
-| `concurrently_per_group_16`      | 1      | 17 291         | 4 946          | 3.5×        |
-| `concurrently_per_group_16`      | 100    | 10 862         | 1 098          | 9.9×        |
-| `concurrently_per_group_16`      | 10 000 | 10 364         | 780            | 13.3×       |
-| `batching_full`                  | 1      | 63 344         | 7 849          | 8.1×        |
-| `batching_full`                  | 100    | 9 593          | 1 368          | 7.0×        |
-| `batching_full`                  | 10 000 | 8 769          | 1 162          | 7.5×        |
+| `step_pipeline_5_steps`          | 1      | 30 383         | 2 379          | 12.8×       |
+| `step_pipeline_5_steps`          | 100    | 17 827         | 2 349          | 7.6×        |
+| `step_pipeline_5_steps`          | 10 000 | 19 693         | 2 307          | 8.5×        |
+| `pipe_chunk_5_steps`             | 1      | 25 940         | 3 483          | 7.4×        |
+| `pipe_chunk_5_steps`             | 100    | 722            | 431            | 1.7×        |
+| `pipe_chunk_5_steps`             | 10 000 | 740            | 541            | 1.4×        |
+| `concurrently_max50`             | 1      | 24 758         | 3 613          | 6.9×        |
+| `concurrently_max50`             | 100    | 8 488          | 1 873          | 4.5×        |
+| `concurrently_max50`             | 10 000 | 10 007         | 2 187          | 4.6×        |
+| `per_element_max50`              | 1      | 20 834         | 2 399          | 8.7×        |
+| `per_element_max50`              | 100    | 1 912          | 1 118          | 1.7×        |
+| `per_element_max50`              | 10 000 | 4 108          | 2 248          | 1.8×        |
+| `concurrently_per_group_16`      | 1      | 14 492         | 5 165          | 2.8×        |
+| `concurrently_per_group_16`      | 100    | 7 470          | 1 302          | 5.7×        |
+| `concurrently_per_group_16`      | 10 000 | 8 586          | 1 091          | 7.9×        |
+| `batching_full`                  | 1      | 53 331         | 8 726          | 6.1×        |
+| `batching_full`                  | 100    | 7 091          | 1 454          | 4.9×        |
+| `batching_full`                  | 10 000 | 6 868          | 1 400          | 4.9×        |
 
-On a 4-worker multi-thread runtime, the 10 000-element workloads run at 1 706 (`concurrently_max50`), 502 (`concurrently_per_group_16`) and 1 028 (`batching_full`) ns per element. Single-element batches cost about 50 µs there, which is worker wake-up latency, so a current-thread runtime suits a consumer that feeds tiny batches.
+On a 4-worker multi-thread runtime, the 10 000-element workloads run at 1 885 (`concurrently_max50`), 947 (`concurrently_per_group_16`) and 1 798 (`batching_full`) ns per element. Single-element batches cost about 50 µs there, which is worker wake-up latency, so a current-thread runtime suits a consumer that feeds tiny batches.
 
 The Node per-step cost is dominated by the per-step instrumentation (`instrumentFn`, the prom-client step histogram); the Rust port records the same histogram through the `metrics` crate.

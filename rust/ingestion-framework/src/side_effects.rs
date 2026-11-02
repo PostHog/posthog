@@ -5,12 +5,13 @@
 //! effects are created, as they do in Node. Dropping a `SideEffect` detaches the task, as
 //! an unhandled Node promise does.
 
+use std::collections::BTreeMap;
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
-use futures::future::BoxFuture;
+use futures::future::{BoxFuture, Shared};
 use futures::FutureExt;
 use tokio::task::JoinHandle;
 
@@ -120,8 +121,9 @@ pub trait SideEffectScheduler: Send + Sync {
 }
 
 /// Node removes a promise from its set when it settles. Here a settled side effect is
-/// removed at the next `schedule()` that finds the set grown, or at `pending_count()`, so
-/// the set stays proportional to the work that still runs.
+/// removed at the next `schedule()` that finds the set grown, at `pending_count()`, or
+/// when a `wait_for_all()` sees it settle, so the set stays proportional to the work that
+/// still runs.
 ///
 /// Unlike Node, it keeps the first failure, as the `FailureLatchingPromiseScheduler` in the
 /// metrics consumer does. A failure that settles before `wait_for_all()` is otherwise
@@ -135,8 +137,11 @@ pub struct PromiseScheduler {
 // last prune. This keeps the cost of a schedule() constant on average.
 const MIN_PRUNE_AT: usize = 64;
 
+type Pending = Shared<BoxFuture<'static, Result<(), Arc<anyhow::Error>>>>;
+
 struct SchedulerState {
-    pending: Vec<SideEffect>,
+    pending: BTreeMap<u64, Pending>,
+    next_id: u64,
     prune_at: usize,
     failure: Option<Arc<anyhow::Error>>,
 }
@@ -144,24 +149,34 @@ struct SchedulerState {
 impl Default for SchedulerState {
     fn default() -> Self {
         Self {
-            pending: Vec::new(),
+            pending: BTreeMap::new(),
+            next_id: 0,
             prune_at: MIN_PRUNE_AT,
             failure: None,
         }
     }
 }
 
+fn poll_settled(pending: &Pending) -> Option<Result<(), Arc<anyhow::Error>>> {
+    if let Some(result) = pending.peek() {
+        return Some(result.clone());
+    }
+    // Unconstrained: a JoinHandle poll spends the task's coop budget, and a prune of many
+    // side effects would run it out and read finished tasks as pending.
+    tokio::task::unconstrained(pending.clone()).now_or_never()
+}
+
 impl SchedulerState {
-    fn latch(&mut self, error: anyhow::Error) {
+    fn latch(&mut self, error: Arc<anyhow::Error>) {
         if self.failure.is_none() {
-            self.failure = Some(Arc::new(error));
+            self.failure = Some(error);
         }
     }
 
     fn prune(&mut self) {
         let mut failures = Vec::new();
         self.pending
-            .retain_mut(|side_effect| match side_effect.try_take() {
+            .retain(|_, pending| match poll_settled(pending) {
                 None => true,
                 Some(Ok(())) => false,
                 Some(Err(error)) => {
@@ -189,14 +204,32 @@ impl PromiseScheduler {
 
     /// Waits for the side effects that are pending now, as Node's `Promise.all` over the
     /// current set does. Returns the first failure, if any.
+    ///
+    /// A side effect stays in the set until it settles, as a Node promise does. So an
+    /// overlapping call also waits for it, and a cancelled call leaves it for the next one.
     pub async fn wait_for_all(&self) -> anyhow::Result<()> {
-        let pending = std::mem::take(&mut self.inner.lock().unwrap().pending);
-        for side_effect in pending {
-            if let Err(error) = side_effect.wait().await {
-                self.inner.lock().unwrap().latch(error);
+        let snapshot: Vec<(u64, Pending)> = self
+            .inner
+            .lock()
+            .unwrap()
+            .pending
+            .iter()
+            .map(|(id, pending)| (*id, pending.clone()))
+            .collect();
+        let mut first_failure = None;
+        for (id, pending) in snapshot {
+            let result = pending.await;
+            let mut state = self.inner.lock().unwrap();
+            state.pending.remove(&id);
+            if let Err(error) = result {
+                // The latch keeps the failure if this call is cancelled before it returns.
+                state.latch(error.clone());
+                first_failure.get_or_insert(error);
             }
         }
-        match self.inner.lock().unwrap().failure.take() {
+        // An overlapping call can take the latched failure first, so a failure seen here
+        // is still returned.
+        match self.inner.lock().unwrap().failure.take().or(first_failure) {
             Some(error) => Err(crate::errors::shared_error(error)),
             None => Ok(()),
         }
@@ -209,18 +242,25 @@ impl PromiseScheduler {
 
 impl SideEffectScheduler for PromiseScheduler {
     fn schedule(&self, mut side_effect: SideEffect) {
-        let mut state = self.inner.lock().unwrap();
         // A side effect that settled on creation never enters the set, as a Node promise
         // that settles leaves it.
         match side_effect.try_take() {
             Some(Ok(())) => return,
             Some(Err(error)) => {
-                state.latch(error);
+                self.inner.lock().unwrap().latch(Arc::new(error));
                 return;
             }
             None => {}
         }
-        state.pending.push(side_effect);
+        let pending = side_effect
+            .wait()
+            .map(|r| r.map_err(Arc::new))
+            .boxed()
+            .shared();
+        let mut state = self.inner.lock().unwrap();
+        let id = state.next_id;
+        state.next_id += 1;
+        state.pending.insert(id, pending);
         if state.pending.len() >= state.prune_at {
             state.prune();
         }

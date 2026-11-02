@@ -6618,6 +6618,7 @@ dependencies = [
  "futures",
  "indexmap 2.13.0",
  "metrics",
+ "metrics-exporter-prometheus",
  "metrics-util",
  "rand 0.8.5",
  "serde",

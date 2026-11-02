@@ -9,9 +9,9 @@ use futures::FutureExt;
 use ingestion_framework::warning_handling::serialize_ingestion_warning;
 use ingestion_framework::{
     chunk_step, create_ok_context, dlq, new_batching_pipeline, new_chunk_pipeline, new_pipeline,
-    ok, redirect_with, step, BatchingPipelineOptions, MemoryOutputs, PipelineConfig, PipelineError,
-    PipelineWarning, PromiseScheduler, RetryOptions, SideEffect, SideEffectHandlingConfig,
-    SideEffectScheduler, DLQ_OUTPUT,
+    ok, redirect_with, step, BatchingPipelineOptions, ChunkPipeline, MemoryOutputs, PipelineConfig,
+    PipelineError, PipelineWarning, PromiseScheduler, RetryOptions, SideEffect,
+    SideEffectHandlingConfig, SideEffectScheduler, DLQ_OUTPUT,
 };
 
 const AWAIT: SideEffectHandlingConfig = SideEffectHandlingConfig {
@@ -311,4 +311,118 @@ async fn grouping_start_scales_linearly_in_distinct_keys() {
         "4x keys took {:.1}x ({small:?} vs {big:?})",
         big.as_secs_f64() / small.as_secs_f64()
     );
+}
+
+// Node keeps a promise in the scheduler until it settles. An overlapping waitForAll() sees
+// it, and a cancelled one does not take it away from the next one.
+#[tokio::test]
+async fn scheduler_keeps_in_flight_side_effects_for_every_waiter() {
+    let scheduler = PromiseScheduler::new();
+    let (release, gate) = tokio::sync::oneshot::channel::<()>();
+    scheduler.schedule(SideEffect::spawn(async move {
+        let _ = gate.await;
+        Err(anyhow::anyhow!("produce failed"))
+    }));
+    let mut cancelled = Box::pin(scheduler.wait_for_all());
+    assert!(futures::poll!(cancelled.as_mut()).is_pending());
+    let mut overlapping = Box::pin(scheduler.wait_for_all());
+    assert!(futures::poll!(overlapping.as_mut()).is_pending());
+    drop(cancelled);
+    release.send(()).unwrap();
+    let error = overlapping.await.unwrap_err();
+    assert!(error.to_string().contains("produce failed"), "{error}");
+    assert!(scheduler.wait_for_all().await.is_ok());
+}
+
+// A Node fan-in throw leaves the parents completed before it in readyResults, and the
+// poisoned stage returns them before it rejects.
+#[tokio::test]
+async fn fan_in_panic_keeps_the_parents_completed_before_it() {
+    let pipeline = new_chunk_pipeline::<i64, ()>()
+        .fan_out("split", |n: &i64| vec![*n])
+        .via(|b| b)
+        .fan_in("explode_on_2", |o: i64, _s: Vec<i64>| -> i64 {
+            assert!(o != 2, "fan-in bug");
+            o
+        })
+        .build();
+    pipeline.feed(items([1, 2]));
+    let first = std::panic::AssertUnwindSafe(pipeline.next())
+        .catch_unwind()
+        .await
+        .expect("next() must not panic");
+    assert!(first.is_err());
+    let kept = pipeline.next().await.unwrap().expect("completed parent");
+    let values: Vec<_> = kept
+        .into_iter()
+        .filter_map(|r| r.result.into_value())
+        .collect();
+    assert_eq!(values, vec![1]);
+    assert!(pipeline.next().await.is_err());
+}
+
+// A Node group processor that throws before it returns its promise rejects that group.
+#[tokio::test]
+async fn group_processor_panic_before_its_future_fails_next() {
+    let processor: ingestion_framework::grouping::GroupChunkProcessor<i64, i64, ()> =
+        Arc::new(|_items| panic!("processor bug"));
+    let pipeline = ingestion_framework::grouping::ConcurrentlyGroupingChunkPipeline::new(
+        Arc::new(|v: &i64| *v),
+        processor,
+        new_chunk_pipeline::<i64, ()>().build(),
+        None,
+    );
+    pipeline.feed(items([1]));
+    let outcome = tokio::time::timeout(Duration::from_secs(5), pipeline.next())
+        .await
+        .expect("next() must not wait forever");
+    let error = outcome.unwrap_err();
+    assert!(error.to_string().contains("processor bug"), "{error}");
+}
+
+// p-limit does not hold a slot for a caller that is gone.
+#[tokio::test]
+async fn limiter_releases_the_slot_of_a_dropped_acquire() {
+    let limiter = ingestion_framework::sync::FifoLimiter::new(1);
+    drop(limiter.acquire());
+    let held = tokio::time::timeout(Duration::from_secs(5), limiter.acquire())
+        .await
+        .expect("the slot of the dropped acquire was released");
+    // This waiter gets the slot when `held` drops, and is gone before it reads it.
+    let queued = limiter.acquire();
+    drop(held);
+    drop(queued);
+    tokio::time::timeout(Duration::from_secs(5), limiter.acquire())
+        .await
+        .expect("the slot was released");
+}
+
+// Node's setTimeout uses 1 ms for a delay that is negative, NaN or too large, so these
+// options retry and do not panic.
+#[tokio::test(start_paused = true)]
+async fn retry_with_out_of_range_sleep_options_does_not_panic() {
+    let cases = [
+        (Some(-1.0), Some(0.0)),
+        (Some(f64::NAN), None),
+        (Some(f64::INFINITY), Some(0.0)),
+        (None, Some(3.0)),
+        (Some(f64::MAX), Some(-1.0)),
+    ];
+    for (backoff_factor, jitter) in cases {
+        let options = RetryOptions {
+            tries: Some(4),
+            sleep_ms: Some(100),
+            max_sleep_ms: Some(u64::MAX),
+            backoff_factor,
+            jitter,
+            ..RetryOptions::default()
+        };
+        let (result, attempts) = ingestion_framework::retry::retry_if_retriable(
+            || async { Err::<(), _>(anyhow::anyhow!("retriable")) },
+            &options,
+        )
+        .await;
+        assert!(result.is_err());
+        assert_eq!(attempts, 4, "{backoff_factor:?} {jitter:?}");
+    }
 }

@@ -7,11 +7,11 @@
 
 use std::sync::Arc;
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{criterion_group, BenchmarkId, Criterion, Throughput};
 use ingestion_framework::{
     before_batch_step, chunk_step, create_ok_context, new_batching_pipeline, new_chunk_pipeline,
     new_pipeline, ok, passthrough_after_batch_step, per_element, step, BatchingPipelineOptions,
-    ChunkProcessingStep, DynChunkPipeline, OkResultWithContext, ProcessingStep, WithBatch,
+    ChunkProcessingStep, DynChunkPipeline, OkResultWithContext, Outcome, ProcessingStep, WithBatch,
 };
 
 const SIZES: [usize; 3] = [1, 100, 10_000];
@@ -211,6 +211,17 @@ fn batching(c: &mut Criterion) {
                     assert!(pipeline.feed(inputs(n), (), None).await.unwrap().is_ok());
                     let done = pipeline.next().await.unwrap().unwrap();
                     assert_eq!(done.elements.len(), n);
+                    // Each input `i` passes two `+ 1` steps, as in the Node workload.
+                    let sum: i64 = done
+                        .elements
+                        .iter()
+                        .map(|e| match &e.result {
+                            Outcome::Ok(v) => v.value,
+                            Outcome::NonOk(_) => panic!("batching_full produced a non-ok result"),
+                        })
+                        .sum();
+                    let n = n as i64;
+                    assert_eq!(sum, n * (n - 1) / 2 + 2 * n);
                 })
             });
         }
@@ -227,4 +238,21 @@ criterion_group!(
     concurrently_per_group,
     batching
 );
-criterion_main!(benches);
+/// Installs the Prometheus recorder with the default buckets of `common-metrics`. Without a
+/// recorder every metric call is a no-op, and Node updates real `prom-client` metrics.
+fn install_metrics_recorder() {
+    const BUCKETS: &[f64] = &[
+        1.0, 5.0, 10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0,
+    ];
+    metrics_exporter_prometheus::PrometheusBuilder::new()
+        .set_buckets(BUCKETS)
+        .expect("buckets are not empty")
+        .install_recorder()
+        .expect("no other recorder is installed");
+}
+
+fn main() {
+    install_metrics_recorder();
+    benches();
+    Criterion::default().configure_from_args().final_summary();
+}

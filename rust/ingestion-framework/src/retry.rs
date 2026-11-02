@@ -86,13 +86,36 @@ where
                 } else {
                     sleep_ms
                 };
-                tokio::time::sleep(Duration::from_secs_f64(jittered / 1000.0)).await;
-                sleep_ms = (sleep_ms * backoff).min(max_sleep);
+                tokio::time::sleep(node_timer_delay(jittered)).await;
+                sleep_ms = js_min(sleep_ms * backoff, max_sleep);
                 if past_deadline() {
                     return (Err(error), attempts);
                 }
             }
         }
+    }
+}
+
+// Node's `TIMEOUT_MAX`, the largest delay that `setTimeout` keeps.
+const NODE_TIMEOUT_MAX_MS: f64 = 2_147_483_647.0;
+
+/// The delay of Node's `setTimeout(fn, ms)`. Node uses 1 ms for a delay that is NaN, below
+/// 1 or above `TIMEOUT_MAX`, so options such as a negative backoff cannot fail a retry.
+fn node_timer_delay(ms: f64) -> Duration {
+    let ms = if (1.0..=NODE_TIMEOUT_MAX_MS).contains(&ms) {
+        ms
+    } else {
+        1.0
+    };
+    Duration::from_secs_f64(ms / 1000.0)
+}
+
+/// `Math.min(a, b)`, which returns NaN when an input is NaN. `f64::min` returns the other input.
+fn js_min(a: f64, b: f64) -> f64 {
+    if a.is_nan() || b.is_nan() {
+        f64::NAN
+    } else {
+        a.min(b)
     }
 }
 

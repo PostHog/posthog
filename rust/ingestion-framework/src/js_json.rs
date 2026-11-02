@@ -104,8 +104,7 @@ pub fn write_number(out: &mut String, f: f64) {
     if f < 0.0 {
         out.push('-');
     }
-    // `{:e}` gives the shortest digits that round-trip, as JavaScript uses.
-    let sci = format!("{:e}", f.abs());
+    let sci = shortest_scientific(f.abs());
     let (mantissa, exponent) = sci.split_once('e').expect("LowerExp has an exponent");
     let digits: String = mantissa.chars().filter(|c| *c != '.').collect();
     let k = digits.len() as i32;
@@ -129,6 +128,26 @@ pub fn write_number(out: &mut String, f: f64) {
         }
         let e = n - 1;
         let _ = write!(out, "e{}{}", if e >= 0 { "+" } else { "-" }, e.abs());
+    }
+}
+
+/// `{:e}` gives the shortest digit count that round-trips. ECMAScript breaks a tie between two
+/// equally close shortest candidates toward the even digit, so an odd last digit is checked
+/// against the exactly rounded form, which rounds ties to even.
+fn shortest_scientific(value: f64) -> String {
+    let shortest = format!("{value:e}");
+    let mantissa = shortest.split_once('e').map_or("", |(m, _)| m);
+    let last_is_odd = mantissa.bytes().last().is_some_and(|d| (d - b'0') % 2 == 1);
+    if !last_is_odd {
+        return shortest;
+    }
+    let digits = mantissa.bytes().filter(u8::is_ascii_digit).count();
+    let exact = format!("{:.*e}", digits - 1, value);
+    // At a power of two the lower gap is narrower, so the nearest candidate can miss.
+    if exact != shortest && exact.parse::<f64>() == Ok(value) {
+        exact
+    } else {
+        shortest
     }
 }
 
@@ -158,6 +177,9 @@ mod tests {
             (12345678901234567890.0, "12345678901234567000"),
             (5e-324, "5e-324"),
             (1.7976931348623157e308, "1.7976931348623157e+308"),
+            (1e15 + 0.25, "1000000000000000.2"),
+            (f64::from_bits(0x409a_ab1c_d000_0000), "1706.7781372070312"),
+            (-1417389728594571.2, "-1417389728594571.2"),
         ];
         for (input, expected) in cases {
             assert_eq!(number(*input), *expected, "{input}");

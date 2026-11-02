@@ -14,7 +14,7 @@ import {
     perElement,
 } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
-import { ok } from '~/ingestion/framework/results'
+import { isOkResult, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 
 const SIZES = [1, 100, 10_000]
@@ -39,6 +39,14 @@ function inputs(n: number): ReturnType<typeof createOkContext<number, Ctx>>[] {
     const out = new Array(n)
     for (let i = 0; i < n; i++) {
         out[i] = createOkContext<number, Ctx>(i, {})
+    }
+    return out
+}
+
+function objectInputs(n: number): ReturnType<typeof createOkContext<{ value: number }, Ctx>>[] {
+    const out = new Array(n)
+    for (let i = 0; i < n; i++) {
+        out[i] = createOkContext<{ value: number }, Ctx>({ value: i }, {})
     }
     return out
 }
@@ -104,8 +112,9 @@ const WORKLOADS: Record<string, (n: number) => Promise<void>> = {
         assertCount(await drain(pipeline), n)
     },
     batching_full: async (n) => {
-        type V = number & { batchId?: number }
-        const pipeline = newBatchingPipeline<number, V, Ctx>(
+        // feed() spreads `batchId` into each value, so the values are objects with a numeric field.
+        type V = { value: number; batchId?: number }
+        const pipeline = newBatchingPipeline<V, V, Ctx>(
             (b) =>
                 b.pipe(function before(input) {
                     return Promise.resolve(ok({ elements: input.elements, batchContext: input.batchContext }))
@@ -113,14 +122,20 @@ const WORKLOADS: Record<string, (n: number) => Promise<void>> = {
             (b) =>
                 b
                     .pipeChunk(function prepare(values: V[]) {
-                        return Promise.resolve(values.map((v) => ok(v + 1)))
+                        return Promise.resolve(
+                            values.map((v) => {
+                                v.value += 1
+                                return ok(v)
+                            })
+                        )
                     })
                     .concurrentlyPerGroup(
-                        (v: V) => v % 16,
+                        (v: V) => v.value % 16,
                         (g) =>
                             g.sequentially((s) =>
                                 s.pipe(function work(v: V) {
-                                    return Promise.resolve(ok(v + 1))
+                                    v.value += 1
+                                    return Promise.resolve(ok(v))
                                 })
                             ),
                         { maxConcurrency: 50 }
@@ -132,13 +147,26 @@ const WORKLOADS: Record<string, (n: number) => Promise<void>> = {
                 }),
             { concurrentBatches: 1 }
         )
-        const fed = await pipeline.feed(inputs(n), {})
+        const fed = await pipeline.feed(objectInputs(n), {})
         if (!fed.ok) {
             throw new Error(`feed rejected: ${fed.reason}`)
         }
         const done = await pipeline.next()
         assertCount(done!.elements.length, n)
+        let sum = 0
+        for (const element of done!.elements) {
+            if (!isOkResult(element.result)) {
+                throw new Error('batching_full produced a non-ok result')
+            }
+            sum += element.result.value.value
+        }
+        assertCount(sum, batchingSum(n))
     },
+}
+
+// Each input `i` passes two `+ 1` steps, so the outputs sum to `0 + 1 + ... + (n - 1) + 2n`.
+function batchingSum(n: number): number {
+    return (n * (n - 1)) / 2 + 2 * n
 }
 
 function assertCount(actual: number, expected: number): void {

@@ -305,11 +305,12 @@ where
                     self.settle(&mut state, sub_result, &mut done)?;
                 }
             }
-            let mut finished = Vec::with_capacity(done.len());
+            // Each parent is ready before the next fan-in runs, so a later fan-in failure
+            // does not lose it. The poisoned drain returns it, as Node's readyResults does.
             for settled in done {
-                finished.push(self.finish(settled)?);
+                let finished = self.finish(settled)?;
+                self.state.lock().unwrap().ready.push(finished);
             }
-            self.state.lock().unwrap().ready.extend(finished);
         }
     }
 }

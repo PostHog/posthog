@@ -319,8 +319,10 @@ where
                 before_side_effects,
             },
         );
-        self.feed_epoch.fetch_add(1, Ordering::SeqCst);
         self.sub.feed(tagged);
+        // The epoch moves only after the elements are buffered. A pump that reads the new
+        // epoch then finds them, and a pump that pulled before them sees the epoch change.
+        self.feed_epoch.fetch_add(1, Ordering::SeqCst);
         Ok(FeedResult::Ok)
     }
 
