@@ -264,6 +264,22 @@ class PerSeriesEvaluation:
     truncated: bool = False
 
 
+@contextmanager
+def _owner_can_run(alert: AlertConfiguration) -> Iterator[None]:
+    """Turn an owner who can no longer run the alert into the alert's own error, which disables it.
+
+    The query runs with the owner's access, so the owner is checked before it: a query that reads no
+    restricted table still succeeds, and the query itself only checks tables and runner resources.
+    """
+    try:
+        assert_creator_can_run(alert.created_by, alert.team, alert.insight)
+        yield
+    except CreatorLeftOrganizationError as err:
+        raise AlertOwnerAccessError(CREATOR_LEFT_DISABLE_REASON) from err
+    except (TableAccessDeniedError, UserAccessControlError) as err:
+        raise AlertOwnerAccessError(CREATOR_LOST_ACCESS_DISABLE_REASON) from err
+
+
 def check_alert_per_series(
     alert: AlertConfiguration, *, query_slot: QuerySlot = nullcontext
 ) -> PerSeriesEvaluation | AlertEvaluationResult:
@@ -277,7 +293,7 @@ def check_alert_per_series(
     if alert.detector_config:
         raise AlertExtractionError("Per-series evaluation supports threshold alerts only")
     try:
-        with _resolved_query(alert) as resolved:
+        with _owner_can_run(alert), _resolved_query(alert) as resolved:
             extracted = _extract_for_threshold(alert, resolved.insight, resolved.query, resolved.kind, query_slot)
     except DelayedEvaluationUnavailable as err:
         return AlertEvaluationResult(value=None, breaches=[], skipped_reason=str(err))
@@ -308,14 +324,8 @@ def check_alert_for_insight(
     alert: AlertConfiguration, *, evaluation_id: str | None = None, query_slot: QuerySlot = nullcontext
 ) -> AlertEvaluationResult:
     try:
-        # The query runs with the owner's access, so the owner is checked before it: a query that reads no
-        # restricted table still succeeds, and the query itself only checks tables and runner resources.
-        assert_creator_can_run(alert.created_by, alert.team, alert.insight)
-        return _check_alert_for_insight(alert, evaluation_id=evaluation_id, query_slot=query_slot)
-    except CreatorLeftOrganizationError as err:
-        raise AlertOwnerAccessError(CREATOR_LEFT_DISABLE_REASON) from err
-    except (TableAccessDeniedError, UserAccessControlError) as err:
-        raise AlertOwnerAccessError(CREATOR_LOST_ACCESS_DISABLE_REASON) from err
+        with _owner_can_run(alert):
+            return _check_alert_for_insight(alert, evaluation_id=evaluation_id, query_slot=query_slot)
     except DelayedEvaluationUnavailable as err:
         if is_llm_detector_config(alert.detector_config):
             raise LLMDetectorUnavailableError(str(err)) from err
