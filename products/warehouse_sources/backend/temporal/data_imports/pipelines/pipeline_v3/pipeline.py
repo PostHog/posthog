@@ -998,7 +998,9 @@ class PipelineV3(Generic[ResumableData]):
             ):
                 await self._record_table_rebuild(self._run_uuid)
 
-            items = self._resource.items()
+            # A source can do blocking work when it builds its items, such as the DNS lookup of a
+            # host check. The thread keeps that work off the event loop, as iteration already is.
+            items = await asyncio.to_thread(self._resource.items)
             safe_point_scope = self._activate_safe_point(items)
             source_items = self._source_items(items, source_type)
             awaiting_source = True

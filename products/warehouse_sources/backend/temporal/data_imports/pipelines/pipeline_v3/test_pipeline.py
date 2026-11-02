@@ -3098,6 +3098,35 @@ def _staged_ids(pipeline: PipelineV3) -> list[str]:
     ]
 
 
+@pytest.mark.asyncio
+async def test_the_source_builds_its_items_off_the_event_loop() -> None:
+    loop_thread = threading.get_ident()
+    built_in: list[int] = []
+
+    def items():
+        built_in.append(threading.get_ident())
+        return iter([pa.table({"id": ["a"]})])
+
+    pipeline = _runnable_pipeline(_manager(), items)
+    pipeline._finalize = AsyncMock()  # type: ignore[method-assign]
+    with ExitStack() as stack:
+        for name in (
+            "reset_rows_synced_if_needed",
+            "setup_row_tracking_with_billing_check",
+            "handle_reset_or_full_refresh",
+            "handle_corrupted_delta_log",
+        ):
+            stack.enter_context(patch(f"{_PIPELINE}.{name}", new_callable=AsyncMock))
+        for name in ("validate_incremental_sync", "record_source_item_stats"):
+            stack.enter_context(patch(f"{_PIPELINE}.{name}"))
+        stack.enter_context(patch.object(ResumableSourceManager, "_get_redis", lambda self: nullcontext(MagicMock())))
+        stack.enter_context(patch(f"{_PIPELINE}.activity")).in_activity.return_value = False
+        await pipeline.run()
+
+    assert len(built_in) == 1
+    assert built_in[0] != loop_thread
+
+
 class TestSourcePreemption:
     @pytest.mark.parametrize("late_write", ["commit", "clear_state"])
     @pytest.mark.asyncio
