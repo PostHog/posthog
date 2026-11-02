@@ -10274,9 +10274,9 @@ Today (7): `campaigns`, `companies`, `customers`, `feedback`, `outbox`, `reports
 
 Diffed against: <https://www.retently.com/api/>
 
-- [ ] `GET /api/v2/nps/score, /csat/score, /ces/score, /star/score` — the vendor's headline metric - the aggregate NPS/CSAT/CES/star score the whole product exists to report (high)
-- [ ] `GET /api/v2/trends and /api/v2/trends/{groupId}` — trend groups and their trends are the topic taxonomy behind feedback; a lookup that turns free-text feedback into a breakdown dimension (high)
-- [ ] `GET /api/v2/suppressions/emails and /suppressions/domains` — suppressed recipients explain gaps in outbox delivery coverage (low)
+- [x] `GET /api/v2/nps/score, /csat/score, /ces/score, /star/score` — the vendor's headline metric - the aggregate NPS/CSAT/CES/star score the whole product exists to report (high)
+- [x] `GET /api/v2/trends and /api/v2/trends/{groupId}` — trend groups and their trends are the topic taxonomy behind feedback; a lookup that turns free-text feedback into a breakdown dimension (high)
+- [x] `GET /api/v2/suppressions/emails and /suppressions/domains` — suppressed recipients explain gaps in outbox delivery coverage (low)
 
 ## Reverb — gaps
 
