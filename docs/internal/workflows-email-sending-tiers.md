@@ -74,3 +74,15 @@ Decay, suspension drops, admin recomputes, and the backfill stay silent.
   A send denied because the limiter itself failed keeps the shorter token bucket cadence, at most 5 to 10 minutes.
 - Gmail provides no per-message feedback loop, so complaint rates (ours and AWS's) cannot see Gmail complaints at all.
 - The `HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS` allowlist elevates a team to the top tier in Django only: the UI, the admin, and the batch audience cap show top-tier numbers, but the worker's send-time buckets read the stored tier. An allowlisted team below the top tier is therefore throttled at its stored tier while being told otherwise, and its shadow-mode delay counts overstate real impact. Before enforcing, pin each allowlisted team at the top tier from the Django admin and empty the allowlist, rather than plumbing the list into the worker.
+
+### Sandbox delivery
+
+The worker sends through a `sandbox` email integration only when `WORKFLOWS_SANDBOX_SENDER_ENABLED` is on and `SES_SANDBOX_TENANT_NAME`, `SES_SANDBOX_CONFIGURATION_SET`, and `SES_SANDBOX_FROM_ADDRESS` are set.
+Otherwise every send through it skips with a reason in the run log and a `workflows sandbox email blocked` event with reason `switch_off`.
+Every To, CC, and BCC address must belong to an active member of the team's active organization with a verified email address.
+Membership snapshots expire within one minute, and the worker checks recipients again right before delivery.
+A failed or stale membership check skips the send and lists the blocked addresses in the run log.
+The blocked event fires at most once an hour per team, reason, and send kind (workflow or test).
+Sandbox sends never spend the team's tier budget, because they reach only its own members.
+The sandbox route is not built yet, so a send that passes every check still skips as unavailable.
+Keep the switch off in production until the sandbox caps are deployed.

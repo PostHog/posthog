@@ -11,18 +11,25 @@ import {
     CyclotronInvocationQueueParametersEmailType,
 } from '~/cdp/schema/cyclotron'
 import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
-import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
+import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '~/cdp/types'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { RedisClient, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { PostgresUse } from '~/common/utils/db/postgres'
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
+import * as posthog from '~/common/utils/posthog'
 import { UUIDT } from '~/common/utils/utils'
 import { waitForExpect } from '~/tests/helpers/expectations'
-import { createTestTeamFixture } from '~/tests/helpers/sql'
+import {
+    createOrganization,
+    createOrganizationMembership,
+    createTestTeamFixture,
+    createUser,
+} from '~/tests/helpers/sql'
 import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
 
 import { Hub, Team } from '../../../types'
+import { OrganizationMembersService } from '../managers/organization-members.service'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
@@ -40,6 +47,7 @@ import { MailDevAPI } from './helpers/maildev'
 import { EmailTrackingCodeSigner } from './helpers/tracking-code'
 import { MessageAssetsService } from './message-assets.service'
 import { RecipientTokensService } from './recipient-tokens.service'
+import { SandboxEmailSender, SandboxEmailSenderConfig } from './sandbox-email-sender'
 
 class ThrottlingException extends Error {
     constructor(message: string) {
@@ -239,6 +247,447 @@ describe('EmailService', () => {
             // Mock SES v2 send to avoid actual AWS calls
             sendEmailSpy = jest.spyOn(service.sesV2Client!, 'send') as any
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+        })
+        describe('sandbox sender', () => {
+            const UNAVAILABLE_LOG =
+                'Skipping send: the sandbox sender is unavailable right now. Verify your own domain to keep sending.'
+            let capture: jest.SpyInstance
+            let memberId: number
+            let memberIds: number[]
+            let extraOrganizationIds: string[]
+            const memberEmail = (name = 'test'): string => `${name}-${team.id}@example.com`
+            const createSandboxParams = (
+                params: Partial<CyclotronInvocationQueueParametersEmailType> = {}
+            ): CyclotronInvocationQueueParametersEmailType =>
+                createEmailParams({
+                    from: { integrationId: 4 },
+                    to: { email: memberEmail(), name: 'Example member' },
+                    ...params,
+                })
+            const createMember = async (email: string, organizationId = team.organization_id): Promise<number> => {
+                const id = await createUser(hub.postgres, email)
+                memberIds.push(id)
+                await createOrganizationMembership(hub.postgres, organizationId, id)
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    'UPDATE posthog_user SET email = $1, is_active = true, is_email_verified = true WHERE id = $2',
+                    [email, id],
+                    'test:verify-sandbox-member'
+                )
+                return id
+            }
+            const createSandboxService = (
+                enabled: boolean,
+                membersPostgres: PostgresRouter = hub.postgres,
+                routeSettings: Partial<SandboxEmailSenderConfig> = {},
+                teamEmailRateLimiter: RateLimiterService | null = null
+            ): EmailService => {
+                const workflowsConfig = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
+                jest.spyOn(workflowsConfig, 'getEmailSendingTier').mockResolvedValue(0)
+                const sandboxService = new EmailService(
+                    {
+                        sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
+                        sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
+                        sesRegion: hub.SES_REGION,
+                        sesEndpoint: hub.SES_ENDPOINT,
+                        sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
+                        sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
+                        teamEmailCapMode: 'enforce',
+                        teamEmailTierHourlyCaps: [1],
+                        teamEmailTierDailyCaps: [1],
+                    },
+                    hub.integrationManager,
+                    workflowsConfig,
+                    hub.ENCRYPTION_SALT_KEYS,
+                    hub.SITE_URL,
+                    new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
+                    new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
+                    new RecipientsManagerService(hub.postgres),
+                    null,
+                    undefined,
+                    null,
+                    teamEmailRateLimiter,
+                    new SandboxEmailSender(
+                        {
+                            enabled,
+                            tenantName: 'sandbox-tenant',
+                            configurationSetName: 'sandbox-email',
+                            fromAddress: 'fixed-sandbox@example.com',
+                            ...routeSettings,
+                        },
+                        hub.teamManager,
+                        {
+                            useClient: async (_options, callback) => {
+                                const client = await hub.redisPool.acquire()
+                                try {
+                                    return await callback(client as unknown as RedisClient)
+                                } finally {
+                                    await hub.redisPool.release(client)
+                                }
+                            },
+                        }
+                    ),
+                    new OrganizationMembersService(membersPostgres)
+                )
+                sendEmailSpy = jest.spyOn(sandboxService.sesV2Client!, 'send') as jest.SpyInstance
+                sendEmailSpy.mockResolvedValue({ MessageId: 'sandbox-message-id' })
+                return sandboxService
+            }
+            const expectSkipped = (result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>): void => {
+                expect(sendEmailSpy).not.toHaveBeenCalled()
+                expect(result).toMatchObject({ finished: true, skipped: true, metrics: [], messageAssets: [] })
+                expect(result.error).toBeUndefined()
+                expect(result.emailSendResult).toMatchObject({ status: 'skipped' })
+                expect(result.invocation.state.vmState?.stack.at(-1)).toEqual({ success: false })
+            }
+            const expectBlockedEvent = (reason: string, isTest: boolean, blockedRecipientCount: number): void => {
+                expect(capture).toHaveBeenLastCalledWith(
+                    expect.objectContaining({ id: team.id }),
+                    'workflows sandbox email blocked',
+                    { reason, is_test: isTest, blocked_recipient_count: blockedRecipientCount }
+                )
+            }
+
+            beforeEach(async () => {
+                capture = jest.spyOn(posthog, 'captureTeamEvent').mockImplementation(() => {})
+                memberIds = []
+                extraOrganizationIds = []
+                memberId = await createMember(memberEmail())
+                await createMember(memberEmail('cc'))
+                await createMember(memberEmail('bcc'))
+                await insertIntegration(hub.postgres, team.id, {
+                    id: getIntegrationId(4),
+                    kind: 'email',
+                    config: {
+                        provider: 'sandbox',
+                        email: 'sandbox@example.com',
+                        domain: 'example.com',
+                        name: 'Example organization via PostHog',
+                        verified: true,
+                    },
+                })
+                invocation.queueParameters = createSandboxParams()
+                Object.assign(invocation, { hogFlow: { id: invocation.functionId, team_id: team.id } })
+            })
+
+            afterEach(async () => {
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    'DELETE FROM posthog_organizationmembership WHERE user_id = ANY($1::integer[])',
+                    [memberIds],
+                    'test:delete-sandbox-memberships'
+                )
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    'DELETE FROM posthog_user WHERE id = ANY($1::integer[])',
+                    [memberIds],
+                    'test:delete-sandbox-members'
+                )
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    'DELETE FROM posthog_organization WHERE id = ANY($1::uuid[])',
+                    [extraOrganizationIds],
+                    'test:delete-sandbox-organizations'
+                )
+                const client = await hub.redisPool.acquire()
+                try {
+                    const keys = await client.keys(`@posthog/workflows-sandbox-blocked/${team.id}/*`)
+                    if (keys.length) {
+                        await client.del(...keys)
+                    }
+                } finally {
+                    await hub.redisPool.release(client)
+                }
+                capture.mockRestore()
+            })
+
+            it.each([
+                ['the switch is off', false, false, {}],
+                ['the switch is off', true, false, {}],
+                ['the tenant is empty', false, true, { tenantName: '' }],
+                ['the configuration set is blank', true, true, { configurationSetName: '   ' }],
+                ['the From address is empty', false, true, { fromAddress: '' }],
+            ] as const)(
+                'skips when the sandbox sender is switched off because %s (isTest=%s)',
+                async (_reason, isTest, enabled, routeSettings: Partial<SandboxEmailSenderConfig>) => {
+                    service = createSandboxService(enabled, hub.postgres, routeSettings)
+
+                    const result = await service.executeSendEmail(invocation, isTest)
+
+                    expectSkipped(result)
+                    expect(result.logs).toContainEqual(
+                        expect.objectContaining({ level: 'info', message: UNAVAILABLE_LOG })
+                    )
+                    expectBlockedEvent('switch_off', isTest, 0)
+                }
+            )
+
+            it.each([false, true])(
+                'permits sandbox destination invocations only as explicit tests (isTest=%s)',
+                async (isTest) => {
+                    service = createSandboxService(true)
+                    const destination = createExampleInvocation({ team_id: team.id, id: 'email-destination' })
+                    destination.state.vmState = { stack: [] } as any
+                    destination.queueParameters = createSandboxParams()
+
+                    const result = await service.executeSendEmail(destination, isTest)
+
+                    expectSkipped(result)
+                    expect(result.logs).toContainEqual(
+                        expect.objectContaining({
+                            message: isTest
+                                ? UNAVAILABLE_LOG
+                                : 'Skipping send: the sandbox sender is only available for workflows and test sends.',
+                        })
+                    )
+                }
+            )
+
+            it.each([false, true])(
+                'skips a member send as unavailable until the sandbox route exists (isTest=%s)',
+                async (isTest) => {
+                    service = createSandboxService(true)
+
+                    const result = await service.executeSendEmail(invocation, isTest)
+
+                    expectSkipped(result)
+                    expect(result.logs).toContainEqual(
+                        expect.objectContaining({ level: 'info', message: UNAVAILABLE_LOG })
+                    )
+                    expect(capture).not.toHaveBeenCalled()
+                }
+            )
+
+            it('never spends the team sending budget on a sandbox send', async () => {
+                const claimAllOrNothingPair = jest
+                    .fn()
+                    .mockResolvedValue({ granted: false, deniedIndex: 0, retryAfterMs: 60_000, reserved: false })
+                service = createSandboxService(true, hub.postgres, {}, {
+                    claimAllOrNothingPair,
+                } as unknown as RateLimiterService)
+
+                const result = await service.executeSendEmail(invocation)
+
+                expectSkipped(result)
+                expect(result.logs).toContainEqual(expect.objectContaining({ level: 'info', message: UNAVAILABLE_LOG }))
+                expect(claimAllOrNothingPair).not.toHaveBeenCalled()
+            })
+
+            it.each([
+                ['a display name', 'Example colleague', false],
+                ['a quoted comma', '"Example, colleague"', false],
+                ['an escaped quote', '"Example \\"colleague, teammate\\""', false],
+                ['mixed-case stored addresses', 'Example colleague', true],
+            ])('passes members through the gate whatever the case and %s', async (_case, name, storedMixedCase) => {
+                if (storedMixedCase) {
+                    await hub.postgres.query(
+                        PostgresUse.COMMON_WRITE,
+                        'UPDATE posthog_user SET email = initcap(email) WHERE id = ANY($1::integer[])',
+                        [memberIds],
+                        'test:store-mixed-case-sandbox-members'
+                    )
+                }
+                service = createSandboxService(true)
+                invocation.queueParameters = createSandboxParams({
+                    to: { email: memberEmail().toUpperCase() },
+                    cc: `${name} <${memberEmail('cc').toUpperCase()}>`,
+                    bcc: ` ${name} <${memberEmail('bcc').toUpperCase()}> `,
+                })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expectSkipped(result)
+                expect(result.logs).toContainEqual(expect.objectContaining({ message: UNAVAILABLE_LOG }))
+                expect(capture).not.toHaveBeenCalled()
+            })
+
+            it.each([false, true])('blocks a non-member To address (isTest=%s)', async (isTest) => {
+                service = createSandboxService(true)
+                invocation.queueParameters = createSandboxParams({ to: { email: 'outside@example.com' } })
+
+                const result = await service.executeSendEmail(invocation, isTest)
+
+                expectSkipped(result)
+                expect(result.logs).toContainEqual(
+                    expect.objectContaining({
+                        level: 'info',
+                        message:
+                            'Skipping send: the sandbox sender only sends to active organization members with verified email addresses. Blocked addresses: outside@example.com. Verify your own domain to send to anyone.',
+                    })
+                )
+                expectBlockedEvent('recipient_not_member', isTest, 1)
+            })
+
+            it.each([
+                'cc',
+                'bcc',
+                'cc list',
+                'multiple',
+                'ambiguous cc mailbox',
+                'unverified',
+                'legacy',
+                'inactive',
+                'other organization',
+                'deactivated organization',
+            ])('blocks all delivery for %s', async (recipient) => {
+                let blocked = ['outside@example.com']
+                let params = createSandboxParams()
+                if (recipient === 'cc' || recipient === 'bcc') {
+                    params = { ...params, [recipient]: 'Outside member <OUTSIDE@example.com>' }
+                    blocked = ['OUTSIDE@example.com']
+                } else if (recipient === 'cc list') {
+                    params = { ...params, cc: `"Example, colleague" <${memberEmail('cc')}>, outside@example.com` }
+                } else if (recipient === 'multiple') {
+                    params = { ...params, cc: 'outside@example.com', bcc: 'another@example.com' }
+                    blocked = ['outside@example.com', 'another@example.com']
+                } else if (recipient === 'ambiguous cc mailbox') {
+                    params = { ...params, cc: `Example <${memberEmail('cc')}> <outside@example.com>` }
+                    blocked = [`Example <${memberEmail('cc')}> <outside@example.com>`]
+                } else if (recipient === 'other organization') {
+                    const organizationId = await createOrganization(hub.postgres)
+                    extraOrganizationIds.push(organizationId)
+                    blocked = [memberEmail('outside')]
+                    await createMember(blocked[0], organizationId)
+                    params = { ...params, to: { email: blocked[0] } }
+                } else if (recipient === 'deactivated organization') {
+                    blocked = [memberEmail()]
+                    await hub.postgres.query(
+                        PostgresUse.COMMON_WRITE,
+                        'UPDATE posthog_organization SET is_active = false WHERE id = $1',
+                        [team.organization_id],
+                        'test:deactivate-sandbox-organization'
+                    )
+                } else {
+                    blocked = [memberEmail()]
+                    await hub.postgres.query(
+                        PostgresUse.COMMON_WRITE,
+                        'UPDATE posthog_user SET is_active = $1, is_email_verified = $2 WHERE id = $3',
+                        [recipient !== 'inactive', recipient === 'legacy' ? null : recipient === 'inactive', memberId],
+                        'test:change-sandbox-member-status'
+                    )
+                }
+                service = createSandboxService(true)
+                invocation.queueParameters = params
+
+                const result = await service.executeSendEmail(invocation)
+
+                expectSkipped(result)
+                const unverifiedMember = recipient === 'unverified' || recipient === 'legacy'
+                expect(result.logs).toContainEqual(
+                    expect.objectContaining({
+                        level: 'info',
+                        message: unverifiedMember
+                            ? `Skipping send: the sandbox sender only sends to organization members with verified email addresses. Unverified addresses: ${blocked.join(', ')}. Verify your email address in PostHog, or ask these members to verify theirs.`
+                            : `Skipping send: the sandbox sender only sends to active organization members with verified email addresses. Blocked addresses: ${blocked.join(', ')}. Verify your own domain to send to anyone.`,
+                    })
+                )
+                expect(capture).toHaveBeenCalledTimes(1)
+                expectBlockedEvent(
+                    unverifiedMember ? 'recipient_unverified' : 'recipient_not_member',
+                    false,
+                    blocked.length
+                )
+            })
+
+            it('fails closed when the member check fails', async () => {
+                const membersPostgres = new PostgresRouter(hub)
+                await membersPostgres.end()
+                service = createSandboxService(true, membersPostgres)
+                invocation.queueParameters = createSandboxParams({ cc: memberEmail('cc') })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expectSkipped(result)
+                expect(result.logs).toContainEqual(
+                    expect.objectContaining({
+                        message: `Skipping send: could not check organization members for these addresses: ${memberEmail()}, ${memberEmail('cc')}. Try again, or verify your own domain to send to anyone.`,
+                    })
+                )
+                expectBlockedEvent('check_failed', false, 2)
+            })
+
+            it('checks members again right before delivery', async () => {
+                const now = Date.now()
+                const clock = jest.spyOn(Date, 'now').mockReturnValue(now)
+                const preparation = jest.spyOn(EmailSuppressionService.prototype, 'isSuppressed')
+                const isSuppressed = preparation.getMockImplementation()!
+                try {
+                    service = createSandboxService(true)
+                    await service.executeSendEmail(invocation)
+                    expect(capture).not.toHaveBeenCalled()
+                    await hub.postgres.query(
+                        PostgresUse.COMMON_WRITE,
+                        'DELETE FROM posthog_organizationmembership WHERE user_id = $1',
+                        [memberId],
+                        'test:revoke-sandbox-member-during-preparation'
+                    )
+                    clock.mockReturnValue(now + 58_000)
+                    preparation.mockImplementation(async function (this: EmailSuppressionService, ...args) {
+                        const suppressed = await isSuppressed.apply(this, args)
+                        clock.mockReturnValue(now + 63_000)
+                        return suppressed
+                    })
+                    invocation.state.vmState = { stack: [] } as any
+
+                    const result = await service.executeSendEmail(invocation)
+
+                    expectSkipped(result)
+                    expectBlockedEvent('recipient_not_member', false, 1)
+                } finally {
+                    clock.mockRestore()
+                    preparation.mockRestore()
+                }
+            })
+
+            it('captures one blocked event per reason and send kind while logging every skip', async () => {
+                for (let attempt = 0; attempt < 2; attempt++) {
+                    service = createSandboxService(true)
+                    invocation.queueParameters = createSandboxParams({ to: { email: 'outside@example.com' } })
+                    const result = await service.executeSendEmail(invocation)
+                    expect(result.logs).toContainEqual(
+                        expect.objectContaining({ message: expect.stringContaining('outside@example.com') })
+                    )
+                }
+                expect(capture).toHaveBeenCalledTimes(1)
+
+                await createSandboxService(true).executeSendEmail(invocation, true)
+                expect(capture).toHaveBeenCalledTimes(2)
+                expectBlockedEvent('recipient_not_member', true, 1)
+
+                invocation.queueParameters = createSandboxParams()
+                await createSandboxService(false).executeSendEmail(invocation)
+                expect(capture).toHaveBeenCalledTimes(3)
+                expectBlockedEvent('switch_off', false, 0)
+            })
+
+            it.each([
+                ['the sandbox sender is switched off', false, memberEmail, 'sending_suspended'],
+                ['the recipient is not a member', true, () => 'outside@example.com', 'recipient_unreachable'],
+            ])('records a skipped transactional email when %s', async (_case, enabled, recipient, expectedReason) => {
+                const produce = jest.fn().mockResolvedValue(undefined)
+                const emailStatusService = new EmailStatusService(
+                    { produce } as unknown as IngestionOutputs<EmailStatusOutput>,
+                    { EMAIL_STATUS_ENABLED: true }
+                )
+                service = createSandboxService(enabled)
+                service['emailStatusService'] = emailStatusService
+                invocation.id = new UUIDT().toString()
+                invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
+                invocation.queueParameters = createSandboxParams({ to: { email: recipient() } })
+
+                await service.executeSendEmail(invocation)
+                await emailStatusService.flush()
+
+                const rows = produce.mock.calls.map(([, message]) => parseJSON(message.value.toString()))
+                expect(rows).toEqual([
+                    expect.objectContaining({
+                        team_id: team.id,
+                        message_id: invocation.id,
+                        status: 'failed',
+                        reason: expectedReason,
+                    }),
+                ])
+            })
         })
         describe('integration validation', () => {
             beforeEach(async () => {

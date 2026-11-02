@@ -31,6 +31,7 @@ import { InvocationResultsService } from './services/invocation-results.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { HogFunctionTemplateManagerService } from './services/managers/hog-function-template-manager.service'
 import { IntegrationManagerService } from './services/managers/integration-manager.service'
+import { OrganizationMembersService } from './services/managers/organization-members.service'
 import { PersonsManagerService } from './services/managers/persons-manager.service'
 import { RecipientsManagerService } from './services/managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
@@ -43,6 +44,7 @@ import { MessageAssetsService } from './services/messaging/message-assets.servic
 import { PushNotificationService } from './services/messaging/push-notification.service'
 import { RecipientPreferencesService } from './services/messaging/recipient-preferences.service'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
+import { SandboxEmailSender } from './services/messaging/sandbox-email-sender'
 import { HogFunctionMonitoringService } from './services/monitoring/hog-function-monitoring.service'
 import { HogInvocationResultsService } from './services/monitoring/hog-invocation-results.service'
 import { HogWatcherService } from './services/monitoring/hog-watcher.service'
@@ -171,6 +173,10 @@ export type CdpCoreServicesConfig = Pick<
         | 'SES_ENDPOINT'
         | 'SES_TRACKED_CONFIGURATION_SET'
         | 'SES_UNTRACKED_CONFIGURATION_SET'
+        | 'WORKFLOWS_SANDBOX_SENDER_ENABLED'
+        | 'SES_SANDBOX_TENANT_NAME'
+        | 'SES_SANDBOX_CONFIGURATION_SET'
+        | 'SES_SANDBOX_FROM_ADDRESS'
         | 'EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD'
         | 'EMAIL_TEAM_SENDING_CAP_MODE'
         | 'EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER'
@@ -482,7 +488,18 @@ export function createCdpCoreServices(
         emailStatusService,
         messageAssetsService,
         workflowEmailRateLimiter,
-        teamEmailRateLimiter
+        teamEmailRateLimiter,
+        new SandboxEmailSender(
+            {
+                enabled: config.WORKFLOWS_SANDBOX_SENDER_ENABLED,
+                tenantName: config.SES_SANDBOX_TENANT_NAME,
+                configurationSetName: config.SES_SANDBOX_CONFIGURATION_SET,
+                fromAddress: config.SES_SANDBOX_FROM_ADDRESS,
+            },
+            deps.teamManager,
+            redis
+        ),
+        new OrganizationMembersService(deps.postgres)
     )
     const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
     const hogInputsService = new HogInputsService(deps.integrationManager, recipientTokensService, deps.encryptedFields)
