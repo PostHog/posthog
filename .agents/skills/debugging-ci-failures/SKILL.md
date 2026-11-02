@@ -364,8 +364,10 @@ Load the `depot-ci` skill for the flags.
 depot ci run --workflow .depot/workflows/ci-backend.yml --job <job>
 ```
 
-- `<job>` is one of `repo-checks`, `check-migrations`, `check-openapi-types` or `sdk-major-guard`.
-  The CLI adds the `changes` job that they need.
+- `<job>` is `repo-checks` or `sdk-major-guard`. The CLI adds the `changes` job that they need.
+- Do not use `check-migrations` or `check-openapi-types`.
+  `check-migrations` checks out the repository a second time, after the patch step.
+  `check-openapi-types` fails on any unstaged diff, and the patch step leaves the patch unstaged.
 - Always pass `--job`. Depot rejects an inline workflow over 65,535 bytes before any job starts, and the whole `ci-backend.yml` is larger than that.
 - Start at most 2 runs per task without approval. Ask the user before each run after that.
 - Never run another job this way without approval.

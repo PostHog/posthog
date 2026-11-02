@@ -150,8 +150,10 @@ env:
     # The root conftest ends a green pytest session with os._exit once every report is written.
     # That also hides a crash during interpreter teardown, so the hourly schedule exits normally.
     POSTHOG_PYTEST_HARD_EXIT: ${{ github.event_name == 'schedule' && '0' || '1' }}
-    # Scheduled runs test master even when Depot does not populate github.ref.
-    IS_MASTER: ${{ github.event_name == 'schedule' || github.ref == 'refs/heads/master' }}
+    # Scheduled runs test master even when Depot does not populate github.ref. A `depot ci run`
+    # (event `api`) also has ref refs/heads/master but carries an unreviewed local patch, so it
+    # must not write the caches and timing data that master runs share.
+    IS_MASTER: ${{ github.event_name == 'schedule' || (github.ref == 'refs/heads/master' && github.event_name != 'api') }}
     # Depot CI runners expose OTEL_SERVICE_NAME=ci-worker ambient; GitHub Actions test steps do not.
     # Left set, it leaks into settings.OTEL_SERVICE_NAME (personhog metric client_name label) and
     # diverges from test assertions. Blank it to match the GHA environment. Depot also injects
