@@ -1,26 +1,7 @@
-// Weekly CI digest, posted to #alerts-devex on Monday.
-//
-// It reports the last 7 complete UTC days next to the 7 days before them, in one Slack table.
-// Spend is what Depot bills, at Depot's prices, for every repository in the organization:
-//
-//   - runners: minutes Depot billed for GitHub Actions jobs, from Depot's usage API. The minutes are
-//     already weighted by runner size, the way Depot counts them.
-//   - Depot CI: run time of every Depot CI job attempt, from the engineering_analytics
-//     depot_ci_usage endpoint. Depot's usage API has no Depot CI figures. The endpoint covers the
-//     repositories that have a Depot source in the PostHog project, and a context line names them.
-//   - container builds: minutes Depot billed for image builds, from Depot's usage API.
-//
-// The other rows cover this repository only. `$ / merged PR` divides this repository's runner and
-// Depot CI spend by its merged pull requests, bots included. `ready→merge median` comes from the
-// engineering_analytics repo_overview endpoint, and falls back to the open→merge median when the
-// draft and ready transitions are not synced.
-//
-// A sentence under the table says how much of the Depot contract is used and when it runs out at
-// last week's spend. Cache storage is not counted. Depot CI counts only the attempts the warehouse
-// holds, so Depot CI that ran before a Depot source started syncing is missing from the total.
-//
-// The digest posts without the spend rows when Depot's API or the depot_ci_usage endpoint fails,
-// and without the contract sentence when the contract variables are not set.
+// Weekly CI digest for #alerts-devex. It compares the last 7 complete UTC days with the 7 days before.
+// Spend covers every repository in the organization. Runner and container build minutes come from
+// Depot's usage API. Depot CI comes from the depot_ci_usage endpoint, which counts only repositories
+// with a synced Depot source. Cache storage is not counted.
 
 import { pathToFileURL } from 'node:url'
 
@@ -35,18 +16,16 @@ const DRY_RUN = ['1', 'true', 'yes'].includes((process.env.DRY_RUN || '').toLowe
 
 const GITHUB_SERVER_URL = process.env.GITHUB_SERVER_URL || 'https://github.com'
 const GITHUB_REPOSITORY = process.env.GITHUB_REPOSITORY || ''
-// 'owner/repo/.github/workflows/x.yml@refs/heads/master', set by Actions on every run, so the
-// digest's link to this workflow survives a rename of the file.
+// 'owner/repo/.github/workflows/x.yml@refs/heads/master'. Actions sets it, so the edit link survives a rename.
 const GITHUB_WORKFLOW_REF = process.env.GITHUB_WORKFLOW_REF || ''
 const GITHUB_REF_NAME = process.env.GITHUB_REF_NAME || 'master'
 
-// The contract terms come from repository variables, so a renewal needs no code change.
 const DEPOT_TOKEN = process.env.DEPOT_TOKEN || ''
 const DEPOT_CONTRACT_USD = Number(process.env.DEPOT_CONTRACT_USD || 0)
 const DEPOT_CONTRACT_START = process.env.DEPOT_CONTRACT_START || ''
 const DEPOT_CONTRACT_END = process.env.DEPOT_CONTRACT_END || ''
 
-// Depot's price per billed minute. Depot CI is priced by the depot_ci_usage endpoint.
+// The depot_ci_usage endpoint prices Depot CI.
 const RUNNER_USD_PER_MINUTE = 0.004
 const BUILD_USD_PER_MINUTE = 0.04
 
@@ -54,7 +33,7 @@ const DAY_MS = 24 * 60 * 60 * 1000
 const WEEK_MS = 7 * DAY_MS
 
 function billedMinutes(entry) {
-    // Protobuf JSON omits scalar fields at their zero default.
+    // Protobuf JSON omits a field at its zero default.
     const minutes = entry?.minutesBilled ?? 0
     if (!Number.isFinite(minutes) || minutes < 0) {
         throw new Error('Depot GetUsage returned invalid billed minutes')
@@ -62,9 +41,9 @@ function billedMinutes(entry) {
     return minutes
 }
 
-// Runner and container build spend Depot reports for [startAt, endAt), for the whole organization
-// and for this repository.
 async function depotUsageSpend(startAt, endAt) {
+    // Error messages are fixed text, because they reach the public Actions log and Depot's responses
+    // carry billing data.
     const res = await fetch('https://api.depot.dev/depot.core.v1.UsageService/GetUsage', {
         method: 'POST',
         headers: {
@@ -74,13 +53,11 @@ async function depotUsageSpend(startAt, endAt) {
         },
         body: JSON.stringify({ startAt: startAt.toISOString(), endAt: endAt.toISOString() }),
         signal: AbortSignal.timeout(60_000),
-    })
-    if (!res.ok) {
-        // The response body stays out of the message, because the message goes to the public Actions log.
-        throw new Error(`Depot GetUsage -> ${res.status}`)
+    }).catch(() => null)
+    if (!res?.ok) {
+        throw new Error(`Depot GetUsage failed${res ? ` with ${res.status}` : ''}`)
     }
-    const usage = await res.json()
-    // Protobuf JSON omits empty repeated fields.
+    const usage = await res.json().catch(() => null)
     const jobs = usage?.githubActionsJobs ?? []
     const builds = usage?.containerBuild ?? []
     if (!usage || typeof usage !== 'object' || !Array.isArray(jobs) || !Array.isArray(builds)) {
@@ -89,12 +66,9 @@ async function depotUsageSpend(startAt, endAt) {
     let runners = 0
     let repoRunners = 0
     for (const repo of jobs) {
-        if (!repo?.total) {
-            throw new Error('Depot GetUsage returned a repository without totals')
-        }
-        const usd = billedMinutes(repo.total) * RUNNER_USD_PER_MINUTE
+        const usd = billedMinutes(repo?.total) * RUNNER_USD_PER_MINUTE
         runners += usd
-        if (isThisRepository(repo.repo)) {
+        if (isThisRepository(repo?.repo)) {
             repoRunners += usd
         }
     }
@@ -102,7 +76,6 @@ async function depotUsageSpend(startAt, endAt) {
     return { runners, repoRunners, containerBuilds }
 }
 
-// Depot CI spend for [startAt, endAt), per repository with a synced Depot source.
 async function depotCiSpend(startAt, endAt) {
     const usage = await apiWithRetry('depot_ci_usage', {
         date_from: startAt.toISOString(),
@@ -111,11 +84,10 @@ async function depotCiSpend(startAt, endAt) {
     if (!Array.isArray(usage) || usage.some((repo) => !Number.isFinite(repo?.estimated_cost_usd))) {
         throw new Error('depot_ci_usage returned invalid usage')
     }
+    const sum = (repos) => repos.reduce((total, repo) => total + repo.estimated_cost_usd, 0)
     return {
-        depotCi: usage.reduce((sum, repo) => sum + repo.estimated_cost_usd, 0),
-        repoDepotCi: usage
-            .filter((repo) => isThisRepository(repo.repo))
-            .reduce((sum, repo) => sum + repo.estimated_cost_usd, 0),
+        depotCi: sum(usage),
+        repoDepotCi: sum(usage.filter((repo) => isThisRepository(repo.repo))),
         depotCiRepos: usage.map((repo) => repo.repo),
     }
 }
@@ -144,8 +116,14 @@ function contractDates(weekEnd) {
     return valid ? { start, end } : null
 }
 
-// Spend for the reported week, the week before it, and the contract so far, or null when any of it
-// cannot be read. The digest then posts without spend, because a partial total would mislead.
+function unavailable(what) {
+    return (err) => {
+        console.warn(`${what} unavailable: ${err.message}. Posting without it.`)
+        return null
+    }
+}
+
+// Null when either week cannot be read, because a partial total would mislead.
 async function readSpend(weekStart, weekEnd) {
     if (!DEPOT_TOKEN) {
         console.warn('DEPOT_TOKEN not set. Posting without spend.')
@@ -155,19 +133,20 @@ async function readSpend(weekStart, weekEnd) {
     if (!contract) {
         console.warn('Depot contract variables missing or invalid. Posting without the contract sentence.')
     }
-    try {
-        const [lastWeek, priorWeek, contractToDate] = await Promise.all([
-            spend(weekStart, weekEnd),
-            spend(new Date(weekStart.getTime() - WEEK_MS), weekStart),
-            contract ? spend(contract.start, weekEnd) : null,
-        ])
-        return { lastWeek, priorWeek, contract: contract && { ...contract, used: contractToDate.total } }
-    } catch (err) {
-        // A Depot error stays out of the public Actions log, because a parse error can quote billing data.
-        const reason = err.message.startsWith('depot_ci_usage') ? ` (${err.message})` : ''
-        console.warn(`Spend unavailable${reason}. Posting without spend.`)
+    const [weeks, used] = await Promise.all([
+        Promise.all([spend(weekStart, weekEnd), spend(new Date(weekStart.getTime() - WEEK_MS), weekStart)]).catch(
+            unavailable('Spend')
+        ),
+        contract &&
+            spend(contract.start, weekEnd)
+                .then((contractSpend) => contractSpend.total)
+                .catch(unavailable('Contract spend')),
+    ])
+    if (!weeks) {
         return null
     }
+    const [lastWeek, priorWeek] = weeks
+    return { lastWeek, priorWeek, contract: used == null ? null : { ...contract, used } }
 }
 
 function isoDay(date) {
@@ -175,7 +154,7 @@ function isoDay(date) {
 }
 
 function contractSummary(contract, weeklySpend, weekEnd) {
-    const used = `Depot contract: ${fmtUsd(contract.used)} of ${fmtUsd(DEPOT_CONTRACT_USD)} used through ${isoDay(new Date(weekEnd.getTime() - DAY_MS))}, counting runners, Depot CI and container builds. Cache storage is not counted.`
+    const used = `Depot contract: ${fmtUsd(contract.used)} of ${fmtUsd(DEPOT_CONTRACT_USD)} used through ${isoDay(new Date(weekEnd.getTime() - DAY_MS))}, not counting cache storage.`
     const remaining = DEPOT_CONTRACT_USD - contract.used
     if (remaining <= 0) {
         return `${used} The contract is used up.`
@@ -201,26 +180,20 @@ async function api(action, params) {
             url.searchParams.set(k, v)
         }
     }
-    // Bounds every attempt. The gateway answers within about 2 minutes, so this only catches a hung
-    // connection, and the worst case of all retries stays inside the workflow's timeout-minutes.
+    // Catches a hung connection. Every retry together stays inside the job's timeout-minutes.
     const res = await fetch(url, {
         headers: { Authorization: `Bearer ${API_KEY}` },
         signal: AbortSignal.timeout(150_000),
     })
-    const body = await res.text()
-    const fail = (detail, retryable) => {
+    // A 4xx is a configuration error that a retry cannot fix.
+    const retryable = res.ok || res.status >= 500 || res.status === 429
+    const fail = (detail) => {
         throw Object.assign(new Error(`${action} -> ${res.status}: ${detail}`), { retryable })
     }
-    let parsed
-    try {
-        parsed = JSON.parse(body)
-    } catch {
-        // The endpoints answer only in JSON. Anything else is a proxy or maintenance page, so retry.
-        fail(`non-JSON response (${body.slice(0, 120)})`, true)
-    }
+    // The message never quotes the body, because depot_ci_usage returns billing data.
+    const parsed = await res.json().catch(() => fail('non-JSON response'))
     if (!res.ok) {
-        // A 4xx is a configuration error that a retry cannot fix. A 5xx or 429 can pass.
-        fail(parsed?.detail || body, res.status >= 500 || res.status === 429)
+        fail(typeof parsed?.detail === 'string' ? parsed.detail : 'request failed')
     }
     return parsed
 }
@@ -228,8 +201,7 @@ async function api(action, params) {
 const RETRY_ATTEMPTS = 3
 const RETRY_DELAY_MS = 30_000
 
-// The warehouse queries share a ClickHouse cluster with everything else, and a busy Monday morning
-// can push one attempt past the API gateway's timeout. Network errors and aborts retry too.
+// A busy ClickHouse cluster can push one attempt past the API gateway's timeout.
 async function apiWithRetry(action, params) {
     for (let attempt = 1; ; attempt++) {
         try {
@@ -286,41 +258,47 @@ function cell(text) {
 
 const HIDDEN = 'hidden in dry runs'
 
-// One row per metric. A metric is left out when either week lacks it, so a source that is not
-// synced yet gives a shorter table instead of a broken one.
+// Null when either week lacks the metric, so a source that is not synced yet gives a shorter table.
+function compare(metric, current, previous, format) {
+    if (current == null || previous == null) {
+        return null
+    }
+    return [metric, format(current), format(previous), fmtDelta(current, previous)]
+}
+
+function spendRows({ lastWeek: last, priorWeek: prior }, overview) {
+    const perPr = (week, merges) => (merges ? (week.repoRunners + week.repoDepotCi) / merges : null)
+    return [
+        compare('Depot spend', last.total, prior.total, fmtUsd),
+        compare('└ runners', last.runners, prior.runners, fmtUsd),
+        compare('└ Depot CI', last.depotCi, prior.depotCi, fmtUsd),
+        compare('└ container builds', last.containerBuilds, prior.containerBuilds, fmtUsd),
+        compare(
+            '$ / merged PR',
+            perPr(last, overview.merged_pr_count),
+            perPr(prior, overview.merged_pr_count_prev),
+            fmtUsd
+        ),
+    ].filter(Boolean)
+}
+
 function tableRows(overview, weeks) {
-    const rows = []
-    const add = (metric, current, previous, format) => {
-        if (current == null || previous == null) {
-            return
-        }
-        // Actions logs are public, so a dry run prints no spend.
-        rows.push(
-            DRY_RUN && format === fmtUsd
-                ? [cell(metric), cell(HIDDEN), cell(HIDDEN), cell(HIDDEN)]
-                : [cell(metric), cell(format(current)), cell(format(previous)), cell(fmtDelta(current, previous))]
-        )
-    }
-    if (weeks) {
-        const [last, prior] = [weeks.lastWeek, weeks.priorWeek]
-        const perPr = (week, merges) => (merges ? (week.repoRunners + week.repoDepotCi) / merges : null)
-        add('Depot spend', last.total, prior.total, fmtUsd)
-        add('└ runners', last.runners, prior.runners, fmtUsd)
-        add('└ Depot CI', last.depotCi, prior.depotCi, fmtUsd)
-        add('└ container builds', last.containerBuilds, prior.containerBuilds, fmtUsd)
-        add('$ / merged PR', perPr(last, overview.merged_pr_count), perPr(prior, overview.merged_pr_count_prev), fmtUsd)
-    }
-    add('merged PRs', overview.merged_pr_count, overview.merged_pr_count_prev, fmtInt)
-    // Both weeks need ready→merge to compare like with like, so a repository without the issue-events
-    // sync, or a week that straddles its first sync, shows open→merge instead.
+    const spend = weeks ? spendRows(weeks, overview) : []
+    // Both weeks need ready→merge to compare like with like. Otherwise the row shows open→merge.
     const ready = overview.median_ready_to_merge_seconds != null && overview.median_ready_to_merge_seconds_prev != null
-    add(
-        ready ? 'ready→merge median' : 'open→merge median',
-        ready ? overview.median_ready_to_merge_seconds : overview.median_open_to_merge_seconds,
-        ready ? overview.median_ready_to_merge_seconds_prev : overview.median_open_to_merge_seconds_prev,
-        fmtLongDuration
-    )
-    return rows
+    return [
+        // Actions logs are public, so a dry run prints no spend.
+        ...(DRY_RUN ? spend.map(([metric]) => [metric, HIDDEN, HIDDEN, HIDDEN]) : spend),
+        compare('merged PRs', overview.merged_pr_count, overview.merged_pr_count_prev, fmtInt),
+        compare(
+            ready ? 'ready→merge median' : 'open→merge median',
+            ready ? overview.median_ready_to_merge_seconds : overview.median_open_to_merge_seconds,
+            ready ? overview.median_ready_to_merge_seconds_prev : overview.median_open_to_merge_seconds_prev,
+            fmtLongDuration
+        ),
+    ]
+        .filter(Boolean)
+        .map((row) => row.map(cell))
 }
 
 function buildBlocks(weekStart, weekEnd, rows, notes) {
@@ -355,7 +333,7 @@ function spendNotes(weeks, weekEnd) {
     const notes = [
         repos.length
             ? `Depot CI counts ${repos.join(', ')}.`
-            : 'Depot CI counts no repository: no Depot source is synced.',
+            : 'Depot CI counts no repository, because no Depot source is synced.',
     ]
     if (weeks.contract) {
         notes.push(
@@ -390,14 +368,14 @@ export async function main() {
         console.warn('POSTHOG_PROJECT_ID or POSTHOG_API_KEY not set. Skipping the digest.')
         return
     }
-    // The window ends at the last UTC midnight, not at run time. Depot sources sync on a schedule and a
-    // running job has no duration yet, so the last hours before the run are incomplete. Whole UTC days
-    // also match the days on Depot's usage page, so a reader can check the figures there.
+    // The window ends at the last UTC midnight. Depot sources sync on a schedule and a running job has
+    // no duration yet, so the hours before the run are incomplete. Whole UTC days also match Depot's
+    // usage page, so a reader can check the figures there.
     const weekEnd = new Date()
     weekEnd.setUTCHours(0, 0, 0, 0)
     const weekStart = new Date(weekEnd.getTime() - WEEK_MS)
     const [overview, weeks] = await Promise.all([
-        // Every figure comes with its value for the 7 days before date_from, so one call covers both weeks.
+        // Every figure carries its value for the 7 days before date_from, so one call covers both weeks.
         apiWithRetry('repo_overview', {
             date_from: weekStart.toISOString(),
             date_to: weekEnd.toISOString(),
@@ -409,7 +387,6 @@ export async function main() {
     ])
     const rows = tableRows(overview, weeks)
     if (rows.length === 0) {
-        // Fail the job so the breakage is visible instead of posting an empty table.
         throw new Error('No figures to post. Check the GitHub and Depot sources and DEPOT_TOKEN.')
     }
     const blocks = buildBlocks(weekStart, weekEnd, rows, spendNotes(weeks, weekEnd))

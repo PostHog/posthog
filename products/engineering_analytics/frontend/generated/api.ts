@@ -578,7 +578,7 @@ export const getEngineeringAnalyticsDepotCiUsageUrl = (
 }
 
 /**
- * Depot CI run time and estimated cost per repository over a window (default -7d), one entry per synced Depot source. Reads the raw job attempts, so it counts what Depot bills, unlike the workflow and cost reads, which hide hand-off jobs. Empty when no Depot source is synced.
+ * Depot CI run time and estimated cost over a window (default -7d), one entry per synced Depot source. Unlike the workflow and cost reads, it counts hand-off jobs, because Depot bills them. Empty when no Depot source is synced.
  */
 export const engineeringAnalyticsDepotCiUsage = async (
     projectId: string,

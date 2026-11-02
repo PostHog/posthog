@@ -140,11 +140,24 @@ describe('weekly engineering analytics digest', () => {
         })
     }
 
-    it('posts spend without the contract sentence when the contract variables are missing', async (t) => {
-        const { blocks } = await runDigest(t, { env: { DEPOT_CONTRACT_USD: '' } })
-        assert.equal(tableText(blocks)[0][0], 'Depot spend')
-        assert.ok(blocks.every((block) => !block.text?.text.startsWith('Depot contract')))
-    })
+    for (const [name, override] of [
+        ['the contract variables are missing', { env: { DEPOT_CONTRACT_USD: '' } }],
+        [
+            'the contract read fails',
+            {
+                depotCiUsage: {
+                    ...DEPOT_CI_USAGE,
+                    [CONTRACT]: Response.json({ detail: 'Not found.' }, { status: 404 }),
+                },
+            },
+        ],
+    ]) {
+        it(`posts spend without the contract sentence when ${name}`, async (t) => {
+            const { blocks } = await runDigest(t, override)
+            assert.equal(tableText(blocks)[0][0], 'Depot spend')
+            assert.ok(blocks.every((block) => !block.text?.text.startsWith('Depot contract')))
+        })
+    }
 
     for (const [name, override] of [
         [
@@ -158,11 +171,11 @@ describe('weekly engineering analytics digest', () => {
             { depotUsage: { ...DEPOT_USAGE, [PRIOR_WEEK]: { githubActionsJobs: [{ total: { minutesBilled: -1 } }] } } },
         ],
         [
-            'a missing depot_ci_usage endpoint',
+            'a non-JSON depot_ci_usage response',
             {
                 depotCiUsage: {
                     ...DEPOT_CI_USAGE,
-                    [CONTRACT]: Response.json({ detail: 'Not found.' }, { status: 404 }),
+                    [WEEK]: new Response('confidential-response', { status: 400 }),
                 },
             },
         ],

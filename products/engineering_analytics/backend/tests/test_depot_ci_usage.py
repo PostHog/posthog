@@ -16,7 +16,7 @@ class TestDepotCIUsage(_WarehouseMixin):
         self._create_depot_table(
             [
                 _attempt("aaaaaaaaaa", "2026-10-27T10:00:00Z", "2026-10-27T10:10:00Z"),
-                # A hand-off job, hidden from the curated CI reads but billed by Depot.
+                # The curated CI reads drop this hand-off job, but Depot bills it.
                 _attempt(
                     "bbbbbbbbbb",
                     "2026-10-28T10:00:00.500Z",
@@ -34,7 +34,7 @@ class TestDepotCIUsage(_WarehouseMixin):
             team=self.team, date_from="2026-10-26T00:00:00Z", date_to="2026-11-02T00:00:00Z"
         )
 
-        assert (usage.repo, usage.attempts, usage.elapsed_seconds) == ("posthog/posthog", 2, 899.5)
+        assert (usage.repo, usage.elapsed_seconds) == ("posthog/posthog", 899.5)
         assert usage.estimated_cost_usd == pytest.approx(899.5 * 2 * 0.00005)
 
     def test_is_empty_without_a_depot_source(self) -> None:

@@ -1,9 +1,7 @@
 name: Engineering analytics weekly digest
 
-# Posts a weekly CI digest to #alerts-devex every Monday: Depot spend, spend per merged pull request,
-# merged pull requests and the ready-to-merge median, each next to the week before. The script reads
-# Depot's usage API and the engineering_analytics product's repo_overview and depot_ci_usage
-# endpoints. See .github/scripts/eng-analytics-weekly-digest.mjs for what each row counts.
+# Posts last week's Depot spend and pull request figures to #alerts-devex every Monday.
+# .github/scripts/eng-analytics-weekly-digest.mjs says where each figure comes from.
 #
 # Required. Until these are set, the job logs a warning and posts nothing:
 #   - vars.ENG_ANALYTICS_PROJECT_ID: the PostHog project with the GitHub and Depot warehouse sources.
@@ -34,8 +32,8 @@ permissions:
 jobs:
     digest:
         runs-on: ubuntu-24.04
-        # The endpoint calls run in parallel. Each retries 3 times with a 150s abort and 30s between
-        # attempts, about 8.5 minutes at worst, and the Depot usage calls abort after 60s.
+        # The endpoint calls run in parallel. The slowest takes about 8.5 minutes: 3 attempts of 150s
+        # with 30s between them.
         timeout-minutes: 12
         # Never run from forks (no secret access anyway), only the canonical repo.
         # Manual dispatch is master-only so branch-controlled code can't run with the secrets.

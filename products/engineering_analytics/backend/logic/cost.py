@@ -34,7 +34,7 @@ from enum import StrEnum
 # documented follow-up (SPEC section 7).
 REFERENCE_RATE_USD_PER_MIN = 0.004
 
-# Depot CI list price. Depot CI bills vCPU-seconds, at a different rate from a Depot runner minute.
+# Depot CI list price. Depot CI bills vCPU-seconds, not runner minutes.
 DEPOT_CI_RATE_USD_PER_VCPU_SECOND = 0.00005
 
 # Depot billing multiplier per vCPU count (2cpu = 1x, doubling each step).
@@ -208,10 +208,7 @@ def estimate_job_cost_usd(
 
 
 def estimate_depot_ci_cost_usd(elapsed_seconds: float) -> float:
-    """Estimated Depot CI dollar cost of attempts that ran for ``elapsed_seconds`` in total.
-
-    Depot's API reports no runs-on, so every attempt is priced as the default 2-vCPU sandbox.
-    """
+    # Depot's API reports no runs-on, so every attempt is priced as the default 2-vCPU sandbox.
     return elapsed_seconds * _DEFAULT_DEPOT_VCPU * DEPOT_CI_RATE_USD_PER_VCPU_SECOND
 
 

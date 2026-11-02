@@ -704,17 +704,13 @@ class DepotCIRepoUsageSerializer(DataclassSerializer):
         dataclass = DepotCIRepoUsage
         extra_kwargs = {
             "repo": {"help_text": "Repository the Depot source syncs, as lowercase 'owner/name'."},
-            "attempts": {"help_text": "Finished Depot CI job attempts that started in the window."},
             "elapsed_seconds": {
-                "help_text": "Sum of those attempts' run time, start to finish. Includes hand-off jobs and "
-                "re-runs that the other CI reads hide, because Depot bills them."
+                "help_text": "Run time of the finished Depot CI job attempts that started in the window, hand-off jobs "
+                "included."
             },
             "estimated_cost_usd": {
-                "help_text": "elapsed_seconds at the Depot CI list price, with every attempt priced as the "
-                "default 2-vCPU sandbox because Depot reports no runner size per attempt."
-            },
-            "synced_at": {
-                "help_text": "When the Depot source last synced. Attempts that finished after it are not counted."
+                "help_text": "elapsed_seconds at the Depot CI list price for a 2-vCPU sandbox. Depot does not report "
+                "the sandbox size of an attempt."
             },
         }
 
