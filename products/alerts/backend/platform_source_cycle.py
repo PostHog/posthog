@@ -43,6 +43,7 @@ from products.alerts.backend.evaluation import check_alert_for_insight
 from products.alerts.backend.evaluation.comparator import MAX_BREACH_MESSAGES
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, check_alert_per_series
+from products.alerts.backend.facade.contracts import INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION
 from products.alerts.backend.insight_alert_state_machine import INSIGHT_ALERT_POLICY, insight_snapshot
 from products.alerts.backend.judge.contract import (
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
@@ -52,6 +53,7 @@ from products.alerts.backend.judge.contract import (
 )
 from products.alerts.backend.llm_detector_limits import is_llm_detector_config
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
+from products.alerts.backend.logic.destinations import configured_destination_template_ids
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts.backend.platform_alert_wording import insight_alert_url
 from products.alerts.backend.platform_chart_detail import CHART_PENDING_KEY, RenderedChart
@@ -61,6 +63,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertEventKind,
     GroupingMode,
+    IncidentAction,
     InstanceCheckState,
     PlatformAlertCheckInput,
     PlatformAlertOutcome,
@@ -88,6 +91,7 @@ from products.alerts_platform.backend.facade.lifecycle import (
     apply_snooze,
     apply_unsnooze,
     decide_firing_episode,
+    decide_incident_action,
     evaluate_alert_check,
 )
 from products.alerts_platform.backend.facade.platform_metrics import (
@@ -493,16 +497,30 @@ def _evaluation(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -
 
 
 def _delivery(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> AlertDeliveryRequest | None:
+    """The delivery for a recorded outcome, or None when it neither announces nor moves a firing.
+
+    A firing that opens or closes needs a delivery even though no resolve is announced, because a
+    paging destination needs one resolve for every trigger. An alert with no such destination gets
+    no incident action, so its edges start no delivery.
+    """
     kinds = [group.kind for group in outcome.groups]
     if outcome.failure is not None:
         kinds.append(outcome.failure.kind)
-    if not any(kind.value in _EVENT_IDS_BY_KIND for kind in kinds):
-        return None
+    sends_messages = any(kind.value in _EVENT_IDS_BY_KIND for kind in kinds)
     # Destinations are matched on the legacy alert's id, so a copy without one has nobody to send to.
     if check.legacy_configuration_id is None:
         return None
     legacy_id = str(check.legacy_configuration_id)
     if not check.owned_by_platform and legacy_id not in LIVE_DELIVERY_INSIGHT_ALERT_IDS:
+        return None
+    actions = _incident_actions(check, outcome)
+    if actions and not configured_destination_template_ids(
+        team_id=check.team_id,
+        alert_id=legacy_id,
+        allowed_event_ids=tuple(INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION.values()),
+    ):
+        actions = {}
+    if not sends_messages and not actions:
         return None
     return AlertDeliveryRequest(
         source=SourceKind.INSIGHT,
@@ -512,12 +530,34 @@ def _delivery(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> 
         evaluation_key=outcome.evaluation_key,
         destination_alert_id=legacy_id,
         event_ids_by_kind=_EVENT_IDS_BY_KIND,
+        event_ids_by_incident_action=INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION,
+        incident_actions=actions,
+        sends_messages=sends_messages,
         source_alert_url=_alert_url(check, legacy_id),
         owned_by_platform=check.owned_by_platform,
         overflowed=outcome.overflowed,
         overflow_is_lower_bound=outcome.overflow_is_lower_bound,
-        parts=delivery_parts(outcome),
+        parts=delivery_parts(outcome, actions),
     )
+
+
+def _incident_actions(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> dict[str, IncidentAction]:
+    """Whether each group's firing opened or closed, read from the states rather than the announcement.
+
+    A failed check moves no instance, so its incident stays open with its firing. Closing it would
+    leave a re-enabled alert that still breaches firing with no incident.
+    """
+    policy = INSIGHT_ALERT_POLICY if check.grouping.mode == GroupingMode.SINGLE else GROUPED_INSIGHT_ALERT_POLICY
+    return {
+        group.grouping_key: action
+        for group in outcome.groups
+        if (
+            action := decide_incident_action(
+                AlertState(check.instance(group.grouping_key).state), AlertState(group.new_state), policy=policy
+            )
+        )
+        is not None
+    }
 
 
 def _alert_url(check: PlatformAlertCheckInput, legacy_id: str) -> str | None:
