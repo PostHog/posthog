@@ -244,6 +244,68 @@ class TestRailway:
         assert _batch_ids(result) == [["ev3"]]
         assert len(result.requests) == 4
 
+    def test_service_instances_resume_at_the_saved_environment_and_stage_the_next_position(self):
+        result = _run(
+            "service_instances",
+            [
+                _projects_page(["p1", "p2"]),
+                _connection(("environments",), [{"id": "e1"}, {"id": "e2"}]),
+                _connection(("environment", "serviceInstances"), [{"id": "si2", "serviceId": "s1"}], end_cursor="c4"),
+                _connection(("environment", "serviceInstances"), [{"id": "si3"}]),
+                _connection(("environments",), [{"id": "e3"}]),
+                _connection(("environment", "serviceInstances"), []),
+            ],
+            resume_state=RailwayResumeConfig(project_id="p1", parent_id="e2", cursor="c3"),
+        )
+
+        assert result.raised is None
+        assert _request_variables(result, 2) == {"environmentId": "e2", "first": 100, "after": "c3"}
+        assert _request_variables(result, 3)["after"] == "c4"
+        assert _request_variables(result, 5) == {"environmentId": "e3", "first": 100, "after": None}
+        assert result.items == [
+            [{"project_id": "p1", "id": "si2", "serviceId": "s1"}],
+            [{"project_id": "p1", "id": "si3"}],
+        ]
+        assert [(state.project_id, state.parent_id, state.cursor) for state in result.saved_states] == [
+            ("p1", "e2", "c4"),
+            ("p2", None, None),
+        ]
+
+    def test_volume_instance_backups_resume_at_the_saved_volume_instance(self):
+        result = _run(
+            "volume_instance_backups",
+            [
+                _projects_page(["p1"]),
+                _connection(("environments",), [{"id": "e1"}]),
+                _connection(
+                    ("environment", "volumeInstances"),
+                    [{"id": "vi1"}, {"id": "vi2", "volumeId": "v2", "serviceId": "s2"}, {"id": "vi3"}],
+                ),
+                {"data": {"volumeInstanceBackupList": [{"id": "b1"}]}},
+                {"data": {"volumeInstanceBackupList": []}},
+            ],
+            resume_state=RailwayResumeConfig(project_id="p1", parent_id="e1", child_id="vi2"),
+        )
+
+        assert result.raised is None
+        assert [_request_variables(result, index) for index in (3, 4)] == [
+            {"volumeInstanceId": "vi2"},
+            {"volumeInstanceId": "vi3"},
+        ]
+        assert result.items == [
+            [
+                {
+                    "project_id": "p1",
+                    "environment_id": "e1",
+                    "volume_instance_id": "vi2",
+                    "volume_id": "v2",
+                    "service_id": "s2",
+                    "id": "b1",
+                }
+            ]
+        ]
+        assert [(state.parent_id, state.child_id) for state in result.saved_states] == [("e1", "vi3")]
+
     @time_machine.travel("2024-07-03T12:00:00Z", tick=False)
     def test_usage_reads_one_day_window_per_workspace_from_the_watermark_day(self):
         result = _run(
@@ -375,6 +437,10 @@ class TestRailway:
         deployment_events = _run("deployment_events", [_projects_page([])]).response
         assert deployment_events is not None
         assert deployment_events.primary_keys == ["deployment_id", "id"]
+
+        backups = _run("volume_instance_backups", [_projects_page([])]).response
+        assert backups is not None
+        assert backups.primary_keys == ["volume_instance_id", "id"]
 
     @parameterized.expand(
         [
