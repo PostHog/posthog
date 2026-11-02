@@ -1,9 +1,10 @@
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from ipaddress import ip_address, ip_network
-from typing import Any
+from typing import Any, ParamSpec, TypeVar
 from uuid import uuid4
 
 from django.core.cache import cache
+from django.http import HttpRequest
 
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import BasePermission
@@ -17,12 +18,40 @@ __all__ = [
     "get_ip_restriction_denial",
     "get_restriction_client_ip",
     "is_ip_allowed",
+    "is_ip_restriction_exempt",
+    "ip_restrictions_exempt",
     "validate_ip_restrictions",
 ]
 
 _CACHE_KEY_PREFIX = "ip_restrictions:v2:principal"
 _CACHE_TTL_SECONDS = 60 * 5
 _CACHE_MISS = object()
+P = ParamSpec("P")
+R = TypeVar("R")
+
+
+def ip_restrictions_exempt(view: Callable[P, R]) -> Callable[P, R]:
+    """Mark a runtime endpoint that must remain available outside management IP restrictions."""
+    setattr(view, "ip_restrictions_exempt", True)  # noqa: B010 - Callable does not declare view metadata
+    return view
+
+
+def is_ip_restriction_exempt(request: HttpRequest) -> bool:
+    match = request.resolver_match
+    if match is None:
+        return False
+    callback = match.func
+    if getattr(callback, "ip_restrictions_exempt", False):
+        return True
+
+    # Viewsets also serve management actions, so only this request's action can opt out.
+    method = "get" if request.method == "HEAD" else (request.method or "").lower()
+    action = getattr(callback, "actions", {}).get(method)
+    if action is None:
+        return False
+    handler = getattr(getattr(callback, "cls", None), action, None)
+    return bool(getattr(handler, "ip_restrictions_exempt", False))
+
 
 # Credentials PostHog's own infrastructure uses to serve a request on the user's behalf. They
 # originate from our network, not the member's, so an organization's allowlist cannot judge them and
@@ -211,6 +240,10 @@ def enforce_ip_restrictions(request: Any, user: Any, authenticator: Any = None) 
     """
     from loginas.utils import is_impersonated_session
 
+    django_request = getattr(request, "_request", request)
+    if is_ip_restriction_exempt(django_request):
+        return
+
     if user is None or not getattr(user, "is_authenticated", False):
         return
 
@@ -218,7 +251,6 @@ def enforce_ip_restrictions(request: Any, user: Any, authenticator: Any = None) 
     if credential_type in _INTERNAL_CREDENTIAL_TYPES:
         return
 
-    django_request = getattr(request, "_request", request)
     if is_impersonated_session(django_request):
         return
 

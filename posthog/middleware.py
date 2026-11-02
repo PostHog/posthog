@@ -54,7 +54,7 @@ from posthog.helpers.impersonation import get_original_user_from_session, get_or
 from posthog.helpers.sso import sso_failure_redirect_url
 from posthog.helpers.user_devices import set_known_device_cookie
 from posthog.ingress.verify.schemes import hmac_sha256_signature, signatures_match
-from posthog.ip_restrictions import get_ip_restriction_denial, get_restriction_client_ip
+from posthog.ip_restrictions import get_ip_restriction_denial, get_restriction_client_ip, is_ip_restriction_exempt
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CLIENT_HEADER,
@@ -1665,7 +1665,7 @@ def organization_block_page(organization: Organization) -> Optional[str]:
     return None
 
 
-class IPRestrictionsMiddleware:
+class IPRestrictionsMiddleware(MiddlewareMixin):
     """Block requests from an IP that the caller's organization does not allow.
 
     Runs after `AuthenticationMiddleware` for session requests, checking every organization the user
@@ -1675,27 +1675,33 @@ class IPRestrictionsMiddleware:
     verified IP is available.
     """
 
-    def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
-        self.get_response = get_response
-
-    def __call__(self, request: HttpRequest) -> HttpResponse:
+    def process_view(
+        self,
+        request: HttpRequest,
+        view_func: Callable[..., HttpResponse],
+        view_args: tuple[object, ...],
+        view_kwargs: dict[str, object],
+    ) -> HttpResponse | None:
+        # URL resolution must finish before checking sessions so public runtime handlers can opt out.
+        if is_ip_restriction_exempt(request):
+            return None
         # A member who leaves the allowed network must still be able to sign out and switch
         # accounts. The logout view keeps its POST-only and CSRF protections.
         if request.path.startswith("/logout"):
-            return self.get_response(request)
+            return None
 
         if is_impersonated_session(request):
-            return self.get_response(request)
+            return None
 
         user = getattr(request, "user", None)
         if user is None or not user.is_authenticated:
             # Bearer-authenticated requests are checked after DRF resolves their principal.
-            return self.get_response(request)
+            return None
 
         client_ip = get_restriction_client_ip(request)
         denial = get_ip_restriction_denial(user, client_ip)
         if denial is None:
-            return self.get_response(request)
+            return None
 
         return JsonResponse(
             {

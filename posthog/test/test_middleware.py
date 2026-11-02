@@ -124,10 +124,17 @@ def _mcp_client_ip_headers(
 
 
 class TestIPRestrictionsMiddleware(APIBaseTest):
-    def test_blocks_an_ip_outside_the_allowlist(self):
+    @parameterized.expand(
+        [
+            ("/api/organizations/@current/",),
+            ("/api/projects/{team_id}/feature_flags/",),
+            ("/api/projects/{team_id}/conversations/tickets/",),
+        ]
+    )
+    def test_blocks_an_ip_outside_the_allowlist(self, path: str) -> None:
         OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
 
-        response = self.client.get("/api/organizations/@current/", REMOTE_ADDR="198.51.100.7")
+        response = self.client.get(path.format(team_id=self.team.id), REMOTE_ADDR="198.51.100.7")
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         data = response.json()
@@ -145,32 +152,34 @@ class TestIPRestrictionsMiddleware(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    @override_settings(ROOT_URLCONF=__name__)
     def test_cached_restrictions_skip_the_database_on_later_requests(self):
         OrganizationIPRestrictions.objects.create(
             organization=self.organization, ip_restrictions=["203.0.113.0/24"], enabled=True
         )
-        self.client.get("/api/ip-restrictions-cache-test/", REMOTE_ADDR="203.0.113.42")
+        self.client.get("/api/_http_request_id_probe/", REMOTE_ADDR="203.0.113.42")
 
         with CaptureQueriesContext(connection) as queries:
-            response = self.client.get("/api/ip-restrictions-cache-test/", REMOTE_ADDR="203.0.113.42")
+            response = self.client.get("/api/_http_request_id_probe/", REMOTE_ADDR="203.0.113.42")
 
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertFalse(
             any("posthog_organizationiprestrictions" in query["sql"] for query in queries.captured_queries)
         )
 
+    @override_settings(ROOT_URLCONF=__name__)
     def test_saving_restrictions_invalidates_the_cached_rules(self):
         config = OrganizationIPRestrictions.objects.create(
             organization=self.organization, ip_restrictions=["203.0.113.0/24"], enabled=True
         )
-        self.client.get("/api/ip-restrictions-cache-test/", REMOTE_ADDR="203.0.113.42")
+        self.client.get("/api/_http_request_id_probe/", REMOTE_ADDR="203.0.113.42")
 
         config.ip_restrictions = ["10.0.0.0/8"]
         # The signal invalidates the cache on commit, so run the queued callback before the next request.
         with self.captureOnCommitCallbacks(execute=True):
             config.save()
 
-        response = self.client.get("/api/ip-restrictions-cache-test/", REMOTE_ADDR="203.0.113.42")
+        response = self.client.get("/api/_http_request_id_probe/", REMOTE_ADDR="203.0.113.42")
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
