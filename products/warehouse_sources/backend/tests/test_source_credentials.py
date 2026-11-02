@@ -17,7 +17,7 @@ from posthog.models.integration.auth_types import catalogued_kinds, kind_auth_ty
 from posthog.models.integration.model import integration_kind_choices
 from posthog.models.team import Team
 
-from products.warehouse_sources.backend.facade.contracts import CREDENTIALS_REFERENCE_KEY, SharedCredentialsError
+from products.warehouse_sources.backend.facade.contracts import SharedCredentialsError
 from products.warehouse_sources.backend.facade.credential_kinds import CREDENTIAL_KINDS
 from products.warehouse_sources.backend.logic.credential_auth_types import (
     UnknownCredentialKindError,
@@ -30,14 +30,13 @@ from products.warehouse_sources.backend.logic.source_credentials import (
     CredentialsUnreadableError,
     WarehouseSourceCredentialsStore,
 )
+from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.presentation.views.external_data_source.shared_credentials import (
     shared_credentials_conflict_response,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_input_classification import (
     CLASSIFICATION_AUDIT_PATH,
-    JobInputKind,
-    classify_job_input_key,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -98,10 +97,22 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
             created_by=self.user,
         )
 
-    def _referencing(self, ref: int, source_type: ExternalDataSourceType = ExternalDataSourceType.POSTGRES) -> None:
+    def _create(self, source: ExternalDataSource, fields: dict[str, Any]) -> int:
+        reference = WarehouseSourceCredentialsStore.create(source, fields)
+        SourceInputsStore.save(source, SourceInputsStore.load(source))
+        assert reference.legacy_id is not None
+        return reference.legacy_id
+
+    def _referencing(self, pk: int, source_type: ExternalDataSourceType = ExternalDataSourceType.POSTGRES) -> None:
         source = self._source(source_type)
-        source.job_inputs = {CREDENTIALS_REFERENCE_KEY: str(ref)}
+        source.credentials_integration_id = str(pk)
         source.save()
+
+    def _fields_of_row(
+        self, pk: int, source_type: ExternalDataSourceType = ExternalDataSourceType.POSTGRES
+    ) -> dict[str, Any] | None:
+        reader = ExternalDataSource(team=self.team, source_type=source_type, credentials_integration_id=str(pk))
+        return WarehouseSourceCredentialsStore.get(reader)
 
     @parameterized.expand(
         [
@@ -145,9 +156,11 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
     ) -> None:
         source = self._source(source_type)
 
-        pk = WarehouseSourceCredentialsStore.create(source, fields)
+        reference = WarehouseSourceCredentialsStore.create(source, fields)
 
-        row = IntegrationManager.source(kind).any.get(self.team.id, pk)
+        assert reference.legacy_id is not None and reference.uuid is None
+        assert source.credentials_integration_id == str(reference.legacy_id)
+        row = IntegrationManager.source(kind).any.get(self.team.id, reference.legacy_id)
         assert (row.team_id, row.kind, row.auth_type, row.created_by_id) == (
             self.team.id,
             kind,
@@ -158,8 +171,28 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
         assert ("auth_type" in row.config) == stores_auth_type
         assert "fake" not in str(row.config)
         assert row.integration_id and row.integration_id != str(source.id)
-        assert WarehouseSourceCredentialsStore.get(source, pk) == fields
-        assert WarehouseSourceCredentialsStore.get(source, str(pk)) == fields
+        assert WarehouseSourceCredentialsStore.get(source) == fields
+        assert "credentials_integration_id" not in SourceInputsStore.load(source)
+
+    @parameterized.expand(
+        [
+            ("inputs_save", lambda source: SourceInputsStore.save(source, {"schema": "other"}), True),
+            ("model_save", lambda source: source.save(), True),
+            # A sync holds an old copy of its source, so a runtime write must not move the pointer.
+            ("runtime_write", lambda source: SourceInputsStore.update_runtime(source, {"cdc_slot_name": "s"}), False),
+            ("no_save", lambda source: None, False),
+        ]
+    )
+    def test_the_pointer_reaches_the_database_only_with_a_save_of_the_inputs(
+        self, _name: str, write: Any, saved: bool
+    ) -> None:
+        source = self._source()
+
+        reference = WarehouseSourceCredentialsStore.create(source, PG_FIELDS)
+        write(source)
+
+        stored = ExternalDataSource.objects.get(id=source.id).credentials_integration_id
+        assert stored == (str(reference) if saved else None)
 
     @parameterized.expand(
         [
@@ -178,7 +211,7 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
         assert typed_in_auth_type(source_type.value) == AuthType.CREDENTIALS
         assert AuthType.CREDENTIALS in kind_auth_types(kind).supported
 
-        pk = WarehouseSourceCredentialsStore.create(self._source(source_type), {"api_key": "fake-key"})
+        pk = self._create(self._source(source_type), {"api_key": "fake-key"})
 
         assert (_row(pk).kind, _row(pk).auth_type) == (kind, "credentials")
 
@@ -199,7 +232,7 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
         kind: str,
         visible_unqualified: bool,
     ) -> None:
-        pk = WarehouseSourceCredentialsStore.create(self._source(source_type), fields)
+        pk = self._create(self._source(source_type), fields)
 
         assert Integration.objects.filter(id=pk).exists() == visible_unqualified
         assert IntegrationManager.kinds(kind).get_many(self.team.id, [pk]) == {}
@@ -219,90 +252,98 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
 
         with self.assertRaises(error):
             WarehouseSourceCredentialsStore.create(source, {"token": "fake"})
+        assert source.credentials_integration_id is None
         assert not Integration.objects._with_auth(AuthTypeSelector.ANY).filter(team_id=self.team.pk).exists()
-        assert WarehouseSourceCredentialsStore.get(source, 1) is None
-        assert WarehouseSourceCredentialsStore.release(source, 1) is False
+        source.credentials_integration_id = "1"
+        assert WarehouseSourceCredentialsStore.get(source) is None
+        assert WarehouseSourceCredentialsStore.release(source) is False
 
     @parameterized.expand(
         [
             ("none", lambda store_pk, other: None),
             ("not_a_number", lambda store_pk, other: "abc"),
-            ("missing_pk", lambda store_pk, other: store_pk + 1000),
-            ("other_team", lambda store_pk, other: other["other_team"]),
-            ("other_kind", lambda store_pk, other: other["stripe"]),
-            ("unmarked_row_of_same_kind", lambda store_pk, other: other["native_postgres"]),
+            ("missing_pk", lambda store_pk, other: str(store_pk + 1000)),
+            ("other_team", lambda store_pk, other: str(other["other_team"])),
+            ("other_kind", lambda store_pk, other: str(other["stripe"])),
+            ("unmarked_row_of_same_kind", lambda store_pk, other: str(other["native_postgres"])),
+            # The credentials service is not readable yet, so a UUID resolves to no row.
+            ("uuid", lambda store_pk, other: str(uuid4())),
+            # Only the canonical form of the reference counts, so a bad write never reads another row.
+            ("leading_zero", lambda store_pk, other: f"0{store_pk}"),
+            ("whitespace", lambda store_pk, other: f" {store_pk}"),
+            ("signed", lambda store_pk, other: f"+{store_pk}"),
+            ("uuid_upper_case", lambda store_pk, other: str(uuid4()).upper()),
+            ("empty", lambda store_pk, other: ""),
         ]
     )
-    def test_get_returns_none_for_a_reference_the_source_cannot_use(self, _name: str, ref_of: Any) -> None:
+    def test_a_reference_the_source_cannot_use_is_no_row(self, _name: str, ref_of: Any) -> None:
         source = self._source()
-        store_pk = WarehouseSourceCredentialsStore.create(source, PG_FIELDS)
+        store_pk = self._create(source, PG_FIELDS)
         other_team = Team.objects.create(organization=self.organization, name="Other")
         other = {
-            "other_team": WarehouseSourceCredentialsStore.create(self._source(team=other_team), PG_FIELDS),
-            "stripe": WarehouseSourceCredentialsStore.create(
-                self._source(ExternalDataSourceType.STRIPE), STRIPE_FIELDS
-            ),
+            "other_team": self._create(self._source(team=other_team), PG_FIELDS),
+            "stripe": self._create(self._source(ExternalDataSourceType.STRIPE), STRIPE_FIELDS),
             "native_postgres": IntegrationManager.postgresql.credentials.create(
                 self.team.id, external_id="native", config={}, sensitive_config={"fields": PG_FIELDS}
             ).id,
         }
 
-        ref = ref_of(store_pk, other)
+        source.credentials_integration_id = ref_of(store_pk, other)
 
-        assert WarehouseSourceCredentialsStore.get(source, ref) is None
-        assert WarehouseSourceCredentialsStore.get_many([(source, ref)]) == {}
+        assert WarehouseSourceCredentialsStore.get(source) is None
+        assert WarehouseSourceCredentialsStore.get_many([source]) == {}
+        assert WarehouseSourceCredentialsStore.release(source) is False
+        with self.assertRaises(CredentialsNotFoundError):
+            WarehouseSourceCredentialsStore.update(source, {**PG_FIELDS, "password": "new"})
+        assert self._fields_of_row(store_pk) == PG_FIELDS
 
     @parameterized.expand(
         [("empty_dict", {}), ("no_fields_key", {"other": 1}), ("fields_not_a_mapping", {"fields": 5})]
     )
     def test_unreadable_row_is_reported_distinctly(self, _name: str, stored: dict[str, Any]) -> None:
         source = self._source()
-        pk = WarehouseSourceCredentialsStore.create(source, PG_FIELDS)
+        pk = self._create(source, PG_FIELDS)
         row = _row(pk)
         row.sensitive_config = stored
         row.save()
 
         with self.assertRaises(CredentialsUnreadableError) as raised:
-            WarehouseSourceCredentialsStore.get(source, pk)
+            WarehouseSourceCredentialsStore.get(source)
         assert "fake-password" not in str(raised.exception)
-        assert WarehouseSourceCredentialsStore.get_many([(source, pk)]) == {source.id: CredentialsUnreadable()}
+        assert WarehouseSourceCredentialsStore.get_many([source]) == {source.id: CredentialsUnreadable()}
 
     def test_undecryptable_leaf_is_unreadable_and_extra_layers_are_peeled(self) -> None:
         source, double_encrypted = self._source(), self._source()
         field = cast(EncryptedJSONField, Integration._meta.get_field("sensitive_config"))
         foreign_ciphertext = Fernet(Fernet.generate_key()).encrypt(b"fake-password").decode()
-        bad = WarehouseSourceCredentialsStore.create(source, {"host": "db.example.com", "password": foreign_ciphertext})
-        peeled = WarehouseSourceCredentialsStore.create(double_encrypted, {"password": field.encrypt("fake-password")})
+        self._create(source, {"host": "db.example.com", "password": foreign_ciphertext})
+        self._create(double_encrypted, {"password": field.encrypt("fake-password")})
 
         with self.assertRaises(CredentialsUnreadableError):
-            WarehouseSourceCredentialsStore.get(source, bad)
-        assert WarehouseSourceCredentialsStore.get(double_encrypted, peeled) == {"password": "fake-password"}
-        assert WarehouseSourceCredentialsStore.get_many([(source, bad), (double_encrypted, peeled)]) == {
+            WarehouseSourceCredentialsStore.get(source)
+        assert WarehouseSourceCredentialsStore.get(double_encrypted) == {"password": "fake-password"}
+        assert WarehouseSourceCredentialsStore.get_many([source, double_encrypted]) == {
             source.id: CredentialsUnreadable(),
             double_encrypted.id: {"password": "fake-password"},
         }
 
     def test_get_many_uses_one_query_per_team_and_source_type_and_skips_rows_a_source_cannot_use(self) -> None:
-        postgres, postgres_b, stripe, without_ref, wrong_kind = (
+        postgres, postgres_b, stripe, without_ref, wrong_kind, uuid_ref = (
             self._source(),
             self._source(),
             self._source(ExternalDataSourceType.STRIPE),
             self._source(),
             self._source(),
+            self._source(),
         )
-        postgres_pk = WarehouseSourceCredentialsStore.create(postgres, PG_FIELDS)
-        postgres_b_pk = WarehouseSourceCredentialsStore.create(postgres_b, {**PG_FIELDS, "host": "b.example.com"})
-        stripe_pk = WarehouseSourceCredentialsStore.create(stripe, STRIPE_FIELDS)
+        self._create(postgres, PG_FIELDS)
+        self._create(postgres_b, {**PG_FIELDS, "host": "b.example.com"})
+        wrong_kind.credentials_integration_id = str(self._create(stripe, STRIPE_FIELDS))
+        uuid_ref.credentials_integration_id = str(uuid4())
 
         with self.assertNumQueries(2):
             result = WarehouseSourceCredentialsStore.get_many(
-                [
-                    (postgres, postgres_pk),
-                    (postgres_b, postgres_b_pk),
-                    (stripe, stripe_pk),
-                    (without_ref, None),
-                    (wrong_kind, stripe_pk),
-                ]
+                [postgres, postgres_b, stripe, without_ref, wrong_kind, uuid_ref]
             )
 
         assert result == {
@@ -329,7 +370,7 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
         self, _name: str, other_user: str | None, new_fields: dict[str, Any], allow_shared: bool, outcome: str
     ) -> None:
         source = self._source()
-        pk = WarehouseSourceCredentialsStore.create(source, PG_FIELDS)
+        pk = self._create(source, PG_FIELDS)
         if other_user == "source":
             self._referencing(pk)
         workflows = (
@@ -342,21 +383,27 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
         ):
             if outcome == "conflict":
                 with self.assertRaises(SharedCredentialsError) as raised:
-                    WarehouseSourceCredentialsStore.update(source, pk, new_fields, allow_shared=allow_shared)
+                    WarehouseSourceCredentialsStore.update(source, new_fields, allow_shared=allow_shared)
                 assert raised.exception.integration_id == pk
                 assert [usage.type for usage in raised.exception.usages] == [
                     "workflow" if other_user == "workflow" else "warehouse_source"
                 ]
-                assert WarehouseSourceCredentialsStore.get(source, pk) == PG_FIELDS
+                assert source.credentials_integration_id == str(pk)
+                assert WarehouseSourceCredentialsStore.get(source) == PG_FIELDS
                 return
-            new_pk = WarehouseSourceCredentialsStore.update(source, str(pk), new_fields, allow_shared=allow_shared)
+            reference = WarehouseSourceCredentialsStore.update(source, new_fields, allow_shared=allow_shared)
 
+        new_pk = reference.legacy_id
+        assert new_pk is not None
+        assert source.credentials_integration_id == str(new_pk)
         if outcome == "in_place":
             assert new_pk == pk
         else:
             assert new_pk != pk
-            assert WarehouseSourceCredentialsStore.get(source, pk) == PG_FIELDS
-        assert WarehouseSourceCredentialsStore.get(source, new_pk) == {
+            assert self._fields_of_row(pk) == PG_FIELDS
+            # The source points at the new row only when the caller saves it with its inputs.
+            assert ExternalDataSource.objects.get(id=source.id).credentials_integration_id == str(pk)
+        assert WarehouseSourceCredentialsStore.get(source) == {
             key: str(value) if key == "port" else value for key, value in new_fields.items()
         }
         assert _row(new_pk).config[WAREHOUSE_SOURCE_TYPE_CONFIG_KEY] == "Postgres"
@@ -505,33 +552,29 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
         outcome: str,
     ) -> None:
         source = self._source(source_type)
-        pk = WarehouseSourceCredentialsStore.create(source, fields)
+        pk = self._create(source, fields)
         self._referencing(pk, source_type)
         new_fields = _with(fields, path, value)
 
         if outcome == "conflict":
             with self.assertRaises(SharedCredentialsError):
-                WarehouseSourceCredentialsStore.update(source, pk, new_fields)
-            assert WarehouseSourceCredentialsStore.get(source, pk) == fields
+                WarehouseSourceCredentialsStore.update(source, new_fields)
+            assert WarehouseSourceCredentialsStore.get(source) == fields
             return
-        new_pk = WarehouseSourceCredentialsStore.update(source, pk, new_fields)
-        assert new_pk != pk
-        assert WarehouseSourceCredentialsStore.get(source, pk) == fields
-        assert WarehouseSourceCredentialsStore.get(source, new_pk) == new_fields
+        new_pk = WarehouseSourceCredentialsStore.update(source, new_fields).legacy_id
+        assert new_pk is not None and new_pk != pk
+        assert self._fields_of_row(pk, source_type) == fields
+        assert WarehouseSourceCredentialsStore.get(source) == new_fields
 
-    @parameterized.expand(
-        [
-            ("missing_row", lambda other: 12345),
-            ("row_of_another_kind", lambda other: other),
-        ]
-    )
-    def test_update_of_a_row_the_source_cannot_use_raises(self, _name: str, ref_of: Any) -> None:
+    def test_update_of_a_row_of_another_kind_raises(self) -> None:
         stripe = self._source(ExternalDataSourceType.STRIPE)
-        stripe_pk = WarehouseSourceCredentialsStore.create(stripe, STRIPE_FIELDS)
+        stripe_pk = self._create(stripe, STRIPE_FIELDS)
+        postgres = self._source()
+        postgres.credentials_integration_id = str(stripe_pk)
 
         with self.assertRaises(CredentialsNotFoundError):
-            WarehouseSourceCredentialsStore.update(self._source(), ref_of(stripe_pk), PG_FIELDS)
-        assert WarehouseSourceCredentialsStore.get(stripe, stripe_pk) == STRIPE_FIELDS
+            WarehouseSourceCredentialsStore.update(postgres, PG_FIELDS)
+        assert WarehouseSourceCredentialsStore.get(stripe) == STRIPE_FIELDS
 
     @parameterized.expand(
         [
@@ -541,32 +584,34 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
     )
     def test_release_never_deletes_the_row(self, _name: str, shared: bool, orphaned: bool) -> None:
         source = self._source()
-        pk = WarehouseSourceCredentialsStore.create(source, PG_FIELDS)
+        pk = self._create(source, PG_FIELDS)
         if shared:
             self._referencing(pk)
 
-        assert WarehouseSourceCredentialsStore.release(source, pk) is orphaned
+        assert WarehouseSourceCredentialsStore.release(source) is orphaned
         assert IntegrationManager.source("postgresql").credentials.get(self.team.id, pk).id == pk
 
     def test_release_of_a_reference_the_source_cannot_use_is_a_no_op(self) -> None:
         source = self._source()
         oauth_row = IntegrationManager.hubspot.oauth.create(self.team.id, external_id="H1", config={})
 
-        assert WarehouseSourceCredentialsStore.release(source, oauth_row.id) is False
-        assert WarehouseSourceCredentialsStore.release(source, None) is False
+        source.credentials_integration_id = str(oauth_row.id)
+        assert WarehouseSourceCredentialsStore.release(source) is False
+        source.credentials_integration_id = None
+        assert WarehouseSourceCredentialsStore.release(source) is False
 
     @patch("products.warehouse_sources.backend.models.external_data_source.capture_exception")
     def test_soft_delete_keeps_the_row_and_survives_store_failure(self, capture: Any) -> None:
-        deleted, failing = self._source(), self._source()
+        deleted, failing, without_row = self._source(), self._source(), self._source()
         for source in (deleted, failing):
-            source.job_inputs = {CREDENTIALS_REFERENCE_KEY: WarehouseSourceCredentialsStore.create(source, PG_FIELDS)}
-            source.save()
+            self._create(source, PG_FIELDS)
 
         with patch.object(
             WarehouseSourceCredentialsStore, "release", wraps=WarehouseSourceCredentialsStore.release
         ) as release:
             deleted.soft_delete()
-        release.assert_called_once()
+            without_row.soft_delete()
+        release.assert_called_once_with(deleted)
         assert len(IntegrationManager.source("postgresql").any.list(self.team.id)) == 2
 
         with patch.object(WarehouseSourceCredentialsStore, "release", side_effect=RuntimeError("boom")):
@@ -579,14 +624,15 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
         [
             ("top_level_int", {"linear_integration_id": 7}, True),
             ("top_level_string", {"linear_integration_id": "7"}, True),
-            ("credentials_reference", {CREDENTIALS_REFERENCE_KEY: "7"}, True),
             ("nested", {"auth": {"hubspot_integration_id": 7}}, True),
+            # The typed-in pointer lives in the column, so a stale input of the same name is not a pointer.
+            ("column_name_in_inputs", {"credentials_integration_id": "7"}, False),
             ("other_integration", {"linear_integration_id": 8}, False),
             ("not_a_pointer_key", {"workspace_id": 7}, False),
             ("no_inputs", None, False),
         ]
     )
-    def test_reference_detection(self, _name: str, inputs: dict[str, Any] | None, expected: bool) -> None:
+    def test_reference_detection_in_inputs(self, _name: str, inputs: dict[str, Any] | None, expected: bool) -> None:
         source = self._source()
         source.job_inputs = inputs
         source.save()
@@ -597,41 +643,69 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
 
     @parameterized.expand(
         [
-            ("same_kind", ExternalDataSourceType.POSTGRES, True, False),
-            ("other_kind", ExternalDataSourceType.STRIPE, False, False),
-            ("encrypted_pointer_same_kind", ExternalDataSourceType.POSTGRES, True, True),
-            ("encrypted_pointer_other_kind", ExternalDataSourceType.STRIPE, False, True),
+            ("column", "7", None, False, True),
+            ("column_and_inputs_count_once", "7", {"linear_integration_id": "7"}, False, True),
+            ("deleted_source", "7", None, True, False),
+            ("other_row", "8", None, False, False),
+            ("leading_zero", "07", None, False, False),
+            ("uuid", "0b7e8c3a-5f4d-4e2a-9c1b-2d3e4f5a6b7c", None, False, False),
         ]
     )
-    def test_a_source_with_unreadable_inputs_counts_as_a_user_of_a_row_of_its_kind(
-        self, _name: str, broken_type: ExternalDataSourceType, counted: bool, encrypted_pointer: bool
+    def test_reference_detection_by_column(
+        self, _name: str, column: str, inputs: dict[str, Any] | None, deleted: bool, expected: bool
+    ) -> None:
+        source = self._source()
+        source.credentials_integration_id = column
+        source.job_inputs = inputs
+        source.deleted = deleted
+        source.save()
+
+        found = list_sources_using_integration(self.team.id, 7)
+
+        assert [(ref.id, ref.unreadable) for ref in found] == ([(source.id, False)] if expected else [])
+
+    @parameterized.expand(
+        [
+            # (name, row, broken source type, encrypted pointer, counted)
+            ("oauth_row_of_its_kind", "oauth", ExternalDataSourceType.HUBSPOT, False, True),
+            ("oauth_row_of_its_kind_encrypted_pointer", "oauth", ExternalDataSourceType.HUBSPOT, True, True),
+            ("oauth_row_of_another_kind", "oauth", ExternalDataSourceType.POSTGRES, False, False),
+            # The typed-in pointer is in the column, which always reads, so broken inputs say nothing about it.
+            ("typed_in_row_of_its_kind", "typed_in", ExternalDataSourceType.POSTGRES, False, False),
+            ("typed_in_row_of_its_kind_encrypted_pointer", "typed_in", ExternalDataSourceType.POSTGRES, True, False),
+        ]
+    )
+    def test_a_source_with_unreadable_inputs_counts_as_a_user_of_an_oauth_row_of_its_kind(
+        self, _name: str, row: str, broken_type: ExternalDataSourceType, encrypted_pointer: bool, counted: bool
     ) -> None:
         editor = self._source()
-        pk = WarehouseSourceCredentialsStore.create(editor, PG_FIELDS)
+        pk = (
+            self._create(editor, PG_FIELDS)
+            if row == "typed_in"
+            else IntegrationManager.hubspot.oauth.create(self.team.id, external_id="H1", config={}).id
+        )
         broken = self._source(broken_type)
         broken.job_inputs = (
-            {"auth": {CREDENTIALS_REFERENCE_KEY: Fernet(Fernet.generate_key()).encrypt(str(pk).encode()).decode()}}
+            {"auth": {"hubspot_integration_id": Fernet(Fernet.generate_key()).encrypt(str(pk).encode()).decode()}}
             if encrypted_pointer
             else "not json"
         )
         broken.save()
-        new_fields = {**PG_FIELDS, "password": "new"}
 
-        if not counted:
-            assert WarehouseSourceCredentialsStore.update(editor, pk, new_fields) == pk
-            return
-        with self.assertRaises(SharedCredentialsError) as raised:
-            WarehouseSourceCredentialsStore.update(editor, pk, new_fields)
-        assert [(usage.id, usage.name) for usage in raised.exception.usages] == [
-            (str(broken.id), "unreadable source: Postgres")
-        ]
+        found = list_sources_using_integration(self.team.id, pk)
+
+        expected = [(broken.id, True)] if counted else []
+        if row == "typed_in":
+            expected = [(editor.id, False)]
+            assert WarehouseSourceCredentialsStore.update(editor, {**PG_FIELDS, "password": "new"}).legacy_id == pk
+        assert [(ref.id, ref.unreadable) for ref in found] == expected
 
     def test_conflict_response_names_the_other_users(self) -> None:
         source = self._source()
-        pk = WarehouseSourceCredentialsStore.create(source, PG_FIELDS)
+        pk = self._create(source, PG_FIELDS)
         self._referencing(pk)
         with self.assertRaises(SharedCredentialsError) as raised:
-            WarehouseSourceCredentialsStore.update(source, pk, {**PG_FIELDS, "password": "new"})
+            WarehouseSourceCredentialsStore.update(source, {**PG_FIELDS, "password": "new"})
 
         response = shared_credentials_conflict_response(raised.exception)
 
@@ -644,7 +718,11 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
 
 class TestWarehouseSourceUsageProvider(BaseTest):
     def _source(
-        self, job_inputs: dict[str, Any], prefix: str | None = None, deleted: bool = False
+        self,
+        job_inputs: dict[str, Any],
+        prefix: str | None = None,
+        deleted: bool = False,
+        credentials_integration_id: str | None = None,
     ) -> ExternalDataSource:
         return ExternalDataSource.objects.create(
             team=self.team,
@@ -655,6 +733,7 @@ class TestWarehouseSourceUsageProvider(BaseTest):
             job_inputs=job_inputs,
             prefix=prefix,
             deleted=deleted,
+            credentials_integration_id=credentials_integration_id,
         )
 
     def _row(self) -> IntegrationRecord:
@@ -664,16 +743,21 @@ class TestWarehouseSourceUsageProvider(BaseTest):
 
     @parameterized.expand(
         [
-            ("credentials_reference", CREDENTIALS_REFERENCE_KEY, "prod", "Postgres (prod)"),
+            ("credentials_column", None, "prod", "Postgres (prod)"),
             ("oauth_pointer_without_prefix", "linear_integration_id", None, "Postgres"),
         ]
     )
     def test_the_sdk_reports_a_source_that_points_at_the_row(
-        self, _name: str, key: str, prefix: str | None, name: str
+        self, _name: str, inputs_key: str | None, prefix: str | None, name: str
     ) -> None:
         row = self._row()
-        source = self._source({key: str(row.id)}, prefix=prefix)
-        self._source({key: str(row.id)}, deleted=True)
+        pointer: dict[str, Any] = (
+            {"job_inputs": {inputs_key: str(row.id)}}
+            if inputs_key
+            else {"job_inputs": {}, "credentials_integration_id": str(row.id)}
+        )
+        source = self._source(prefix=prefix, **pointer)
+        self._source(deleted=True, **pointer)
 
         assert IntegrationManager.any.with_source_rows().usages(self.team.id, row.id) == [
             IntegrationUsage(type="warehouse_source", id=str(source.id), name=name)
@@ -681,7 +765,7 @@ class TestWarehouseSourceUsageProvider(BaseTest):
 
     def test_delete_of_a_used_row_raises_and_keeps_the_row(self) -> None:
         row = self._row()
-        self._source({CREDENTIALS_REFERENCE_KEY: str(row.id)})
+        self._source({}, credentials_integration_id=str(row.id))
 
         with self.assertRaises(IntegrationInUse) as raised:
             IntegrationManager.source("postgresql").any.delete(self.team.id, row.id)
@@ -731,16 +815,6 @@ class TestCredentialAuthTypes(SimpleTestCase):
     ) -> None:
         with self.assertRaises(error):
             typed_in_auth_type(source_type.value)
-
-    @parameterized.expand(
-        [
-            ("postgres", ExternalDataSourceType.POSTGRES),
-            ("stripe_select_reference_source", ExternalDataSourceType.STRIPE),
-            ("generated_kind", ExternalDataSourceType.ABLY),
-        ]
-    )
-    def test_credentials_reference_key_is_a_reference(self, _name: str, source_type: ExternalDataSourceType) -> None:
-        assert classify_job_input_key(source_type, CREDENTIALS_REFERENCE_KEY, "12") == JobInputKind.REFERENCE
 
 
 class TestCredentialIdentityFields(SimpleTestCase):
