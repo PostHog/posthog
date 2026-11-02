@@ -25,6 +25,7 @@ from posthog.models import Team
 
 from products.feature_flags.backend.flag_windows.query import (
     ConditionMatch,
+    EditCounts,
     FlagRead,
     WatchedEdit,
     counts_by_bucket,
@@ -81,18 +82,19 @@ def errors_by_bucket(
         event="$exception",
         join=_issue_first_seen_join(),
     )
-    return {
-        edit.id: [
-            ErrorBucket(
-                start=row.start,
-                in_bucket=_errors(edit, row.in_bucket),
-                since_edit=_errors(edit, row.since_edit),
-            )
-            for row in counts[edit.id]
-            if _errors(edit, row.in_bucket).with_errors
-        ]
-        for edit in edits
-    }
+    return {edit.id: _buckets(edit, counts[edit.id]) for edit in edits}
+
+
+def _buckets(edit: WatchedEdit, counts: EditCounts) -> list[ErrorBucket]:
+    return [
+        ErrorBucket(
+            start=row.start,
+            in_bucket=_errors(edit, counts.in_condition, row.in_bucket),
+            since_edit=_errors(edit, counts.in_condition, row.since_edit),
+        )
+        for row in counts.buckets
+        if _errors(edit, counts.in_condition, row.in_bucket).with_errors
+    ]
 
 
 def _issue_first_seen_join() -> ast.JoinExpr:
@@ -138,7 +140,7 @@ def _conditions(edit: WatchedEdit, read: FlagRead) -> list[ast.Expr]:
     ]
 
 
-def _errors(edit: WatchedEdit, values: tuple[int, ...]) -> ErrorCounts:
+def _errors(edit: WatchedEdit, matches: Sequence[ConditionMatch], values: tuple[int, ...]) -> ErrorCounts:
     with_errors, with_new_errors, exposed_with_errors, unexposed_with_errors, *rest = values
     by_variant, in_condition = rest[: len(edit.variants)], rest[len(edit.variants) :]
     return ErrorCounts(
@@ -149,6 +151,6 @@ def _errors(edit: WatchedEdit, values: tuple[int, ...]) -> ErrorCounts:
         by_variant=dict(zip(edit.variants, by_variant, strict=True)),
         in_condition={
             match: ConditionErrors(exposed_with_errors=counts[0], unexposed_with_errors=counts[1])
-            for match, counts in read_in_condition(edit, in_condition, 2).items()
+            for match, counts in read_in_condition(matches, in_condition, 2).items()
         },
     )

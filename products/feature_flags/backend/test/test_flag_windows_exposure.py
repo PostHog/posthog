@@ -13,6 +13,7 @@ from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.models import Team
 from posthog.test.persons import create_person
 
+from products.cohorts.backend.models.cohort import Cohort
 from products.feature_flags.backend.flag_windows.exposure import (
     ConditionExposure,
     ExposureBucket,
@@ -52,6 +53,7 @@ ENABLED = WatchedEdit(
 PRO_PLAN = WatchedCondition(
     position=1, properties=({"key": "plan", "type": "person", "value": ["pro"], "operator": "exact"},)
 )
+EVERYONE = WatchedCondition(position=0, properties=())
 
 # (distinct id, minutes after START, event properties)
 Event = tuple[str, int, dict[str, Any]]
@@ -226,8 +228,8 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
         )
 
     def test_counts_in_the_watched_conditions_by_reason_and_by_properties(self) -> None:
-        def called(reason: str, value: bool) -> dict[str, Any]:
-            return {"$feature_flag": "new-checkout", "$feature_flag_reason": reason, "$feature/new-checkout": value}
+        def called(reason: str, value: bool, flag_key: str = "new-checkout") -> dict[str, Any]:
+            return {"$feature_flag": flag_key, "$feature_flag_reason": reason, f"$feature/{flag_key}": value}
 
         self._send(
             [
@@ -236,6 +238,7 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
                 ("person-3", 3, called("Matched condition set 1", True)),
                 ("person-4", 4, called("Evaluated locally", True)),
                 ("person-5", 5, called("Matched condition set 1", True)),
+                ("person-6", 6, called("Matched condition set 1", True, flag_key="other-flag")),
             ],
             event="$feature_flag_called",
             plans={"person-1": "pro", "person-2": "pro", "person-3": "free", "person-4": "pro", "person-5": "free"},
@@ -249,14 +252,54 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
         edit = dataclasses.replace(BOOLEAN, conditions=(PRO_PLAN,))
+        other = dataclasses.replace(BOOLEAN, id="other", flag_key="other-flag", conditions=(EVERYONE,))
 
-        exposure = exposure_by_bucket(self.team, [edit], START - timedelta(minutes=10), START + BUCKET, BUCKET)
+        exposure = exposure_by_bucket(self.team, [edit, other], START - timedelta(minutes=10), START + BUCKET, BUCKET)
 
         self.assertEqual(
-            exposure[edit.id][-1].since_edit.in_condition,
+            {edit_id: buckets[-1].since_edit.in_condition for edit_id, buckets in exposure.items()},
             {
-                ConditionMatch.REASON: ConditionExposure(with_flag=2, exposed=1),
-                ConditionMatch.PROPERTIES: ConditionExposure(with_flag=3, exposed=2),
+                "boolean": {
+                    ConditionMatch.REASON: ConditionExposure(with_flag=2, exposed=1),
+                    ConditionMatch.PROPERTIES: ConditionExposure(with_flag=3, exposed=2),
+                },
+                "other": {
+                    ConditionMatch.REASON: ConditionExposure(with_flag=1, exposed=1),
+                    ConditionMatch.PROPERTIES: ConditionExposure(with_flag=1, exposed=1),
+                },
+            },
+        )
+
+    def test_a_condition_on_a_deleted_cohort_leaves_out_only_the_counts_by_properties_of_its_edit(self) -> None:
+        self._send(
+            [
+                (
+                    "person-1",
+                    1,
+                    {
+                        "$feature_flag": "new-checkout",
+                        "$feature_flag_reason": "Matched condition set 1",
+                        "$feature/new-checkout": True,
+                    },
+                )
+            ],
+            event="$feature_flag_called",
+        )
+        cohort = Cohort.objects.create(team=self.team, name="Beta testers", is_static=True, deleted=True)
+        in_cohort = WatchedCondition(position=0, properties=({"key": "id", "type": "cohort", "value": cohort.pk},))
+        broken = dataclasses.replace(BOOLEAN, conditions=(in_cohort,))
+        healthy = dataclasses.replace(BOOLEAN, id="healthy", conditions=(EVERYONE,))
+
+        exposure = exposure_by_bucket(self.team, [broken, healthy], START, START + BUCKET, BUCKET)
+
+        self.assertEqual(
+            {edit_id: buckets[0].in_bucket.in_condition for edit_id, buckets in exposure.items()},
+            {
+                "boolean": {ConditionMatch.REASON: ConditionExposure(with_flag=1, exposed=1)},
+                "healthy": {
+                    ConditionMatch.REASON: ConditionExposure(with_flag=1, exposed=1),
+                    ConditionMatch.PROPERTIES: ConditionExposure(with_flag=1, exposed=1),
+                },
             },
         )
 
@@ -278,9 +321,7 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
             ],
             event="$feature_flag_called",
         )
-        edit = dataclasses.replace(
-            GROUP, variants=("control", "test"), conditions=(WatchedCondition(position=0, properties=()),)
-        )
+        edit = dataclasses.replace(GROUP, variants=("control", "test"), conditions=(EVERYONE,))
 
         exposure = exposure_by_bucket(self.team, [edit], START, START + BUCKET, BUCKET)
 

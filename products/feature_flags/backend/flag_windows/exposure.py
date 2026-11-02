@@ -20,6 +20,7 @@ from posthog.models import Team
 
 from products.feature_flags.backend.flag_windows.query import (
     ConditionMatch,
+    EditCounts,
     FlagRead,
     WatchedEdit,
     counts_by_bucket,
@@ -60,18 +61,19 @@ def exposure_by_bucket(
     """The exposure of each edit in each bucket of `[start, end)`, by edit id, oldest bucket first. A bucket in which
     nobody carried the flag after the edit has no entry. A person whose value changed counts under both values."""
     counts = counts_by_bucket(team, edits, _conditions, start, end, bucket, query_type="flag_exposure_by_bucket")
-    return {
-        edit.id: [
-            ExposureBucket(
-                start=row.start,
-                in_bucket=_exposure(edit, row.in_bucket),
-                since_edit=_exposure(edit, row.since_edit),
-            )
-            for row in counts[edit.id]
-            if _exposure(edit, row.in_bucket).with_flag
-        ]
-        for edit in edits
-    }
+    return {edit.id: _buckets(edit, counts[edit.id]) for edit in edits}
+
+
+def _buckets(edit: WatchedEdit, counts: EditCounts) -> list[ExposureBucket]:
+    return [
+        ExposureBucket(
+            start=row.start,
+            in_bucket=_exposure(edit, counts.in_condition, row.in_bucket),
+            since_edit=_exposure(edit, counts.in_condition, row.since_edit),
+        )
+        for row in counts.buckets
+        if _exposure(edit, counts.in_condition, row.in_bucket).with_flag
+    ]
 
 
 def _conditions(edit: WatchedEdit, read: FlagRead) -> list[ast.Expr]:
@@ -83,7 +85,7 @@ def _conditions(edit: WatchedEdit, read: FlagRead) -> list[ast.Expr]:
     ]
 
 
-def _exposure(edit: WatchedEdit, values: tuple[int, ...]) -> ExposureCounts:
+def _exposure(edit: WatchedEdit, matches: Sequence[ConditionMatch], values: tuple[int, ...]) -> ExposureCounts:
     with_flag, exposed, *rest = values
     by_variant, in_condition = rest[: len(edit.variants)], rest[len(edit.variants) :]
     return ExposureCounts(
@@ -92,6 +94,6 @@ def _exposure(edit: WatchedEdit, values: tuple[int, ...]) -> ExposureCounts:
         by_variant=dict(zip(edit.variants, by_variant, strict=True)),
         in_condition={
             match: ConditionExposure(with_flag=counts[0], exposed=counts[1])
-            for match, counts in read_in_condition(edit, in_condition, 2).items()
+            for match, counts in read_in_condition(matches, in_condition, 2).items()
         },
     )

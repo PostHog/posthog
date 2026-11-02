@@ -23,25 +23,30 @@ people per bucket and since the edit.
     the condition that matched, but not the condition whose rollout left the person out, so on a flag with many
     conditions the people outside the rollout of any condition count. A server SDK that evaluates the flag locally
     sends no condition, so its people don't count. The SDKs send `$feature_flag_called` once per value of the flag, so a
-    person whose value the edit kept sends none after it and doesn't count either.
+    person whose value the edit kept sends none after it and doesn't count either. One scan of `$feature_flag_called`
+    per kind of actor finds the reasons of every edit, and joins them to the events by the actor.
   - By the properties of each event against the property filters of the conditions. Person properties come from the
     event, so an event without person processing does not match a person filter. A filter on another flag always
-    matches, because the query can't evaluate a flag.
+    matches, because the query can't evaluate a flag. A condition on a cohort that the query can't read, such as a
+    deleted static cohort, has no expression, so its edit gets no counts by properties.
 
 One query per team reads every watched edit: a query per edit would read the same events again.
 """
 
 import math
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import field
+from dataclasses import field, replace
 from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Any
+
+import structlog
 
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLGlobalSettings
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -52,6 +57,8 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.feature_flags.backend.user_blast_radius import replace_proxy_properties
+
+logger = structlog.get_logger(__name__)
 
 # The health check query settings (posthog/temporal/health_checks/query.py). Nobody waits for the result, so the scan of
 # every event of a team leaves CPU to the queries people wait for.
@@ -127,13 +134,24 @@ class BucketCounts:
     since_edit: tuple[int, ...]
 
 
-def read_flag(team: Team, edit: WatchedEdit, end: datetime) -> FlagRead:
-    if edit.group_type_index is None:
-        actor = ast.Field(chain=["person_id"])
-        has_actor: ast.Expr = ast.Constant(value=True)
-    else:
-        actor = ast.Field(chain=[f"$group_{edit.group_type_index}"])
-        has_actor = parse_expr("notEmpty({actor})", placeholders={"actor": actor})
+@frozen
+class EditCounts:
+    # The ways of matching that the edit has counts for, in the order of `ConditionMatch`.
+    in_condition: tuple[ConditionMatch, ...]
+    buckets: tuple[BucketCounts, ...]
+
+
+def _actor(group_type_index: int | None) -> tuple[ast.Expr, ast.Expr]:
+    """The person or the group that the flag aggregates by, and the check that the event has it."""
+    if group_type_index is None:
+        return ast.Field(chain=["person_id"]), ast.Constant(value=True)
+    actor = ast.Field(chain=[f"$group_{group_type_index}"])
+    return actor, parse_expr("notEmpty({actor})", placeholders={"actor": actor})
+
+
+def read_flag(team: Team, edit: WatchedEdit, by_reason: ast.Expr | None) -> FlagRead:
+    """`by_reason` is the column of `_reason_joins` for the edit, or None without watched conditions."""
+    actor, has_actor = _actor(edit.group_type_index)
     # A flag key can hold any character, so it goes in as an AST node, never as HogQL text.
     property_name = f"$feature/{edit.flag_key}"
     flag_value = ast.Call(name="toString", args=[ast.Field(chain=["properties", property_name])])
@@ -176,44 +194,110 @@ def read_flag(team: Team, edit: WatchedEdit, end: datetime) -> FlagRead:
         with_flag=with_flag,
         exposed=exposed,
         variant_key=variant_key,
-        in_condition=_in_condition(team, edit, actor, end),
+        in_condition=_in_condition(team, edit, by_reason),
     )
 
 
-def _in_condition(team: Team, edit: WatchedEdit, actor: ast.Expr, end: datetime) -> dict[ConditionMatch, ast.Expr]:
-    if not edit.conditions:
+def _in_condition(team: Team, edit: WatchedEdit, by_reason: ast.Expr | None) -> dict[ConditionMatch, ast.Expr]:
+    if by_reason is None:
         return {}
+    in_condition = {ConditionMatch.REASON: parse_expr("{by_reason} = 1", placeholders={"by_reason": by_reason})}
+    try:
+        in_condition[ConditionMatch.PROPERTIES] = ast.Or(
+            exprs=[
+                property_to_expr(
+                    replace_proxy_properties(team, {"properties": list(condition.properties)}), team, scope="event"
+                )
+                for condition in edit.conditions
+            ]
+        )
+    except QueryError:
+        # A condition on a static or precalculated cohort deleted after the edit, or on a cohort id that no longer
+        # exists, has no expression. The edit gets no counts by properties, so that the query still counts the other
+        # edits of the team.
+        logger.warning(
+            "flag_window_condition_without_expression", team_id=team.pk, flag_key=edit.flag_key, exc_info=True
+        )
+    return in_condition
+
+
+def _reason_joins(edits: Sequence[WatchedEdit], end: datetime) -> tuple[list[ast.JoinExpr], dict[str, ast.Expr]]:
+    """The joins that tell, for each edit with watched conditions, whether the actor of an event got a watched
+    condition after the edit, and the column of each edit. One join per kind of actor, so the query reads
+    `$feature_flag_called` once for all the edits of that kind."""
+    edits_by_actor: dict[int | None, list[tuple[int, WatchedEdit]]] = {}
+    for index, edit in enumerate(edits):
+        if edit.conditions:
+            edits_by_actor.setdefault(edit.group_type_index, []).append((index, edit))
+    joins: list[ast.JoinExpr] = []
+    columns: dict[str, ast.Expr] = {}
+    for group_type_index, watched in edits_by_actor.items():
+        alias = "flag_reasons" if group_type_index is None else f"flag_reasons_{group_type_index}"
+        actor, has_actor = _actor(group_type_index)
+        # The top-level filters keep the shape that the flag_evaluations swap reads, so this scan also finds the
+        # flag calls of a team whose calls ingestion writes only to `flag_evaluations`.
+        subquery = ast.SelectQuery(
+            select=[
+                ast.Alias(alias="actor", expr=actor),
+                *[ast.Alias(alias=f"e{index}", expr=_got_watched_condition(edit)) for index, edit in watched],
+            ],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=parse_expr(
+                """
+                event = '$feature_flag_called'
+                    AND timestamp >= {since}
+                    AND timestamp < {end}
+                    AND properties.$feature_flag IN {flag_keys}
+                    AND {has_actor}
+                """,
+                placeholders={
+                    "since": ast.Constant(value=min(edit.edited_at for _, edit in watched)),
+                    "end": ast.Constant(value=end),
+                    "flag_keys": ast.Tuple(
+                        exprs=[ast.Constant(value=key) for key in sorted({edit.flag_key for _, edit in watched})]
+                    ),
+                    "has_actor": has_actor,
+                },
+            ),
+            group_by=[ast.Field(chain=["actor"])],
+        )
+        joins.append(
+            ast.JoinExpr(
+                join_type="LEFT JOIN",
+                table=subquery,
+                alias=alias,
+                constraint=ast.JoinConstraint(
+                    expr=parse_expr(
+                        "{reasons_actor} = {actor}",
+                        placeholders={"reasons_actor": ast.Field(chain=[alias, "actor"]), "actor": actor},
+                    ),
+                    constraint_type="ON",
+                ),
+            )
+        )
+        for index, edit in watched:
+            columns[edit.id] = ast.Field(chain=[alias, f"e{index}"])
+    return joins, columns
+
+
+def _got_watched_condition(edit: WatchedEdit) -> ast.Expr:
     # The descriptions of `FeatureFlagMatchReason` in rust/feature-flags/src/api/types.rs.
     reasons = [f"Matched condition set {condition.position + 1}" for condition in edit.conditions]
     reasons.append("Out of rollout bound")
-    by_reason = parse_expr(
+    return parse_expr(
         """
-        {actor} IN (
-            SELECT {actor} FROM events
-            WHERE event = '$feature_flag_called'
-                AND properties.$feature_flag = {flag_key}
+        max(
+            properties.$feature_flag = {flag_key}
                 AND timestamp >= {edited_at}
-                AND timestamp < {end}
                 AND properties.$feature_flag_reason IN {reasons}
         )
         """,
         placeholders={
-            "actor": actor,
             "flag_key": ast.Constant(value=edit.flag_key),
             "edited_at": ast.Constant(value=edit.edited_at),
-            "end": ast.Constant(value=end),
             "reasons": ast.Tuple(exprs=[ast.Constant(value=reason) for reason in reasons]),
         },
     )
-    by_properties: ast.Expr = ast.Or(
-        exprs=[
-            property_to_expr(
-                replace_proxy_properties(team, {"properties": list(condition.properties)}), team, scope="event"
-            )
-            for condition in edit.conditions
-        ]
-    )
-    return {ConditionMatch.REASON: by_reason, ConditionMatch.PROPERTIES: by_properties}
 
 
 def in_condition_columns(read: FlagRead, counts: Sequence[ast.Expr]) -> list[ast.Expr]:
@@ -227,10 +311,9 @@ def in_condition_columns(read: FlagRead, counts: Sequence[ast.Expr]) -> list[ast
 
 
 def read_in_condition(
-    edit: WatchedEdit, values: Sequence[int], per_match: int
+    matches: Sequence[ConditionMatch], values: Sequence[int], per_match: int
 ) -> dict[ConditionMatch, tuple[int, ...]]:
     """The values of the columns from `in_condition_columns`, `per_match` counts for each way of matching."""
-    matches = tuple(ConditionMatch) if edit.conditions else ()
     groups = [tuple(values[start : start + per_match]) for start in range(0, len(values), per_match)]
     return dict(zip(matches, groups, strict=True))
 
@@ -245,7 +328,7 @@ def counts_by_bucket(
     query_type: str,
     event: str | None = None,
     join: ast.JoinExpr | None = None,
-) -> dict[str, list[BucketCounts]]:
+) -> dict[str, EditCounts]:
     """For each edit, the people (or groups) that meet each of its conditions after the edit, in each bucket of
     `[start, end)` that has events, oldest bucket first. `query_type` names the query in the query log. `event` limits
     the scan to one event name. `join` joins a table to the events, so that the conditions of every edit can read it."""
@@ -263,10 +346,11 @@ def counts_by_bucket(
     if not edits:
         return {}
 
-    states_by_edit = []
-    for index, edit in enumerate(edits):
-        read = read_flag(team, edit, end)
-        states_by_edit.append(_states(index, edit, read, conditions(edit, read)))
+    reason_joins, reason_columns = _reason_joins(edits, end)
+    reads = [read_flag(team, edit, reason_columns.get(edit.id)) for edit in edits]
+    states_by_edit = [
+        _states(index, edit, read, conditions(edit, read)) for index, (edit, read) in enumerate(zip(edits, reads))
+    ]
     states = [state for edit_states in states_by_edit for state in edit_states]
     # Buckets start at `start`, not at a multiple of the bucket since the epoch, so a range that starts at an edit
     # time does not begin with a partial bucket.
@@ -282,7 +366,9 @@ def counts_by_bucket(
         where = ast.And(exprs=[where, parse_expr("event = {event}", placeholders={"event": ast.Constant(value=event)})])
     per_bucket = ast.SelectQuery(
         select=[ast.Alias(alias="bucket", expr=bucket_start), *states],
-        select_from=ast.JoinExpr(table=ast.Field(chain=["events"]), next_join=join),
+        select_from=ast.JoinExpr(
+            table=ast.Field(chain=["events"]), next_join=_chain([*([join] if join else []), *reason_joins])
+        ),
         where=where,
         group_by=[ast.Field(chain=["bucket"])],
     )
@@ -321,20 +407,33 @@ def counts_by_bucket(
             ),
         )
 
-    result: dict[str, list[BucketCounts]] = {edit.id: [] for edit in edits}
+    rows_by_edit: dict[str, list[BucketCounts]] = {edit.id: [] for edit in edits}
     for row in response.results or []:
         values = iter(row[1:])
         for edit, edit_states in zip(edits, states_by_edit):
             # Each state gives the bucket's own value, then the value since the edit.
             pairs = [(int(next(values)), int(next(values))) for _ in edit_states]
-            result[edit.id].append(
+            rows_by_edit[edit.id].append(
                 BucketCounts(
                     start=row[0],
                     in_bucket=tuple(pair[0] for pair in pairs),
                     since_edit=tuple(pair[1] for pair in pairs),
                 )
             )
-    return result
+    return {
+        edit.id: EditCounts(
+            in_condition=tuple(match for match in ConditionMatch if match in read.in_condition),
+            buckets=tuple(rows_by_edit[edit.id]),
+        )
+        for edit, read in zip(edits, reads)
+    }
+
+
+def _chain(joins: Sequence[ast.JoinExpr]) -> ast.JoinExpr | None:
+    head: ast.JoinExpr | None = None
+    for join in reversed(joins):
+        head = replace(join, next_join=head)
+    return head
 
 
 def _states(index: int, edit: WatchedEdit, read: FlagRead, conditions: Sequence[ast.Expr]) -> list[ast.Alias]:
