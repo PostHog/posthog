@@ -8259,7 +8259,8 @@ class TestWarehouseSourceIntegrationKind(APIBaseTest):
             status="Completed",
             source_type=ExternalDataSourceType.POSTGRES if by_column else ExternalDataSourceType.LINEAR,
             job_inputs={} if by_column else {"linear_integration_id": integration.id},
-            credentials_integration_id=str(integration.id) if by_column else None,
+            # The usages read only the column, which the backfill fills for an OAuth source too.
+            credentials_integration_id=str(integration.id),
             deleted=deleted,
         )
 
