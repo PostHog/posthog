@@ -98,14 +98,14 @@ export function TransactionalEmailResults(): JSX.Element {
                         title="People sent the email"
                         loading={resultsLoading || !results}
                         value={results?.recipients}
-                        formatValue={(value) => humanFriendlyNumber(value)}
+                        formatValue={(value: number) => humanFriendlyNumber(value)}
                         subtitle="First send per person"
                     />
                     <AnalyticsMetricCard
                         title={`Did ${resultsQuery.event} after`}
                         loading={resultsLoading || !results}
                         value={results?.converted}
-                        formatValue={(value) => humanFriendlyNumber(value)}
+                        formatValue={(value: number) => humanFriendlyNumber(value)}
                         subtitle={
                             results
                                 ? `${percentage(results.converted / results.recipients, 1, true)} of them`
@@ -116,7 +116,7 @@ export function TransactionalEmailResults(): JSX.Element {
                         title="Median time to convert"
                         loading={resultsLoading || !results}
                         value={results?.median_hours_to_convert ?? undefined}
-                        formatValue={(hours) => humanFriendlyDuration(hours * 3600, { maxUnits: 2 })}
+                        formatValue={(hours: number) => humanFriendlyDuration(hours * 3600, { maxUnits: 2 })}
                         subtitle="From the send to the event"
                         emptyMessage="Nobody converted yet"
                     />
@@ -125,7 +125,7 @@ export function TransactionalEmailResults(): JSX.Element {
                             title="Revenue"
                             loading={resultsLoading || !results}
                             value={results?.revenue}
-                            formatValue={(value) => humanFriendlyNumber(value, 2)}
+                            formatValue={(value: number) => humanFriendlyNumber(value, 2)}
                             subtitle={`From ${resultsQuery.revenueProperty}`}
                         />
                     )}
