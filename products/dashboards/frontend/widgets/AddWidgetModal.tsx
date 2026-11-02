@@ -17,8 +17,9 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import {
-    type DashboardWidgetPickerItem,
-    getAvailableDashboardWidgetCatalogGroups,
+    DASHBOARD_WIDGET_CATALOG_GROUPS,
+    type ResolvedDashboardWidgetCatalogEntry,
+    type DashboardWidgetCatalogKey,
     getDashboardWidgetGroupIcon,
     getDashboardWidgetGroupProductIntro,
 } from '../widget_types/catalog'
@@ -42,17 +43,22 @@ type AddWidgetModalProps = {
 }
 
 type AddWidgetCatalogPickerProps = {
-    item: DashboardWidgetPickerItem
+    widgetType: DashboardWidgetCatalogKey
+    entry: ResolvedDashboardWidgetCatalogEntry
     selected: boolean
-    onToggleWidgetType: (key: string) => void
+    onToggleWidgetType: (widgetType: string) => void
 }
 
-function AddWidgetCatalogPicker({ item, selected, onToggleWidgetType }: AddWidgetCatalogPickerProps): JSX.Element {
-    const { entry } = item
-    const WidgetPreview = DASHBOARD_WIDGET_PREVIEWS[item.widgetType]
+function AddWidgetCatalogPicker({
+    widgetType,
+    entry,
+    selected,
+    onToggleWidgetType,
+}: AddWidgetCatalogPickerProps): JSX.Element {
+    const WidgetPreview = DASHBOARD_WIDGET_PREVIEWS[widgetType]
 
     function handleSelect(): void {
-        onToggleWidgetType(item.key)
+        onToggleWidgetType(widgetType)
     }
 
     return (
@@ -62,7 +68,7 @@ function AddWidgetCatalogPicker({ item, selected, onToggleWidgetType }: AddWidge
             description={entry.description}
             selected={selected}
             live={entry.live}
-            preview={WidgetPreview ? <WidgetPreview presetId={item.presetId} /> : <div />}
+            preview={WidgetPreview ? <WidgetPreview /> : <div />}
             onSelect={handleSelect}
         />
     )
@@ -74,15 +80,15 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
         useActions(dashboardLogic)
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    // Creation flags come from the backend widget manifest, so they are plain strings rather than flag keys.
-    const catalogGroups = getAvailableDashboardWidgetCatalogGroups(
-        (flag) => !!(featureFlags as Record<string, boolean | string | undefined>)[flag]
-    )
+    const pickerGroups = DASHBOARD_WIDGET_CATALOG_GROUPS.map((group) => ({
+        ...group,
+        widgets: group.widgets.filter(({ entry }) => !entry.featureFlag || !!featureFlags[entry.featureFlag]),
+    })).filter((group) => group.widgets.length > 0)
     const selectedTypes = new Set(addWidgetSelectedTypes)
     const collapsedGroups = new Set(addWidgetCollapsedGroups)
     const filteredGroups = new Set(addWidgetFilteredGroups)
     const visibleGroups =
-        filteredGroups.size > 0 ? catalogGroups.filter((group) => filteredGroups.has(group.groupId)) : catalogGroups
+        filteredGroups.size > 0 ? pickerGroups.filter((group) => filteredGroups.has(group.groupId)) : pickerGroups
 
     const selectedCount = selectedTypes.size
 
@@ -112,7 +118,7 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
                 <>
                     <span>Bring context from your different PostHog products into one dashboard.</span>
                     <span className="mt-2 flex flex-wrap gap-2" data-attr="dashboard-widget-product-badges">
-                        {[...catalogGroups]
+                        {[...pickerGroups]
                             .sort((a, b) => a.groupLabel.localeCompare(b.groupLabel))
                             .map((group) => {
                                 const GroupIcon = getDashboardWidgetGroupIcon(group.groupId)
@@ -231,11 +237,12 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
                                     ) : null}
                                 </div>
                                 {!isCollapsed &&
-                                    group.widgets.map((item) => (
+                                    group.widgets.map(({ widgetType, entry }) => (
                                         <AddWidgetCatalogPicker
-                                            key={item.key}
-                                            item={item}
-                                            selected={selectedTypes.has(item.key)}
+                                            key={widgetType}
+                                            widgetType={widgetType}
+                                            entry={entry}
+                                            selected={selectedTypes.has(widgetType)}
                                             onToggleWidgetType={handleToggleWidgetType}
                                         />
                                     ))}
