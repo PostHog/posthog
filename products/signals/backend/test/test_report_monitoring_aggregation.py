@@ -18,7 +18,7 @@ from temporalio.exceptions import ActivityError, CancelledError
 from posthog.hogql.property_access_types import RestrictedProperty
 
 from posthog.egress.limiter.policies import Priority
-from posthog.models import Team
+from posthog.models import Team, User
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import CheckResult
@@ -735,6 +735,50 @@ class TestReportMonitoringAggregation(BaseTest):
         assert "invented-private-reference" not in prompt
         assert "cannot read" in prompt
         assert task.runs.get().state["analytics_query_context"] == [query, query]
+        run = task.runs.get()
+        run_url = f"/api/projects/{self.team.id}/tasks/{task.id}/runs/{run.id}/"
+        self.client.force_login(self.user)
+        assert self.client.get(run_url).status_code == 200
+        teammate = User.objects.create_user(
+            email="assessment-viewer@example.com", password="test-password", first_name="Viewer"
+        )
+        self.organization.members.add(teammate)
+        self.client.force_login(teammate)
+        check_url = f"/api/projects/{self.team.id}/signals/reports/{self.report.id}/checks/{self.checks[0].id}/"
+        assert self.client.get(check_url).json()["config"]["query"] == query
+        assert self.client.get(run_url).status_code == 404
+        assert self.client.get(f"{run_url}stream/").status_code == 404
+        assert (
+            self.client.post(
+                f"{run_url}command/",
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": "private-evidence",
+                        "method": "user_message",
+                        "params": {"content": "Read another source"},
+                    }
+                ),
+                content_type="application/json",
+            ).status_code
+            == 404
+        )
+        assert finish_monitoring_assessment(
+            team_id=self.team.id,
+            report_id=self.report.id,
+            attempt_id=self.attempt.id,
+            assessment=MonitoringAssessment(
+                resolved=False,
+                reasoning="An additional source measured seventeen synthetic observations.",
+                evidence_refs=["additional:synthetic"],
+            ),
+            task_id=task.id,
+            run_id=run.id,
+        )
+        artefacts_url = f"/api/projects/{self.team.id}/signals/reports/{self.report.id}/artefacts/"
+        assert "seventeen synthetic observations" not in self.client.get(artefacts_url).content.decode()
+        self.client.force_login(self.user)
+        assert "seventeen synthetic observations" in self.client.get(artefacts_url).content.decode()
 
     def test_exhaustion_recovers_the_same_task_before_closing(self) -> None:
         self.enterContext(patch("products.tasks.backend.facade.api.signal_workflow_completion"))

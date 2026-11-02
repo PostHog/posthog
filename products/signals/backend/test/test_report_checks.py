@@ -1706,6 +1706,7 @@ class TestReportCheckAPI(APIBaseTest):
                 content=NoteArtefact(
                     note="The fixed-window result measured 4 enterprise pageviews.",
                     analytics_query_context=[secret_pageviews],
+                    restricted_to_user_id=self.user.id,
                     source_check_ids=[check_id],
                 ),
                 attribution=ArtefactAttribution.system(),
@@ -1733,6 +1734,11 @@ class TestReportCheckAPI(APIBaseTest):
         if artefact_type == "assessment":
             assert "4 enterprise pageviews" in check_result()["note"]
             assert "analytics_query_context" not in check_result()
+            assert "restricted_to_user_id" not in check_result()
+            teammate = self.create_user_with_organization(self.organization)
+            self.client.force_login(teammate)
+            assert "4 enterprise pageviews" not in check_result()["note"]
+            self.client.force_login(self.user)
         else:
             assert check_result()["observed_value"] == 4.0
 

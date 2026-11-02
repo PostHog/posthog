@@ -809,6 +809,11 @@ class NoteArtefact(BaseModel):
         exclude_if=lambda value: value is None,
         description="Frozen source queries that gate access to the note's evidence.",
     )
+    restricted_to_user_id: int | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description="Acting user allowed to read assessment evidence from additional sources.",
+    )
     source_check_ids: list[str] | None = Field(
         default=None,
         exclude_if=lambda value: value is None,

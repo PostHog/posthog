@@ -3258,13 +3258,19 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
             and "analytics_query_context" in parsed
         ):
             queries = parsed.pop("analytics_query_context")
+            acting_user_id = parsed.pop("restricted_to_user_id", None)
+            request = self.context.get("request")
+            viewer_id = getattr(getattr(request, "user", None), "id", None)
             policy = report_metric_access_policy(self.context)
-            if not isinstance(queries, list) or not all(
-                isinstance(query, Mapping) and policy.may_read_snapshot({"query": query}) for query in queries
-            ):
-                parsed["note"] = (
-                    "You don't have access to this assessment's source data. Ask a project admin to grant it."
+            if (
+                viewer_id is None
+                or acting_user_id != viewer_id
+                or not isinstance(queries, list)
+                or not all(
+                    isinstance(query, Mapping) and policy.may_read_snapshot({"query": query}) for query in queries
                 )
+            ):
+                parsed["note"] = "You don't have access to this assessment's evidence."
             return parsed
 
         if (

@@ -171,6 +171,9 @@ def finish_monitoring_assessment(
     from products.signals.backend.report_check_authoring import (  # noqa: PLC0415 -- breaks the check coordinator import cycle
         cancel_check,
     )
+    from products.tasks.backend.facade import (  # noqa: PLC0415 -- keep task dependencies off the coordinator import path
+        api as tasks_facade,
+    )
 
     with transaction.atomic():
         report = SignalReport.objects.select_for_update(no_key=True).filter(team_id=team_id, id=report_id).first()
@@ -213,12 +216,18 @@ def finish_monitoring_assessment(
         )
         if assessment is not None:
             provenance += f" Assessment run: {run_id}. Evidence: {', '.join(assessment.evidence_refs)}."
+        acting_user_id = (
+            tasks_facade.get_task_creator_ids([task_id], [team_id]).get(str(task_id))
+            if assessment is not None and task_id is not None
+            else None
+        )
         SignalReportArtefact.add_log(
             team_id=team_id,
             report_id=str(report_id),
             content=NoteArtefact(
                 note=f"{'Resolved' if resolved else 'Closed'} after report-level assessment.\n\n{reason}\n\n{provenance}",
-                analytics_query_context=_assessment_queries(attempt),
+                analytics_query_context=_assessment_queries(attempt) if assessment is not None else None,
+                restricted_to_user_id=acting_user_id,
                 source_check_ids=list(attempt.check_versions),
             ),
             attribution=ArtefactAttribution.from_task(str(task_id)) if task_id else ArtefactAttribution.system(),
@@ -281,6 +290,7 @@ def poll_monitoring_assessment(
                 internal=True,
                 create_pr=False,
                 sandbox_environment_id=env_id,
+                channel_id=tasks_facade.ensure_personal_channel_id(team_id, user_id),
                 posthog_mcp_scopes="signals_assessment",
                 github_read_access=True,
                 model=runtime.model,
