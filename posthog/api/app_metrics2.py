@@ -55,7 +55,6 @@ MAX_REQUESTED_BREAKDOWN_VALUES = 50
 
 MAX_TREND_BUCKETS = 100_000
 
-# Zero-filling builds series × buckets values even when ClickHouse returns no rows.
 MAX_ZERO_FILLED_CELLS = 1_000_000
 
 TREND_INTERVAL_STEPS: dict[str, timedelta] = {
@@ -123,7 +122,6 @@ def _requested_breakdown_values(breakdown_by: str, name: list[str], kind: list[s
 
 
 def _trend_range_start(after: datetime, interval: str) -> datetime:
-    """Normalize the start of the range to the start of the interval."""
     if interval == "hour":
         return after.replace(minute=0, second=0, microsecond=0)
     start = after.replace(hour=0, minute=0, second=0, microsecond=0)
