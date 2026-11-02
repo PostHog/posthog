@@ -116,6 +116,7 @@ export type EmailMetric =
     | 'email_bounced'
     | 'email_bounce_prevented'
     | 'email_missing_recipient'
+    | 'email_domain_unverified'
     | 'email_blocked'
     | 'email_untracked'
     | 'email_suspended'
@@ -201,6 +202,7 @@ export const METRIC_COLORS: Record<string, string> = {
     Bounced: getColorVar('data-color-6'),
     'Bounce prevented': getColorVar('data-color-7'),
     'No email address': getColorVar('data-color-13'),
+    'Domain not verified': getColorVar('data-color-14'),
     'Frequency capped': getColorVar('data-color-8'),
     'Marked as spam': getColorVar('data-color-9'),
     Untracked: getColorVar('data-color-10'),
@@ -277,7 +279,7 @@ export const WORKFLOW_EMAIL_METRICS: Record<
     email_failed: {
         name: 'Failed',
         description:
-            'Total number of emails that could not be sent. This covers a failed call to the email provider, a template that did not render, a message the provider rejected for containing a virus, and a misconfigured email step, such as a sender that no longer exists or a domain that is not verified.',
+            'Total number of emails that could not be sent. This covers a failed call to the email provider, a template that did not render, a message the provider rejected for containing a virus, and a misconfigured email step, such as a sender that no longer exists. Emails from a domain that is not verified are counted under Domain not verified.',
         color: METRIC_COLORS['Failed'],
         metricNames: ['email_failed'],
     },
@@ -314,6 +316,13 @@ export const WORKFLOW_EMAIL_METRICS: Record<
             'Total number of emails that were not sent because the recipient had no email address, for example a person without an email property. Add a filter so only people with an email address reach the step. These sends are not billed.',
         color: METRIC_COLORS['No email address'],
         metricNames: ['email_missing_recipient'],
+    },
+    email_domain_unverified: {
+        name: 'Domain not verified',
+        description:
+            "Total number of emails that were not sent because the sender's domain is not verified, or lost its verification after a DNS record was removed. Verify the domain under Workflows > Channels and sending starts again. These sends are not billed.",
+        color: METRIC_COLORS['Domain not verified'],
+        metricNames: ['email_domain_unverified'],
     },
     message_frequency_capped: {
         name: 'Frequency capped',
@@ -406,6 +415,8 @@ export const EMAIL_METRIC_INVOCATION_FILTERS: Partial<
     email_bounce_prevented: { search: 'Skipping send', levels: ['INFO'] },
     // A missing recipient logs "Skipping send: the recipient has no email address. …" at WARN (EmailService).
     email_missing_recipient: { search: 'has no email address', levels: ['WARN'] },
+    // An unverified sender logs "Skipping send: the domain of this sender is not verified. …" at ERROR (EmailService).
+    email_domain_unverified: { search: 'domain of this sender is not verified', levels: ['ERROR'] },
     message_frequency_capped: { search: 'reached the frequency cap', levels: ['INFO'] },
     email_blocked: { search: 'Complaint', levels: ['WARN', 'ERROR'] },
     // Both suspension causes log "Skipping send: … for this project. …" at WARN (EmailService). The
@@ -453,6 +464,7 @@ const EMAIL_METRICS: EmailMetricName[] = [
     'email_bounced_undetermined',
     'email_bounce_prevented',
     'email_missing_recipient',
+    'email_domain_unverified',
     'email_blocked',
     'email_untracked',
     'email_suspended',
