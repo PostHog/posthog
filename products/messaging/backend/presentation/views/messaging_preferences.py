@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 import structlog
 import posthoganalytics
@@ -10,12 +10,12 @@ from rest_framework.throttling import BaseThrottle
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import ProjectSecretAPIKeyAuthentication
+from posthog.auth import ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
 from posthog.event_usage import groups
 from posthog.permissions import is_authenticated_via_project_secret_api_key
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
-from products.messaging.backend.facade.preferences import TopicPreferences, TopicsNotFound, set_preferences
+from products.messaging.backend.facade.preferences import TopicsNotFound, set_preferences
 from products.messaging.backend.presentation.views.message_templates import require_transactional_email_api
 
 logger = structlog.get_logger(__name__)
@@ -123,16 +123,15 @@ class MessagingPreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             self._report(request, data, outcome="unknown_topic")
             raise exceptions.NotFound(f"This project has no topic with the key {', '.join(e.keys)}.") from None
         self._report(request, data, outcome="applied")
-        return Response(TopicPreferencesSerializer(_as_dict(result)).data)
+        return Response(TopicPreferencesSerializer(result).data)
 
     def _report(self, request: ValidatedRequest, data: dict[str, Any], *, outcome: str) -> None:
         # report_user_action drops the synthetic user behind a project secret API key, so capture directly.
-        distinct_id = getattr(request.user, "distinct_id", None)
-        if not isinstance(distinct_id, str):
-            return
+        # create() refuses every other authentication, so the user is the key's synthetic user.
+        user = cast(ProjectSecretAPIKeyUser, request.user)
         try:
             posthoganalytics.capture(
-                distinct_id=distinct_id,
+                distinct_id=user.distinct_id,
                 event="messaging preferences api set",
                 properties={
                     "team_id": self.team_id,
@@ -144,7 +143,3 @@ class MessagingPreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
         except Exception as e:
             logger.warning("Failed to capture messaging preferences api event", error=str(e))
-
-
-def _as_dict(result: TopicPreferences) -> dict[str, Any]:
-    return {"identifier": result.identifier, "all_marketing": result.all_marketing, "topics": result.topics}

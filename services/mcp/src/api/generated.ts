@@ -111362,6 +111362,23 @@ export namespace Schemas {
       enabled: boolean;
     }
 
+    /**
+     * Topic key to `false` to opt the recipient out of that topic, or `true` to opt them back in. Opting back in to one topic after an all-marketing opt-out keeps the other marketing topics opted out. Topics you leave out keep their current choice.
+     */
+    export type SetPreferencesTopics = {[key: string]: boolean};
+
+    export interface SetPreferences {
+      /**
+         * The recipient whose preferences change, as their email address.
+         * @maxLength 512
+         */
+      identifier: string;
+      /** `false` opts the recipient out of every marketing topic. `true` lifts that opt-out. Applied before `topics`. */
+      all_marketing?: boolean;
+      /** Topic key to `false` to opt the recipient out of that topic, or `true` to opt them back in. Opting back in to one topic after an all-marketing opt-out keeps the other marketing topics opted out. Topics you leave out keep their current choice. */
+      topics?: SetPreferencesTopics;
+    }
+
     export interface SetTemplateEnabled {
       /** Active catalog template to enable or disable for the team. */
       template_id: string;
@@ -122673,6 +122690,23 @@ export namespace Schemas {
       visitors: number;
       /** Period-over-period change in visitors, null when not meaningful. */
       change: WoWChange | null;
+    }
+
+    /**
+     * Topic key to `false` (opted out) or `true` (opted in), for every topic the recipient chose. A topic without a choice is not listed, and its messages reach the recipient.
+     */
+    export type TopicPreferencesTopics = {[key: string]: boolean};
+
+    export interface TopicPreferences {
+      /** The recipient the preferences belong to. */
+      identifier: string;
+      /**
+         * `false` when the recipient opted out of all marketing, `true` when they opted back in, `null` when they never chose.
+         * @nullable
+         */
+      all_marketing: boolean | null;
+      /** Topic key to `false` (opted out) or `true` (opted in), for every topic the recipient chose. A topic without a choice is not listed, and its messages reach the recipient. */
+      topics: TopicPreferencesTopics;
     }
 
     export type TraceNodeIdsByAlias = {[key: string]: string};

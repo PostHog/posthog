@@ -10,6 +10,31 @@
 import * as zod from 'zod'
 
 /**
+ * Opt one recipient out of topics, or back in, in one call. `all_marketing` applies first, then each topic in order, and the whole change is saved at once, so a retry is safe. Workflows sends skip a marketing topic the recipient opted out of. Needs a project secret API key with the `hog_flow:write` scope.
+ * @summary Set a recipient's topic preferences
+ */
+export const messagingPreferencesCreateBodyIdentifierMax = 512
+
+export const MessagingPreferencesCreateBody = /* @__PURE__ */ zod.object({
+    identifier: zod
+        .string()
+        .max(messagingPreferencesCreateBodyIdentifierMax)
+        .describe('The recipient whose preferences change, as their email address.'),
+    all_marketing: zod
+        .boolean()
+        .optional()
+        .describe(
+            '`false` opts the recipient out of every marketing topic. `true` lifts that opt-out. Applied before `topics`.'
+        ),
+    topics: zod
+        .record(zod.string(), zod.boolean())
+        .optional()
+        .describe(
+            'Topic key to `false` to opt the recipient out of that topic, or `true` to opt them back in. Opting back in to one topic after an all-marketing opt-out keeps the other marketing topics opted out. Topics you leave out keep their current choice.'
+        ),
+})
+
+/**
  * Send one transactional email to one recipient from the template named in `template.id`. The template must be made transactional first. `message_data` fills the template's `{{ variables.* }}` placeholders. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice.
  * @summary Send a transactional email
  */
