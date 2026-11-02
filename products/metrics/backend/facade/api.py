@@ -18,13 +18,7 @@ from django.db import connection
 
 import structlog
 
-from posthog.schema import (
-    DateRange,
-    MetricsDashboardVariable,
-    MetricsDashboardVariableSource,
-    MetricsHistogramQuery,
-    MetricsQuery,
-)
+from posthog.schema import DateRange, MetricsDashboardVariable, MetricsDashboardVariableSource
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
@@ -36,7 +30,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
 from posthog.models import Team, User
 
-from products.error_tracking.backend.facade.api import list_spike_events
+from products.error_tracking.backend.facade.api import list_latest_spike_events
 from products.metrics.backend.anomaly import characterize_anomaly as _characterize_anomaly
 from products.metrics.backend.date_range import metrics_query_date_range
 from products.metrics.backend.facade.contracts import (
@@ -68,7 +62,6 @@ from products.metrics.backend.facade.enums import (
 )
 from products.metrics.backend.formula import evaluate, parse_formula
 from products.metrics.backend.has_metrics_query_runner import team_has_metrics as _team_has_metrics
-from products.metrics.backend.heatmap import metrics_histogram_query_for as _metrics_histogram_query_for
 from products.metrics.backend.investigation import investigate as _investigate
 from products.metrics.backend.metric_attributes_query_runner import (
     MetricAttributeKeysQueryRunner,
@@ -97,14 +90,6 @@ _RUNNER_AGGREGATIONS: dict[MetricAggregation, str] = {
     MetricAggregation.RATE: "rate",
     MetricAggregation.INCREASE: "increase",
 }
-
-
-def metrics_histogram_query_for(query: MetricsQuery) -> MetricsHistogramQuery:
-    """The histogram query that draws a metrics query with the heatmap display.
-
-    Raises `MetricsHeatmapIneligibleError` when the query can't draw one.
-    """
-    return _metrics_histogram_query_for(query)
 
 
 def team_has_metrics(team: Team) -> bool:
@@ -677,12 +662,11 @@ def list_metric_error_spikes(*, team: Team, date_from: dt.datetime, date_to: dt.
     Team-wide: Error Tracking issues carry no service attribution today, so
     this cannot be scoped to the metric's own service yet.
     """
-    events, _total = list_spike_events(
+    events = list_latest_spike_events(
         team_id=team.id,
         date_from=date_from.isoformat(),
         date_to=date_to.isoformat(),
         limit=_ERROR_SPIKES_LIMIT,
-        include_total_count=False,
     )
     return [
         MetricErrorSpike(

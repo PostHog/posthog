@@ -117,7 +117,7 @@ class TestValidateCredentials:
             # 401 means the token is bad; 403/404 mean the app id (or subscription) is the problem.
             (401, "API token"),
             (403, "denied access"),
-            (404, "app id"),
+            (404, "My apps"),
         ],
     )
     def test_validate_credentials_distinguishes_token_from_app_id(
@@ -160,7 +160,7 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "api_token, app_id, expected_substring",
         [
-            ("token", "bad app!", "app id"),
+            ("token", "bad app!", "My apps"),
             ("token\u201d", "id123", "API token"),
             ("\u201ctoken\u201d", "id123", "API token"),
         ],
