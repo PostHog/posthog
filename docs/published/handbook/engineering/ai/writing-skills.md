@@ -442,7 +442,7 @@ This repo is not the only source of shipped skills.
 [`PostHog/context-mill`](https://github.com/PostHog/context-mill) assembles the "omnibus" skills
 from posthog.com docs and publishes them as `skills-mcp-resources.zip`:
 `instrument-integration`, `instrument-product-analytics`, `instrument-feature-flags`,
-`instrument-error-tracking`, `instrument-llm-analytics`, `instrument-logs`, and `instrument-metrics`.
+`instrument-error-tracking`, `instrument-llm-analytics`, `instrument-logs`, `instrument-metrics`, and `instrument-tracing`.
 These are the skills behind PostHog Desktop's setup buttons and the wizard.
 
 Every consumer below unzips `dist/skills.zip` first and then unzips context-mill on top,
@@ -451,9 +451,15 @@ A same-named skill added here would have its `SKILL.md` overwritten
 while its extra reference files survived as orphans in the other source's directory.
 The Desktop harness bundle is the exception: it packages context-mill alone,
 so a skill from this repo is absent there rather than overwritten.
+The MCP server's `learn` catalog reads `skills.zip` alone,
+so the `release-skills` job in `ci-agent-skills.yml` packs the omnibus skills into that archive before it publishes `agent-skills-latest`.
+`learn -s` scores an omnibus skill by its name, description, and `SKILL.md` only,
+because its references are docs snapshots that would crowd out workflow skills;
+`learn posthog:<skill> <path>` still reads any reference.
 
 | Consumer                              | Merge site                                                                                                                  |
 | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| MCP server `learn` catalog            | `.github/workflows/ci-agent-skills.yml` (`release-skills` packs them into `skills.zip`)                                     |
 | PostHog Desktop build                 | `products/desktop/apps/code/vite-main-plugins.mts` (`copyPosthogPlugin`)                                                    |
 | PostHog Desktop runtime, every 30 min | `products/desktop/packages/workspace-server/src/services/posthog-plugin/update-skills-saga.ts`                              |
 | Desktop harness bundle                | `packages/agent/packages/harness/tsup.config.ts` – context-mill only, this repo's skills are absent rather than overwritten |

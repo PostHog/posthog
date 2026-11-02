@@ -12,6 +12,10 @@ const MAX_ARCHIVE_FILES = 5_000
 const MAX_ARCHIVE_FILE_BYTES = 8 * 1024 * 1024
 const MAX_ARCHIVE_UNCOMPRESSED_BYTES = 64 * 1024 * 1024
 const EXACT_NAME_SCORE_BONUS = 5_000
+// context-mill's omnibus skills ship docs snapshots and example apps as references, and
+// snippet matches in those would crowd the workflow skills out of the result limit. Search
+// scores them by name, description and SKILL.md only; reads by path stay open.
+const ENTRY_POINT_ONLY_SKILL_PREFIX = 'instrument-'
 
 type SkillFileKind = 'markdown' | 'script' | 'other'
 
@@ -435,6 +439,9 @@ function rankSkill(skill: SkillDefinition, query: NormalizedQuery): RankedSkill 
 
     for (const file of skill.files) {
         const isSkillFile = file.path === 'SKILL.md'
+        if (!isSkillFile && skill.name.startsWith(ENTRY_POINT_ONLY_SKILL_PREFIX)) {
+            continue
+        }
         if (!isSkillFile) {
             filePathScore = Math.max(filePathScore, scoreText(file.path, query, 120))
         }
